@@ -15,7 +15,11 @@ public class QuietWindowService
     /// <summary>Minimum history span before the fingerprint is trusted over the heuristic.</summary>
     public const int MinHistoryHours = 24;
 
-    public const int LookbackDays = 7;
+    /// <summary>
+    /// Four weeks folded into one hour-of-week picture, so each hour is judged on about four
+    /// samples of that same weekday and hour rather than one.
+    /// </summary>
+    public const int LookbackDays = 28;
 
     private static readonly TimeSpan SampleWindow = TimeSpan.FromMinutes(15);
 
@@ -28,13 +32,44 @@ public class QuietWindowService
         MonitoringInfluxRegistry influxRegistry,
         ILogger<QuietWindowService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        TimeZoneInfo? timeZone = null)
+        TimeZoneInfo? timeZone = null,
+        string? consoleTimeZoneId = null)
     {
         var slug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _siteSlug = slug;
         _influx = influxRegistry.GetFor(slug);
         _logger = logger;
-        _timeZone = timeZone ?? TimeZoneInfo.Local;
+        // Hours of the week only mean anything in the site's own timezone; the server may be
+        // nowhere near it.
+        _timeZone = timeZone ?? ResolveTimeZone(consoleTimeZoneId, logger, slug);
+    }
+
+    /// <summary>Carries the site's zone out with the proposal, and the instant it names in UTC.</summary>
+    private QuietWindowProposal Stamp(QuietWindowProposal proposal) => new()
+    {
+        Day = proposal.Day,
+        Hour = proposal.Hour,
+        StartLocal = proposal.StartLocal,
+        StartUtc = TimeZoneInfo.ConvertTimeToUtc(
+            DateTime.SpecifyKind(proposal.StartLocal, DateTimeKind.Unspecified), _timeZone),
+        TimeZoneId = _timeZone.Id,
+        BusyScore = proposal.BusyScore,
+        UsedFallback = proposal.UsedFallback,
+        Basis = proposal.Basis,
+    };
+
+    private static TimeZoneInfo ResolveTimeZone(string? id, ILogger logger, string slug)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Local;
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            logger.LogWarning("Quiet window {Site}: unknown console timezone {Zone}, using this server's", slug, id);
+            return TimeZoneInfo.Local;
+        }
     }
 
     /// <summary>
@@ -55,7 +90,7 @@ public class QuietWindowService
         if (settings.AutopilotWindowMode == FirmwareAutopilotWindowMode.Fixed &&
             settings.FixedDayOfWeek is >= 0 and <= 6 && settings.FixedHour is >= 0 and <= 23)
         {
-            return QuietWindowCalculator.Fixed((DayOfWeek)settings.FixedDayOfWeek.Value, settings.FixedHour.Value, nowLocal, minLead);
+            return Stamp(QuietWindowCalculator.Fixed((DayOfWeek)settings.FixedDayOfWeek.Value, settings.FixedHour.Value, nowLocal, minLead));
         }
 
         double[]? fingerprint = null;
@@ -70,13 +105,13 @@ public class QuietWindowService
 
         if (fingerprint != null)
         {
-            return QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead);
+            return Stamp(QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead));
         }
 
         var apCount = devices.Count(d => d.Type == DeviceType.AccessPoint);
         var switchCount = devices.Count(d => d.Type == DeviceType.Switch);
         var profile = SiteProfileClassifier.Classify(devices.Count, apCount, switchCount, clientCount);
-        return QuietWindowCalculator.Fallback(profile, nowLocal, minLead);
+        return Stamp(QuietWindowCalculator.Fallback(profile, nowLocal, minLead));
     }
 
     /// <summary>

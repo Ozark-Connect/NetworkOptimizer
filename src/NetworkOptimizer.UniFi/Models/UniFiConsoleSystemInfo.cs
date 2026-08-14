@@ -25,6 +25,10 @@ public class UniFiConsoleSystemInfo
     [JsonPropertyName("firmware")]
     public UniFiConsoleFirmware? Firmware { get; set; }
 
+    /// <summary>The console's own timezone, IANA form ("America/Chicago").</summary>
+    [JsonPropertyName("timezone")]
+    public string? TimeZone { get; set; }
+
     [JsonPropertyName("hardware")]
     public UniFiConsoleHardware? Hardware { get; set; }
 

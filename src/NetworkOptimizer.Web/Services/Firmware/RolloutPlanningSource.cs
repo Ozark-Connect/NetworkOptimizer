@@ -21,6 +21,9 @@ public class RolloutPlanningContext
 
     /// <summary>Whether the console answered. Nothing can be planned against a dark console.</summary>
     public bool ConsoleConnected { get; init; }
+
+    /// <summary>The site's own timezone, IANA form, as the console reports it. Null falls back to this server's.</summary>
+    public string? TimeZoneId { get; init; }
 }
 
 /// <summary>
@@ -154,7 +157,28 @@ public class RolloutPlanningSource : IRolloutPlanningSource
             Neighbors = await BuildNeighborOracleAsync(devices, cancellationToken),
             ClientCount = await CountWirelessClientsAsync(),
             ConsoleConnected = connection.IsConnected,
+            TimeZoneId = await ReadConsoleTimeZoneAsync(connection, cancellationToken),
         };
+    }
+
+    /// <summary>
+    /// The site's timezone as the console reports it. Hours of the week are meaningless in the
+    /// server's timezone when the site is somewhere else.
+    /// </summary>
+    private async Task<string?> ReadConsoleTimeZoneAsync(
+        UniFiConnectionService connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (connection.Client == null) return null;
+            var console = await connection.Client.GetConsoleSystemInfoAsync(cancellationToken);
+            return console?.TimeZone;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the console timezone for site {Site}", _siteSlug);
+            return null;
+        }
     }
 
     /// <inheritdoc />
@@ -178,7 +202,8 @@ public class RolloutPlanningSource : IRolloutPlanningSource
         var quietWindows = new QuietWindowService(
             _influxRegistry,
             _loggerFactory.CreateLogger<QuietWindowService>(),
-            _siteSlug);
+            _siteSlug,
+            consoleTimeZoneId: context.TimeZoneId);
 
         return quietWindows.ProposeAsync(
             context.Devices, estimatedSeconds, settings, context.ClientCount, minLead, cancellationToken);

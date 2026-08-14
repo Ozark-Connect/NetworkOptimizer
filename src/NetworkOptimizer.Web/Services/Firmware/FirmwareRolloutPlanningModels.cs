@@ -457,6 +457,12 @@ public class QuietWindowProposal
     /// <summary>Next occurrence of the window in site-local time.</summary>
     public DateTime StartLocal { get; init; }
 
+    /// <summary>The same instant in UTC, which is what a schedule is stored and compared in.</summary>
+    public DateTime StartUtc { get; init; }
+
+    /// <summary>The timezone those local hours belong to, so callers do not assume the server's.</summary>
+    public string TimeZoneId { get; init; } = TimeZoneInfo.Local.Id;
+
     /// <summary>Mean busy fraction over the rollout duration (0 = idle history, 1 = saturated).</summary>
     public double BusyScore { get; init; }
 

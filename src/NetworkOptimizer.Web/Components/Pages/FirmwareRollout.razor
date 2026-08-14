@@ -310,8 +310,8 @@ else if (_wizardOpen)
                         <label class="form-label">Start</label>
                         <input type="range" class="firmware-rollout-slider" min="0" max="167" step="1" value="@_startOffsetHours" @oninput="e => SetStartOffset(e.Value?.ToString())" />
                         <div class="firmware-rollout-slider-labels">
-                            <span><strong>@LocalTime(SelectedStartUtc)</strong></span>
-                            <span>done by ~@LocalTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
+                            <span><strong>@SiteTime(SelectedStartUtc)</strong></span>
+                            <span>done by ~@SiteTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
                         </div>
                         @if (_preview?.ProposedWindow is { } window)
                         {
@@ -955,8 +955,8 @@ else
 
     private int ProposalOffsetHours()
     {
-        if (_preview?.ProposedWindow?.StartLocal is not { } start) return 24;
-        var hours = (int)Math.Round((start - DateTime.Now).TotalHours);
+        if (_preview?.ProposedWindow?.StartUtc is not { } start || start == default) return 24;
+        var hours = (int)Math.Round((start - DateTime.UtcNow).TotalHours);
         return Math.Clamp(hours, 1, 167);
     }
 
@@ -1017,14 +1017,37 @@ else
         if (!_startMoved) _startOffsetHours = ProposalOffsetHours();
     }
 
+    /// <summary>
+    /// Hours from now, snapped to the hour. Computed in UTC so a site in another timezone is not
+    /// scheduled against this server's clock; the labels convert back to the site's own hours.
+    /// </summary>
     private DateTime SelectedStartUtc
     {
         get
         {
-            var local = DateTime.Now.AddHours(_startOffsetHours);
-            local = new DateTime(local.Year, local.Month, local.Day, local.Hour, 0, 0, DateTimeKind.Local);
-            return local.ToUniversalTime();
+            var utc = DateTime.UtcNow.AddHours(_startOffsetHours);
+            return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc);
         }
+    }
+
+    /// <summary>A UTC instant in the site's own hours, which is where a quiet window means anything.</summary>
+    private string SiteTime(DateTime utc)
+    {
+        var zone = _preview?.ProposedWindow?.TimeZoneId;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(zone))
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(zone);
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz)
+                    .ToString("ddd MMM d, h:mm tt");
+            }
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            Logger.LogDebug(ex, "Unknown site timezone {Zone}", zone);
+        }
+        return LocalTime(utc);
     }
 
     // ---- Active plan controls ----
