@@ -412,15 +412,20 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
         var autoUpdaters = new List<string>();
-        if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("device Auto Update");
-        if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("the UniFi OS update schedule");
-        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("application updates on that schedule");
+        if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("devices");
+        if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("UniFi OS");
+        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the applications");
         if (autoUpdaters.Count > 0)
         {
-            var one = autoUpdaters.Count == 1;
+            var list = autoUpdaters.Count switch
+            {
+                1 => autoUpdaters[0],
+                2 => $"{autoUpdaters[0]} and {autoUpdaters[1]}",
+                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))} and {autoUpdaters[^1]}",
+            };
             preview.Warnings.Add(
-                $"UniFi's own {string.Join(", ", autoUpdaters)} {(one ? "is" : "are")} on. " +
-                $"Rollouts still run; turn {(one ? "it" : "them")} off to rule out the rare same-time collision.");
+                $"UniFi updates {list} on its own schedule. Rollouts still run; turning that off rules " +
+                "out the rare case where both update at once.");
         }
 
         if (preview.IsStandaloneConsole && settings.IncludeUniFiOs)
