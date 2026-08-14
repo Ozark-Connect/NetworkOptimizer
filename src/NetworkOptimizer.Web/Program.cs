@@ -261,6 +261,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IStarlinkRepository, NetworkOptimizer.Storage.Repositories.StarlinkRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IFirmwareRolloutRepository, NetworkOptimizer.Storage.Repositories.FirmwareRolloutRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
