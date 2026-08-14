@@ -223,6 +223,82 @@ public class RolloutConsoleUpdateTests
     }
 
     [Fact]
+    public async Task AnInstalledOsVersionMatchingTheTarget_IsSuccess_EvenIfABuildIsStillOffered()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v4.3.6+abc123" };
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        // A newer build published mid-cycle keeps the offer list non-empty; the installed
+        // version is the authority.
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.6" },
+        };
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v4.3.7+def456" };
+        await harness.TickAsync(TimeSpan.FromMinutes(5));
+
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("updated");
+    }
+
+    [Fact]
+    public async Task AnInstalledOsVersionStillOnTheOldBuild_IsUnchanged_EvenIfTheOfferCleared()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v4.3.6+abc123" };
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.2.12" },
+        };
+        harness.Commands.PendingUniFiOs = null;
+        await harness.TickAsync(TimeSpan.FromMinutes(5));
+
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("unchanged");
+    }
+
+    [Fact]
+    public async Task ADownloadingConsole_IsNotJudged_UntilTheUpdateStateGoesIdle()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "4.3.6" };
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        // Download and install run before the reboot: the console answers, the build is still
+        // offered, and the old version is still installed. That must not read as "unchanged".
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.2.12" },
+            Firmware = new UniFiConsoleFirmware
+            {
+                Update = new UniFiConsoleFirmwareUpdate { State = "DOWNLOADING" },
+            },
+        };
+        await harness.TickAsync(TimeSpan.FromMinutes(10));
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Settled.Should().BeFalse();
+
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.6" },
+        };
+        await harness.TickAsync(TimeSpan.FromMinutes(5));
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("updated");
+    }
+
+    [Fact]
     public async Task AConsoleThatNeverComesBack_IsACriticalAgainstTheGateway()
     {
         using var harness = new RolloutHarness();

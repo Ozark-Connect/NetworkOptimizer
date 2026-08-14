@@ -66,6 +66,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public static readonly TimeSpan UniFiOsUpdateBudget =
         TimeSpan.FromSeconds(FirmwareTimingEstimator.CloudGatewayOfflineBudgetSeconds);
 
+    /// <summary>
+    /// No OS-update judgment before this much has passed since the trigger: the state fields can
+    /// lag the accept, and download runs with the console still answering on the old version.
+    /// </summary>
+    public static readonly TimeSpan UniFiOsJudgeDelay = TimeSpan.FromMinutes(2);
+
     /// <summary>How long a firmware catalog read is reused before the console is asked again.</summary>
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -305,6 +311,29 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.Status = FirmwareRolloutStatus.Running;
         await PersistPlanAsync(plan, cancellationToken);
         _logger.LogInformation("Firmware rollout {Id} on site {Site} resumed", plan.Id, _siteSlug);
+    }
+
+    /// <summary>
+    /// Pushes a rollout that has not started yet out by one window. No alert: an admin who
+    /// postponed a rollout does not need to be told they did, and the action is audited where it
+    /// was taken - unlike the health-gated postpone, which nobody asked for.
+    /// </summary>
+    /// <param name="planId">Plan to push out.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the plan was pushed out.</returns>
+    public async Task<bool> PostponeAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+        if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
+            return false;
+
+        plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
+        plan.Status = FirmwareRolloutStatus.Scheduled;
+        await PersistPlanAsync(plan, cancellationToken);
+
+        _logger.LogInformation(
+            "Firmware rollout {Id} on site {Site} postponed to {When}", plan.Id, _siteSlug, plan.ScheduledStartAt);
+        return true;
     }
 
     /// <summary>
@@ -644,10 +673,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// The last step of a rollout: the console's own UniFi OS update, once every device is through.
     /// Returns true when there is nothing left to wait for.
     /// <para>
-    /// The console has no readable "installed UniFi OS version", so the version check that every
-    /// device step gets becomes this: the build the console was offering is no longer on offer. An
-    /// accepted command that leaves the same build pending changed nothing, exactly as an accepted
-    /// device command that leaves the same firmware running did.
+    /// Success is the version check every device step gets: Cloud Gateways report the installed
+    /// UniFi OS as hardware.firmwareVersion in catalog-comparable form. Consoles without that field
+    /// fall back to "the build it accepted is no longer on offer". Download and install run BEFORE
+    /// the reboot with the console still answering and the build still offered, so no judgment is
+    /// made while the update state machine reports work in progress or inside the judge delay.
     /// </para>
     /// </summary>
     private async Task<bool> AdvanceUniFiOsUpdateAsync(
@@ -690,6 +720,42 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return true;
         }
 
+        if (UniFiOsUpdateInProgress(info) || Now - triggeredAt < UniFiOsJudgeDelay)
+        {
+            if (Now - triggeredAt < UniFiOsUpdateBudget)
+                return false;
+
+            await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
+            await PublishAsync(
+                RolloutAlerts.DeviceStuckOffline,
+                AlertSeverity.Critical,
+                $"Console Stuck Updating UniFi OS{_siteSuffix}",
+                $"The UniFi OS {state.TargetVersion ?? "update"} install has been running for {UniFiOsUpdateBudget.TotalMinutes:0} minutes without finishing.",
+                steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
+                steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
+                cancellationToken);
+            return true;
+        }
+
+        var installed = info.InstalledOsVersion;
+        if (installed != null)
+        {
+            if (OsVersionMatches(installed, state.TargetVersion))
+            {
+                await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
+                _logger.LogInformation(
+                    "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
+            }
+            else
+            {
+                await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
+                _logger.LogError(
+                    "The console on site {Site} came back on UniFi OS {Installed}, not {Target}, so the update did not take",
+                    _siteSlug, installed, state.TargetVersion);
+            }
+            return true;
+        }
+
         var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
         if (pending?.Version != null && VersionsMatch(pending.Version, state.TargetVersion))
         {
@@ -705,6 +771,35 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, state.TargetVersion);
         return true;
     }
+
+    /// <summary>
+    /// Installed "5.1.28" against catalog "v5.1.28+baa7152": numeric parts only, because the
+    /// hardware block never reports the build hash.
+    /// </summary>
+    internal static bool OsVersionMatches(string? installed, string? target)
+    {
+        if (string.IsNullOrWhiteSpace(installed) || string.IsNullOrWhiteSpace(target))
+            return false;
+        var t = target.Trim().TrimStart('v', 'V');
+        var plus = t.IndexOf('+');
+        if (plus >= 0) t = t[..plus];
+        return string.Equals(installed.Trim().TrimStart('v', 'V'), t, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether the console reports the OS update still working. Only the known busy states count
+    /// as busy - an unrecognized state is judged by version rather than waited on, so a vendor
+    /// string we have never seen cannot hang the step until the budget's false alarm.
+    /// </summary>
+    private static bool UniFiOsUpdateInProgress(UniFiConsoleSystemInfo info)
+    {
+        return IsBusy(info.Firmware?.Progress?.State) || IsBusy(info.Firmware?.Update?.State);
+
+        static bool IsBusy(string? state) =>
+            state != null && BusyOsStates.Any(b => state.Contains(b, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static readonly string[] BusyOsStates = ["download", "install", "progress", "updating", "applying", "started"];
 
     private async Task<bool> StartUniFiOsUpdateAsync(
         FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
