@@ -12,9 +12,6 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// </summary>
 public class QuietWindowService
 {
-    /// <summary>A device is "in use" when its boundary rate exceeds this (sustained 15-min mean).</summary>
-    public const double ActiveThresholdBps = 200_000;
-
     /// <summary>Minimum history span before the fingerprint is trusted over the heuristic.</summary>
     public const int MinHistoryHours = 24;
 
@@ -119,20 +116,40 @@ public class QuietWindowService
             anyData = true;
             contributing++;
             totalSamples += samples.Count;
+
+            // Mean throughput per bucket, then scaled against this device's own busiest hour. A
+            // busy switch and a quiet AP then contribute on the same 0..1 scale, and the score is
+            // how loaded an hour is rather than whether anything moved at all.
             var totals = new int[QuietWindowCalculator.BucketsPerWeek];
-            var active = new int[QuietWindowCalculator.BucketsPerWeek];
+            var sums = new double[QuietWindowCalculator.BucketsPerWeek];
             foreach (var (time, bps) in samples)
             {
                 var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(time, DateTimeKind.Utc), _timeZone);
                 var bucket = (int)local.DayOfWeek * 24 + local.Hour;
                 totals[bucket]++;
-                if (bps > ActiveThresholdBps) active[bucket]++;
+                sums[bucket] += bps;
                 if (earliest == null || time < earliest) earliest = time;
                 if (latest == null || time > latest) latest = time;
             }
+
+            var means = new double[QuietWindowCalculator.BucketsPerWeek];
+            for (var b = 0; b < means.Length; b++)
+            {
+                if (totals[b] > 0) means[b] = sums[b] / totals[b];
+            }
+
+            var devicePeak = means.Max();
+            if (devicePeak <= 0)
+            {
+                _logger.LogDebug("Quiet window {Site}: {Name} moved no traffic all week", _siteSlug, device.Name);
+                continue;
+            }
+
             for (var b = 0; b < busy.Length; b++)
             {
-                if (totals[b] > 0) busy[b] = Math.Max(busy[b], (double)active[b] / totals[b]);
+                // The window has to be quiet for every device it takes down, so the busiest
+                // device in an hour sets that hour's score.
+                busy[b] = Math.Max(busy[b], means[b] / devicePeak);
             }
         }
 
@@ -159,14 +176,15 @@ public class QuietWindowService
         if (peak <= 0)
         {
             _logger.LogInformation(
-                "Quiet window {Site}: {Contributing}/{Devices} devices reported {Samples} samples over {Span:0.0}h but none exceeded {Threshold:N0} bps, so the window comes from the site profile",
-                _siteSlug, contributing, devices.Count, totalSamples, spanHours, ActiveThresholdBps);
+                "Quiet window {Site}: {Contributing}/{Devices} devices reported {Samples} samples over {Span:0.0}h but none moved any traffic, so the window comes from the site profile",
+                _siteSlug, contributing, devices.Count, totalSamples, spanHours);
             return null;
         }
 
         _logger.LogInformation(
-            "Quiet window {Site}: built from {Contributing}/{Devices} devices, {Samples} samples over {Span:0.0}h; busiest hour {Peak:P0}, {QuietHours} hours idle",
-            _siteSlug, contributing, devices.Count, totalSamples, spanHours, peak, busy.Count(b => b <= 0));
+            "Quiet window {Site}: built from {Contributing}/{Devices} devices, {Samples} samples over {Span:0.0}h; quietest hour {Min:P0} of peak load, median {Median:P0}",
+            _siteSlug, contributing, devices.Count, totalSamples, spanHours, busy.Min(),
+            busy.OrderBy(b => b).ElementAt(busy.Length / 2));
         return busy;
     }
 
