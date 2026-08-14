@@ -20324,7 +20324,9 @@ body.kiosk-mode .status-indicators {
     justify-content: flex-end;
     align-items: center;
     gap: 0.3rem 0.85rem;
-    max-width: 60%;
+    /* Two rows: colours on top, badge marks beneath, so it stays a compact block in the
+       corner rather than a long strip across the map. */
+    max-width: 22rem;
     padding: 0.4rem 0.6rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -20673,6 +20675,7 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-waves {
     margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;

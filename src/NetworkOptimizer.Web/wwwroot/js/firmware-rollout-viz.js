@@ -163,6 +163,7 @@ async function loadHistoricAt(atMs, force) {
         }
 
         flowData.publishLive({ ...update, linkRates: rates });
+        map2d.refreshRates();
     } catch (err) {
         console.warn('[firmware-rollout] history fetch threw', err, url);
     }

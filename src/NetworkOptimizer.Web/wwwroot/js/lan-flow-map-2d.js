@@ -1570,7 +1570,6 @@ class LanFlowMap2D {
             if(!e._sDown)continue;
             // Force idle when an endpoint is offline - _liveRates is merged, not
             // replaced, so the last sample would otherwise stream forever.
-            if(!this._isEdgeVisible(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             e._sDown.setRate(r?.downstreamBps??0);
@@ -2203,4 +2202,16 @@ export function setNodeOverlays(map){
 
 export function clearNodeOverlays(){
     if(_inst)_inst.setOverlays(null);
+}
+
+// Re-read rates from the store and re-drive the particle streams. A host that publishes its
+// own frames (Firmware Rollout's historic playback) calls this instead of relying on the
+// subscription, whose listener errors the store swallows. Rates are replaced, not merged, so
+// a link that is idle at this instant stops rather than streaming its last sample forever.
+export function refreshRates(){
+    if(!_inst)return;
+    _inst._liveRates={...flowData.getLiveRates()};
+    _inst._updateStreamRates();
+    _inst._updateCloudStats();
+    _inst._needsStaticRedraw=true;
 }
