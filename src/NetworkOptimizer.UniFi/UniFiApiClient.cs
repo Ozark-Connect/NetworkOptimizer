@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Polly;
@@ -2758,6 +2759,288 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Failed to trigger quick scan on AP {Mac} band {Band}", apMac, band);
         return false;
+    }
+
+    #endregion
+
+    #region Firmware APIs
+
+    /// <summary>
+    /// GET rest/setting - the site's `super_fwupdate` section: the release channel UniFi devices
+    /// follow and the channel options this console offers. Returns null when the section is missing
+    /// or the settings call fails.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/setting super_fwupdate section")]
+    public async Task<UniFiFirmwareUpdateSettings?> GetFirmwareUpdateSettingsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var settings = await GetSettingsRawAsync(cancellationToken);
+        if (settings == null)
+        {
+            _logger.LogWarning("Could not read settings, so no firmware channel is available for site {Site}", _site);
+            return null;
+        }
+
+        var section = UniFiFirmwareUpdateSettings.FromSettingsResponse(settings);
+        if (section == null)
+        {
+            _logger.LogWarning("Settings for site {Site} carry no {Key} section", _site, UniFiFirmwareUpdateSettings.SettingKey);
+            return null;
+        }
+
+        _logger.LogDebug("Device firmware channel for site {Site} is {Channel}", _site, section.FirmwareChannel);
+        return section;
+    }
+
+    /// <summary>
+    /// POST set/setting/super_fwupdate - change the release channel UniFi devices follow. A
+    /// read-modify-write: the existing `_id` and `sso_enabled` are carried back unchanged.
+    /// <para>
+    /// Writes the `super_fwupdate` section and nothing else. The UniFi UI also re-POSTs `mgmt` when
+    /// saving that page, which re-sends SSH credentials - never do that here.
+    /// </para>
+    /// </summary>
+    /// <param name="channel">"release" (GA), "release-candidate", or "beta" (EA).</param>
+    [VendorSpecific("UniFi", "set/setting/super_fwupdate read-modify-write")]
+    public async Task<bool> SetDeviceFirmwareChannelAsync(
+        string channel,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(channel);
+
+        var current = await GetFirmwareUpdateSettingsAsync(cancellationToken);
+        if (current == null)
+        {
+            _logger.LogError("Cannot set the device firmware channel: the current {Key} setting could not be read",
+                UniFiFirmwareUpdateSettings.SettingKey);
+            return false;
+        }
+
+        var body = UniFiFirmwareUpdateSettings.BuildChannelWriteBody(current, channel);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(
+                    BuildApiPath($"set/setting/{UniFiFirmwareUpdateSettings.SettingKey}"),
+                    content,
+                    cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Set the device firmware channel for site {Site} to {Channel}", _site, channel);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to set the device firmware channel for site {Site} to {Channel}", _site, channel);
+        return false;
+    }
+
+    /// <summary>
+    /// POST cmd/firmware {"cmd":"list-available"} - the newest build per model on the console's
+    /// CURRENT channel, each with a direct image URL and md5. Also the hook for confirming a channel
+    /// change took effect: change the channel, re-run this, and the URLs follow.
+    /// </summary>
+    [VendorSpecific("UniFi", "cmd/firmware list-available")]
+    public async Task<List<UniFiFirmwareCatalogEntry>> ListAvailableFirmwareAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object> { ["cmd"] = "list-available" };
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirmwareCatalogEntry>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/firmware"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Firmware catalog for site {Site} carries {Count} entries", _site, response.Data.Count);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to read the firmware catalog for site {Site}", _site);
+        return new List<UniFiFirmwareCatalogEntry>();
+    }
+
+    /// <summary>
+    /// PATCH /api/system/updates/channels - set the UniFi Network application channel, the UniFi OS
+    /// channel, or both. Console-level, so it does NOT go through /proxy/network. The console
+    /// answers 204 No Content on success.
+    /// </summary>
+    /// <param name="networkAppChannel">UniFi Network application channel, or null to leave it alone.</param>
+    /// <param name="unifiOsChannel">UniFi OS (console firmware) channel, or null to leave it alone.</param>
+    [VendorSpecific("UniFi", "console-level PATCH /api/system/updates/channels")]
+    public async Task<bool> SetConsoleUpdateChannelsAsync(
+        string? networkAppChannel,
+        string? unifiOsChannel,
+        CancellationToken cancellationToken = default)
+    {
+        var request = UniFiConsoleUpdateChannelsRequest.Build(networkAppChannel, unifiOsChannel);
+        if (request == null)
+        {
+            _logger.LogWarning("SetConsoleUpdateChannelsAsync called with no channel to set");
+            return false;
+        }
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/system/updates/channels";
+        var payload = JsonSerializer.Serialize(request);
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PatchAsync(
+                url,
+                new StringContent(payload, Encoding.UTF8, "application/json"),
+                cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} setting console update channels, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while setting console update channels");
+                    return false;
+                }
+
+                response = await _httpClient!.PatchAsync(
+                    url,
+                    new StringContent(payload, Encoding.UTF8, "application/json"),
+                    cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation(
+                    "Set console update channels (Network application: {NetworkChannel}, UniFi OS: {OsChannel})",
+                    networkAppChannel ?? "unchanged", unifiOsChannel ?? "unchanged");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to set console update channels: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// GET /api/system - the console-level UniFi OS view: current channel, the builds it knows
+    /// about (with publish dates, download URLs and changelog links), and any update in flight.
+    /// Console-level, so it does NOT go through /proxy/network. Only the fields this feature needs
+    /// are mapped.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level GET /api/system")]
+    public async Task<UniFiConsoleSystemInfo?> GetConsoleSystemInfoAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/system";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} fetching console system info, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching console system info");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(url, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to fetch console system info: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            try
+            {
+                var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(json);
+                if (info != null)
+                {
+                    _logger.LogDebug(
+                        "Console {Name}: UniFi OS channel {Channel}, standalone={Standalone}",
+                        info.Name, info.Firmware?.ReleaseChannel, info.IsStandaloneConsole);
+                }
+                return info;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse console system info");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// GET stat/widget/warnings - the console's own pre-flight signals (upgradable devices, EOL/LTS
+    /// counts, low disk space). Optional: the shape varies across UniFi Network versions, so this
+    /// returns null on anything unexpected rather than failing a rollout.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/widget/warnings; shape varies by Network version")]
+    public async Task<UniFiFirmwareWarnings?> GetFirmwareWarningsWidgetAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await ExecuteRequestAsync<UniFiFirmwareWarnings?>(async () =>
+        {
+            try
+            {
+                var response = await _httpClient!.GetAsync(
+                    BuildApiPath("stat/widget/warnings"), cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Warnings widget returned {StatusCode} for site {Site}",
+                        response.StatusCode, _site);
+                    return null;
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                var warnings = UniFiFirmwareWarnings.TryParse(json);
+
+                if (warnings == null)
+                    _logger.LogDebug("Warnings widget for site {Site} did not match a shape we read", _site);
+
+                return warnings;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Warnings widget unavailable for site {Site}", _site);
+                return null;
+            }
+        });
     }
 
     #endregion

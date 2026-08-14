@@ -289,6 +289,13 @@ builder.Services.AddSingleton<AgentOnGatewayDetector>();
 // licensing data is instance-wide registry data in the main database.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient("LicenseServer", client => client.Timeout = TimeSpan.FromSeconds(10));
+
+// Ubiquiti's public release feed: publish dates, changelog links, and prior-version firmware URLs
+// the console's latest-only catalog cannot supply. Read-only and anonymous, so a plain singleton.
+builder.Services.AddHttpClient(
+    NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient.HttpClientName,
+    client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient>();
 builder.Services.AddSingleton<LicenseServerClient>();
 builder.Services.AddSingleton<LicenseStateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicenseStateService>());
