@@ -432,7 +432,7 @@ else
                             @if (_exportingPdf) { <span class="spinner spinner-sm"></span> } else { <span class="btn-label-wide">Export PDF</span> }
                         </button>
                     }
-                    <button class="btn btn-sm btn-secondary" @onclick="() => _report = null">Close</button>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => { _report = null; _reportTyped = null; }">Close</button>
                 </div>
             </div>
             <div class="card-body">
@@ -440,24 +440,100 @@ else
                 {
                     <p class="firmware-rollout-note">This rollout is still soaking - the report compares resource use well after each device settled, so it is worth the wait.</p>
                 }
-                <div class="table-responsive">
-                    <table class="data-table">
-                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th>Outcome</th></tr></thead>
-                        <tbody>
-                            @foreach (var step in _report.Steps)
-                            {
-                                <tr>
-                                    <td>@step.Name</td>
-                                    <td>@step.Model</td>
-                                    <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
-                                    <td>@(step.ToVersion ?? "-")</td>
-                                    <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
-                                    <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                @if (_reportTyped is { } rep)
+                {
+                    <div class="firmware-rollout-stats">
+                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesUpgraded</span><span class="detail-label">upgraded</span></div>
+                        @if (rep.DevicesFailed > 0)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesFailed</span><span class="detail-label">failed</span></div>
+                        }
+                        @if (rep.DevicesRolledBack > 0)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesRolledBack</span><span class="detail-label">rolled back</span></div>
+                        }
+                        @if (rep.DevicesSkipped > 0)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesSkipped</span><span class="detail-label">skipped</span></div>
+                        }
+                        <div class="firmware-rollout-stat"><span class="detail-value">@Duration(rep.TotalSeconds)</span><span class="detail-label">duration</span></div>
+                        @if (rep.SiteCpuBeforeMean is { } cb && rep.SiteCpuAfterMean is { } ca)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">site CPU</span></div>
+                        }
+                        @if (rep.SiteMemBeforeMean is { } mb && rep.SiteMemAfterMean is { } ma)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">site memory</span></div>
+                        }
+                    </div>
+                    @if (rep.UniFiNetworkUpdateOutcome != null)
+                    {
+                        <p class="firmware-rollout-plan-note">UniFi Network application: @rep.UniFiNetworkUpdateOutcome</p>
+                    }
+                    @if (rep.UniFiOsUpdateOutcome != null)
+                    {
+                        <p class="firmware-rollout-plan-note">UniFi OS: @rep.UniFiOsUpdateOutcome</p>
+                    }
+                    @foreach (var issue in rep.Issues)
+                    {
+                        <div class="alert-warning firmware-rollout-note">@issue</div>
+                    }
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th class="hide-mobile">CPU</th><th>Outcome</th></tr></thead>
+                            <tbody>
+                                @foreach (var row in rep.Rows)
+                                {
+                                    <tr>
+                                        <td>@row.Name</td>
+                                        <td>@row.Model</td>
+                                        <td class="hide-mobile">@(row.FromVersion ?? "-")</td>
+                                        <td>
+                                            @if (row.ChangelogUrl != null)
+                                            {
+                                                <a href="@row.ChangelogUrl" target="_blank" rel="noopener">@(row.ToVersion ?? "-")</a>
+                                            }
+                                            else
+                                            {
+                                                @(row.ToVersion ?? "-")
+                                            }
+                                        </td>
+                                        <td>@(row.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                        <td class="hide-mobile">@(row.CpuBeforeMean is { } rcb && row.CpuAfterMean is { } rca ? $"{rcb:0}% → {rca:0}%" : "-")</td>
+                                        <td>
+                                            <span class="firmware-rollout-chip @OutcomeChipClass(row.Outcome)">@row.Outcome</span>
+                                            @if (row.Issue != null)
+                                            {
+                                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@row.Issue">?</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th>Outcome</th></tr></thead>
+                            <tbody>
+                                @foreach (var step in _report.Steps)
+                                {
+                                    <tr>
+                                        <td>@step.Name</td>
+                                        <td>@step.Model</td>
+                                        <td class="hide-mobile">@(step.FromVersion ?? "-")</td>
+                                        <td>@(step.ToVersion ?? "-")</td>
+                                        <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                        <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -476,6 +552,7 @@ else
     private RolloutPlanView? _active;
     private List<RolloutPlanSummaryView> _history = [];
     private RolloutReportView? _report;
+    private RolloutReport? _reportTyped;
 
     private string _scheduleMode = "once";
     private int _startOffsetHours;
@@ -797,6 +874,7 @@ else
         try
         {
             _report = await RolloutService.GetReportAsync(planId);
+            _reportTyped = RolloutReport.Parse(_report?.ReportJson);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -965,6 +1043,14 @@ else
         FirmwareRolloutStepState.RegressionFlagged => "chip-warning",
         FirmwareRolloutStepState.Commanded or FirmwareRolloutStepState.Down
             or FirmwareRolloutStepState.BackOnline or FirmwareRolloutStepState.CoolDown => "chip-active",
+        _ => "chip-muted",
+    };
+
+    private static string OutcomeChipClass(string outcome) => outcome switch
+    {
+        "Upgraded" => "chip-success",
+        "Failed" => "chip-danger",
+        "Regression flagged" or "Rolled back" => "chip-warning",
         _ => "chip-muted",
     };
 

@@ -149,8 +149,14 @@ public class RolloutPreviewView
     /// </summary>
     public bool IsStandaloneConsole { get; set; }
 
-    /// <summary>Whether UniFi's own nightly auto-upgrade is on. It races a rollout.</summary>
+    /// <summary>Whether UniFi's own nightly device auto-upgrade is on. It races a rollout.</summary>
     public bool ConsoleAutoUpgradeEnabled { get; set; }
+
+    /// <summary>Whether the console updates its own UniFi OS on a schedule.</summary>
+    public bool ConsoleOsAutoUpdateEnabled { get; set; }
+
+    /// <summary>Whether that schedule also updates the applications (UniFi Network among them).</summary>
+    public bool ConsoleAppsAutoUpdateEnabled { get; set; }
 
     /// <summary>True when a rollout is already scheduled or running, so a new one cannot be started.</summary>
     public bool HasActivePlan { get; set; }

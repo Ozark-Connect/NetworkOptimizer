@@ -140,7 +140,7 @@ public class FirmwareRolloutServiceTests
         var preview = await harness.Service.BuildPreviewAsync(Settings());
 
         preview.ConsoleAutoUpgradeEnabled.Should().BeTrue();
-        preview.Warnings.Should().Contain(w => w.Contains("Auto Upgrade"));
+        preview.Warnings.Should().Contain(w => w.Contains("device Auto Update"));
     }
 
     [Fact]

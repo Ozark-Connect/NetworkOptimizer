@@ -151,6 +151,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             ConsoleConnected = context.ConsoleConnected,
             IsStandaloneConsole = console?.IsStandaloneConsole == true,
             ConsoleAutoUpgradeEnabled = autoUpgrade == true,
+            ConsoleOsAutoUpdateEnabled = console?.Firmware?.AutoUpdate?.IsScheduled == true,
+            ConsoleAppsAutoUpdateEnabled = console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true },
             HasActivePlan = active != null,
         };
 
@@ -350,11 +352,17 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         if (preview.UpgradableCount == 0)
             preview.Warnings.Add("Nothing on this site has a firmware update to install.");
 
-        if (preview.ConsoleAutoUpgradeEnabled)
+        // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
+        var autoUpdaters = new List<string>();
+        if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("device Auto Update");
+        if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("the UniFi OS update schedule");
+        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("application updates on that schedule");
+        if (autoUpdaters.Count > 0)
         {
+            var one = autoUpdaters.Count == 1;
             preview.Warnings.Add(
-                "The UniFi Console upgrades devices on its own schedule (Auto Upgrade). Turn it off so it does not " +
-                "race this rollout.");
+                $"UniFi's own {string.Join(", ", autoUpdaters)} {(one ? "is" : "are")} on. " +
+                $"Rollouts still run; turn {(one ? "it" : "them")} off to rule out the rare same-time collision.");
         }
 
         if (preview.IsStandaloneConsole && settings.IncludeUniFiOs)
