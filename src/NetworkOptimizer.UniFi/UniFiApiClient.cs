@@ -3223,6 +3223,67 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST /api/cloud/backup - run a console backup. Console-level, empty body; the response
+    /// carries an overall flag plus per-application/service outcomes. Same shape on Cloud Gateway
+    /// and standalone consoles. Returns null when the call itself failed.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/cloud/backup")]
+    public async Task<UniFiConsoleBackupResult?> TriggerConsoleBackupAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/cloud/backup";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering a console backup, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering a console backup");
+                    return null;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to trigger a console backup: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                var result = JsonSerializer.Deserialize<UniFiConsoleBackupResult>(json);
+                if (result != null)
+                {
+                    _logger.LogInformation("Console backup finished (success={Success}, components={Count})",
+                        result.Success, result.Controllers.Count + result.Services.Count);
+                }
+                return result;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse the console backup response");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
     /// GET stat/widget/warnings - the console's own pre-flight signals (upgradable devices, EOL/LTS
     /// counts, low disk space). Optional: the shape varies across UniFi Network versions, so this
     /// returns null on anything unexpected rather than failing a rollout.
