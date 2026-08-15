@@ -23,6 +23,9 @@ public class QuietWindowService
 
     private static readonly TimeSpan SampleWindow = TimeSpan.FromMinutes(15);
 
+    /// <summary>How long history reading gets before the site profile answers instead.</summary>
+    private static readonly TimeSpan HistoryBudget = TimeSpan.FromSeconds(15);
+
     private readonly string _siteSlug;
     private readonly MonitoringInfluxClient _influx;
     private readonly ILogger<QuietWindowService> _logger;
@@ -97,6 +100,12 @@ public class QuietWindowService
         try
         {
             fingerprint = await BuildBusyFingerprintAsync(devices, ct);
+        }
+        // Only the caller giving up propagates. Anything else - a slow query, a dead bucket - is a
+        // missing suggestion, never a failure to plan: this runs on the path that opens the wizard.
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug("Quiet-window fingerprint timed out; falling back to profile heuristic");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -243,12 +252,19 @@ public class QuietWindowService
         var apMacs = devices.Where(d => d.Type == DeviceType.AccessPoint).Select(d => d.Mac).ToList();
         var otherMacs = devices.Where(d => d.Type != DeviceType.AccessPoint).Select(d => d.Mac).ToList();
 
+        // The proposal is advisory and the wizard cannot open without it, so history is bounded
+        // rather than waited on: past the budget the site profile picks the window instead. The
+        // client's own timeout is a minute, which is far longer than a user will sit on a spinner.
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(HistoryBudget);
+
         foreach (var (macs, wiredOnly) in new[] { (otherMacs, false), (apMacs, true) })
         {
             if (macs.Count == 0) continue;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                var rows = await _influx.QueryDeviceRateTotalsAsync(macs, from, to, SampleWindow, wiredOnly, ct);
+                var rows = await _influx.QueryDeviceRateTotalsAsync(macs, from, to, SampleWindow, wiredOnly, budget.Token);
                 foreach (var row in rows)
                 {
                     var key = MacNormalizer.Normalize(row.DeviceMac);
@@ -256,6 +272,16 @@ public class QuietWindowService
                         byMac[key] = list = [];
                     list.Add((row.Time, row.Bps));
                 }
+                _logger.LogDebug(
+                    "Quiet window {Site}: read {Rows} totals for {Count} devices (wiredOnly={Wired}) in {Ms} ms",
+                    _siteSlug, rows.Count, macs.Count, wiredOnly, timer.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    "Quiet window {Site}: history for {Count} devices did not answer within {Budget}s, "
+                    + "so the window comes from the site profile",
+                    _siteSlug, macs.Count, HistoryBudget.TotalSeconds);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
