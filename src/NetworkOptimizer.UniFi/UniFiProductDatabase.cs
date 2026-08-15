@@ -740,6 +740,33 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
+    /// The product a device belongs to, with its color variant folded in. Ubiquiti ships the same
+    /// hardware in more than one shell under its own model code - UAPA6A9 is a U7-Pro-XG and
+    /// UAPA6AE is the black one - and they take the same firmware, so anything reasoning about a
+    /// model rather than a device wants them together: excluding a model, pinning it to a channel,
+    /// and pairing one against another as a canary.
+    /// </summary>
+    /// <remarks>
+    /// Only a trailing -B or -W is a color. -M (UAP-AC-M, mesh) and -X (UVP-X) are different
+    /// products and must survive, so this cannot just trim the last suffix. Some lines carry no
+    /// bare name at all: UNAS-2 exists only as UNAS-2-B and UNAS-2-W, which is why both are
+    /// stripped rather than folding one into the other.
+    /// </remarks>
+    /// <param name="model">Console model code, e.g. "UAPA6AE".</param>
+    /// <param name="shortname">Legacy shortname, where the model code is unknown.</param>
+    /// <returns>The family key, or the input unchanged when the catalog does not carry it.</returns>
+    public static string GetModelFamily(string? model, string? shortname = null)
+    {
+        var name = GetBestProductName(model, shortname);
+        if (string.IsNullOrEmpty(name)) return name;
+
+        return name.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("-W", StringComparison.OrdinalIgnoreCase)
+                ? name[..^2]
+                : name;
+    }
+
+    /// <summary>
     /// Check if a device can run iperf3 for LAN speed testing
     /// </summary>
     /// <param name="productName">The friendly product name (e.g., "USW-Flex-Mini")</param>

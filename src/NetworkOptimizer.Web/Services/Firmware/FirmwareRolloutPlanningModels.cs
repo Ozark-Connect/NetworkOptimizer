@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -35,8 +36,16 @@ public class PlannerDevice
     /// <summary>Display name; falls back to the friendly model name upstream.</summary>
     public string Name { get; init; } = string.Empty;
 
-    /// <summary>Raw SKU code (e.g. U7PRO) - the canary and timing-store key.</summary>
+    /// <summary>Raw SKU code (e.g. U7PRO) - the timing-store key.</summary>
     public string Model { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The model with its color variant folded in, and the key for anything about a MODEL rather
+    /// than a device: exclusions, per-model channels, and canary pairing. A black U7-Pro-XG has its
+    /// own console code, so keying those on the raw one left two of the same AP unpaired - and a
+    /// site with one of each got no canary at all, because neither model had a second device.
+    /// </summary>
+    public string ModelFamily => UniFiProductDatabase.GetModelFamily(Model, DisplayModel);
 
     /// <summary>Friendly model name (e.g. "U7 Pro") for display and generation heuristics.</summary>
     public string DisplayModel { get; init; } = string.Empty;
@@ -219,9 +228,24 @@ public class RolloutExclusions
         return result;
     }
 
+    /// <summary>
+    /// Whether a device is excluded. A stored SKU is matched on the model FAMILY at both ends, so a
+    /// rule excluding a model covers the same hardware in another color, and rules written against
+    /// a raw console code before this keep working.
+    /// </summary>
     public bool Excludes(PlannerDevice d) =>
-        Macs.Contains(d.Mac) || Skus.Contains(d.Model) ||
+        Macs.Contains(d.Mac) || MatchesSku(d) ||
         DeviceTypes.Contains(FirmwareDeviceTypes.Code(d.Type)) || DeviceTypes.Contains(d.Type.ToString());
+
+    private bool MatchesSku(PlannerDevice d)
+    {
+        if (Skus.Count == 0) return false;
+        if (Skus.Contains(d.Model)) return true;
+
+        var family = d.ModelFamily;
+        return Skus.Any(s => string.Equals(
+            UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 /// <summary>Maps the effective device type to the UniFi short code stored on steps.</summary>

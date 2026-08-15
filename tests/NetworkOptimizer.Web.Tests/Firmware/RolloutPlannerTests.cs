@@ -1237,4 +1237,44 @@ public class RolloutPlannerTests
         result.Steps.Should().HaveCount(2)
             .And.OnlyContain(s => s.State == FirmwareRolloutStepState.SkippedExcluded);
     }
+
+    [Fact]
+    public void Plan_TheSameApInTwoColors_StillGetsACanary()
+    {
+        // UAPA6A9 and UAPA6AE are a U7-Pro-XG and the black one: same hardware, same firmware,
+        // different console codes. Counted apart they were two models of one device each, so
+        // neither earned a canary and both went out with nothing gating them.
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Ap(ApMac, "AP-White", "UAPA6A9", GatewayMac),
+            Ap("aa:bb:cc:dd:ee:07", "AP-Black", "UAPA6AE", GatewayMac),
+        };
+
+        var result = Plan(devices);
+
+        var canaries = result.Document.Waves.SelectMany(w => w.Steps).Where(s => s.IsCanary).ToList();
+        canaries.Should().ContainSingle();
+        result.Document.Waves.SelectMany(w => w.Steps)
+            .Single(s => s.Mac != canaries[0].Mac && s.Mac != GatewayMac)
+            .HeldForCanary.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Plan_ExcludingAModel_TakesItsOtherColorToo()
+    {
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Ap(ApMac, "AP-White", "UAPA6A9", GatewayMac),
+            Ap("aa:bb:cc:dd:ee:07", "AP-Black", "UAPA6AE", GatewayMac),
+        };
+        var settings = Settings();
+        settings.ExclusionsJson = """{"macs":[],"skus":["UAPA6A9"],"deviceTypes":[]}""";
+
+        var result = Plan(devices, settings);
+
+        result.Steps.Where(s => s.DeviceMac != GatewayMac)
+            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.SkippedExcluded);
+    }
 }
