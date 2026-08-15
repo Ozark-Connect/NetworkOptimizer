@@ -20434,6 +20434,16 @@ body.kiosk-mode .status-indicators {
     }
 }
 
+.firmware-rollout-map-waiting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.firmware-rollout-map-waiting .empty-state p:last-child {
+    margin-bottom: 0;
+}
+
 .firmware-rollout-map-stage {
     /* The map positions its own tooltip and panels against this box. */
     position: relative;

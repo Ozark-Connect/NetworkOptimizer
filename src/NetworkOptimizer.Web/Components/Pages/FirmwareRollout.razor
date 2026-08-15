@@ -69,8 +69,20 @@ else if (_active != null)
                 <p class="firmware-rollout-plan-note">@note</p>
             }
 
-            <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
-            <div id="firmware-rollout-timeline"></div>
+            @if (ActivePlanHasMap)
+            {
+                <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                <div id="firmware-rollout-timeline"></div>
+            }
+            else
+            {
+                <div class="firmware-rollout-map-stage firmware-rollout-map-waiting">
+                    <div class="empty-state">
+                        <h3>Waiting for the scheduled start</h3>
+                        <p>Devices light up here as each one upgrades.</p>
+                    </div>
+                </div>
+            }
 
             <div class="table-responsive firmware-rollout-steps">
                 <table class="data-table">
@@ -1165,12 +1177,15 @@ else
         }
     }
 
+    /// <summary>The map only has something to draw once steps are moving.</summary>
+    private bool ActivePlanHasMap => _active != null && _active.Status
+        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait;
+
     // ---- Visualization interop ----
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) ||
-                       (_active != null && _active.Status is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait);
+        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
         if (!wantsViz)
         {
             if (_vizMounted) await DisposeVizAsync();
