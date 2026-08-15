@@ -119,7 +119,7 @@ public class FirmwareTimingEstimatorTests
     {
         var estimator = new FirmwareTimingEstimator();
 
-        estimator.EstimateDowntimeSeconds(Device(DeviceType.AccessPoint, "UAPACPRO", "UAP-AC-Pro"))
+        estimator.EstimateDowntimeSeconds(Device(DeviceType.AccessPoint, "U7PG2", "UAP-AC-Pro"))
             .Should().Be(420);
     }
 
@@ -127,7 +127,11 @@ public class FirmwareTimingEstimatorTests
     [InlineData("UXGPRO", "UXG-Pro")]
     [InlineData("UXGLITE", "UXG-Lite")]
     [InlineData("SOMEGW", "UXG-Max")]
-    public void Classify_UxgGateways_AreNetworkOnly(string model, string displayModel)
+    [InlineData("UXGA6AA", "UXG-Fiber")]
+    [InlineData("UGW3", "USG-3P")]
+    [InlineData("UGWHD4", "USG")]
+    [InlineData("UGWXG", "USG-XG-8")]
+    public void Classify_GatewaysManagedByAConsoleElsewhere_AreNetworkOnly(string model, string displayModel)
     {
         FirmwareTimingEstimator.Classify(Device(DeviceType.Gateway, model, displayModel))
             .Should().Be(FirmwareDeviceClass.GatewayNetworkOnly);
@@ -136,7 +140,10 @@ public class FirmwareTimingEstimatorTests
     [Theory]
     [InlineData("UDMPRO", "UDM-Pro")]
     [InlineData("UDR", "UniFi Dream Router")]
-    [InlineData("UCGULTRA", "UCG-Ultra")]
+    [InlineData("UDRULT", "UCG-Ultra")]
+    [InlineData("UDMA6A8", "UCG-Fiber")]
+    [InlineData("UCGMAX", "UCG-Max")]
+    [InlineData("UX", "UX")]
     [InlineData("SKU-GWX", "Some Unlisted Gateway")]
     public void Classify_CloudAndUnknownGateways_DefaultToTheUniFiOsClass(string model, string displayModel)
     {
@@ -177,12 +184,12 @@ public class FirmwareTimingEstimatorTests
     [Fact]
     public void Classify_Uap6ModelCode_IsExemptedFromTheUapMarker()
     {
-        FirmwareTimingEstimator.Classify(Device(DeviceType.AccessPoint, "UAP6MESH", "Unlisted AP"))
+        FirmwareTimingEstimator.Classify(Device(DeviceType.AccessPoint, "UAP6MP", "U6-Pro"))
             .Should().Be(FirmwareDeviceClass.AccessPoint);
     }
 
     [Theory]
-    [InlineData("USW24POE", "USW-24-PoE")]
+    [InlineData("USL24P", "USW-24-PoE")]
     [InlineData("USL8LP", "USW-Lite-8-PoE")]
     [InlineData("SKU-SW1", "SKU-SW1")]
     public void Classify_Switches_AreTheSwitchClass(string model, string displayModel)

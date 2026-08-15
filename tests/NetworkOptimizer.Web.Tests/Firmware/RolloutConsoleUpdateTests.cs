@@ -306,8 +306,8 @@ public class RolloutConsoleUpdateTests
         var document = UniFiOsPlan();
         var plan = await harness.SeedRunningPlanAsync(
             document,
-            Step(GatewayMac, name: "Gateway", model: "UCGFIBER", deviceType: "ugw"));
-        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UCGFIBER", name: "Gateway");
+            Step(GatewayMac, name: "Gateway", model: "UDMA6A8", deviceType: "ugw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UDMA6A8", name: "Gateway");
 
         await harness.TickAsync();
         await RunDeviceToLitmusAsync(harness, GatewayMac);

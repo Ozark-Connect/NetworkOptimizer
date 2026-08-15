@@ -1,5 +1,6 @@
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -71,7 +72,7 @@ public class FirmwareTimingEstimator
     {
         if (type == DeviceType.Gateway)
         {
-            return IsNetworkOnlyGateway(model, displayModel)
+            return UniFiProductDatabase.IsNetworkOnlyGateway(model, displayModel)
                 ? FirmwareDeviceClass.GatewayNetworkOnly
                 : FirmwareDeviceClass.CloudGatewayUniFiOs;
         }
@@ -85,9 +86,6 @@ public class FirmwareTimingEstimator
 
         return FirmwareDeviceClass.Switch;
     }
-
-    private static bool IsNetworkOnlyGateway(string model, string displayModel) =>
-        Contains(model, "UXG") || Contains(displayModel, "UXG");
 
     // Display-name markers for pre-U6 AP generations (WiFi 5 and earlier). Raw SKU codes
     // are ambiguous across generations (U7PG2 is the AC Pro), so match the friendly name.

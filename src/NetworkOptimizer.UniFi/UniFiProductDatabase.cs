@@ -126,6 +126,13 @@ public static class UniFiProductDatabase
         // allow-list. If a gateway you add below has built-in Wi-Fi (rare - the Dream/Express
         // line + UCG-Industrial), also add its friendly name to WifiCapableGateways in
         // UniFiDiscovery.cs, or it won't appear in the Wi-Fi Optimizer.
+        //
+        // NOTE: if the gateway you add runs UniFi OS - it hosts the UniFi Network application
+        // itself - it must answer true to IsCloudGateway below. The UCG-, UDR and UDM lines are
+        // matched by name prefix and need nothing; anything else (a new Express, a one-off)
+        // needs its friendly name in CloudGatewayProductNames. Left out, it is taken for a
+        // network-only gateway and a firmware rollout gives it half the reboot budget a
+        // UniFi OS cycle needs, then declares it stuck partway through its own upgrade.
 
         // ----- UniFi Dream Machine family -----
         { "UDM", "UDM" },
@@ -817,6 +824,83 @@ public static class UniFiProductDatabase
     {
         var productName = GetBestProductName(model, shortname);
         return !string.IsNullOrEmpty(productName) && PowerDeviceProductNames.Contains(productName);
+    }
+
+    /// <summary>
+    /// Gateways that ARE a UniFi OS console: they run UniFi OS and host the UniFi Network
+    /// application themselves, so they carry a console update of their own and a much longer
+    /// reboot cycle. Keyed by FriendlyModelName, like the other product allow-lists here.
+    ///
+    /// The inverse - UXG, USG and the rest - is a gateway managed BY a console that lives
+    /// elsewhere; nothing about UniFi OS applies to it. Add new Dream/Cloud/Express hardware
+    /// here as it ships, or it will be treated as network-only.
+    /// </summary>
+    private static readonly HashSet<string> CloudGatewayProductNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UDW", "EFG", "EF-Core",
+        // UniFi Express. Exact, never a "UX" prefix - that would swallow every UXG-*, which is
+        // the opposite answer.
+        "UX", "UX7",
+    };
+
+    /// <summary>
+    /// Console families matched on the friendly product name, so hardware that has not shipped
+    /// yet is classified correctly without a code change. Every member of each of these lines is
+    /// its own console: Cloud Gateways, Dream Routers, Dream Machines.
+    /// </summary>
+    private static readonly string[] CloudGatewayProductPrefixes = ["UCG-", "UDR", "UDM"];
+
+    /// <summary>
+    /// Whether this gateway is its own UniFi OS console, rather than one managed by a console
+    /// elsewhere. Callers should already know the device is a gateway; this does not re-check.
+    /// A model the catalog does not carry answers false here and false to
+    /// <see cref="IsNetworkOnlyGateway"/> too - ask the one whose "no" is the safe answer.
+    /// </summary>
+    /// <param name="model">Model code from the UniFi API.</param>
+    /// <param name="shortname">Shortname/display model, used when the model code is unknown.</param>
+    public static bool IsCloudGateway(string? model, string? shortname) =>
+        ResolveKnownProductName(model, shortname) is { } name && IsCloudGatewayProduct(name);
+
+    /// <summary>
+    /// Whether this gateway is managed by a console elsewhere (UXG, USG), so nothing about
+    /// UniFi OS applies to it. Unrecognized hardware answers false: callers treat an unknown
+    /// gateway as a console, which is the cautious direction for reboot budgets.
+    /// </summary>
+    /// <param name="model">Model code from the UniFi API.</param>
+    /// <param name="shortname">Shortname/display model, used when the model code is unknown.</param>
+    public static bool IsNetworkOnlyGateway(string? model, string? shortname) =>
+        ResolveKnownProductName(model, shortname) is { } name && !IsCloudGatewayProduct(name);
+
+    /// <summary>Every friendly product name the catalog carries.</summary>
+    public static IEnumerable<string> AllProductNames => OfficialModelCodes.Values.Distinct();
+
+    private static bool IsCloudGatewayProduct(string productName)
+    {
+        if (CloudGatewayProductNames.Contains(productName)) return true;
+        foreach (var prefix in CloudGatewayProductPrefixes)
+        {
+            if (productName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>The catalog's name for this device, or null when it carries neither code.</summary>
+    private static string? ResolveKnownProductName(string? model, string? shortname)
+    {
+        if (!string.IsNullOrEmpty(model))
+        {
+            var byModel = GetProductName(model);
+            if (byModel != model) return byModel;
+        }
+        if (!string.IsNullOrEmpty(shortname))
+        {
+            var byShortname = GetProductNameFromShortname(shortname);
+            if (byShortname != shortname) return byShortname;
+            // Product names are what the allow-lists are keyed by, so a caller passing one
+            // straight through (the display model) is already resolved.
+            if (OfficialModelCodes.ContainsValue(shortname)) return shortname;
+        }
+        return null;
     }
 
     /// <summary>

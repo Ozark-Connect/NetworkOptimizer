@@ -55,7 +55,7 @@ public class RolloutReportPdfGeneratorTests
             },
             new RolloutReportRow
             {
-                Mac = "aa:bb:cc:dd:ee:03", Name = "Switch 1", Model = "USW24", DeviceType = "usw",
+                Mac = "aa:bb:cc:dd:ee:03", Name = "Switch 1", Model = "USL24", DeviceType = "usw",
                 FromVersion = "6.6.55.1234", ToVersion = "7.0.11.5678",
                 Outcome = RolloutOutcomes.Failed,
                 Issue = "The device has been offline for over 15 minutes and has not come back.",

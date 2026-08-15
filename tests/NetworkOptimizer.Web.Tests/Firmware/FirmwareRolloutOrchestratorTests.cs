@@ -230,12 +230,12 @@ public class FirmwareRolloutOrchestratorTests
     public async Task CloudGatewayGetsItsLongerBudget()
     {
         using var harness = new RolloutHarness();
-        var gatewayPlanStep = PlanStep(GatewayMac, model: "UCGFIBER", budgetSeconds: 1800);
+        var gatewayPlanStep = PlanStep(GatewayMac, model: "UDMA6A8", budgetSeconds: 1800);
         gatewayPlanStep.DeviceType = "ugw";
         var plan = await harness.SeedRunningPlanAsync(
             Document(Wave(1, gatewayPlanStep)),
-            Step(GatewayMac, name: "Gateway", model: "UCGFIBER", deviceType: "ugw"));
-        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UCGFIBER", name: "Gateway");
+            Step(GatewayMac, name: "Gateway", model: "UDMA6A8", deviceType: "ugw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UDMA6A8", name: "Gateway");
 
         await harness.TickAsync();
         harness.Observer.Set(GatewayMac, Offline, FromVersion);
@@ -253,12 +253,12 @@ public class FirmwareRolloutOrchestratorTests
     public async Task ConsoleGoingDarkIsReadAsTheGatewayRebooting_NotAsEveryDeviceBeingDown()
     {
         using var harness = new RolloutHarness();
-        var gatewayPlanStep = PlanStep(GatewayMac, model: "UCGFIBER", budgetSeconds: 1800);
+        var gatewayPlanStep = PlanStep(GatewayMac, model: "UDMA6A8", budgetSeconds: 1800);
         gatewayPlanStep.DeviceType = "ugw";
         var plan = await harness.SeedRunningPlanAsync(
             Document(Wave(1, gatewayPlanStep)),
-            Step(GatewayMac, name: "Gateway", model: "UCGFIBER", deviceType: "ugw"));
-        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UCGFIBER", name: "Gateway");
+            Step(GatewayMac, name: "Gateway", model: "UDMA6A8", deviceType: "ugw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UDMA6A8", name: "Gateway");
 
         await harness.TickAsync();
         harness.Observer.ConsoleDark = true;
@@ -312,7 +312,7 @@ public class FirmwareRolloutOrchestratorTests
     {
         using var harness = new RolloutHarness();
         harness.Litmus.VerdictByMac[ApMac] = LitmusVerdict.Fail("CPU is pinned since the upgrade.");
-        var switchPlanStep = PlanStep(SwitchMac, model: "USW24");
+        var switchPlanStep = PlanStep(SwitchMac, model: "USL24");
         switchPlanStep.DeviceType = "usw";
         var plan = await harness.SeedRunningPlanAsync(
             Document(
@@ -320,10 +320,10 @@ public class FirmwareRolloutOrchestratorTests
                 Wave(2, PlanStep(PeerMac, held: true), switchPlanStep)),
             Step(ApMac),
             Step(PeerMac, name: "AP 2", wave: 2, state: FirmwareRolloutStepState.Held),
-            Step(SwitchMac, name: "Switch 1", model: "USW24", deviceType: "usw", wave: 2));
+            Step(SwitchMac, name: "Switch 1", model: "USL24", deviceType: "usw", wave: 2));
         harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
         harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
-        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, model: "USW24", name: "Switch 1");
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, model: "USL24", name: "Switch 1");
 
         await harness.TickAsync();
         await RunCanaryToLitmusAsync(harness, ApMac);

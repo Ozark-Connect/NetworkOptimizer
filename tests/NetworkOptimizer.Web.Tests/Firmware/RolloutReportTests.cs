@@ -79,7 +79,7 @@ public class RolloutReportTests
                 backAt: start, pre: Stats(10, 40), post: Stats(20, 50)),
             Settled(PeerMac, FirmwareRolloutStepState.RegressionFlagged, "AP 2",
                 backAt: start, pre: Stats(20, 60), post: Stats(40, 70)),
-            Settled(SwitchMac, FirmwareRolloutStepState.Failed, "Switch 1", "USW24",
+            Settled(SwitchMac, FirmwareRolloutStepState.Failed, "Switch 1", "USL24",
                 error: "The device has been offline for over 15 minutes and has not come back."),
             Settled(GatewayMac, FirmwareRolloutStepState.SkippedExcluded, "Gateway", "UCGMAX"));
 
@@ -173,7 +173,7 @@ public class RolloutReportTests
             start.AddMinutes(-10),
             start,
             Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start),
-            Settled(SwitchMac, FirmwareRolloutStepState.LitmusPassed, "Switch 1", "USW24", backAt: start));
+            Settled(SwitchMac, FirmwareRolloutStepState.LitmusPassed, "Switch 1", "USL24", backAt: start));
 
         await harness.TickAsync(TimeSpan.FromHours(2));
 

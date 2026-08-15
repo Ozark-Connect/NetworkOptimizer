@@ -979,7 +979,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_CloudGatewayWithoutTheUniFiOsUpdate_IsBudgetedAsANetworkOnlyGateway()
     {
-        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+        var devices = new[] { Gw(model: "UDRULT", displayModel: "UCG-Ultra") };
 
         var doc = Plan(devices, Settings(includeUniFiOs: false)).Document;
 
@@ -992,7 +992,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_CloudGatewayWithTheUniFiOsUpdate_GetsTheThirtyMinuteBudget()
     {
-        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+        var devices = new[] { Gw(model: "UDRULT", displayModel: "UCG-Ultra") };
 
         var doc = Plan(devices, Settings(includeUniFiOs: true)).Document;
 
@@ -1017,7 +1017,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_CloudGateway_NamesItselfAsTheConsole()
     {
-        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+        var devices = new[] { Gw(model: "UDRULT", displayModel: "UCG-Ultra") };
 
         var doc = Plan(devices, Settings(includeUniFiOs: true)).Document;
 
@@ -1027,7 +1027,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_CloudGateway_IsStillTheConsoleWithTheUniFiOsUpdateTurnedOff()
     {
-        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+        var devices = new[] { Gw(model: "UDRULT", displayModel: "UCG-Ultra") };
 
         // The UniFi Network application still installs on it, so the map has a node to mark.
         var doc = Plan(devices, Settings(includeUniFiOs: false)).Document;
@@ -1139,7 +1139,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_GatewayNote_CallsOutTheUniFiOsCycleWhenIncluded()
     {
-        var doc = Plan([Gw(model: "UCGULTRA", displayModel: "UCG-Ultra")], Settings(includeUniFiOs: true)).Document;
+        var doc = Plan([Gw(model: "UDRULT", displayModel: "UCG-Ultra")], Settings(includeUniFiOs: true)).Document;
 
         doc.Notes.Should().Contain(n => n.Contains("30 minutes"));
     }
@@ -1147,7 +1147,7 @@ public class RolloutPlannerTests
     [Fact]
     public void Plan_GatewayNote_IsTheShortOneWithoutTheUniFiOsCycle()
     {
-        var doc = Plan([Gw(model: "UCGULTRA", displayModel: "UCG-Ultra")], Settings(includeUniFiOs: false)).Document;
+        var doc = Plan([Gw(model: "UDRULT", displayModel: "UCG-Ultra")], Settings(includeUniFiOs: false)).Document;
 
         doc.Notes.Should().Contain(n => n.Contains("briefly unreachable"));
         doc.Notes.Should().NotContain(n => n.Contains("30 minutes"));

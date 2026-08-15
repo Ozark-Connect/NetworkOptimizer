@@ -50,7 +50,7 @@ public class CrossSiteTimingSourceTests
     {
         var merged = CrossSiteTimingSource.Merge(
             [],
-            [Timing("USW24", samples: 9, median: 480), Timing("USW24", samples: 1, median: 900)]);
+            [Timing("USL24", samples: 9, median: 480), Timing("USL24", samples: 1, median: 900)]);
 
         merged.Should().ContainSingle();
         merged[0].MedianDowntimeSeconds.Should().Be(522);
@@ -61,10 +61,10 @@ public class CrossSiteTimingSourceTests
     {
         var merged = CrossSiteTimingSource.Merge(
             [Timing("U6PRO", samples: 5, median: 240)],
-            [Timing("USW24", samples: 4, median: 480)]);
+            [Timing("USL24", samples: 4, median: 480)]);
 
         merged.Should().HaveCount(2);
-        merged.Should().ContainSingle(t => t.Model == "USW24" && t.MedianDowntimeSeconds == 480);
+        merged.Should().ContainSingle(t => t.Model == "USL24" && t.MedianDowntimeSeconds == 480);
     }
 
     [Fact]
