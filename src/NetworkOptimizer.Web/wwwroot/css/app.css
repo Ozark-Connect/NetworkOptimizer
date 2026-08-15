@@ -20431,6 +20431,16 @@ body.kiosk-mode .status-indicators {
 @media (max-width: 768px) {
     .firmware-rollout-timeline {
         gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .firmware-rollout-timeline-readout {
+        flex-basis: 100%;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: baseline;
+        gap: 0.4rem;
+        min-width: 0;
     }
 }
 
