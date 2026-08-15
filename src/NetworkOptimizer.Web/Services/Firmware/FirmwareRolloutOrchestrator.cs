@@ -1525,10 +1525,23 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         step.PreStatsJson = JsonSerializer.Serialize(
             await _litmus.CaptureStatsAsync(step.DeviceMac, Now - preWindow, Now, cancellationToken));
 
-        var result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
+        // The image this plan committed to, captured on this device's own channel. Commanding it by
+        // URL is what lets one rollout install different channels on different models, and it cannot
+        // be undone by the console's channel being changed between planning and now.
+        var planned = document.TargetImages
+            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase))?.Url;
+
+        var result = string.IsNullOrWhiteSpace(planned)
+            ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
+            : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
+
+        // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned))
+            result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
+
         if (!result.IsOk)
         {
-            var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+            var url = planned ?? await ResolveImageUrlAsync(step.Model, cancellationToken);
             if (url != null)
                 result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, url, cancellationToken);
 

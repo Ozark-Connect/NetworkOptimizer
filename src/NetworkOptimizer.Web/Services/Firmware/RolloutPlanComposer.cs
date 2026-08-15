@@ -11,7 +11,8 @@ public sealed record RolloutPlanInputs(
     RolloutPlanningContext Context,
     FirmwareTimingEstimator Estimator,
     string CurrentChannel,
-    NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console = null);
+    NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console = null,
+    IReadOnlyList<PlanTargetImage>? TargetImages = null);
 
 /// <summary>
 /// The one path a plan is built through, wizard and autopilot alike: refresh the catalog, freeze
@@ -38,17 +39,19 @@ public static class RolloutPlanComposer
         ArgumentNullException.ThrowIfNull(planning);
         ArgumentNullException.ThrowIfNull(commands);
 
-        await commands.CheckForUpdatesAsync(cancellationToken);
+        var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
         var context = await planning.GetContextAsync(cancellationToken);
         var estimator = await planning.GetEstimatorAsync(siteTimings ?? [], cancellationToken);
         var currentChannel = await commands.GetDeviceChannelAsync(cancellationToken);
         var console = await commands.GetConsoleSystemInfoAsync(cancellationToken);
 
+        var images = new List<PlanTargetImage>();
         if (settings != null)
         {
+            CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
             currentChannel = await StageEveryPlannedChannelAsync(
-                planning, commands, context, settings, currentChannel, cancellationToken);
+                planning, commands, context, settings, currentChannel, images, cancellationToken);
             console = await StageNetworkAppChannelAsync(commands, console, settings, cancellationToken);
         }
 
@@ -56,7 +59,8 @@ public static class RolloutPlanComposer
             context,
             estimator,
             string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel,
-            console);
+            console,
+            images);
     }
 
     /// <summary>
@@ -75,6 +79,7 @@ public static class RolloutPlanComposer
         RolloutPlanningContext context,
         FirmwareRolloutSettings settings,
         string? currentChannel,
+        List<PlanTargetImage> images,
         CancellationToken cancellationToken)
     {
         var wanted = context.Devices
@@ -83,9 +88,12 @@ public static class RolloutPlanComposer
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Already-current channel first, so a single-channel plan costs nothing extra.
+        // Already-current channel first, so a single-channel plan costs nothing extra; the global
+        // channel last, so the console is left somewhere predictable rather than on whichever
+        // override happened to be visited last. Waves set their own channel at run time either way.
         var ordered = wanted
             .OrderByDescending(c => string.Equals(c, currentChannel, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(c => string.Equals(c, settings.GlobalChannel, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         foreach (var channel in ordered)
@@ -97,7 +105,7 @@ public static class RolloutPlanComposer
             // rather than being quoted the channel we failed to leave.
             if (!await commands.SetDeviceChannelAsync(channel, cancellationToken)) continue;
             currentChannel = channel;
-            await commands.CheckForUpdatesAsync(cancellationToken);
+            var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
             var staged = await planning.GetContextAsync(cancellationToken);
             var byMac = staged.Devices.ToDictionary(d => d.Mac, StringComparer.OrdinalIgnoreCase);
@@ -106,9 +114,40 @@ public static class RolloutPlanComposer
             {
                 device.ToVersion = byMac.TryGetValue(device.Mac, out var fresh) ? fresh.ToVersion : null;
             }
+
+            CaptureImages(images, context, settings, channel, channel, catalog);
         }
 
         return currentChannel;
+    }
+
+    /// <summary>
+    /// Records the direct image URL for every device planned on <paramref name="channel"/>, from
+    /// the catalog that channel just produced. Commanding by URL is what frees the rollout from
+    /// having to put the console back on each channel as it goes.
+    /// </summary>
+    private static void CaptureImages(
+        List<PlanTargetImage> images,
+        RolloutPlanningContext context,
+        FirmwareRolloutSettings settings,
+        string channel,
+        string? stagedChannel,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog)
+    {
+        if (!string.Equals(channel, stagedChannel, StringComparison.OrdinalIgnoreCase)) return;
+
+        foreach (var device in context.Devices.Where(d => d.Upgradable
+            && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (images.Any(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))) continue;
+
+            var entry = catalog.FirstOrDefault(e =>
+                string.Equals(e.BaseModel, device.Model, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(e.Device, device.Model, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(entry?.Url)) continue;
+
+            images.Add(new PlanTargetImage { Mac = device.Mac, Version = entry.Version ?? device.ToVersion, Url = entry.Url });
+        }
     }
 
     /// <summary>
@@ -150,6 +189,17 @@ public static class RolloutPlanComposer
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(settings);
 
+        var result = PlanCore(inputs, settings, additionalExcludedMacs);
+        if (inputs.TargetImages is { Count: > 0 })
+            result.Document.TargetImages = inputs.TargetImages.ToList();
+        return result;
+    }
+
+    private static RolloutPlanResult PlanCore(
+        RolloutPlanInputs inputs,
+        FirmwareRolloutSettings settings,
+        IReadOnlyCollection<string>? additionalExcludedMacs)
+    {
         return new RolloutPlanner().Plan(new RolloutPlanningInput
         {
             Devices = inputs.Context.Devices,

@@ -297,6 +297,13 @@ public class RolloutPlanDocument
     /// </summary>
     public List<PlanPriorVersion> PriorVersions { get; set; } = [];
 
+    /// <summary>
+    /// The exact image each device is being upgraded to, captured per channel at plan time. The
+    /// executor commands these by URL, so a per-model or per-type channel override needs no console
+    /// channel change mid-rollout and cannot be undone by someone changing it in UniFi Network.
+    /// </summary>
+    public List<PlanTargetImage> TargetImages { get; set; } = [];
+
     /// <summary>Progress of the UniFi Network application update that runs ahead of wave 1.</summary>
     public RolloutConsoleStepState NetworkAppUpdate { get; set; } = new();
 
@@ -389,6 +396,22 @@ public class RolloutConsoleStepState
 /// One device's pre-rollout image, cached so a rollback can be run without the release feed
 /// having to answer at the moment somebody needs it.
 /// </summary>
+public class PlanTargetImage
+{
+    /// <summary>Normalized device MAC.</summary>
+    public string Mac { get; set; } = string.Empty;
+
+    /// <summary>Version this image installs.</summary>
+    public string? Version { get; set; }
+
+    /// <summary>
+    /// Direct image URL from the catalog of the channel this device is planned on, captured while
+    /// that channel was staged. Commanding it by URL is what lets one rollout install different
+    /// channels on different models without the console having to be on each in turn.
+    /// </summary>
+    public string? Url { get; set; }
+}
+
 public class PlanPriorVersion
 {
     /// <summary>Normalized device MAC.</summary>

@@ -1015,18 +1015,20 @@ public class RolloutPlannerTests
     }
 
     [Fact]
-    public void Plan_UnderAChannelChange_WithholdsTheTargetVersion()
+    public void Plan_CarriesWhateverTargetTheGatherStaged_IncludingNone()
     {
-        // The console stages one channel at a time, so the version it reports is the build for the
-        // channel it is on now. Naming it under a channel change proposes an EA build to a site
-        // that asked for RC, and gives the executor the wrong version to verify against.
-        var devices = new[] { Ap(ApMac, "AP-1", "SKU-AP1") };
+        // The gather visits each planned channel and reads each device's target on its own, and
+        // leaves it null for a channel it could not reach. The planner passes that through: it has
+        // no better answer, and inventing one quotes a build from the wrong channel.
+        var known = Ap(ApMac, "AP-1", "SKU-AP1");
+        var unreachable = Ap("aa:bb:cc:dd:ee:05", "AP-2", "SKU-AP2");
+        unreachable.ToVersion = null;
 
-        var result = Plan(devices, Settings(globalChannel: FirmwareChannels.ReleaseCandidate),
+        var result = Plan([known, unreachable], Settings(globalChannel: FirmwareChannels.ReleaseCandidate),
             currentConsoleChannel: FirmwareChannels.Release);
 
-        result.Steps.Should().ContainSingle().Which.ToVersion.Should().BeNull();
-        result.Document.Waves[0].Steps[0].ToVersion.Should().BeNull();
+        StepOf(result.Document, ApMac).ToVersion.Should().Be("1.1.0");
+        StepOf(result.Document, "aa:bb:cc:dd:ee:05").ToVersion.Should().BeNull();
         result.Document.ChannelGroups.Should().ContainSingle()
             .Which.RequiresConsoleChange.Should().BeTrue();
     }
