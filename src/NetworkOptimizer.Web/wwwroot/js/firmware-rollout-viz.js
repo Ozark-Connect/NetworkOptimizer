@@ -207,7 +207,13 @@ export function play() {
         const now = performance.now();
         _playheadSec += ((now - _lastTick) / 1000) * speedup;
         _lastTick = now;
-        if (_playheadSec >= totalSeconds()) { _playheadSec = totalSeconds(); _playing = false; }
+        // Running off the end is a pause like any other: the traffic has to settle with the
+        // playhead, since the map keeps its particles moving until the store says paused.
+        if (_playheadSec >= totalSeconds()) {
+            _playheadSec = totalSeconds();
+            _playing = false;
+            flowData.publishPlayState(true, 'historic');
+        }
         positionPlayhead();
         applyOverlays();
         if (_windowStartMs) loadHistoricAt(_windowStartMs + _playheadSec * 1000);
