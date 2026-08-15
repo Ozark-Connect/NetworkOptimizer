@@ -48,18 +48,32 @@ public class QuietWindowService
     }
 
     /// <summary>Carries the site's zone out with the proposal, and the instant it names in UTC.</summary>
-    private QuietWindowProposal Stamp(QuietWindowProposal proposal) => new()
+    private QuietWindowProposal Stamp(QuietWindowProposal proposal)
     {
-        Day = proposal.Day,
-        Hour = proposal.Hour,
-        StartLocal = proposal.StartLocal,
-        StartUtc = TimeZoneInfo.ConvertTimeToUtc(
-            DateTime.SpecifyKind(proposal.StartLocal, DateTimeKind.Unspecified), _timeZone),
-        TimeZoneId = _timeZone.Id,
-        BusyScore = proposal.BusyScore,
-        UsedFallback = proposal.UsedFallback,
-        Basis = proposal.Basis,
-    };
+        var local = SkipSpringForwardGap(proposal.StartLocal, _timeZone);
+        return new()
+        {
+            Day = proposal.Day,
+            Hour = local.Hour,
+            StartLocal = local,
+            StartUtc = TimeZoneInfo.ConvertTimeToUtc(local, _timeZone),
+            TimeZoneId = _timeZone.Id,
+            BusyScore = proposal.BusyScore,
+            UsedFallback = proposal.UsedFallback,
+            Basis = proposal.Basis,
+        };
+    }
+
+    /// <summary>
+    /// Moves a start off an hour that does not exist. Clocks jump forward an hour once a year and
+    /// the quiet hours we favor are exactly the ones that vanish - 2 AM Sunday in the US - and
+    /// ConvertTimeToUtc throws rather than choosing for us. Untouched on every other day.
+    /// </summary>
+    internal static DateTime SkipSpringForwardGap(DateTime startLocal, TimeZoneInfo zone)
+    {
+        var local = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified);
+        return zone.IsInvalidTime(local) ? local.AddHours(1) : local;
+    }
 
     private static TimeZoneInfo ResolveTimeZone(string? id, ILogger logger, string slug)
     {

@@ -286,4 +286,41 @@ public class SiteProfileClassifierTests
     {
         SiteProfileClassifier.Classify(0, 0, 0, 0).Should().Be(SiteUsageProfile.Home);
     }
+
+    // --- Spring forward ---------------------------------------------------------------------------
+
+    private static readonly TimeZoneInfo Central = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+
+    [Fact]
+    public void SkipSpringForwardGap_AnHourThatDoesNotExist_MovesToTheNextOne()
+    {
+        // 08 Mar 2026 02:00 Central never happens: the clocks go 01:59:59 to 03:00:00. The hours we
+        // favor are exactly these, and converting one throws rather than choosing.
+        var gap = new DateTime(2026, 3, 8, 2, 0, 0, DateTimeKind.Unspecified);
+
+        var moved = QuietWindowService.SkipSpringForwardGap(gap, Central);
+
+        moved.Hour.Should().Be(3);
+        var act = () => TimeZoneInfo.ConvertTimeToUtc(moved, Central);
+        act.Should().NotThrow();
+        TimeZoneInfo.ConvertTimeToUtc(moved, Central).Should().Be(new DateTime(2026, 3, 8, 8, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public void SkipSpringForwardGap_AnOrdinaryHour_IsLeftAlone()
+    {
+        var normal = new DateTime(2026, 8, 16, 3, 0, 0, DateTimeKind.Unspecified);
+
+        QuietWindowService.SkipSpringForwardGap(normal, Central).Should().Be(normal);
+    }
+
+    [Fact]
+    public void SkipSpringForwardGap_TheRepeatedFallBackHour_IsLeftAlone()
+    {
+        // 01 Nov 2026 01:00 Central happens twice. That is ambiguous, not invalid: the conversion
+        // picks standard time and never throws, so there is nothing to step over.
+        var repeated = new DateTime(2026, 11, 1, 1, 0, 0, DateTimeKind.Unspecified);
+
+        QuietWindowService.SkipSpringForwardGap(repeated, Central).Should().Be(repeated);
+    }
 }
