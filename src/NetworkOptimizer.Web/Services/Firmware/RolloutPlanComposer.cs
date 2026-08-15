@@ -113,6 +113,17 @@ public static class RolloutPlanComposer
                 d.Upgradable && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
             {
                 device.ToVersion = byMac.TryGetValue(device.Mac, out var fresh) ? fresh.ToVersion : null;
+
+                // A less aggressive channel can offer an OLDER build than the device is running,
+                // and the console presents that as an available update. Moving a channel down is
+                // not an instruction to roll firmware back, so nothing is planned for it.
+                // TODO: a deliberate fleet-wide downgrade is a separate, opt-in mode - the
+                // per-device rollback already exists, this is the broad version of it.
+                if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion))
+                {
+                    device.ToVersion = null;
+                    device.Upgradable = false;
+                }
             }
 
             CaptureImages(images, context, settings, channel, channel, catalog);

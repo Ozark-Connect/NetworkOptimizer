@@ -45,7 +45,8 @@ public class PlannerDevice
     public DeviceType Type { get; init; }
 
     /// <summary>Whether the console offers an upgrade for this device.</summary>
-    public bool Upgradable { get; init; }
+    /// <remarks>Cleared during the gather when the planned channel offers nothing newer.</remarks>
+    public bool Upgradable { get; set; }
 
     /// <summary>Firmware version currently running.</summary>
     public string? FromVersion { get; init; }

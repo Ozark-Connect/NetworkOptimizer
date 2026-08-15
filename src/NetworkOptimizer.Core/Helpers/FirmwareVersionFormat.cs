@@ -54,4 +54,29 @@ public static class FirmwareVersionFormat
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
         return string.Equals(Short(left), Short(right), StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> is a later version than <paramref name="installed"/>.
+    /// Compared on the three-part version, since that is all a device reports. Equal is not newer.
+    /// </summary>
+    /// <param name="candidate">Version being offered.</param>
+    /// <param name="installed">Version running now.</param>
+    public static bool IsNewer(string? candidate, string? installed)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)) return false;
+        if (string.IsNullOrWhiteSpace(installed)) return true;
+
+        var a = Parts(candidate);
+        var b = Parts(installed);
+        for (var i = 0; i < Math.Max(a.Length, b.Length); i++)
+        {
+            var x = i < a.Length ? a[i] : 0;
+            var y = i < b.Length ? b[i] : 0;
+            if (x != y) return x > y;
+        }
+        return false;
+
+        static int[] Parts(string v) => Short(v).Split('.')
+            .Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+    }
 }

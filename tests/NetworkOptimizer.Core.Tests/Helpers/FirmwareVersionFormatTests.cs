@@ -82,4 +82,27 @@ public class FirmwareVersionFormatTests
     [InlineData("", "7.5.10")]
     public void SameBuild_WithNothingToCompare_IsFalse(string? left, string? right) =>
         FirmwareVersionFormat.SameBuild(left, right).Should().BeFalse();
+
+    [Theory]
+    [InlineData("7.5.10", "7.5.9", true)]
+    [InlineData("7.5.10.17129", "7.5.9", true)]
+    [InlineData("7.5.9", "7.5.10", false)]
+    [InlineData("7.5.10", "7.5.10", false)]
+    [InlineData("7.5.10", "7.5.10.17129", false)]
+    [InlineData("8.0.0", "7.9.9", true)]
+    [InlineData("7.5.2", "7.5.10", false)]
+    public void IsNewer_ComparesTheVersionNumerically(string candidate, string installed, bool expected) =>
+        FirmwareVersionFormat.IsNewer(candidate, installed).Should().Be(expected);
+
+    [Fact]
+    public void IsNewer_MovingToALessAggressiveChannel_IsNotAnUpgrade()
+    {
+        // The console offers the new channel's build as "available" even when it is older, which
+        // is how switching beta to RC turned into a fleet-wide downgrade proposal.
+        FirmwareVersionFormat.IsNewer("7.4.20", "7.5.10").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNewer_WithNothingInstalled_TakesTheCandidate() =>
+        FirmwareVersionFormat.IsNewer("7.5.10", null).Should().BeTrue();
 }
