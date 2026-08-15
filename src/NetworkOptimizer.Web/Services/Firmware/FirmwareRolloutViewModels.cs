@@ -3,8 +3,8 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
-/// Channel options the console offers, and the one devices follow today. The options list IS the
-/// early-access check: EA is only offerable where the console lists it.
+/// Channel options the console offers, and the one devices follow today. An empty options list
+/// means they could not be read, never that the console has none.
 /// </summary>
 public class RolloutChannelAvailability
 {
@@ -17,8 +17,13 @@ public class RolloutChannelAvailability
     /// <summary>UniFi Network application channel options this console offers.</summary>
     public List<string> AvailableNetworkAppChannels { get; set; } = [];
 
-    /// <summary>Whether early access (beta) may be offered for devices on this console.</summary>
-    public bool EarlyAccessAvailable => AvailableDeviceChannels
+    /// <summary>
+    /// Whether early access (beta) may be offered for devices. Withheld only when the console
+    /// enumerated its device channels and beta was not among them. An empty list is not that
+    /// answer - an API-key connection cannot reach the setting at all - and withholding EA there
+    /// hides a channel devices genuinely run.
+    /// </summary>
+    public bool EarlyAccessAvailable => AvailableDeviceChannels.Count == 0 || AvailableDeviceChannels
         .Any(c => string.Equals(c, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>UniFi OS channel options this console offers.</summary>

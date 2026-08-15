@@ -207,9 +207,12 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         }
 
         _logger.LogInformation(
-            "Channels on site {Site}: devices={Device}, network={App} ({AppVersion}), os={Os}",
+            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}",
             _siteSlug,
             availability.CurrentDeviceChannel,
+            availability.AvailableDeviceChannels.Count > 0
+                ? string.Join("/", availability.AvailableDeviceChannels)
+                : "unreadable",
             availability.CurrentNetworkAppChannel ?? "unknown",
             availability.CurrentNetworkAppVersion ?? "unknown",
             availability.CurrentUniFiOsChannel ?? "unknown");

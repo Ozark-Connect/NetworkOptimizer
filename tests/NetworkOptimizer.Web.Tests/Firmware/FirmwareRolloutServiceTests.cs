@@ -156,6 +156,20 @@ public class FirmwareRolloutServiceTests
         withEa.Channels.EarlyAccessAvailable.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task BuildPreviewAsync_ChannelsItCannotRead_StillOffersEarlyAccess()
+    {
+        // An API-key connection cannot reach the device firmware setting, so the options come back
+        // empty. Reading that as "no early access" hid the channel on a console whose devices run it.
+        using var harness = HarnessWithTwoAps();
+        harness.Commands.AvailableDeviceChannels = [];
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(s => s.GlobalChannel = "beta"));
+
+        preview.Channels.EarlyAccessAvailable.Should().BeTrue();
+        preview.Warnings.Should().NotContain(w => w.Contains("does not offer early access"));
+    }
+
     // --- Scheduling and starting ----------------------------------------------------------------
 
     [Fact]
