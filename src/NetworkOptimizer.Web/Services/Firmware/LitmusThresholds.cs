@@ -12,6 +12,12 @@ public sealed record RolloutResourceStats
     /// <summary>Health samples the means were taken over. Zero means the device was not observed.</summary>
     public int SampleCount { get; init; }
 
+    /// <summary>
+    /// Mean probe loss over the window when the device is itself a monitored latency target;
+    /// null when it is not probed, or was not probed over this window.
+    /// </summary>
+    public double? LossPercent { get; init; }
+
     /// <summary>True when the window carried at least one usable reading.</summary>
     public bool HasSamples => SampleCount > 0;
 }
@@ -57,8 +63,29 @@ public static class LitmusThresholds
     /// </summary>
     public const double MemoryAbsolutePoints = 5.0;
 
-    /// <summary>Mean loss over the litmus window that fails a device that is a monitored latency target.</summary>
+    /// <summary>Relative loss increase that counts, once the absolute floor is also cleared.</summary>
+    public const double LossRelativeFraction = 0.25;
+
+    /// <summary>
+    /// Mean loss over the litmus window that fails a device that is a monitored latency target.
+    /// A floor, not a verdict: a target already losing this much before the upgrade has to have got
+    /// appreciably worse to fail, or every rollout past a flaky target would abort that whole model.
+    /// </summary>
     public const double LossFailPercent = 5.0;
+
+    /// <summary>
+    /// Whether post-upgrade loss is bad enough to fail the canary, given what the device was losing
+    /// beforehand. Absolute floor first, then - when there was a baseline to beat - a relative rise
+    /// on top of it, the same pairing CPU and memory use and for the same reason.
+    /// </summary>
+    /// <param name="beforeLossPercent">Mean loss before the upgrade; null when there was no baseline.</param>
+    /// <param name="afterLossPercent">Mean loss over the litmus window; null when the device is not probed.</param>
+    public static bool IsAppreciableLoss(double? beforeLossPercent, double? afterLossPercent)
+    {
+        if (afterLossPercent is not double after || after < LossFailPercent) return false;
+        if (beforeLossPercent is not double before || before <= 0) return true;
+        return (after - before) / before >= LossRelativeFraction;
+    }
 
     /// <summary>
     /// Compares two windows. Both sides need samples, and a metric only votes when both windows

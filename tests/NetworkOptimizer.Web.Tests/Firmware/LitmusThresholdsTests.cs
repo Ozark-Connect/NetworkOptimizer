@@ -127,5 +127,42 @@ public class LitmusThresholdsTests
         LitmusThresholds.CpuAbsolutePoints.Should().Be(10.0);
         LitmusThresholds.MemoryRelativeFraction.Should().Be(0.10);
         LitmusThresholds.LossFailPercent.Should().Be(5.0);
+        LitmusThresholds.LossRelativeFraction.Should().Be(0.25);
+    }
+
+    [Fact]
+    public void IsAppreciableLoss_ADeviceThatWasNotProbed_HasNothingToJudge()
+    {
+        LitmusThresholds.IsAppreciableLoss(null, null).Should().BeFalse();
+        LitmusThresholds.IsAppreciableLoss(8.0, null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAppreciableLoss_UnderTheFloor_NeverFails()
+    {
+        LitmusThresholds.IsAppreciableLoss(null, 4.9).Should().BeFalse();
+        LitmusThresholds.IsAppreciableLoss(0.0, 4.9).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAppreciableLoss_CleanBeforeAndLosingAfter_Fails()
+    {
+        LitmusThresholds.IsAppreciableLoss(null, 12.0).Should().BeTrue();
+        LitmusThresholds.IsAppreciableLoss(0.0, 12.0).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsAppreciableLoss_ATargetAlreadyLosing_HasToGetAppreciablyWorse()
+    {
+        // The whole point of the baseline: a flaky target must not abort its model for standing still.
+        LitmusThresholds.IsAppreciableLoss(8.0, 9.0).Should().BeFalse();
+        LitmusThresholds.IsAppreciableLoss(8.0, 8.0).Should().BeFalse();
+        LitmusThresholds.IsAppreciableLoss(8.0, 12.0).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsAppreciableLoss_ImprovementIsNeverAFailure()
+    {
+        LitmusThresholds.IsAppreciableLoss(20.0, 6.0).Should().BeFalse();
     }
 }

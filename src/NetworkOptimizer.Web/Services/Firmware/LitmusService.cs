@@ -90,8 +90,13 @@ public class LitmusService : IRolloutLitmusService
         {
             // QueryDeviceHealthAsync normalizes the MAC itself, so either spelling is fine here.
             var points = await _influx.QueryDeviceHealthAsync(deviceMac, from, to, ct: cancellationToken);
+
+            // Loss is read whether or not health reported: the pre-upgrade window is the only
+            // baseline the canary's loss check ever gets, and a device can be probed without
+            // reporting health of its own.
+            var loss = await MeasureTargetLossAsync(deviceMac, from, to, cancellationToken);
             if (points.Count == 0)
-                return new RolloutResourceStats();
+                return new RolloutResourceStats { LossPercent = loss };
 
             var cpu = points.Where(p => p.CpuPercent.HasValue).Select(p => p.CpuPercent!.Value).ToList();
             var memory = points.Where(p => p.MemoryUsedPercent.HasValue).Select(p => p.MemoryUsedPercent!.Value).ToList();
@@ -101,6 +106,7 @@ public class LitmusService : IRolloutLitmusService
                 CpuPercent = cpu.Count > 0 ? cpu.Average() : null,
                 MemoryUsedPercent = memory.Count > 0 ? memory.Average() : null,
                 SampleCount = points.Count,
+                LossPercent = loss,
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -120,6 +126,15 @@ public class LitmusService : IRolloutLitmusService
     {
         var post = await CaptureStatsAsync(deviceMac, from, to, cancellationToken);
 
+        // Probes are evidence in their own right, so this is judged before health silence - a
+        // device that answers pings badly and reports nothing at all is still a failure.
+        if (LitmusThresholds.IsAppreciableLoss(preStats?.LossPercent, post.LossPercent))
+        {
+            var before = preStats?.LossPercent is > 0 ? $" (was {preStats.LossPercent:0.0}%)" : "";
+            return LitmusVerdict.Fail(
+                $"The device is a monitored latency target and is losing {post.LossPercent:0.0}% of probes{before}.");
+        }
+
         // Silence only counts against a device that was being heard before. A site that collects no
         // device health at all would otherwise fail every canary it ever ran.
         if (!post.HasSamples)
@@ -132,10 +147,6 @@ public class LitmusService : IRolloutLitmusService
         var comparison = LitmusThresholds.Compare(preStats, post);
         if (comparison.Verdict == ResourceComparisonVerdict.Regression)
             return LitmusVerdict.Fail($"Resource use jumped after the upgrade. {comparison.Detail}");
-
-        var loss = await MeasureTargetLossAsync(deviceMac, from, to, cancellationToken);
-        if (loss is double measured && measured >= LitmusThresholds.LossFailPercent)
-            return LitmusVerdict.Fail($"The device is a monitored latency target and is losing {measured:0.0}% of probes.");
 
         return LitmusVerdict.Pass();
     }
