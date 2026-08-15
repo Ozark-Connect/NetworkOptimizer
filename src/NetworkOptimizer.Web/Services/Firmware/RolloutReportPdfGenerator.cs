@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Reports;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -192,7 +193,9 @@ public class RolloutReportPdfGenerator
                 {
                     Cell(table, row.Name);
                     Cell(table, row.Model);
-                    Cell(table, $"{row.FromVersion ?? "--"} to {row.ToVersion ?? "--"}");
+                    // Short form, the same as every screen: the catalog names a build
+                    // (7.5.10.17129) where the device reports a version (7.5.10).
+                    Cell(table, $"{FirmwareVersionFormat.ShortOrNull(row.FromVersion) ?? "--"} to {FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "--"}");
                     Cell(table, row.Outcome, OutcomeColor(row.Outcome));
                     Cell(table, row.DowntimeSeconds is int seconds ? FormatDuration(seconds) : "--");
                     Cell(table, BeforeAfter(row.CpuBeforeMean, row.CpuAfterMean));
