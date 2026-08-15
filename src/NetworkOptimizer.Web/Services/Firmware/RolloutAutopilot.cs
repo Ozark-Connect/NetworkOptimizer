@@ -161,6 +161,27 @@ public class RolloutAutopilot : IRolloutAutopilot
         return plan.Id;
     }
 
+    /// <summary>
+    /// The site's own reading of the start, for the one place it matters most: an alert is read out
+    /// of context, and whether a 3 AM reboot bothers anyone is a question about the site's hours.
+    /// Empty when the site keeps the server's, which is every single-site install.
+    /// </summary>
+    private static string SiteAside(QuietWindowProposal window, DateTime startAtUtc)
+    {
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(window.TimeZoneId);
+            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
+
+            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(startAtUtc, DateTimeKind.Utc), tz);
+            return $" ({at:h:mm tt} at-site)";
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return string.Empty;
+        }
+    }
+
     private async Task AnnounceAsync(
         RolloutPlanResult result, QuietWindowProposal window, DateTime startAtUtc, CancellationToken cancellationToken)
     {
@@ -174,9 +195,10 @@ public class RolloutAutopilot : IRolloutAutopilot
             Severity = AlertSeverity.Info,
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
-                $"{devices} device{(devices == 1 ? "" : "s")} will be upgraded starting {window.StartLocal:ddd d MMM HH:mm} local time, "
+                $"{devices} device{(devices == 1 ? "" : "s")} will be upgraded starting "
+                + $"{startAtUtc.ToLocalTime():ddd MMM d, h:mm tt}{SiteAside(window, startAtUtc)}, "
                 + $"in about {hours:0} hour{(Math.Round(hours) == 1 ? "" : "s")} - chosen from {window.Basis}. "
-                + "Open Firmware Rollout to postpone it by a window or stop it.",
+                + "Open Firmware Rollout to postpone or stop it.",
             SourceUrl = RolloutAlerts.SourceUrl,
         }, cancellationToken);
     }
