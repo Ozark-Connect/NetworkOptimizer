@@ -362,7 +362,7 @@ else if (_wizardOpen)
                         </div>
                         @if (_preview?.ProposedWindow is { } window)
                         {
-                            <small class="form-help">Suggested: @window.Day at @($"{window.Hour:00}:00") - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
+                            <small class="form-help">Suggested: @LocalTime(window.StartUtc)@SiteAside(window.StartUtc) - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
                         }
                     </div>
                 }
@@ -1164,7 +1164,7 @@ else
             if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
 
             var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
-            return $" ({at:h:mm tt} at the site)";
+            return $" ({at:h:mm tt} at-site)";
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
         {
