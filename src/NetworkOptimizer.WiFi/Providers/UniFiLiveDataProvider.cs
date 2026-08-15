@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -952,7 +952,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         DiscoveredDevice ap,
         DateTimeOffset timestamp,
         HashSet<string> apMacs,
-        IReadOnlyDictionary<string, string> parentByChild)
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> parentByChild)
     {
         // Check if this AP has a wireless uplink to another AP (mesh child)
         var isMeshChild = false;
@@ -977,16 +977,16 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     meshUplinkInterface = ap.UplinkInterface;
             }
         }
-        else if (parentByChild.TryGetValue(ap.Mac.ToLowerInvariant(), out var parentMac))
+        else if (parentByChild.TryGetValue(ap.Mac.ToLowerInvariant(), out var claim))
         {
             // The parent claims it and the child says nothing. Band, channel and the STA interface
             // all live on the missing half, so they stay unknown - the re-pair reads the interface
             // off the device itself when it is not reported.
             isMeshChild = true;
-            meshParentMac = parentMac;
+            meshParentMac = claim.ParentMac;
             _logger.LogDebug(
                 "[Mesh] {Ap} ({Mac}) has no uplink of its own; taking {Parent} as its mesh parent from the parent's downlink table",
-                ap.Name, ap.Mac, parentMac);
+                ap.Name, ap.Mac, claim.ParentMac);
         }
 
         var snapshot = new AccessPointSnapshot

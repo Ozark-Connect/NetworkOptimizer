@@ -1411,15 +1411,15 @@ public class LanFlowMapService
             // naming a switch that actually hangs off the AP - and pointing a child at something
             // downstream of itself closes a loop the layout cannot place, so the device ends up
             // with no position at all: isolated on 3D, absent from 2D.
-            if (meshParentByChild.TryGetValue(mac, out var derivedParent))
+            if (meshParentByChild.TryGetValue(mac, out var claim))
             {
-                if (!string.Equals(uplinkMac, derivedParent, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(uplinkMac, claim.ParentMac, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogDebug(
                         "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
-                        mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, derivedParent);
+                        mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, claim.ParentMac);
                 }
-                uplinkMac = derivedParent;
+                uplinkMac = claim.ParentMac;
                 fromDownlinkTable = true;
             }
             if (string.IsNullOrEmpty(uplinkMac)) continue;
@@ -1443,16 +1443,30 @@ public class LanFlowMapService
                 FromNodeId = "dev-" + parentMac,
                 ToNodeId = "dev-" + mac,
                 Kind = isWirelessBackhaul ? LanLinkKind.MeshBackhaul : LanLinkKind.Uplink,
-                CapacityBps = ResolveUplinkCapacityBps(d),
-                Band = isWirelessBackhaul ? NormalizeBand(d.UplinkRadioBand) : null,
+                // Negotiated speed and band belong to the link the child described. When that is
+                // not this link, they are not ours to show - a wired 1 Gbps read off a stale
+                // uplink is how a mesh backhaul ends up labelled 1 Gbps.
+                CapacityBps = fromDownlinkTable ? null : ResolveUplinkCapacityBps(d),
+                Band = isWirelessBackhaul && !fromDownlinkTable ? NormalizeBand(d.UplinkRadioBand) : null,
             };
             if (isWirelessBackhaul)
             {
-                // Mesh PHY is asymmetric: the child's uplink RX rate caps traffic
-                // toward it (downstream), its TX rate caps traffic toward the
-                // parent (upstream).
-                if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
-                if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                // Mesh PHY is asymmetric, and which field is which depends on who reported it.
+                // The child's own fields are the child's perspective: its RX caps traffic toward
+                // it (downstream), its TX caps traffic toward the parent (upstream). A claim from
+                // the parent is the opposite way round - the parent transmitting IS the child
+                // receiving - and it also describes a different link from the one the child's
+                // stale uplink fields refer to, so the two are never mixed.
+                if (fromDownlinkTable)
+                {
+                    if (claim.TxRateKbps > 0) link.CapacityDownBps = claim.TxRateKbps * 1_000L;
+                    if (claim.RxRateKbps > 0) link.CapacityUpBps = claim.RxRateKbps * 1_000L;
+                }
+                else
+                {
+                    if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
+                    if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                }
             }
 
             // For wired uplinks, the parent switch port carries the throughput we want.

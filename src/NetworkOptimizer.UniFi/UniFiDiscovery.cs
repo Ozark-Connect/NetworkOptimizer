@@ -165,11 +165,11 @@ public class UniFiDiscovery
     /// recoverable here; ask the device for the interface.
     /// </summary>
     /// <param name="devices">Every device in the site.</param>
-    public static Dictionary<string, string> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
+    public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
     {
         var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
         var known = new HashSet<string>(all.Select(d => d.Mac.ToLowerInvariant()));
-        var parentByChild = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var parentByChild = new Dictionary<string, MeshParentClaim>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var parent in all)
         {
@@ -179,12 +179,23 @@ public class UniFiDiscovery
                 if (string.IsNullOrEmpty(link.SerialNo)) continue;
                 var childMac = link.SerialNo.ToLowerInvariant();
                 if (known.Contains(childMac))
-                    parentByChild[childMac] = parent.Mac.ToLowerInvariant();
+                    parentByChild[childMac] = new MeshParentClaim(parent.Mac.ToLowerInvariant(), link.TxRate, link.RxRate);
             }
         }
 
         return parentByChild;
     }
+
+    /// <summary>
+    /// A parent's account of one mesh child. Rates are the PARENT's perspective and are therefore
+    /// the inverse of the child's own uplink fields: the parent transmitting is the child receiving
+    /// (downstream), and the parent receiving is the child sending (upstream). Reading them the way
+    /// round the child's fields are read reports the link backwards.
+    /// </summary>
+    /// <param name="ParentMac">The parent's MAC, lower case.</param>
+    /// <param name="TxRateKbps">Parent to child, i.e. downstream.</param>
+    /// <param name="RxRateKbps">Child to parent, i.e. upstream.</param>
+    public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps);
 
     /// <summary>
     /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN

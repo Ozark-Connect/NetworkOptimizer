@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
@@ -895,9 +895,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // --- Follow uplinks to gateway ---
             int hopOrder = 1;
             int maxHops = 10;
+            // A device whose reported uplink points back down its own branch turns the walk into a
+            // loop, and the hop cap turns that into a path that repeats the same two devices until
+            // it runs out. Stop at the repeat instead: the path so far is the true part of it.
+            var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
             {
+                if (!walked.Add(currentMac))
+                {
+                    _logger.LogDebug(
+                        "Path walk looped at {Mac}; stopping - its reported uplink points back into the path", currentMac);
+                    break;
+                }
                 if (!deviceDict.TryGetValue(currentMac, out var device))
                     break;
 
@@ -2065,6 +2075,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Trace uplinks from target
             int hopOrder = 1;
             int maxHops = 10;
+            // Same loop guard as the client walk above: a self-referencing uplink otherwise
+            // repeats a pair of devices for the whole hop budget.
+            var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool reachedGateway = false;
             int commonAncestorIndex = -1; // Index in serverChain where we found the common ancestor
 
@@ -2075,6 +2088,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
             {
+                if (!walked.Add(currentMac))
+                {
+                    _logger.LogDebug(
+                        "Path walk looped at {Mac}; stopping - its reported uplink points back into the path", currentMac);
+                    break;
+                }
                 if (!deviceDict.TryGetValue(currentMac, out var device))
                     break;
 

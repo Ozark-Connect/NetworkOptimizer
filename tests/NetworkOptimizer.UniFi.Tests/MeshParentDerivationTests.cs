@@ -30,7 +30,22 @@ public class MeshParentDerivationTests
     {
         var map = UniFiDiscovery.BuildMeshParentByChild([Device(ParentMac, ChildMac), Device(ChildMac)]);
 
-        map.Should().ContainKey(ChildMac).WhoseValue.Should().Be(ParentMac);
+        map.Should().ContainKey(ChildMac).WhoseValue.ParentMac.Should().Be(ParentMac);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_CarriesTheParentsRatesAsTheParentReportedThem()
+    {
+        // Direction is the whole point of keeping them: the parent transmitting IS the child
+        // receiving, so these are the inverse of the child's own uplink fields.
+        var parent = Device(ParentMac, ChildMac);
+        parent.DownlinkTable![0].TxRate = 866_000;
+        parent.DownlinkTable![0].RxRate = 585_000;
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.TxRateKbps.Should().Be(866_000);
+        claim.RxRateKbps.Should().Be(585_000);
     }
 
     [Fact]
