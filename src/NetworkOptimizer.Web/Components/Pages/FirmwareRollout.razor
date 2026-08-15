@@ -705,8 +705,10 @@ else
             _settings = await RolloutService.GetSettingsAsync();
             _active = await RolloutService.GetActivePlanAsync();
             _history = await RolloutService.GetPlanHistoryAsync();
-            if (_active?.Status is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused)
-                StartPolling();
+            // Any live plan polls, not just a running one. A scheduled or announced plan starts
+            // on its own clock, and without a timer nothing re-renders to notice it happened -
+            // somebody watching the page through the start time would sit on a stale view.
+            if (_active != null) StartPolling();
         }
         catch (Exception ex)
         {
