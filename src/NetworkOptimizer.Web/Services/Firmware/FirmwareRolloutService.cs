@@ -496,8 +496,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         if (preview.UpgradableCount == 0)
         {
             preview.Notices.Add(
-                "No firmware updates are waiting on this site, so there is nothing to schedule. Go Back " +
-                "and choose Autopilot to have one planned as soon as they arrive.");
+                "No firmware updates are waiting on this site, so there is nothing to schedule. Choose " +
+                "Autopilot on the Schedule step to have one planned as soon as they arrive.");
         }
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
