@@ -2893,6 +2893,10 @@ from(bucket: ""{_longtermBucket}"")
         return TimeSpan.FromSeconds(windowSeconds);
     }
 
+    /// <summary>
+    /// A range bound as Flux wants it. Callers pass UTC: an Unspecified DateTime is read as LOCAL
+    /// here, so a timestamp straight out of SQLite has to be stamped by its caller first.
+    /// </summary>
     private static string ToFluxInstant(DateTime t) =>
         t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
