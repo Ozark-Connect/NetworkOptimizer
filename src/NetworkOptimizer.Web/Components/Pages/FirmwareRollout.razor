@@ -362,7 +362,7 @@ else if (_wizardOpen)
                         </div>
                         @if (_preview?.ProposedWindow is { } window)
                         {
-                            <small class="form-help">Suggested: @LocalTime(window.StartUtc)@SiteAside(window.StartUtc) - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
+                            <small class="form-help">Suggested: @LocalTime(window.StartUtc) - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
                         }
                     </div>
                 }
@@ -420,7 +420,7 @@ else if (_wizardOpen)
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.UpgradableCount</span><span class="detail-label">to upgrade</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.Plan.Waves.Count</span><span class="detail-label">waves</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
-                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : LocalTime(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : LocalTime(SelectedStartUtc) + SiteAside(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
                     @if (_preview.ExcludedCount > 0)
                     {
                         <div class="firmware-rollout-stat"><span class="detail-value">@_preview.ExcludedCount</span><span class="detail-label">excluded</span></div>
