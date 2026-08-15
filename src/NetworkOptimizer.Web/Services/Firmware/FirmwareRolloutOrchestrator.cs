@@ -776,6 +776,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         state.TargetVersion = application?.UpdateAvailable;
 
+        // Same gate the console's own update gets: the offer is whatever this channel holds, and
+        // after a channel move down that can be behind what is running.
+        // TODO: a deliberate downgrade would be an explicit, separate action.
+        // Unknown installed version refuses too: IsNewer reads "nothing installed" as newer, which
+        // is right for a device being adopted and wrong for an application already serving a site.
+        if (string.IsNullOrWhiteSpace(application?.Version)
+            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version))
+        {
+            state.Settled = true;
+            state.Outcome = "nothing-to-update";
+            _logger.LogWarning(
+                "Refusing the UniFi Network application update on site {Site}: {Offered} is not newer than the installed {Installed}",
+                _siteSlug, application?.UpdateAvailable ?? "nothing", application?.Version ?? "unknown");
+            return;
+        }
+
         if (!await _commands.TriggerNetworkApplicationUpdateAsync(cancellationToken))
         {
             // Nothing staged, or the console would not take it. Either way there is nothing to
@@ -997,6 +1013,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         document.UniFiOsUpdate.TargetVersion = pending.Version;
+
+        // Last gate before the console reboots into it. A channel holds its own line, so the build
+        // on offer can be BEHIND what is installed - GA at 4.4.7 while the console runs 5.1.28 -
+        // and downgrading a console is not recoverable from here. Planning refuses these too; this
+        // is the one that matters, because the offer is read fresh at this moment.
+        // TODO: a deliberate console downgrade would be an explicit, separate action.
+        // Unknown installed version refuses too: IsNewer treats "nothing installed" as newer, which
+        // is the right default for a device and the wrong one for the console.
+        var installedOs = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.InstalledOsVersion;
+        if (string.IsNullOrWhiteSpace(installedOs)
+            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs))
+        {
+            _logger.LogWarning(
+                "Refusing the UniFi OS update on site {Site}: the {Channel} channel offers {Offered}, which is not newer than the installed {Installed}",
+                _siteSlug, document.ConsoleChannels.UniFiOsChannel ?? "selected", pending.Version, installedOs ?? "unknown");
+            await SettleUniFiOsAsync(plan, document, "nothing-to-update", cancellationToken);
+            return true;
+        }
+
         if (!await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
         {
             await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);

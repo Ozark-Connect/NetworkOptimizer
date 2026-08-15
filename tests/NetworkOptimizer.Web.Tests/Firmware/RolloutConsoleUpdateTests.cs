@@ -443,4 +443,5 @@ public class BackupResultMappingTests
         result.Outcome.Should().Be(FirmwareCommandOutcome.Failed);
         result.Message.Should().Contain("unsuccessful");
     }
+
 }

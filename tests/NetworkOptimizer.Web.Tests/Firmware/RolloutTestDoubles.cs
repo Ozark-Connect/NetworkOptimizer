@@ -63,7 +63,26 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     // A real console answers with a firmware block even when it has nothing pending. An empty
     // object means "could not be reached", which is what an API-key connection returns.
-    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new() { Firmware = new UniFiConsoleFirmware() };
+    // Hardware carries the installed UniFi OS build, which the downgrade guards compare against;
+    // a console with none refuses every console update, which is the point of that guard.
+    public UniFiConsoleSystemInfo? ConsoleInfo { get; set; } = new()
+    {
+        Firmware = new UniFiConsoleFirmware(),
+        Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.5" },
+        Apps = new UniFiConsoleApps
+        {
+            Controllers =
+            [
+                new UniFiConsoleController
+                {
+                    Name = UniFiConsoleController.NetworkName,
+                    Version = "9.0.0",
+                    UpdateAvailable = "9.1.0",
+                    ReleaseChannel = "release",
+                },
+            ],
+        },
+    };
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
     /// <summary>What the console offers as a UniFi OS build; null means it is current.</summary>
@@ -600,8 +619,12 @@ internal static class RolloutFixtures
         string appChannel = "release",
         string? appUpdateAvailable = null,
         string appVersion = "10.6.94",
+        string installedOs = "4.3.5",
         bool standalone = false) => new()
         {
+            // The downgrade guards compare an offer against this, so a console without it refuses
+            // every console update - which is the guard doing its job, not a fixture detail.
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = installedOs },
             Firmware = new UniFiConsoleFirmware
             {
                 ReleaseChannel = osChannel,

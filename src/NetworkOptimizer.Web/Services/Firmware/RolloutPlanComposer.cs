@@ -49,10 +49,11 @@ public static class RolloutPlanComposer
         var images = new List<PlanTargetImage>();
         if (settings != null)
         {
-            CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
+            if (!string.IsNullOrEmpty(currentChannel))
+                CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, images, cancellationToken);
-            console = await StageNetworkAppChannelAsync(commands, console, settings, cancellationToken);
+            console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
         }
 
         return new RolloutPlanInputs(
@@ -162,28 +163,33 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>
-    /// Puts the UniFi Network application on its planned channel before its update is read.
-    ///
-    /// The console describes the application with one releaseChannel and one updateAvailable, so
-    /// that version is whatever the channel it is on offers - unlike UniFi OS, which publishes a
-    /// latestByChannel map and needs no switching to be read correctly.
+    /// Puts both console surfaces on their planned channel before their versions are read.
     /// </summary>
-    /// <returns>The console as it reads on the planned channel, or as it was when nothing changed.</returns>
-    private static async Task<NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo?> StageNetworkAppChannelAsync(
+    /// <returns>The console as it reads on the planned channels, or as it was when nothing changed.</returns>
+    private static async Task<NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo?> StageConsoleChannelsAsync(
         IFirmwareCommandClient commands,
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
         FirmwareRolloutSettings settings,
         CancellationToken cancellationToken)
     {
-        if (!settings.IncludeUniFiNetwork || !ConsoleReachable(console)) return console;
+        if (!ConsoleReachable(console)) return console;
 
-        var wanted = settings.EffectiveNetworkAppChannel;
-        var current = console!.NetworkApplication?.ReleaseChannel;
-        if (string.IsNullOrEmpty(wanted) || string.Equals(current, wanted, StringComparison.OrdinalIgnoreCase))
-            return console;
+        // latestByChannel is only refreshed for a channel the console has actually been put on:
+        // an atl console sitting on RC reported release 4.4.7 for weeks and produced 5.1.19 the
+        // moment GA was selected. So both surfaces are put on their planned channel before their
+        // version is read, and left there - planning on a channel is committing to it.
+        var app = settings.IncludeUniFiNetwork ? settings.EffectiveNetworkAppChannel : null;
+        if (!string.IsNullOrEmpty(app)
+            && string.Equals(console!.NetworkApplication?.ReleaseChannel, app, StringComparison.OrdinalIgnoreCase))
+            app = null;
 
-        if (!await commands.SetConsoleChannelsAsync(wanted, null, cancellationToken))
-            return console;
+        var os = settings.IncludeUniFiOs ? settings.EffectiveUniFiOsChannel : null;
+        if (!string.IsNullOrEmpty(os)
+            && string.Equals(console!.Firmware?.ReleaseChannel, os, StringComparison.OrdinalIgnoreCase))
+            os = null;
+
+        if (app == null && os == null) return console;
+        if (!await commands.SetConsoleChannelsAsync(app, os, cancellationToken)) return console;
 
         return await commands.GetConsoleSystemInfoAsync(cancellationToken) ?? console;
     }
@@ -236,7 +242,13 @@ public static class RolloutPlanComposer
 
         var app = console!.NetworkApplication;
         if (app == null) return true;
-        return !string.IsNullOrEmpty(app.UpdateAvailable);
+        if (string.IsNullOrEmpty(app.UpdateAvailable)) return false;
+
+        // The console names the build its channel offers, which after a channel move down can be
+        // behind what is running. Only newer is an update.
+        // TODO: a deliberate downgrade is a separate opt-in mode, as for devices and the console.
+        return !string.IsNullOrEmpty(app.Version)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(app.UpdateAvailable, app.Version);
     }
 
     /// <summary>Whether /api/system answered with anything at all.</summary>
@@ -254,10 +266,11 @@ public static class RolloutPlanComposer
         var installed = console.InstalledOsVersion;
         if (string.IsNullOrEmpty(installed)) return true;
 
-        return !string.Equals(
-            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(release.Version),
-            NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(installed),
-            StringComparison.OrdinalIgnoreCase);
+        // Newer, not merely different. A channel holds its own line, so a less aggressive one can
+        // name a build far behind what is installed - GA at 4.4.7 against 5.1.28 - and treating any
+        // difference as an update turned that into a console downgrade.
+        // TODO: a deliberate downgrade is a separate opt-in mode, as for devices.
+        return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(release.Version, installed);
     }
 
     /// <summary>Steps that would actually be commanded, i.e. everything not excluded up front.</summary>

@@ -462,6 +462,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
         var installed = console?.InstalledOsVersion;
 
+
         preview.UniFiOs = new RolloutConsoleStepPreview
         {
             Name = "UniFi OS",
@@ -470,7 +471,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             CurrentVersion = installed,
             TargetVersion = offered,
             Channel = channel,
-            UpdateAvailable = offered != null && installed != null && !SameVersion(offered, installed),
+            // Newer, not merely different: a channel can name a build behind what is installed.
+            UpdateAvailable = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(offered, installed),
             Included = settings.IncludeUniFiOs,
         };
     }

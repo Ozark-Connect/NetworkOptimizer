@@ -282,4 +282,43 @@ public class RolloutConsoleChannelTests
         await harness.TickAsync(TimeSpan.FromSeconds(20));
         await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown);
     }
+
+    [Fact]
+    public async Task AConsoleUpdateBehindTheInstalledBuild_IsRefused()
+    {
+        // Live on atl-1365: the console ran 5.1.28 and, once GA was selected, offered 5.1.19 as its
+        // pending update. Installing it would have rebooted the console onto an older UniFi OS.
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(osChannel: "release", installedOs: "5.1.28");
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "5.1.19" };
+        await harness.WithSettingsAsync(s => s.IncludeUniFiOs = true);
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0);
+        var stored = await harness.PlanAsync(plan.Id);
+        Stored(stored!).UniFiOsUpdate.Outcome.Should().Be("nothing-to-update");
+    }
+
+    [Fact]
+    public async Task AConsoleWhoseInstalledBuildIsUnknown_IsRefused()
+    {
+        // No installed version means no way to prove the offer is forward, and a console downgrade
+        // is not recoverable from here - so the unknown case refuses rather than assuming.
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(osChannel: "release", installedOs: "");
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "5.1.19" };
+        await harness.WithSettingsAsync(s => s.IncludeUniFiOs = true);
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0);
+    }
+
 }
