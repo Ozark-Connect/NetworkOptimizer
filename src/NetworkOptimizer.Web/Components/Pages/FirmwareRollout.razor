@@ -1077,6 +1077,8 @@ else
     /// Open on what the console is set to today. The single select takes the least aggressive of
     /// the three channels in use, so opening the wizard never proposes moving a surface onto a
     /// riskier channel than it is on; a surface that sits somewhere else is pinned as an override.
+    /// Only channels that could actually be read count - a surface whose channel is unknown must
+    /// not vote, or an unreadable one drags the whole site back to Official.
     /// </summary>
     private void SeedChannelsFromConsole()
     {

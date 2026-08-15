@@ -8,8 +8,8 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// </summary>
 public class RolloutChannelAvailability
 {
-    /// <summary>Channel UniFi devices follow right now.</summary>
-    public string CurrentDeviceChannel { get; set; } = FirmwareChannels.Release;
+    /// <summary>Channel UniFi devices follow now, or null when it cannot be read.</summary>
+    public string? CurrentDeviceChannel { get; set; }
 
     /// <summary>Device channel options this console offers.</summary>
     public List<string> AvailableDeviceChannels { get; set; } = [];

@@ -174,7 +174,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             var settings = await client.GetFirmwareUpdateSettingsAsync(cancellationToken);
             if (settings != null)
             {
-                availability.CurrentDeviceChannel = settings.FirmwareChannel ?? FirmwareChannels.Release;
+                availability.CurrentDeviceChannel = settings.FirmwareChannel;
                 availability.AvailableDeviceChannels = settings.AvailableFirmwareChannels;
                 availability.AvailableNetworkAppChannels = settings.AvailableControllerChannels;
             }
@@ -209,7 +209,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         _logger.LogInformation(
             "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}",
             _siteSlug,
-            availability.CurrentDeviceChannel,
+            availability.CurrentDeviceChannel ?? "unknown",
             availability.AvailableDeviceChannels.Count > 0
                 ? string.Join("/", availability.AvailableDeviceChannels)
                 : "unreadable",
