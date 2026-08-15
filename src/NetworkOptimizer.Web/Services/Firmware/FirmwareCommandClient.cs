@@ -1,3 +1,4 @@
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
@@ -30,13 +31,35 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         _logger = logger;
     }
 
+    /// <summary>
+    /// The site's console client, waiting for the connection to come up rather than giving up on
+    /// it. Every call here can land while the console is still connecting - the wizard builds its
+    /// preview as the page loads - and a null client is silently indistinguishable from a console
+    /// that answered with nothing: no channels read, no options, no log line.
+    /// </summary>
+    private async Task<UniFiApiClient?> ConnectedClientAsync(CancellationToken cancellationToken)
+    {
+        var client = _connection.Client;
+        if (client != null) return client;
+
+        await _connection.WaitForConnectionAsync(ConnectWait);
+        client = _connection.Client;
+        if (client == null)
+            _logger.LogWarning("The UniFi Console for site {Site} is still not connected after {Wait}", _siteSlug, ConnectWait);
+
+        return client;
+    }
+
+    /// <summary>How long a console command waits for a connection that is still coming up.</summary>
+    private static readonly TimeSpan ConnectWait = TimeSpan.FromSeconds(20);
+
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerUpgradeAsync(string deviceMac, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(deviceMac))
             return FirmwareCommandResult.Failed("No device MAC to command.");
 
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null)
             return FirmwareCommandResult.Failed("The UniFi Console is not connected.");
 
@@ -63,7 +86,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware image URL for this device.");
 
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null)
             return FirmwareCommandResult.Failed("The UniFi Console is not connected.");
 
@@ -109,7 +132,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null)
         {
             _logger.LogDebug("Cannot check for firmware updates on site {Site}: the console is not connected", _siteSlug);
@@ -130,7 +153,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<bool> CheckForApplicationUpdatesAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return false;
 
         try
@@ -147,7 +170,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return null;
 
         try
@@ -166,7 +189,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     public async Task<RolloutChannelAvailability> GetChannelAvailabilityAsync(CancellationToken cancellationToken = default)
     {
         var availability = new RolloutChannelAvailability();
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return availability;
 
         try
@@ -223,7 +246,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return null;
 
         try
@@ -240,7 +263,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return false;
 
         try
@@ -260,7 +283,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     {
         if (networkAppChannel == null && unifiOsChannel == null) return true;
 
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return false;
 
         try
@@ -277,7 +300,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<UniFiConsoleSystemInfo?> GetConsoleSystemInfoAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return null;
 
         try
@@ -294,7 +317,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerBackupAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null)
             return FirmwareCommandResult.Failed("The UniFi Console is not connected.");
 
@@ -340,7 +363,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return false;
 
         try
@@ -360,7 +383,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<UniFiConsoleFirmwareRelease?> GetPendingUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return null;
 
         try
@@ -377,7 +400,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// <inheritdoc />
     public async Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
     {
-        var client = _connection.Client;
+        var client = await ConnectedClientAsync(cancellationToken);
         if (client == null) return false;
 
         try
