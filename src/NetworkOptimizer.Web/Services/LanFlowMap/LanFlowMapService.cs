@@ -1394,28 +1394,36 @@ public class LanFlowMapService
         // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
         var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
 
+        // An uplink is only useful if it names a device that is actually on the map. UniFi has been
+        // seen reporting a stale one after a reboot - present, so nothing looked wrong, but naming
+        // something no node exists for. The edge then hangs off nothing and the client drops it,
+        // which is indistinguishable from having no uplink at all: the device draws isolated.
+        var deviceMacs = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)));
+
         foreach (var d in topology.Devices)
         {
             var mac = NormalizeMac(d.Mac);
-            var uplinkMac = d.UplinkMac;
+            var uplinkMac = NormalizeMac(d.UplinkMac);
             var fromDownlinkTable = false;
-            if (string.IsNullOrEmpty(uplinkMac) && meshParentByChild.TryGetValue(mac, out var derivedParent))
+            if ((string.IsNullOrEmpty(uplinkMac) || !deviceMacs.Contains(uplinkMac))
+                && meshParentByChild.TryGetValue(mac, out var derivedParent))
             {
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} has no usable uplink (reported {Reported}); taking {Parent} from the parent's downlink table",
+                    mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, derivedParent);
                 uplinkMac = derivedParent;
                 fromDownlinkTable = true;
-                _logger.LogDebug(
-                    "[LanFlowMap] {Mac} reports no uplink; taking {Parent} from the parent's downlink table",
-                    mac, derivedParent);
-            }
-            else if (string.IsNullOrEmpty(uplinkMac))
-            {
-                _logger.LogDebug(
-                    "[LanFlowMap] {Mac} reports no uplink and no parent claims it ({Known} derived pairs)",
-                    mac, meshParentByChild.Count);
             }
             if (string.IsNullOrEmpty(uplinkMac)) continue;
             var parentMac = NormalizeMac(uplinkMac);
             if (mac == parentMac) continue;
+            if (!deviceMacs.Contains(parentMac))
+            {
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} uplinks to {Parent}, which is not a device on this site; no edge drawn",
+                    mac, parentMac);
+                continue;
+            }
 
             // A downlink_table entry is a wireless backhaul by definition; UplinkType came from
             // the half that was missing, so it cannot be consulted for these.
