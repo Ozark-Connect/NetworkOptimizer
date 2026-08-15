@@ -388,15 +388,14 @@ public class LanFlowMapService
                         var stats = _liveStats.GetForDevice(childDev);
                         if (stats != null && stats.LastRateUpdate.HasValue)
                         {
-                            // RecordInterfaceAggregate sums ifIn into RateInBps, so this is the
-                            // device's own perspective: into it is downstream, exactly as the
-                            // historic path reads a vwiresta counter. Reading it the other way
-                            // round reported the backhaul backwards - only visible once a mesh
-                            // child with no vwiresta counters started landing here.
+                            // Every aggregate writer stores uploads in RateInBps and downloads in
+                            // RateOutBps (LanFabricAggregator, the fast tier's vwiresta swap), so
+                            // downloads = link downstream. Do not "correct" this to a raw-ifIn
+                            // reading - the raw counters are swapped before they land here.
                             rates = new LinkLiveRates
                             {
-                                DownstreamBps = stats.RateInBps ?? 0,
-                                UpstreamBps = stats.RateOutBps ?? 0,
+                                DownstreamBps = stats.RateOutBps ?? 0,
+                                UpstreamBps = stats.RateInBps ?? 0,
                                 AsOf = stats.LastRateUpdate.Value,
                             };
                         }
@@ -1412,18 +1411,17 @@ public class LanFlowMapService
             var fromDownlinkTable = false;
 
             // A parent naming this device in its downlink_table outranks the device's own uplink
-            // field. That field can be stale or plain wrong after a reboot - it has been seen
-            // naming a switch that actually hangs off the AP - and pointing a child at something
-            // downstream of itself closes a loop the layout cannot place, so the device ends up
-            // with no position at all: isolated on 3D, absent from 2D.
-            if (meshParentByChild.TryGetValue(mac, out var claim))
+            // field ONLY when the two disagree. The field can be stale or plain wrong after a
+            // reboot - it has been seen naming a switch that actually hangs off the AP - and
+            // pointing a child at something downstream of itself closes a loop the layout cannot
+            // place, so the device ends up with no position at all: isolated on 3D, absent from
+            // 2D. When child and parent agree, the child's own report (capacity, band, uplink
+            // port) is authoritative and this path is inert.
+            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac))
             {
-                if (!string.Equals(uplinkMac, claim.ParentMac, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogDebug(
-                        "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
-                        mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, claim.ParentMac);
-                }
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
+                    mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, claim.ParentMac);
                 uplinkMac = claim.ParentMac;
                 fromDownlinkTable = true;
             }
@@ -1901,10 +1899,9 @@ public class LanFlowMapService
             }
             snapshot.Links.Add(wanLink);
 
-            // Seed live rates from WanSummary. On a WAN port the polled device IS the
-            // gateway, so the direction convention flips relative to internal uplinks:
-            //   RateIn  on gateway's WAN port = bytes from internet to gateway = downstream.
-            //   RateOut on gateway's WAN port = bytes from gateway to internet = upstream.
+            // Seed live rates from WanSummary. MonitoringPathView convention:
+            //   LiveRateInBps  = WAN port TX = uploads   = upstream.
+            //   LiveRateOutBps = WAN port RX = downloads = downstream.
             if (wan.LiveRateInBps.HasValue || wan.LiveRateOutBps.HasValue)
             {
                 snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
@@ -2139,10 +2136,14 @@ public class LanFlowMapService
                     var stats = _liveStats.GetForDevice(dev);
                     if (stats != null && stats.LastRateUpdate.HasValue)
                     {
+                        // Aggregate convention: RateInBps = uploads, RateOutBps = downloads
+                        // (see the live-tick reader). This seed read the fields reversed since
+                        // the original 3D map; the live tick replaced it within seconds, which
+                        // is why it never showed. Keep both mappings identical.
                         rates = new LinkLiveRates
                         {
-                            DownstreamBps = stats.RateInBps ?? 0,
-                            UpstreamBps = stats.RateOutBps ?? 0,
+                            DownstreamBps = stats.RateOutBps ?? 0,
+                            UpstreamBps = stats.RateInBps ?? 0,
                             AsOf = stats.LastRateUpdate.Value,
                         };
                     }

@@ -133,26 +133,6 @@ public class UniFiDiscovery
     }
 
     /// <summary>
-    /// Resolves the interface name whose SNMP counters feed the WAN Live View and
-    /// Monitoring overview stats. For now this is the PRIMARY WAN interface only,
-    /// by design: the ISP / transit latency and loss cards shown alongside WAN
-    /// throughput are measured for a single WAN connection, so mixing failover or
-    /// cellular WAN traffic into the throughput numbers would disagree with them.
-    /// The primary WAN can be any connection type, including a GRE-tunneled
-    /// cellular WAN with no physical port.
-    /// Selection order, each translated to the counter-bearing interface via
-    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp*/gre*
-    /// tunnel when the uplink is one, physical port otherwise):
-    /// 1. The gateway's uplink object, which names the active WAN's logical
-    ///    interface (field varies by firmware: uplink_ifname, ifname, or name),
-    ///    matched to its wan1..wan6 object. Tracks failover and covers virtual
-    ///    WANs that have no port_table entry.
-    /// 2. The port_table entry flagged is_uplink (the pre-#669 selector),
-    ///    matched to its wan object. Also covers non-gateway devices.
-    /// 3. The first wan object, preferring ones reported up (seen on PPPoE
-    ///    gateways where neither of the above is populated).
-    /// </summary>
-    /// <summary>
     /// Mesh parent for each child that does not report one itself, read from the other end.
     ///
     /// A mesh pair is described from both sides and either side can go missing: after a parent
@@ -168,11 +148,27 @@ public class UniFiDiscovery
     public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
     {
         var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
-        var known = new HashSet<string>(all.Select(d => d.Mac.ToLowerInvariant()));
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+    }
+
+    /// <summary>Raw-device overload for callers that hold <see cref="UniFiDeviceResponse"/>
+    /// (e.g. the fabric aggregate writer). Same derivation, same claims.</summary>
+    public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<UniFiDeviceResponse> devices)
+    {
+        var all = devices as IList<UniFiDeviceResponse> ?? devices.ToList();
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+    }
+
+    private static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(
+        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> devices)
+    {
+        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> ?? devices.ToList();
+        var known = new HashSet<string>(all.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()));
         var parentByChild = new Dictionary<string, MeshParentClaim>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var parent in all)
         {
+            if (string.IsNullOrEmpty(parent.Mac)) continue;
             foreach (var link in parent.DownlinkTable ?? [])
             {
                 // serialno is the child's base MAC; mac is its vwire BSSID, which matches nothing.
@@ -195,7 +191,19 @@ public class UniFiDiscovery
     /// <param name="ParentMac">The parent's MAC, lower case.</param>
     /// <param name="TxRateKbps">Parent to child, i.e. downstream.</param>
     /// <param name="RxRateKbps">Child to parent, i.e. upstream.</param>
-    public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps);
+    public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps)
+    {
+        /// <summary>
+        /// True when the child's own uplink field does NOT name this parent - empty, or a
+        /// different device. Only then may a consumer absorb the claim; an agreeing child's own
+        /// report stays authoritative, keeping the derived path inert on healthy mesh pairs.
+        /// </summary>
+        public bool Contradicts(string? reportedUplinkMac) =>
+            !string.Equals(
+                string.IsNullOrEmpty(reportedUplinkMac) ? null : reportedUplinkMac.ToLowerInvariant().Replace('-', ':'),
+                ParentMac,
+                StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN
@@ -239,6 +247,26 @@ public class UniFiDiscovery
         return (null, null);
     }
 
+    /// <summary>
+    /// Resolves the interface name whose SNMP counters feed the WAN Live View and
+    /// Monitoring overview stats. For now this is the PRIMARY WAN interface only,
+    /// by design: the ISP / transit latency and loss cards shown alongside WAN
+    /// throughput are measured for a single WAN connection, so mixing failover or
+    /// cellular WAN traffic into the throughput numbers would disagree with them.
+    /// The primary WAN can be any connection type, including a GRE-tunneled
+    /// cellular WAN with no physical port.
+    /// Selection order, each translated to the counter-bearing interface via
+    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp*/gre*
+    /// tunnel when the uplink is one, physical port otherwise):
+    /// 1. The gateway's uplink object, which names the active WAN's logical
+    ///    interface (field varies by firmware: uplink_ifname, ifname, or name),
+    ///    matched to its wan1..wan6 object. Tracks failover and covers virtual
+    ///    WANs that have no port_table entry.
+    /// 2. The port_table entry flagged is_uplink (the pre-#669 selector),
+    ///    matched to its wan object. Also covers non-gateway devices.
+    /// 3. The first wan object, preferring ones reported up (seen on PPPoE
+    ///    gateways where neither of the above is populated).
+    /// </summary>
     internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
     {
         var (phys, uplink) = ResolveActiveWanInterface(d);

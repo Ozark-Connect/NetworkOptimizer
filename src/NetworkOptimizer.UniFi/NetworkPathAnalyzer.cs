@@ -834,10 +834,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             else
             {
                 // Target is a device (e.g. an AP) - use its uplink
+                var targetDerived = TryGetContradictedClaim(targetDevice!, meshParents, out var targetClaim);
                 currentMac = EffectiveUplinkMac(targetDevice!, meshParents);
-                currentPort = targetDevice!.UplinkPort;
+                currentPort = targetDerived ? null : targetDevice!.UplinkPort;
 
-                var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname);
+                var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice!.Model, targetDevice.Shortname);
                 var deviceHop = new NetworkHop
                 {
                     Order = 0,
@@ -847,12 +848,21 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     DeviceModel = deviceModel,
                     DeviceFirmware = targetDevice.Firmware,
                     DeviceIp = targetDevice.IpAddress,
-                    IngressPort = targetDevice.UplinkPort,
-                    EgressPort = targetDevice.UplinkPort,
+                    IngressPort = currentPort,
+                    EgressPort = currentPort,
                     Notes = "Target device"
                 };
 
-                if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                if (targetDerived)
+                {
+                    // The hop's only link is the mesh backhaul the parent described; mirror its
+                    // egress mapping onto ingress (same radio link both ways for the target hop).
+                    ApplyDerivedMeshEgress(deviceHop, targetClaim);
+                    deviceHop.IngressPortName = "wireless mesh";
+                    deviceHop.IsWirelessIngress = true;
+                    deviceHop.IngressSpeedMbps = deviceHop.EgressSpeedMbps;
+                }
+                else if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                     && targetDevice.UplinkSpeedMbps > 0)
                 {
                     deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps;
@@ -944,10 +954,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     IngressSpeedMbps = ingressSpeed
                 };
 
+                var hasDerivedClaim = TryGetContradictedClaim(device, meshParents, out var derivedClaim);
+
                 if (isGateway)
                 {
                     // Gateway is the end of the path - no egress needed
                     hop.Notes = "Gateway";
+                }
+                else if (hasDerivedClaim)
+                {
+                    ApplyDerivedMeshEgress(hop, derivedClaim);
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
@@ -991,7 +1007,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     break;
 
                 currentMac = EffectiveUplinkMac(device, meshParents);
-                currentPort = device.UplinkPort;
+                // A contradicted uplink's port is on the wrong link; the mesh parent has no port.
+                currentPort = hasDerivedClaim ? null : device.UplinkPort;
                 hopOrder++;
             }
 
@@ -1496,6 +1513,36 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents) =>
         meshParents.TryGetValue(device.Mac, out var claim) ? claim.ParentMac : device.UplinkMac;
 
+    /// <summary>
+    /// The parent claim to substitute for a stale uplink block: present only when a parent's
+    /// downlink_table names this device AND the device's own uplink disagrees (empty or a
+    /// different device). The hop out of the device is then a mesh backhaul whose only rate
+    /// source is the claim - every Uplink* field on the device describes the link it was wrong
+    /// about and must not be shown as this hop's.
+    /// </summary>
+    private static bool TryGetContradictedClaim(
+        DiscoveredDevice device,
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents,
+        out UniFiDiscovery.MeshParentClaim claim) =>
+        meshParents.TryGetValue(device.Mac, out claim) && claim.Contradicts(device.UplinkMac);
+
+    /// <summary>
+    /// Marks a hop's egress as the mesh backhaul described by a parent claim. The claim is the
+    /// parent's perspective, so its rates map inverted (parent RX = this device transmitting);
+    /// band, channel and signal live on the missing half and stay unknown.
+    /// </summary>
+    private static void ApplyDerivedMeshEgress(NetworkHop hop, UniFiDiscovery.MeshParentClaim claim)
+    {
+        hop.EgressPort = null;
+        hop.EgressPortName = "wireless mesh";
+        hop.IsWirelessEgress = true;
+        var txKbps = FilterIdleRate(claim.RxRateKbps);
+        var rxKbps = FilterIdleRate(claim.TxRateKbps);
+        hop.EgressSpeedMbps = txKbps > 0 ? (int)(txKbps / 1000) : 0;
+        hop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
+        hop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
+    }
+
     private int GetPortSpeedFromRawDevices(
         Dictionary<string, UniFiDeviceResponse> rawDevices,
         string? deviceMac,
@@ -1772,8 +1819,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         if (targetDevice != null)
         {
             // Target is a UniFi device - use its uplink
+            var targetDerived = TryGetContradictedClaim(targetDevice, meshParents, out var targetClaim);
             currentMac = EffectiveUplinkMac(targetDevice, meshParents);
-            currentPort = targetDevice.UplinkPort;
+            currentPort = targetDerived ? null : targetDevice.UplinkPort;
 
             // Add target device as first hop
             var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname);
@@ -1788,13 +1836,22 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 DeviceModel = deviceModel,
                 DeviceFirmware = targetDevice.Firmware,
                 DeviceIp = targetDevice.IpAddress,
-                IngressPort = targetDevice.UplinkPort,
-                EgressPort = targetDevice.UplinkPort,
+                IngressPort = currentPort,
+                EgressPort = currentPort,
                 Notes = "Target device"
             };
 
             // Get uplink speed - use device's uplink speed for wireless mesh, otherwise port speed
-            if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+            if (targetDerived)
+            {
+                // The hop's only link is the mesh backhaul the parent described; mirror its
+                // egress mapping onto ingress (same radio link both ways for the target hop).
+                ApplyDerivedMeshEgress(deviceHop, targetClaim);
+                deviceHop.IngressPortName = "wireless mesh";
+                deviceHop.IsWirelessIngress = true;
+                deviceHop.IngressSpeedMbps = deviceHop.EgressSpeedMbps;
+            }
+            else if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                 && targetDevice.UplinkSpeedMbps > 0)
             {
                 // Wireless mesh uplink - use the reported uplink speed
@@ -1990,7 +2047,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     serverChain.Add((chainDevice, chainPort));
                     chainMac = EffectiveUplinkMac(chainDevice, meshParents);
-                    chainPort = chainDevice.UplinkPort;
+                    // A contradicted uplink's port is on the wrong link; the mesh parent has no port.
+                    chainPort = TryGetContradictedClaim(chainDevice, meshParents, out _) ? null : chainDevice.UplinkPort;
                     chainHops++;
                 }
                 else
@@ -2134,6 +2192,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Check if this device has a wireless uplink (for egress, not ingress)
                 bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                     && device.UplinkSpeedMbps > 0;
+                var hasDerivedClaim = TryGetContradictedClaim(device, meshParents, out var derivedClaim);
 
                 // Ingress speed comes from the port/connection from the PREVIOUS hop, not this device's uplink
                 // For APs after a wireless client, ingress is the client's wireless connection (handled by client hop's egress)
@@ -2184,6 +2243,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, nextInChain.device.UplinkPort);
                         hop.EgressPortName = GetPortName(rawDevices, currentMac, nextInChain.device.UplinkPort);
                     }
+                }
+                else if (hasDerivedClaim)
+                {
+                    ApplyDerivedMeshEgress(hop, derivedClaim);
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
@@ -2268,7 +2331,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 // Move to next hop
                 currentMac = EffectiveUplinkMac(device, meshParents);
-                currentPort = device.UplinkPort;
+                // A contradicted uplink's port is on the wrong link; the mesh parent has no port.
+                currentPort = hasDerivedClaim ? null : device.UplinkPort;
                 hopOrder++;
             }
 

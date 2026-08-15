@@ -956,6 +956,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     {
         // Check if this AP has a wireless uplink to another AP (mesh child)
         var isMeshChild = false;
+        // True only when the child described the uplink itself. The claim branch below leaves it
+        // false so the snapshot never carries ap.Uplink* values that describe a different link.
+        var selfReportedUplink = false;
         string? meshParentMac = null;
         RadioBand? meshUplinkBand = null;
         int? meshUplinkChannel = null;
@@ -968,6 +971,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             if (apMacs.Contains(uplinkMacLower))
             {
                 isMeshChild = true;
+                selfReportedUplink = true;
                 meshParentMac = uplinkMacLower;
                 meshUplinkBand = RadioBandExtensions.FromUniFiCode(ap.UplinkRadioBand);
                 meshUplinkChannel = ap.UplinkChannel;
@@ -1007,9 +1011,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             MeshUplinkBand = meshUplinkBand,
             MeshUplinkChannel = meshUplinkChannel,
             MeshUplinkInterface = meshUplinkInterface,
-            MeshUplinkSignalDbm = isMeshChild ? ap.UplinkSignalDbm : null,
-            MeshUplinkTxRateMbps = isMeshChild && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
-            MeshUplinkRxRateMbps = isMeshChild && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null,
+            // Self-reported only: a claim-derived parent means ap.Uplink* describes a different
+            // link, and the parent's signal is its view of the child, never the child's own.
+            MeshUplinkSignalDbm = selfReportedUplink ? ap.UplinkSignalDbm : null,
+            MeshUplinkTxRateMbps = selfReportedUplink && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
+            MeshUplinkRxRateMbps = selfReportedUplink && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null,
             IsAfcEnabled = ap.AfcEnabled ?? false,
             AfcState = ap.AfcState
         };

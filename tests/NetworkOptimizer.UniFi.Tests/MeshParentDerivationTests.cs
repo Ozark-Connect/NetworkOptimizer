@@ -74,4 +74,42 @@ public class MeshParentDerivationTests
 
         map.Should().ContainKey(ChildMac);
     }
+
+    [Fact]
+    public void BuildMeshParentByChild_RawDeviceOverload_MatchesDiscoveredDeviceDerivation()
+    {
+        // The fabric aggregate writer holds UniFiDeviceResponse, not DiscoveredDevice;
+        // both overloads must produce the same claims.
+        UniFiDeviceResponse Raw(string mac, params string[] serials) => new()
+        {
+            Mac = mac,
+            DownlinkTable = serials.Length == 0
+                ? null
+                : serials.Select(s => new DownlinkTableEntry { Mac = "vwire-bssid", SerialNo = s, TxRate = 866_000, RxRate = 585_000 }).ToList(),
+        };
+
+        var map = UniFiDiscovery.BuildMeshParentByChild(new[] { Raw(ParentMac, ChildMac), Raw(ChildMac) });
+
+        var claim = map.Should().ContainKey(ChildMac).WhoseValue;
+        claim.ParentMac.Should().Be(ParentMac);
+        claim.TxRateKbps.Should().Be(866_000);
+        claim.RxRateKbps.Should().Be(585_000);
+    }
+
+    // Contradicts() decides whether the claim may be absorbed at all: only a child whose own
+    // uplink is missing or names something else is derived. An agreeing child keeps its own
+    // report, so the derived path is inert on healthy mesh pairs.
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("aa:bb:cc:dd:ee:99", true)]
+    [InlineData(ParentMac, false)]
+    [InlineData("AA:BB:CC:DD:EE:01", false)]
+    [InlineData("aa-bb-cc-dd-ee-01", false)]
+    public void MeshParentClaim_Contradicts_OnlyWhenTheChildNamesSomethingElse(string? reported, bool expected)
+    {
+        var claim = new UniFiDiscovery.MeshParentClaim(ParentMac, 0, 0);
+
+        claim.Contradicts(reported).Should().Be(expected);
+    }
 }
