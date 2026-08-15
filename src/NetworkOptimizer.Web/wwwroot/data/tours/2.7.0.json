@@ -11,7 +11,7 @@
       "selector": "[data-tour=\"firmware-rollout\"]",
       "title": "Firmware Rollout",
       "listLabel": "Upgrade your whole site without babysitting it",
-      "body": "Upgrade every device on a site while intelligently maximizing network availability, at the most optimal time according to the site's traffic history. One device per model goes first and the rest wait on how it went: back on the version it was sent to, and steady on its own CPU, memory and health stats. Hold one model back on Official, push another to Early Access, or leave a device out entirely. Turn on **Autopilot** and staying current stops being a task.",
+      "body": "Upgrade every device on a site while intelligently maximizing network availability, at the most optimal time according to the site's traffic history. One device per model goes first and the rest wait on how it went: back on the version it was sent to, and steady on its own CPU, memory and health stats. Hold one model back on Official, push another to Early Access, or leave a device out entirely. Switch on **Autopilot** and it does all of this on its own, every time new firmware lands - with a heads-up first, and a way to stop it.",
       "placement": "top",
       "optional": true
     }
