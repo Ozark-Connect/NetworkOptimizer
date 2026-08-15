@@ -55,7 +55,7 @@ let _liveStartMs = null;
 let _apiBase = '/api/monitoring/lan-flow-map';
 let _windowStartMs = null;   // wall clock the preview plays back from
 let _plannedStartMs = null;  // when the rollout would actually run
-let _timeZoneId = null;      // the site's zone, so the clock reads in its hours
+let _timeZoneId = null;      // the server's zone: one clock across every site, as everywhere else
 let _historicGen = 0;
 let _lastHistoricMs = 0;
 

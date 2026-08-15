@@ -321,7 +321,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(_planning, timings, _commands, settings, _logger, cancellationToken);
-        return (RolloutPlanComposer.Plan(inputs, settings), inputs.Context);
+        var result = RolloutPlanComposer.Plan(inputs, settings);
+        result.Document.TimeZoneId = inputs.Context.TimeZoneId;
+        return (result, inputs.Context);
     }
 
     private async Task<CreatedPlan> CreatePlanAsync(

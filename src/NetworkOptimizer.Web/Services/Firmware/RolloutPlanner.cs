@@ -135,6 +135,15 @@ public class RolloutPlanner
         doc.UniFiOsUpdateSeconds = includeOs
             ? FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.CloudGatewayUniFiOs)
             : 0;
+
+        // Versions and waves for the two console phases, so a scheduled plan can show them before
+        // it runs. The executor names its own target when it gets there; this is what was planned.
+        doc.NetworkAppUpdate.FromVersion = input.NetworkAppFromVersion;
+        doc.NetworkAppUpdate.TargetVersion = input.NetworkAppToVersion;
+        doc.UniFiOsUpdate.FromVersion = input.UniFiOsFromVersion;
+        doc.UniFiOsUpdate.TargetVersion = input.UniFiOsToVersion;
+        doc.NetworkAppUpdate.Wave = 0;
+        doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
         ComputeTimeline(doc, spacing);
         AddNotes(doc, input, candidates);
 

@@ -58,7 +58,7 @@ else if (_active != null)
             }
             @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
-                <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>. Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
+                <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>@SiteAside(_active.ScheduledStartAt ?? DateTime.UtcNow). Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
             }
             @if (WaitingApproval)
             {
@@ -99,10 +99,10 @@ else if (_active != null)
                         @if (_active.Plan.IncludesUniFiNetworkUpdate)
                         {
                             <tr>
-                                <td>-</td>
+                                <td>@_active.Plan.NetworkAppUpdate.Wave</td>
                                 <td>UniFi Network application</td>
                                 <td>@ConsoleRowModel</td>
-                                <td class="hide-mobile">-</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.FromVersion) ?? "-")</td>
                                 <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.TargetVersion) ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.NetworkAppUpdate)">@ConsoleChipLabel(_active.Plan.NetworkAppUpdate)</span></td>
                                 <td class="hide-mobile">-</td>
@@ -136,10 +136,10 @@ else if (_active != null)
                         @if (_active.Plan.IncludesUniFiOsUpdate)
                         {
                             <tr>
-                                <td>-</td>
+                                <td>@_active.Plan.UniFiOsUpdate.Wave</td>
                                 <td>UniFi OS</td>
                                 <td>@ConsoleRowModel</td>
-                                <td class="hide-mobile">-</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.FromVersion) ?? "-")</td>
                                 <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.TargetVersion) ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.UniFiOsUpdate)">@ConsoleChipLabel(_active.Plan.UniFiOsUpdate)</span></td>
                                 <td class="hide-mobile">-</td>
@@ -357,8 +357,8 @@ else if (_wizardOpen)
                         <label class="form-label">Start</label>
                         <input type="range" class="firmware-rollout-slider" min="0" max="167" step="1" value="@_startOffsetHours" @oninput="e => SetStartOffset(e.Value?.ToString())" />
                         <div class="firmware-rollout-slider-labels">
-                            <span><strong>@SiteTime(SelectedStartUtc)</strong></span>
-                            <span>done by ~@SiteTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
+                            <span><strong>@LocalTime(SelectedStartUtc)</strong>@SiteAside(SelectedStartUtc)</span>
+                            <span>done by ~@LocalTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
                         </div>
                         @if (_preview?.ProposedWindow is { } window)
                         {
@@ -420,7 +420,7 @@ else if (_wizardOpen)
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.UpgradableCount</span><span class="detail-label">to upgrade</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.Plan.Waves.Count</span><span class="detail-label">waves</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
-                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : SiteTime(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : LocalTime(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
                     @if (_preview.ExcludedCount > 0)
                     {
                         <div class="firmware-rollout-stat"><span class="detail-value">@_preview.ExcludedCount</span><span class="detail-label">excluded</span></div>
@@ -1146,24 +1146,31 @@ else
         }
     }
 
-    /// <summary>A UTC instant in the site's own hours, which is where a quiet window means anything.</summary>
-    private string SiteTime(DateTime utc)
+    /// <summary>
+    /// The site's own reading of an instant, for the two places the decision is site-local: picking
+    /// the start and watching a schedule. Times are shown in the server's zone everywhere, because
+    /// an operator reads any timestamp in their own clock whether it is labelled or not, and one
+    /// clock is the only way rollouts across sites can be compared. Empty when the site keeps the
+    /// same hours, which is every single-site install.
+    /// </summary>
+    private string SiteAside(DateTime utc)
     {
-        var zone = _preview?.ProposedWindow?.TimeZoneId;
+        var zone = _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId;
+        if (string.IsNullOrWhiteSpace(zone)) return string.Empty;
+
         try
         {
-            if (!string.IsNullOrWhiteSpace(zone))
-            {
-                var tz = TimeZoneInfo.FindSystemTimeZoneById(zone);
-                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz)
-                    .ToString("ddd MMM d, h:mm tt");
-            }
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(zone);
+            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
+
+            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
+            return $" ({at:h:mm tt} at the site)";
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
         {
             Logger.LogDebug(ex, "Unknown site timezone {Zone}", zone);
+            return string.Empty;
         }
-        return LocalTime(utc);
     }
 
     // ---- Active plan controls ----
@@ -1313,8 +1320,7 @@ else
                 var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
                 var startMs = new DateTimeOffset(DateTime.SpecifyKind(SelectedStartUtc, DateTimeKind.Utc))
                     .ToUnixTimeMilliseconds();
-                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs,
-                    _preview.ProposedWindow?.TimeZoneId);
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, TimeZoneInfo.Local.Id);
                 _vizMode = "planned";
             }
             else if (_active != null && _vizMode != "live")

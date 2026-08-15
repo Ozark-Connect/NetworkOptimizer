@@ -112,6 +112,22 @@ public class RolloutPlanningInput
     public bool UniFiOsUpdateAvailable { get; init; } = true;
 
     /// <summary>
+    /// What each console surface runs now and is aiming at, read on the channel the plan commits
+    /// to. Carried into the plan so a scheduled rollout can show its console rows before it starts;
+    /// without it they are blank until the step executes and names its own target.
+    /// </summary>
+    public string? NetworkAppFromVersion { get; init; }
+
+    /// <inheritdoc cref="NetworkAppFromVersion"/>
+    public string? NetworkAppToVersion { get; init; }
+
+    /// <inheritdoc cref="NetworkAppFromVersion"/>
+    public string? UniFiOsFromVersion { get; init; }
+
+    /// <inheritdoc cref="NetworkAppFromVersion"/>
+    public string? UniFiOsToVersion { get; init; }
+
+    /// <summary>
     /// Devices excluded on top of the settings' own exclusion sets. Autopilot's release-ripeness
     /// gate holds a device back here rather than by editing the site's stored exclusions.
     /// </summary>
@@ -274,6 +290,13 @@ public class RolloutPlanDocument
     /// </summary>
     public string? ConsoleMac { get; set; }
 
+    /// <summary>
+    /// The site's own timezone, as the console reports it. Times are shown in the server's zone -
+    /// one clock across every site an operator watches - and this is what the site-local reading
+    /// beside them is built from, where the two differ.
+    /// </summary>
+    public string? TimeZoneId { get; set; }
+
     public int TotalEstimatedSeconds { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>
@@ -391,6 +414,12 @@ public class RolloutConsoleStepState
 
     /// <summary>Version the install was aiming at, where the console named one.</summary>
     public string? TargetVersion { get; set; }
+
+    /// <summary>Version this surface was running when the plan was made.</summary>
+    public string? FromVersion { get; set; }
+
+    /// <summary>Wave this phase runs in: 0 for the application, after the last device for UniFi OS.</summary>
+    public int Wave { get; set; }
 }
 
 /// <summary>

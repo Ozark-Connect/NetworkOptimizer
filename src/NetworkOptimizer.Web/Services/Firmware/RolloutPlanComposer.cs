@@ -295,6 +295,10 @@ public static class RolloutPlanComposer
             AdditionalExcludedMacs = additionalExcludedMacs ?? [],
             NetworkAppUpdateAvailable = HasNetworkAppUpdate(inputs.Console),
             UniFiOsUpdateAvailable = HasUniFiOsUpdate(inputs.Console, settings.EffectiveUniFiOsChannel),
+            NetworkAppFromVersion = inputs.Console?.NetworkApplication?.Version,
+            NetworkAppToVersion = inputs.Console?.NetworkApplication?.UpdateAvailable,
+            UniFiOsFromVersion = inputs.Console?.InstalledOsVersion,
+            UniFiOsToVersion = OfferedUniFiOsVersion(inputs.Console, settings.EffectiveUniFiOsChannel),
         });
     }
 
@@ -324,6 +328,12 @@ public static class RolloutPlanComposer
         console != null && (console.Firmware != null || console.Apps != null);
 
     /// <summary>Whether the chosen channel offers a UniFi OS build the console is not already on.</summary>
+    /// <summary>The UniFi OS build this channel is offering, whatever its age.</summary>
+    private static string? OfferedUniFiOsVersion(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
+        console?.Firmware?.LatestByChannel is { } byChannel
+        && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
+
     private static bool HasUniFiOsUpdate(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
     {
