@@ -1972,7 +1972,7 @@ class LanFlowMap2D {
             ctx.fillStyle='#fff';
             ctx.font=`600 10px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(String(ov.badge).slice(0,2),bx,by+1.5);
+            ctx.fillText(String(ov.badge).slice(0,2),bx,by+1);
         }
 
         // Rate labels (stored for dynamic update)
