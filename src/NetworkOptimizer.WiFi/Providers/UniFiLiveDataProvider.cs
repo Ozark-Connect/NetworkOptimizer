@@ -46,7 +46,24 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Build a set of AP MACs for mesh parent detection
         var apMacs = new HashSet<string>(aps.Select(ap => ap.Mac.ToLowerInvariant()));
 
-        var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
+        // A mesh pair is reported from both ends, and either end can be missing: after a parent
+        // reboots, UniFi has been seen listing the child in the parent's downlink_table while the
+        // child's own uplink block stays empty. Read the parent's side too, so one absent half
+        // does not hide the relationship - and with it the re-pair action - from both APs.
+        var parentByChild = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var parent in aps)
+        {
+            foreach (var link in parent.DownlinkTable ?? [])
+            {
+                var child = link.SerialNo;
+                if (string.IsNullOrEmpty(child)) continue;
+                var childMac = child.ToLowerInvariant();
+                if (apMacs.Contains(childMac))
+                    parentByChild[childMac] = parent.Mac.ToLowerInvariant();
+            }
+        }
+
+        var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs, parentByChild)).ToList();
 
         // Post-process: resolve mesh parent names and populate mesh children lists
         // Use the parent's downlink_table for signal/rates (parent's perspective),
@@ -945,7 +962,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     #region Mapping Helpers
 
-    private AccessPointSnapshot MapToAccessPointSnapshot(DiscoveredDevice ap, DateTimeOffset timestamp, HashSet<string> apMacs)
+    private AccessPointSnapshot MapToAccessPointSnapshot(
+        DiscoveredDevice ap,
+        DateTimeOffset timestamp,
+        HashSet<string> apMacs,
+        IReadOnlyDictionary<string, string> parentByChild)
     {
         // Check if this AP has a wireless uplink to another AP (mesh child)
         var isMeshChild = false;
@@ -969,6 +990,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 if (ap.UplinkInterface?.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase) == true)
                     meshUplinkInterface = ap.UplinkInterface;
             }
+        }
+        else if (parentByChild.TryGetValue(ap.Mac.ToLowerInvariant(), out var parentMac))
+        {
+            // The parent claims it and the child says nothing. Band, channel and the STA interface
+            // all live on the missing half, so they stay unknown - the re-pair reads the interface
+            // off the device itself when it is not reported.
+            isMeshChild = true;
+            meshParentMac = parentMac;
+            _logger.LogDebug(
+                "[Mesh] {Ap} ({Mac}) has no uplink of its own; taking {Parent} as its mesh parent from the parent's downlink table",
+                ap.Name, ap.Mac, parentMac);
         }
 
         var snapshot = new AccessPointSnapshot
