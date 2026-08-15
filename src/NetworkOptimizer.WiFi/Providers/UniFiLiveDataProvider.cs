@@ -46,22 +46,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Build a set of AP MACs for mesh parent detection
         var apMacs = new HashSet<string>(aps.Select(ap => ap.Mac.ToLowerInvariant()));
 
-        // A mesh pair is reported from both ends, and either end can be missing: after a parent
-        // reboots, UniFi has been seen listing the child in the parent's downlink_table while the
-        // child's own uplink block stays empty. Read the parent's side too, so one absent half
-        // does not hide the relationship - and with it the re-pair action - from both APs.
-        var parentByChild = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var parent in aps)
-        {
-            foreach (var link in parent.DownlinkTable ?? [])
-            {
-                var child = link.SerialNo;
-                if (string.IsNullOrEmpty(child)) continue;
-                var childMac = child.ToLowerInvariant();
-                if (apMacs.Contains(childMac))
-                    parentByChild[childMac] = parent.Mac.ToLowerInvariant();
-            }
-        }
+        // One absent half must not hide the pair from both APs, and with it the re-pair action.
+        var parentByChild = UniFiDiscovery.BuildMeshParentByChild(aps);
 
         var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs, parentByChild)).ToList();
 

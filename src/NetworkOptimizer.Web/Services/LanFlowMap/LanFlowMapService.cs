@@ -1390,14 +1390,28 @@ public class LanFlowMapService
         // Second pass: uplink edges. Build them as (child -> parent), so on the wire the
         // FromNodeId is the leaf side and the data flowing toward it (DownstreamBps) is
         // gateway -> device per spec 5.7.1.
+        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
+        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
+        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
         foreach (var d in topology.Devices)
         {
             var mac = NormalizeMac(d.Mac);
-            if (string.IsNullOrEmpty(d.UplinkMac)) continue;
-            var parentMac = NormalizeMac(d.UplinkMac);
+            var uplinkMac = d.UplinkMac;
+            var fromDownlinkTable = false;
+            if (string.IsNullOrEmpty(uplinkMac) && meshParentByChild.TryGetValue(mac, out var derivedParent))
+            {
+                uplinkMac = derivedParent;
+                fromDownlinkTable = true;
+            }
+            if (string.IsNullOrEmpty(uplinkMac)) continue;
+            var parentMac = NormalizeMac(uplinkMac);
             if (mac == parentMac) continue;
 
-            var isWirelessBackhaul = string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase);
+            // A downlink_table entry is a wireless backhaul by definition; UplinkType came from
+            // the half that was missing, so it cannot be consulted for these.
+            var isWirelessBackhaul = fromDownlinkTable
+                || string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase);
             var link = new LanLink
             {
                 Id = $"uplink-{mac}",

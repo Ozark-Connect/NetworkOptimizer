@@ -153,6 +153,40 @@ public class UniFiDiscovery
     ///    gateways where neither of the above is populated).
     /// </summary>
     /// <summary>
+    /// Mesh parent for each child that does not report one itself, read from the other end.
+    ///
+    /// A mesh pair is described from both sides and either side can go missing: after a parent
+    /// reboots, UniFi has been seen listing the child in the parent's <c>downlink_table</c> while
+    /// the child's own uplink block stays empty. Consumers that key off the child's uplink alone
+    /// then lose the device entirely - it disappears from the topology, draws isolated on the maps,
+    /// and its mesh actions become unreachable. Only entries naming a known device are returned.
+    ///
+    /// Band, channel and the child's STA interface live on the missing half and are not
+    /// recoverable here; ask the device for the interface.
+    /// </summary>
+    /// <param name="devices">Every device in the site.</param>
+    public static Dictionary<string, string> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
+    {
+        var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
+        var known = new HashSet<string>(all.Select(d => d.Mac.ToLowerInvariant()));
+        var parentByChild = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parent in all)
+        {
+            foreach (var link in parent.DownlinkTable ?? [])
+            {
+                // serialno is the child's base MAC; mac is its vwire BSSID, which matches nothing.
+                if (string.IsNullOrEmpty(link.SerialNo)) continue;
+                var childMac = link.SerialNo.ToLowerInvariant();
+                if (known.Contains(childMac))
+                    parentByChild[childMac] = parent.Mac.ToLowerInvariant();
+            }
+        }
+
+        return parentByChild;
+    }
+
+    /// <summary>
     /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN
     /// uplink - the WAN currently carrying the default route. Selection order matches
     /// the counter-interface rules above: the gateway's live uplink object, then the
