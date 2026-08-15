@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
@@ -764,6 +764,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
             var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
+            var meshParents = UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
             var hops = new List<NetworkHop>();
 
             // --- Build client hop (hop 0) ---
@@ -833,8 +834,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             else
             {
                 // Target is a device (e.g. an AP) - use its uplink
-                currentMac = targetDevice!.UplinkMac;
-                currentPort = targetDevice.UplinkPort;
+                currentMac = EffectiveUplinkMac(targetDevice!, meshParents);
+                currentPort = targetDevice!.UplinkPort;
 
                 var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname);
                 var deviceHop = new NetworkHop
@@ -989,7 +990,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (isGateway)
                     break;
 
-                currentMac = device.UplinkMac;
+                currentMac = EffectiveUplinkMac(device, meshParents);
                 currentPort = device.UplinkPort;
                 hopOrder++;
             }
@@ -1482,6 +1483,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// Gets the port speed for a specific port on a device.
     /// Returns the LAG aggregate speed when the port is part of a Link Aggregation Group.
     /// </summary>
+    /// <summary>
+    /// The uplink to follow out of a device. A parent naming it in the parent's downlink_table
+    /// outranks the device's own uplink field, which can be stale after a reboot - it has been
+    /// seen naming a switch that actually hangs off the device, which walks the path back down
+    /// its own branch and repeats a pair of hops until the budget runs out.
+    /// </summary>
+    /// <param name="device">Device being left.</param>
+    /// <param name="meshParents">Parent claims for the site, by child MAC.</param>
+    private static string? EffectiveUplinkMac(
+        DiscoveredDevice device,
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents) =>
+        meshParents.TryGetValue(device.Mac, out var claim) ? claim.ParentMac : device.UplinkMac;
+
     private int GetPortSpeedFromRawDevices(
         Dictionary<string, UniFiDeviceResponse> rawDevices,
         string? deviceMac,
@@ -1749,6 +1763,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
+        var meshParents = UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
 
         // Start from target and trace back to server's switch
         string? currentMac;
@@ -1757,7 +1772,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         if (targetDevice != null)
         {
             // Target is a UniFi device - use its uplink
-            currentMac = targetDevice.UplinkMac;
+            currentMac = EffectiveUplinkMac(targetDevice, meshParents);
             currentPort = targetDevice.UplinkPort;
 
             // Add target device as first hop
@@ -1974,7 +1989,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (deviceDict.TryGetValue(chainMac, out var chainDevice))
                 {
                     serverChain.Add((chainDevice, chainPort));
-                    chainMac = chainDevice.UplinkMac;
+                    chainMac = EffectiveUplinkMac(chainDevice, meshParents);
                     chainPort = chainDevice.UplinkPort;
                     chainHops++;
                 }
@@ -2252,7 +2267,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 }
 
                 // Move to next hop
-                currentMac = device.UplinkMac;
+                currentMac = EffectiveUplinkMac(device, meshParents);
                 currentPort = device.UplinkPort;
                 hopOrder++;
             }

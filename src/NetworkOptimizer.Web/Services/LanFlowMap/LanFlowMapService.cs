@@ -1484,7 +1484,14 @@ public class LanFlowMapService
             // Stash the child's own uplink port ifName on its node. The historic
             // endpoint uses this as a fallback when the parent doesn't expose
             // SNMP data (e.g., switch plugged into a mesh AP's Ethernet port).
-            if (d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
+            //
+            // Not when the parent came from its downlink table: the port the child names is the
+            // one on the link it was wrong about, and here it faces DOWN - the switch hangs off
+            // the AP. Readers of this invert it, because reading an uplink at the child's end
+            // reverses direction, so pointing them at a downstream port reports the mesh link
+            // backwards. Leaving it unset drops them to the device aggregate, which is the right
+            // source for an AP whose backhaul is a radio anyway.
+            if (!fromDownlinkTable && d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
             {
                 var childNode = snapshot.Nodes.FirstOrDefault(n => n.Id == "dev-" + mac);
                 if (childNode != null && nameMaps.TryGetValue((mac, d.LocalUplinkPort.Value), out var localMap))
