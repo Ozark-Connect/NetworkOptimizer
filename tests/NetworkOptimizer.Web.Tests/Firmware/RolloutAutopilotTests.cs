@@ -72,7 +72,9 @@ public class RolloutAutopilotTests
         var plan = await harness.PlanAsync(planId!.Value);
         plan!.Status.Should().Be(FirmwareRolloutStatus.Announced);
         plan.CreatedBy.Should().Be(RolloutAutopilot.Actor);
-        plan.ScheduledStartAt.Should().Be(RolloutAutopilot.ToUtc(harness.Planning.Window.StartLocal));
+        // The instant the proposal named, in the SITE's zone. Deriving it from the site's local
+        // hour through the server's zone fired a remote site off by the offset between them.
+        plan.ScheduledStartAt.Should().Be(harness.Planning.Window.StartUtc);
 
         var steps = await harness.Repository.GetStepsAsync(plan.Id);
         steps.Should().HaveCount(2);

@@ -132,7 +132,10 @@ public class RolloutAutopilot : IRolloutAutopilot
         var window = await _planning.UseAsync(
             (p, c) => p.ProposeWindowAsync(inputs.Context, result.Document.TotalEstimatedSeconds, settings, lead, c),
             cancellationToken);
-        var startAtUtc = ToUtc(window.StartLocal);
+        // The proposal already carries the instant its site-local hour names, converted through the
+        // SITE's zone. Re-deriving it here read those hours as the server's and fired a remote site
+        // off by the offset between them.
+        var startAtUtc = window.StartUtc;
 
         await _planning.UseAsync(
             (p, c) => p.PopulatePriorVersionsAsync(result.Document, result.Steps, c), cancellationToken);
@@ -320,19 +323,6 @@ public class RolloutAutopilot : IRolloutAutopilot
         }
     }
 
-    /// <summary>
-    /// The proposed window is site-local wall-clock time; plans are stored and started in UTC. An
-    /// hour that does not exist locally (the spring-forward gap) is nudged past the transition.
-    /// </summary>
-    internal static DateTime ToUtc(DateTime startLocal)
-    {
-        if (startLocal.Kind == DateTimeKind.Utc) return startLocal;
-
-        var zone = TimeZoneInfo.Local;
-        var local = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified);
-        if (zone.IsInvalidTime(local)) local = local.AddHours(1);
-        return TimeZoneInfo.ConvertTimeToUtc(local, zone);
-    }
 
     /// <summary>Groups devices by the exact build they are heading to, model included.</summary>
     private sealed class TargetComparer : IEqualityComparer<(string Model, string? ToVersion)>

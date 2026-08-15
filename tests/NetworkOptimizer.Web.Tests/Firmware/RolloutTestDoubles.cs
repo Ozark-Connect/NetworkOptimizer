@@ -301,6 +301,10 @@ internal sealed class FakeRolloutPlanningSource : IRolloutPlanningSource
         Day = DayOfWeek.Sunday,
         Hour = 3,
         StartLocal = new DateTime(2026, 8, 16, 3, 0, 0, DateTimeKind.Unspecified),
+        // A site far from any plausible test server, so a schedule derived from the server's zone
+        // instead of the site's cannot coincidentally match.
+        TimeZoneId = "Australia/Sydney",
+        StartUtc = new DateTime(2026, 8, 15, 17, 0, 0, DateTimeKind.Utc),
         Basis = "7-day usage history",
     };
 
