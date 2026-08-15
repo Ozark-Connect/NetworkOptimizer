@@ -260,6 +260,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (plan.Status == FirmwareRolloutStatus.SoakWait)
             {
                 var soaking = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+                await WatchRollbacksAsync(plan, soaking, cancellationToken);
                 await RunDueResourceComparisonsAsync(soaking, cancellationToken);
                 await BuildSoakReportIfDueAsync(plan, soaking, cancellationToken);
                 return;
@@ -328,12 +329,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task PauseAsync(CancellationToken cancellationToken = default)
     {
-        var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
-        if (plan is not { Status: FirmwareRolloutStatus.Running }) return;
+        // The tick lock keeps this off a pass in flight, whose stale plan copy would otherwise be
+        // persisted over the status change. Same for every mutator below.
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.Running }) return;
 
-        plan.Status = FirmwareRolloutStatus.Paused;
-        await PersistPlanAsync(plan, cancellationToken);
-        _logger.LogInformation("Firmware rollout {Id} on site {Site} paused", plan.Id, _siteSlug);
+            plan.Status = FirmwareRolloutStatus.Paused;
+            await PersistPlanAsync(plan, cancellationToken);
+            _logger.LogInformation("Firmware rollout {Id} on site {Site} paused", plan.Id, _siteSlug);
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
     }
 
     /// <summary>
@@ -343,20 +354,28 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task ResumeAsync(CancellationToken cancellationToken = default)
     {
-        var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
-        if (plan is not { Status: FirmwareRolloutStatus.Paused }) return;
-
-        var document = ParseDocument(plan);
-        if (document.WaitingApprovalWave is int wave)
+        await _tickLock.WaitAsync(cancellationToken);
+        try
         {
-            document.ApprovedThroughWave = Math.Max(document.ApprovedThroughWave, wave);
-            document.WaitingApprovalWave = null;
-            plan.PlanJson = JsonSerializer.Serialize(document);
-        }
+            var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.Paused }) return;
 
-        plan.Status = FirmwareRolloutStatus.Running;
-        await PersistPlanAsync(plan, cancellationToken);
-        _logger.LogInformation("Firmware rollout {Id} on site {Site} resumed", plan.Id, _siteSlug);
+            var document = ParseDocument(plan);
+            if (document.WaitingApprovalWave is int wave)
+            {
+                document.ApprovedThroughWave = Math.Max(document.ApprovedThroughWave, wave);
+                document.WaitingApprovalWave = null;
+                plan.PlanJson = JsonSerializer.Serialize(document);
+            }
+
+            plan.Status = FirmwareRolloutStatus.Running;
+            await PersistPlanAsync(plan, cancellationToken);
+            _logger.LogInformation("Firmware rollout {Id} on site {Site} resumed", plan.Id, _siteSlug);
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
     }
 
     /// <summary>
@@ -369,17 +388,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <returns>True when the plan was pushed out.</returns>
     public async Task<bool> PostponeAsync(int planId, CancellationToken cancellationToken = default)
     {
-        var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
-        if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
-            return false;
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
+                return false;
 
-        plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
-        plan.Status = FirmwareRolloutStatus.Scheduled;
-        await PersistPlanAsync(plan, cancellationToken);
+            plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
+            plan.Status = FirmwareRolloutStatus.Scheduled;
+            await PersistPlanAsync(plan, cancellationToken);
 
-        _logger.LogInformation(
-            "Firmware rollout {Id} on site {Site} postponed to {When}", plan.Id, _siteSlug, plan.ScheduledStartAt);
-        return true;
+            _logger.LogInformation(
+                "Firmware rollout {Id} on site {Site} postponed to {When}", plan.Id, _siteSlug, plan.ScheduledStartAt);
+            return true;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
     }
 
     /// <summary>
@@ -390,26 +417,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task AbortAsync(string reason, CancellationToken cancellationToken = default)
     {
-        var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
-        if (plan == null) return;
-
-        var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
-        foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
+        await _tickLock.WaitAsync(cancellationToken);
+        try
         {
-            // AbortedSku is the only "queued, then dropped" state on the step machine, so a manual
-            // abort lands there too rather than leaving rows looking like they are still coming.
-            step.State = FirmwareRolloutStepState.AbortedSku;
-            step.Error = $"Rollout aborted: {reason}";
-            await PersistStepAsync(step, cancellationToken);
+            var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
+            if (plan == null) return;
+
+            var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+            foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
+            {
+                // AbortedSku is the only "queued, then dropped" state on the step machine, so a manual
+                // abort lands there too rather than leaving rows looking like they are still coming.
+                step.State = FirmwareRolloutStepState.AbortedSku;
+                step.Error = $"Rollout aborted: {reason}";
+                await PersistStepAsync(step, cancellationToken);
+            }
+
+            await RestoreChannelsAsync(plan, cancellationToken);
+
+            plan.Status = FirmwareRolloutStatus.Aborted;
+            plan.CompletedAt = Now;
+            await PersistPlanAsync(plan, cancellationToken);
+            _suppression.ClearSite(_siteSlug);
+            _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
         }
-
-        await RestoreChannelsAsync(plan, cancellationToken);
-
-        plan.Status = FirmwareRolloutStatus.Aborted;
-        plan.CompletedAt = Now;
-        await PersistPlanAsync(plan, cancellationToken);
-        _suppression.ClearSite(_siteSlug);
-        _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
+        finally
+        {
+            _tickLock.Release();
+        }
     }
 
     /// <summary>
@@ -425,6 +460,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when a rollback command was accepted.</returns>
     public async Task<bool> RollbackStepAsync(int stepId, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await RollbackStepCoreAsync(stepId, cancellationToken);
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    private async Task<bool> RollbackStepCoreAsync(int stepId, CancellationToken cancellationToken)
     {
         var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
         if (plan == null) return false;
@@ -477,7 +525,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         step.DowntimeSeconds = null;
         step.PostStatsJson = null;
         step.Error = null;
-        _escalatedAt.TryRemove(step.Id, out _);
+        // The SSH path is already spent: a device that never acts must fail after the grace window,
+        // not be "escalated" to the catalog URL - which carries the NEW build and would undo this.
+        _escalatedAt[step.Id] = Now;
         await PersistStepAsync(step, cancellationToken);
 
         await PublishAsync(
@@ -495,12 +545,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // --- Start ---------------------------------------------------------------------------------
 
     /// <summary>
-    /// One start at a time per plan. The scheduled-start check reads the status and only writes it
-    /// several awaits later - a window two callers both got through on 2026-08-14, each running the
-    /// whole pre-flight and each announcing the rollout. Keyed by site and plan rather than held on
-    /// the instance, so it holds even where more than one executor resolves to the same site.
+    /// One start at a time per plan: the scheduled-start check reads the status and only writes it
+    /// several awaits later, so two callers can both pass it and double-run the pre-flight. Keyed
+    /// by site and plan so it holds even where more than one executor resolves to the same site.
     /// </summary>
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> StartGates = new();
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> StartGates = new();
 
     private async Task<bool> BeginAsync(FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken)
     {
@@ -642,8 +691,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         var document = ParseDocument(plan);
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        // No early-out on zero steps: a console-only plan (every device current, only the UniFi
+        // Network or UniFi OS update in scope) has none and must still advance to completion.
         var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
-        if (steps.Count == 0) return;
 
         var observations = await _observer.ObserveAsync(cancellationToken);
         var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
@@ -679,7 +729,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (networkAppSettled && plan.Status == FirmwareRolloutStatus.Running)
             await OpenNextWaveAsync(plan, document, settings, steps, byMac, cancellationToken);
 
-        if (!steps.All(IsSettled))
+        // The Running check holds the console's own update while the plan is paused - in-flight
+        // devices are watched to the end of their cycle above, but nothing new may start.
+        if (plan.Status != FirmwareRolloutStatus.Running || !steps.All(IsSettled))
             return;
 
         // The planner forces the gateway's channel group last, so every device step being settled
@@ -1498,6 +1550,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         step.State = FirmwareRolloutStepState.Commanded;
         step.CommandedAt = Now;
+        _commandWaitSince.TryRemove(step.Id, out _);
         await PersistStepAsync(step, cancellationToken);
 
         if (settings.SuppressStandardAlerts)
@@ -1542,6 +1595,36 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // --- Report --------------------------------------------------------------------------------
 
     /// <summary>
+    /// Keeps watching steps a rollback put back in flight during the soak. The normal step pass
+    /// only runs for Running plans, so without this a mid-soak rollback would sit in Commanded
+    /// forever.
+    /// </summary>
+    private async Task WatchRollbacksAsync(
+        FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+    {
+        if (!steps.Any(IsInFlight)) return;
+
+        var document = ParseDocument(plan);
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var observations = await _observer.ObserveAsync(cancellationToken);
+        var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
+        var consoleDark = observations.Count == 0;
+        await TrackVisibilityAsync(plan, document, consoleDark, await IsTunnelDownAsync(), cancellationToken);
+
+        foreach (var step in steps.Where(IsInFlight).ToList())
+        {
+            if (settings.SuppressStandardAlerts)
+                _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+
+            byMac.TryGetValue(step.DeviceMac, out var observation);
+            await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
+
+            if (IsSettled(step))
+                _suppression.Clear(_siteSlug, step.DeviceMac);
+        }
+    }
+
+    /// <summary>
     /// Builds the post-soak report once the plan has sat in SoakWait for the site's soak window and
     /// moves it to Reported. The wait is what makes the report worth reading: every device's
     /// before/after resource window has closed by then, so nothing in it is still provisional.
@@ -1550,6 +1633,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrEmpty(plan.ReportJson))
+            return;
+
+        // A mid-soak rollback is still cycling; reporting now would make the plan terminal and
+        // stop the tick from ever finishing that step.
+        if (steps.Any(IsInFlight))
             return;
 
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
