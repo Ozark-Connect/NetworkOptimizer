@@ -1,4 +1,4 @@
-@page "/wifi-optimizer"
+﻿@page "/wifi-optimizer"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
@@ -610,29 +610,29 @@
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.IsMeshChild && (ap.MeshUplinkSignalDbm.HasValue || !string.IsNullOrEmpty(ap.MeshUplinkInterface)))
+                                    @* Being a mesh child is the whole condition: the backhaul interface the
+                                       re-pair needs is read off the device when UniFi does not report it,
+                                       and signal comes from the same half that can go missing. *@
+                                    @if (ap.IsMeshChild)
                                     {
-                                        <div class="ap-mesh-info @(!string.IsNullOrEmpty(ap.MeshUplinkInterface) ? "ap-mesh-info-with-action" : "")">
-                                            @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
-                                            {
-                                                <SiteOperatorOnly>
-                                                    <button class="btn btn-sm btn-primary optimize-mesh-btn"
-                                                            @onclick="@(() => OptimizeMeshAsync(ap))"
-                                                            disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac) || IsLicenseRestricted)"
-                                                            data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
-                                                        @if (_optimizingMacs.Contains(ap.Mac))
-                                                        {
-                                                            <span class="spinner-sm"></span>
-                                                            <span>Re-pairing...</span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="optimize-mesh-icon">&#x21bb;</span>
-                                                            <span>Re-pair Uplink</span>
-                                                        }
-                                                    </button>
-                                                </SiteOperatorOnly>
-                                            }
+                                        <div class="ap-mesh-info ap-mesh-info-with-action">
+                                            <SiteOperatorOnly>
+                                                <button class="btn btn-sm btn-primary optimize-mesh-btn"
+                                                        @onclick="@(() => OptimizeMeshAsync(ap))"
+                                                        disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac) || IsLicenseRestricted)"
+                                                        data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
+                                                    @if (_optimizingMacs.Contains(ap.Mac))
+                                                    {
+                                                        <span class="spinner-sm"></span>
+                                                        <span>Re-pairing...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="optimize-mesh-icon">&#x21bb;</span>
+                                                        <span>Re-pair Uplink</span>
+                                                    }
+                                                </button>
+                                            </SiteOperatorOnly>
                                             @if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
                                                 <div class="mesh-signal">
@@ -651,8 +651,8 @@
                                                         </span>
                                                     }
                                                 </div>
-                                                <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
                                             }
+                                            <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
                                         </div>
                                     }
                                     @if (ap.MeshChildren.Count > 0)

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 
@@ -57,10 +58,11 @@ public static class RebootReasonParser
         // "Experience an upgrade reboot from <old> to <new>, and takes 203.943s"
         if (line.Contains("upgrade reboot", StringComparison.OrdinalIgnoreCase))
         {
+            var change = ExtractUpgradeVersions(line);
             return new DeviceRebootReason(
                 RebootCategory.FirmwareUpgrade,
-                "Firmware upgrade",
-                ExtractUpgradeVersions(line) ?? "The device installed new firmware and restarted to run it",
+                change?.Summary ?? "Firmware upgrade",
+                change?.Detail ?? "The device installed new firmware and restarted to run it",
                 RebootReasonSource.ConsoleRebootLog);
         }
 
@@ -348,6 +350,8 @@ public static class RebootReasonParser
     /// ring says a flash happened but never which image, so the reason would read "ran a firmware
     /// upgrade" with no version. The console's own reason log DOES name both versions, and the
     /// switch marker names the new one, so an existing from/to detail is left alone.
+    ///
+    /// Naming both versions is also what settles whether the change was an upgrade or a downgrade.
     /// </summary>
     /// <param name="reason">The chosen reason.</param>
     /// <param name="previousFirmware">Firmware recorded on the device's previous boot, if known.</param>
@@ -371,11 +375,13 @@ public static class RebootReasonParser
         if (detailNamesBoth || !haveCurrent)
             return reason;
 
-        var detail = havePrevious
-            ? $"Upgraded from {previous} to {current}"
-            : $"Upgraded to {current}";
+        if (!havePrevious)
+            return reason with { Detail = $"Upgraded to {current}" };
 
-        return reason with { Detail = detail };
+        // Both versions in hand is the only point where the direction can be established, so the
+        // summary is settled here too - the evidence sources all call a flash an upgrade.
+        var change = DescribeFirmwareChange(previous, current);
+        return reason with { Summary = change.Summary, Detail = change.Detail };
     }
 
     /// <summary>Plain-language cause for a register-derived reason, before the register itself.</summary>
@@ -414,37 +420,53 @@ public static class RebootReasonParser
         return (code, $"{name} [{match.Groups[2].Value}]");
     }
 
-    private static string? ExtractUpgradeVersions(string line)
+    private static (string Summary, string Detail)? ExtractUpgradeVersions(string line)
     {
         var match = Regex.Match(line, @"from\s+(\S+)\s+to\s+(\S+?)[,\s]", RegexOptions.IgnoreCase);
         return match.Success
-            ? $"Upgraded from {ShortenFirmware(match.Groups[1].Value)} to {ShortenFirmware(match.Groups[2].Value)}"
+            ? DescribeFirmwareChange(
+                ShortenFirmware(match.Groups[1].Value), ShortenFirmware(match.Groups[2].Value))
             : null;
     }
 
     /// <summary>
-    /// Reduce a firmware string to the part an operator reads. The platform, git hash and build
-    /// stamp only make a tooltip unreadable. Both shapes in the fleet collapse to the version:
-    /// consoles report <c>UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128</c> and the switch upgrade
-    /// marker reports <c>US3.rtl93xx_7.5.6+17090.260622.0846</c>; both become <c>5.1.26</c> /
-    /// <c>7.5.6</c>.
+    /// Name a firmware change in the direction it actually went. A device put back on an older
+    /// image is a downgrade, and the platform announces that as an "upgrade reboot" all the same,
+    /// so the direction has to be worked out from the versions. Only claimed when both parse;
+    /// otherwise the far commoner case is assumed.
     /// </summary>
-    internal static string ShortenFirmware(string firmware)
+    /// <param name="previous">Version the device ran before the restart, already shortened.</param>
+    /// <param name="current">Version it runs now, already shortened.</param>
+    internal static (string Summary, string Detail) DescribeFirmwareChange(string previous, string current) =>
+        VersionUtilities.IsOlderThan(current, previous)
+            ? ("Firmware downgrade", $"Downgraded from {previous} to {current}")
+            : ("Firmware upgrade", $"Upgraded from {previous} to {current}");
+
+    /// <summary>
+    /// Whether two reported firmware strings name different images.
+    ///
+    /// Compared on the version alone: the console reports <c>displayable_version</c> to one caller
+    /// and <c>version</c> to another, so the raw strings differ for the same image. A blank side is
+    /// unknown, not different.
+    /// </summary>
+    /// <param name="previous">Firmware recorded earlier.</param>
+    /// <param name="current">Firmware reported now.</param>
+    internal static bool NamesADifferentImage(string? previous, string? current)
     {
-        if (string.IsNullOrWhiteSpace(firmware))
-            return firmware;
+        if (string.IsNullOrWhiteSpace(previous) || string.IsNullOrWhiteSpace(current))
+            return false;
 
-        // Three components is the version everywhere in the fleet; anything after it is build
-        // metadata, whatever separator it uses.
-        var threePart = Regex.Match(firmware, @"(\d+\.\d+\.\d+)");
-        if (threePart.Success)
-            return threePart.Groups[1].Value;
-
-        // Two-component versions exist on older builds. The lookahead keeps the match off a git
-        // hash: in "v5.1.b3a286b" the trailing part is not a version component.
-        var twoPart = Regex.Match(firmware, @"v?(\d+\.\d+)(?![0-9A-Za-z])", RegexOptions.IgnoreCase);
-        return twoPart.Success ? twoPart.Groups[1].Value : firmware;
+        return !string.Equals(
+            ShortenFirmware(previous.Trim()), ShortenFirmware(current.Trim()),
+            StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Reduce a firmware string to the part an operator reads. Shared with every other firmware
+    /// display so one device never reads two ways.
+    /// </summary>
+    internal static string ShortenFirmware(string firmware) =>
+        NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(firmware);
 
     private static string? LastNonEmptyLine(string? text) =>
         NonEmptyLines(text).LastOrDefault();

@@ -569,6 +569,142 @@ public static class DefaultAlertRules
             Source = "starlink",
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 0
+        },
+
+        // --- Firmware Rollout ---
+        // Every one of these is published on a transition the executor makes at most once per
+        // device or per rollout, so none of them needs a cooldown to keep the volume down. The
+        // quiet ones (upcoming, started, completed) are enabled because a rollout running
+        // unattended overnight is exactly the thing people want told about.
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Upcoming",
+            IsEnabled = true,
+            EventTypePattern = "rollout.upcoming",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Started",
+            IsEnabled = true,
+            EventTypePattern = "rollout.started",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Wave Awaiting Approval",
+            IsEnabled = true,
+            EventTypePattern = "rollout.wave_awaiting_approval",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Device Stuck Offline",
+            IsEnabled = true,
+            EventTypePattern = "rollout.device_stuck_offline",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Critical,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Model Dropped",
+            IsEnabled = true,
+            EventTypePattern = "rollout.sku_aborted",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // The rollout carries on past this one - the device upgrades are unaffected - so it is
+            // a Warning about the console, not a failure of the run.
+            Name = "Firmware Rollout: Network Application Update Stuck",
+            IsEnabled = true,
+            EventTypePattern = "rollout.network_app_update_stuck",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Heavier After Upgrade",
+            IsEnabled = true,
+            EventTypePattern = "rollout.resource_regression",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Lighter After Upgrade",
+            IsEnabled = false,
+            EventTypePattern = "rollout.resource_improvement",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Complete",
+            IsEnabled = true,
+            EventTypePattern = "rollout.completed",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Report Ready",
+            IsEnabled = true,
+            EventTypePattern = "rollout.report_ready",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Postponed",
+            IsEnabled = true,
+            EventTypePattern = "rollout.postponed_health",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Rolled Back",
+            IsEnabled = true,
+            EventTypePattern = "rollout.rollback_executed",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // A rollout that cannot see the site stops counting time against its devices, so this
+            // is the only thing that says a run is stalled rather than quietly waiting.
+            Name = "Firmware Rollout: Site Not Visible",
+            IsEnabled = true,
+            EventTypePattern = "rollout.visibility_lost",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Site Visible Again",
+            IsEnabled = true,
+            EventTypePattern = "rollout.visibility_restored",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
         }
     ];
 }

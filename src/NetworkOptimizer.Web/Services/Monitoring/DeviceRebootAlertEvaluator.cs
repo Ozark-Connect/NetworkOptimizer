@@ -29,22 +29,29 @@ public class DeviceRebootAlertEvaluator
     public static readonly TimeSpan CurrentBootWindow = TimeSpan.FromMinutes(30);
 
     private readonly IAlertEventBus _eventBus;
+    private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ILogger<DeviceRebootAlertEvaluator> _logger;
+    private readonly string _siteSlug;
     private readonly string _siteSuffix;
 
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">
     /// Site this instance evaluates for (one per site, owned by <see cref="MonitoringAlertRegistry"/>).
-    /// Non-default sites get their slug appended to alert titles.
+    /// Non-default sites get their slug appended to alert titles, and the rollout window lookup is
+    /// keyed on it.
     /// </param>
+    /// <param name="rolloutWindows">Devices inside their own firmware rollout window.</param>
     public DeviceRebootAlertEvaluator(
         IAlertEventBus eventBus,
         ILogger<DeviceRebootAlertEvaluator> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
     {
         _eventBus = eventBus;
+        _rolloutWindows = rolloutWindows;
         _logger = logger;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
             ? "" : $" (site {siteSlug})";
     }
@@ -72,6 +79,15 @@ public class DeviceRebootAlertEvaluator
     {
         if (!reason.IsConclusive)
             return false;
+
+        // A restart a rollout asked for is announced by the rollout, not here.
+        if (_rolloutWindows?.IsInRolloutWindow(_siteSlug, deviceMac, now) == true)
+        {
+            _logger.LogDebug(
+                "Not alerting on {Device} ({Mac}) restarting: a firmware rollout is upgrading it",
+                deviceName ?? "unknown", deviceMac);
+            return false;
+        }
 
         var age = now.ToUniversalTime() - bootedAt.ToUniversalTime();
         if (age > CurrentBootWindow || age < -CurrentBootWindow)

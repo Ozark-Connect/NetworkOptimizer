@@ -1277,6 +1277,86 @@ from(bucket: ""{_longtermBucket}"")
     // ---- Read API (Flux queries) ----
 
     /// <summary>
+    /// Total throughput per device per window - every interface and both directions summed - for
+    /// any number of devices in ONE query. The caller gets what it would have got by summing
+    /// <see cref="QueryInterfaceRatesAsync"/> rows itself, without a round trip per device and
+    /// without carrying every interface's row across the wire.
+    /// </summary>
+    /// <remarks>
+    /// The summing is two aggregateWindow passes, not one: the first takes each interface's mean
+    /// over the window, the second adds those means together. Do not collapse it to a single
+    /// pass - summing raw samples is a different number whenever interfaces report at different
+    /// rates, and grouping on _time instead builds one Flux table per bucket, which measured 8x
+    /// slower than this. Filtering by interface has to stay a plain tag regex for the same reason:
+    /// anything Influx cannot push down - a map(), or a conditional over two tags - is evaluated
+    /// row by row and costs two orders of magnitude more than the whole query.
+    ///
+    /// <paramref name="from"/> and <paramref name="to"/> must be aligned to
+    /// <paramref name="aggregateWindow"/> or the two passes disagree on where windows begin and
+    /// the totals land in neighboring buckets.
+    /// </remarks>
+    /// <param name="deviceMacs">Devices to total. An empty list returns nothing.</param>
+    /// <param name="from">Window start (UTC), aligned to <paramref name="aggregateWindow"/>.</param>
+    /// <param name="to">Window end (UTC), aligned to <paramref name="aggregateWindow"/>.</param>
+    /// <param name="aggregateWindow">Bucket size.</param>
+    /// <param name="wiredOnly">
+    /// Restrict to copper and SFP interfaces, by the raw port name where there is one and the
+    /// interface name otherwise - if_name carries the user's alias once a port has been renamed.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<DeviceRateTotalPoint>> QueryDeviceRateTotalsAsync(
+        IReadOnlyCollection<string> deviceMacs,
+        DateTime from,
+        DateTime to,
+        TimeSpan aggregateWindow,
+        bool wiredOnly = false,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || deviceMacs.Count == 0 || to <= from) return Array.Empty<DeviceRateTotalPoint>();
+
+        var macs = string.Join(" or ", deviceMacs
+            .Select(NormalizeMac)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(m => $@"r.device_mac == ""{m}"""));
+
+        // A plain disjunction of tag regexes, NEVER the if/else that expresses port_id-then-if_name
+        // precedence exactly - the conditional runs per row (82 s vs 0.26 s; see remarks). The two
+        // disagree only where a non-eth/sfp port has been renamed to eth*/sfp*, which no site has done.
+        const string wiredPrefix = @"/^(?i:eth|sfp)/";
+        var interfaceFilter = wiredOnly
+            ? $@"  |> filter(fn: (r) => r.port_id =~ {wiredPrefix} or r.if_name =~ {wiredPrefix})
+"
+            : "";
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => {macs})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+{interfaceFilter}  |> aggregateWindow(every: {ToFluxDuration(aggregateWindow)}, fn: mean, createEmpty: false)
+  |> group(columns: [""device_mac""])
+  |> aggregateWindow(every: {ToFluxDuration(aggregateWindow)}, fn: sum, createEmpty: false, timeSrc: ""_start"")
+";
+
+        var results = new List<DeviceRateTotalPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string;
+            if (string.IsNullOrEmpty(mac)) continue;
+            results.Add(new DeviceRateTotalPoint
+            {
+                DeviceMac = mac,
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                Bps = AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0,
+            });
+        }
+
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
     /// Per-port time-series of computed rates for one device. Used by the diagnostic
     /// view to plot ingress/egress per ifName over a chosen window. Returns rows
     /// ordered by time.
@@ -1307,6 +1387,7 @@ from(bucket: ""{_bucket}"")
             {
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 IfName = record.GetValueByKey("if_name") as string ?? "?",
+                PortId = record.GetValueByKey("port_id") as string,
                 RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
                 RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
             });
@@ -2812,6 +2893,10 @@ from(bucket: ""{_longtermBucket}"")
         return TimeSpan.FromSeconds(windowSeconds);
     }
 
+    /// <summary>
+    /// A range bound as Flux wants it. Callers pass UTC: an Unspecified DateTime is read as LOCAL
+    /// here, so a timestamp straight out of SQLite has to be stamped by its caller first.
+    /// </summary>
     private static string ToFluxInstant(DateTime t) =>
         t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
@@ -3484,8 +3569,23 @@ from(bucket: ""{_longtermBucket}"")
     {
         public required DateTime Time { get; init; }
         public required string IfName { get; init; }
+        /// <summary>Raw ifName tag ("eth8", "0/1") - stable across user-assigned aliases.</summary>
+        public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>One device's total throughput over one window, every interface and both directions.</summary>
+    public record DeviceRateTotalPoint
+    {
+        /// <summary>Device MAC, as stored in the tag.</summary>
+        public required string DeviceMac { get; init; }
+
+        /// <summary>Window start (UTC).</summary>
+        public required DateTime Time { get; init; }
+
+        /// <summary>Summed rate over the window, in bits per second.</summary>
+        public required double Bps { get; init; }
     }
 
     /// <summary>

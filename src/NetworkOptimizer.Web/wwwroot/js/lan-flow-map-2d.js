@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=7';
+import * as flowData from './lan-flow-data.js?v=8';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -280,6 +280,24 @@ class LanFlowMap2D {
         this._tooltip=null;
         this._hoverNode=null;
         this._liveOnly=false;
+        // Optional per-node overlay map (Firmware Rollout): id -> {color,badge,pulse,dim}.
+        // Distinct from _overlays, which is this map's own visibility toggles.
+        this._nodeOverlays=null;
+        // Host-page chrome switches (Firmware Rollout hides what it does not use).
+        this._hideOverlayControls=false;
+        this._hideFilter=false;
+        this._hideVirtualHubs=false;
+        this._hideClouds=false;
+        this._hideWiredClients=false;
+        this._hideWifiClients=false;
+        this._hideHelp=false;
+        this._hideRates=false;
+        this._hideScrubber=false;
+    }
+
+    setOverlays(map){
+        this._nodeOverlays=map&&Object.keys(map).length?map:null;
+        this._needsStaticRedraw=true;
     }
 
     async start(){
@@ -435,7 +453,7 @@ class LanFlowMap2D {
                 if(this._isFitted)this._fitAll();
             });
         });
-        this._el.appendChild(filter);
+        if(!this._hideFilter)this._el.appendChild(filter);
 
         // Overlays panel (top-right, matching 3D style, collapsible on mobile)
         const controls=document.createElement('div');
@@ -463,7 +481,7 @@ class LanFlowMap2D {
             });
             ctrlBody.appendChild(row);
         }
-        this._el.appendChild(controls);
+        if(!this._hideOverlayControls)this._el.appendChild(controls);
 
         // Toolbar
         const tb=document.createElement('div');
@@ -504,7 +522,7 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
         helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
-        this._el.appendChild(help);
+        if(!this._hideHelp)this._el.appendChild(help);
 
         // Mode badge (bottom-left, matching 3D style)
         const status=document.createElement('div');
@@ -518,7 +536,7 @@ class LanFlowMap2D {
             if(inst&&inst._mode==='historic')inst._returnToLive();
         });
         status.appendChild(modeBadge);
-        this._el.appendChild(status);
+        if(!this._hideScrubber)this._el.appendChild(status);
         this._modeBadge=modeBadge;
 
         // Mirror scrubber (synced from 3D map via shared data store).
@@ -630,6 +648,7 @@ class LanFlowMap2D {
         // resize, so the DOM placement must follow it.
         this._scrubberMq=window.matchMedia('(max-width: 768px)');
         this._placeScrubber=()=>{
+            if(this._hideScrubber){scrubber.remove();return;}
             if(this._scrubberMq.matches&&this._el.parentElement){
                 this._el.parentElement.insertBefore(scrubber,this._el.nextSibling);
             }else{
@@ -856,8 +875,36 @@ class LanFlowMap2D {
         flowData.renderScrubberTicks(this._scrubberEls.ticks,win.startMs,win.endMs);
     }
 
+    // Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
+    // Resolved from the snapshot's node kinds, not the layout tree - a hub or cloud edge
+    // carries no tree node, so tree refs alone let its link survive the hidden node.
+    _isEdgeVisible(e){
+        for(const id of [e.lk?.fromNodeId, e.lk?.toNodeId]){
+            if(!id) continue;
+            const kind=this._nodeKind(id);
+            if(kind===NK.VirtualHub&&this._hideVirtualHubs) return false;
+            if(kind===NK.WiredClient&&this._hideWiredClients) return false;
+            if(kind===NK.WifiClient&&this._hideWifiClients) return false;
+            if(kind===NK.Cloud&&this._hideClouds) return false;
+            const tn=this._treeMap.get(id);
+            if(tn&&!this._isNodeVisible(tn)) return false;
+        }
+        return true;
+    }
+
+    _nodeKind(id){
+        if(!this._nodeKinds){
+            this._nodeKinds=new Map();
+            for(const n of this._snapshot?.nodes||[])this._nodeKinds.set(n.id,n.kind);
+        }
+        return this._nodeKinds.get(id);
+    }
+
     _isNodeVisible(n){
         const k=n.d.kind;
+        if(k===NK.VirtualHub&&this._hideVirtualHubs)return false;
+        if(k===NK.WiredClient&&this._hideWiredClients)return false;
+        if(k===NK.WifiClient&&this._hideWifiClients)return false;
         if(k===NK.WifiClient){
             if(!this._overlays.wifiClients)return false;
             const nBand=flowData.getClientStats()?.[n.d.id]?.band??n.d.band;
@@ -874,7 +921,7 @@ class LanFlowMap2D {
         return true;
     }
 
-    _isCloudVisible(){return this._overlays.clouds;}
+    _isCloudVisible(){return !this._hideClouds&&this._overlays.clouds;}
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
@@ -1044,8 +1091,11 @@ class LanFlowMap2D {
             else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
         }
 
+        // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
+        const ovTip=this._nodeOverlays?.[d.id]?.tip;
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
+            +(ovTip?`<div style="margin-bottom:3px">${esc(String(ovTip))}</div>`:'')
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
         this._tooltip.style.opacity='1';
         this._tooltip.style.visibility='visible';
@@ -1078,6 +1128,7 @@ class LanFlowMap2D {
         const byId=new Map();
         for(const n of snap.nodes)byId.set(n.id,new TN(n));
         this._treeMap=byId;
+        this._nodeKinds=null;
 
         const adj=new Map();
         for(const lk of snap.links){
@@ -1581,6 +1632,8 @@ class LanFlowMap2D {
         for(const s of this._streams){
             if(s.edge._isWan&&!this._isCloudVisible())continue;
             if(s.edge._isCl){const child=s.edge.tn||s.edge.fn;if(child&&!this._isNodeVisible(child))continue;}
+            // Without this the dots keep streaming along a link whose line is hidden.
+            if(!this._isEdgeVisible(s.edge))continue;
             ctx.fillStyle=s.color;
             for(const sl of s.slots){
                 if(sl.t<0)continue;
@@ -1594,9 +1647,29 @@ class LanFlowMap2D {
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=1;
 
+        // Overlay pulse rings (world coords, animated, so drawn per frame)
+        if(this._nodeOverlays){
+            const t=(performance.now()%1500)/1500;
+            for(const id in this._nodeOverlays){
+                const ov=this._nodeOverlays[id];
+                if(!ov?.pulse)continue;
+                const n=this._treeMap.get(id);
+                if(!n||n.x==null)continue;
+                const grow=8*t, hw=G.boxW/2+5+grow, hh=G.boxH/2+5+grow;
+                ctx.strokeStyle=ov.color||C.textSec;
+                ctx.globalAlpha=0.7*(1-t);
+                ctx.lineWidth=2+2*t;
+                this._roundRect(ctx,n.x-hw,n.y-hh,hw*2,hh*2,14+grow);
+                ctx.stroke();
+            }
+            ctx.globalAlpha=1;
+        }
+
         // Labels on top of everything (including particles)
-        this._drawLinkSpeedLabels(ctx);
-        this._drawRateLabels(ctx);
+        if(!this._hideRates){
+            this._drawLinkSpeedLabels(ctx);
+            this._drawRateLabels(ctx);
+        }
     }
 
     _drawStatic(){
@@ -1635,6 +1708,7 @@ class LanFlowMap2D {
                 const child=e.tn||e.fn;
                 if(child&&!this._isNodeVisible(child))continue;
             }
+            if(!this._isEdgeVisible(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
@@ -1698,7 +1772,7 @@ class LanFlowMap2D {
 
                 // Suppress the speed/throughput label for a link to an offline device -
                 // a down port has no meaningful negotiated speed or throughput.
-                if(txt&&!off) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
+                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
             }
         }
         ctx.globalAlpha=1;
@@ -1791,7 +1865,7 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            this._drawHubNode(ctx,n);
+            if(!this._hideVirtualHubs)this._drawHubNode(ctx,n);
             return;
         }
         this._drawInfraNode(ctx,n);
@@ -1830,13 +1904,16 @@ class LanFlowMap2D {
     }
 
     _drawInfraNode(ctx,n){
-        const x=n.x, y=n.y, color=nodeClr(n.d.kind);
+        const x=n.x, y=n.y;
+        const ov=this._nodeOverlays?.[n.d.id];
+        const color=ov?.color||nodeClr(n.d.kind);
         const hw=G.boxW/2, hh=G.boxH/2;
         // Prefer the live/historic badge online state over the snapshot's build-time
         // value so the dimming tracks the timeline and live changes between rebuilds.
         const badge=flowData.getNodeBadges()?.[n.d.id];
         const online=badge?badge.online!==false:n.d.online;
-        const op=online?1:0.35;
+        let op=online?1:0.35;
+        if(ov?.dim)op=Math.min(op,0.35);
 
         // Glow
         ctx.fillStyle=withAlpha(color,0.07);
@@ -1883,6 +1960,19 @@ class LanFlowMap2D {
             ctx.fillStyle=C.text;
             ctx.textAlign='center'; ctx.textBaseline='middle';
             ctx.fillText(dn,x,ly);
+        }
+
+        // Overlay badge: small filled disc at the card's top-right corner
+        if(ov?.badge){
+            const bx=x+hw-2, by=y-hh+2, br=9;
+            ctx.fillStyle=ov.color||C.textSec;
+            ctx.beginPath(); ctx.arc(bx,by,br,0,Math.PI*2); ctx.fill();
+            ctx.strokeStyle=C.bg; ctx.lineWidth=1.5;
+            ctx.beginPath(); ctx.arc(bx,by,br,0,Math.PI*2); ctx.stroke();
+            ctx.fillStyle='#fff';
+            ctx.font=`600 10px ${FONT}`;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(String(ov.badge).slice(0,2),bx,by+1);
         }
 
         // Rate labels (stored for dynamic update)
@@ -2088,6 +2178,15 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
+    if(opts?.hideOverlayControls)_inst._hideOverlayControls=true;
+    if(opts?.hideFilter)_inst._hideFilter=true;
+    if(opts?.hideVirtualHubs)_inst._hideVirtualHubs=true;
+    if(opts?.hideClouds)_inst._hideClouds=true;
+    if(opts?.hideWiredClients)_inst._hideWiredClients=true;
+    if(opts?.hideWifiClients)_inst._hideWifiClients=true;
+    if(opts?.hideHelp)_inst._hideHelp=true;
+    if(opts?.hideRates)_inst._hideRates=true;
+    if(opts?.hideScrubber)_inst._hideScrubber=true;
     await _inst.start();
 }
 
@@ -2103,4 +2202,36 @@ export function startDataPolling(){
 export function stopDataPolling(){
     flowData.stopPolling();
     if(_inst)_inst._liveOnly=false;
+}
+
+// Per-node visual overlays (Firmware Rollout): map of node id OR raw device MAC to
+// {color,badge,pulse,dim}. Keys are normalized to the map's "dev-<mac>" ids. Passing
+// null/empty clears. Default rendering is untouched when no overlay is set.
+export function setNodeOverlays(map){
+    if(!_inst)return;
+    let normalized=null;
+    if(map){
+        normalized={};
+        for(const k in map){
+            const key=k.startsWith('dev-')?k:'dev-'+k.toLowerCase().replaceAll('-',':');
+            normalized[key]=map[k];
+        }
+    }
+    _inst.setOverlays(normalized);
+}
+
+export function clearNodeOverlays(){
+    if(_inst)_inst.setOverlays(null);
+}
+
+// Re-read rates from the store and re-drive the particle streams. A host that publishes its
+// own frames (Firmware Rollout's historic playback) calls this instead of relying on the
+// subscription, whose listener errors the store swallows. Rates are replaced, not merged, so
+// a link that is idle at this instant stops rather than streaming its last sample forever.
+export function refreshRates(){
+    if(!_inst)return;
+    _inst._liveRates={...flowData.getLiveRates()};
+    _inst._updateStreamRates();
+    _inst._updateCloudStats();
+    _inst._needsStaticRedraw=true;
 }

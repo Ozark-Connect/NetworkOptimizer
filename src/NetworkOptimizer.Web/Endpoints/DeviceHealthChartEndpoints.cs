@@ -264,6 +264,11 @@ public static class DeviceHealthChartEndpoints
     /// The survivor is the one classified by the newest rules, since a bumped classifier means
     /// the older records were re-probed precisely because their verdict was not trusted; ties go
     /// to the latest instant, which is what the tracker's own seed query picks.
+    ///
+    /// Records naming different firmware are never merged, however close together they sit: a
+    /// device cannot swap images without restarting, so those are separate boots and each earns
+    /// its own mark. This is what keeps a reflash pair - a downgrade and the roll-forward behind
+    /// it, minutes apart - from being drawn as one restart.
     /// </summary>
     internal static List<MonitoringInfluxClient.DeviceRebootPoint> CollapseToOneRecordPerBoot(
         IReadOnlyList<MonitoringInfluxClient.DeviceRebootPoint> records)
@@ -277,11 +282,14 @@ public static class DeviceHealthChartEndpoints
             // currently winning it - otherwise the window slides forward with every swap and a
             // long enough run of records would swallow a genuinely separate restart.
             DateTime clusterStart = default;
+            string? clusterFirmware = null;
 
             foreach (var record in group.OrderBy(r => r.BootedAt))
             {
-                if (best is not null && record.BootedAt - clusterStart <= BootMatchTolerance)
+                if (best is not null && record.BootedAt - clusterStart <= BootMatchTolerance
+                    && !RebootReasonParser.NamesADifferentImage(clusterFirmware, record.FirmwareVersion))
                 {
+                    clusterFirmware ??= record.FirmwareVersion;
                     if (record.ClassifierVersion > best.ClassifierVersion
                         || (record.ClassifierVersion == best.ClassifierVersion
                             && record.BootedAt >= best.BootedAt))
@@ -294,6 +302,7 @@ public static class DeviceHealthChartEndpoints
                 if (best is not null) kept.Add(best);
                 best = record;
                 clusterStart = record.BootedAt;
+                clusterFirmware = record.FirmwareVersion;
             }
 
             if (best is not null) kept.Add(best);

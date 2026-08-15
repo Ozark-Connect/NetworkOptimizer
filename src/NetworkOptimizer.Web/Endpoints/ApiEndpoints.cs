@@ -35,6 +35,7 @@ public static class ApiEndpoints
         SiteAgentEndpoints.Map(app);
         MonitoringChartEndpoints.Map(app);
         IspHealthEndpoints.Map(app);
+        FirmwareRolloutEndpoints.Map(app);
         MonitoringInvestigateEndpoints.Map(app);
         FlakyTargetEndpoints.Map(app);
         DeviceHealthChartEndpoints.Map(app);

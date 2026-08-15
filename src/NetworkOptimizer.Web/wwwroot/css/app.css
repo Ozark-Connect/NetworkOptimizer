@@ -20303,3 +20303,489 @@ body.kiosk-mode .status-indicators {
         margin-left: 0;
     }
 }
+
+/* ---- Firmware Rollout ---- */
+
+.firmware-rollout-timeline {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.firmware-rollout-legend {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.firmware-rollout-legend-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.firmware-rollout-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.firmware-rollout-legend-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+}
+
+.firmware-rollout-legend-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding-top: 0.06rem;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
+.firmware-rollout-track {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    height: 14px;
+    background: var(--bg-tertiary);
+    border-radius: 7px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.firmware-rollout-wave-seg {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    background: var(--info-color);
+    opacity: 0.65;
+    border-radius: 5px;
+    min-width: 4px;
+}
+
+.firmware-rollout-console-seg {
+    background: var(--primary-hover);
+    opacity: 0.8;
+}
+
+.firmware-rollout-playhead {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    background: var(--primary-hover);
+    border-radius: 1px;
+    pointer-events: none;
+}
+
+.firmware-rollout-timeline-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    min-width: 6.5rem;
+    text-align: right;
+}
+
+.firmware-rollout-timeline-clock {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.firmware-rollout-timeline-clock:empty {
+    display: none;
+}
+
+.firmware-rollout-playhead-label {
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-legend {
+        display: none;
+    }
+
+    .firmware-rollout-timeline {
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .firmware-rollout-timeline-readout {
+        flex-basis: 100%;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: baseline;
+        gap: 0.4rem;
+        min-width: 0;
+    }
+}
+
+.firmware-rollout-map-waiting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.firmware-rollout-map-waiting .empty-state p:last-child {
+    margin-bottom: 0;
+}
+
+.firmware-rollout-map-stage {
+    /* The map positions its own tooltip and panels against this box. */
+    position: relative;
+    width: 100%;
+    height: 420px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.firmware-rollout-landing {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.firmware-rollout-landing .firmware-rollout-note {
+    margin: 0;
+}
+
+.firmware-rollout-landing .btn {
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-landing {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+.firmware-rollout-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.firmware-rollout-note {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0.5rem 0 1.5rem;
+}
+
+.firmware-rollout-plan-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0.25rem 0;
+}
+
+.firmware-rollout-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.firmware-rollout-chip.chip-success { background: rgba(36, 188, 112, 0.15); color: var(--success-color); }
+.firmware-rollout-chip.chip-danger { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
+.firmware-rollout-chip.chip-warning { background: rgba(231, 150, 19, 0.15); color: var(--warning-color); }
+.firmware-rollout-chip.chip-active { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
+.firmware-rollout-chip.chip-muted { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+.firmware-rollout-expander {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin: 0.6rem 0;
+}
+
+.firmware-rollout-expander > summary {
+    padding: 0.6rem 0.85rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.firmware-rollout-expander[open] > summary {
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.firmware-rollout-expander-body {
+    padding: 0.75rem 0.85rem;
+}
+
+.firmware-rollout-expander-body .checkbox-label,
+.firmware-rollout-expander-body .radio-label,
+.form-group > .checkbox-label,
+.form-group > .radio-label {
+    padding: 0.25rem 0;
+}
+
+/* Exclusions read as removals, so the mark is a red X rather than a check. */
+.firmware-rollout-exclude input[type="checkbox"] {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    display: inline-grid;
+    place-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]::before {
+    content: "\2715";
+    font-size: 0.7rem;
+    line-height: 1;
+    color: var(--danger-color);
+    visibility: hidden;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:checked {
+    border-color: var(--danger-color);
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:checked::before {
+    visibility: visible;
+}
+
+.firmware-rollout-exclude input[type="checkbox"]:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
+.firmware-rollout-device-row {
+    width: 100%;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.firmware-rollout-device-row:last-child {
+    border-bottom: none;
+}
+
+.firmware-rollout-guide .setup-guide-content {
+    margin-top: 0.5rem;
+    animation: firmware-rollout-expand 0.25s ease-out;
+}
+
+/* A native details element hides its content when closed, so the grid-height
+   transition the Blazor-toggled panels use has nothing to animate here. */
+@keyframes firmware-rollout-expand {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .firmware-rollout-guide .setup-guide-content {
+        animation: none;
+    }
+}
+
+.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child {
+    margin-bottom: 0.5rem;
+}
+
+.firmware-rollout-muted {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.firmware-rollout-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.firmware-rollout-inline .form-label {
+    margin: 0;
+    min-width: 170px;
+}
+
+.firmware-rollout-select {
+    max-width: 240px;
+}
+
+.firmware-rollout-num {
+    max-width: 90px;
+}
+
+.firmware-rollout-mode-row {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.firmware-rollout-slider {
+    width: 100%;
+}
+
+.firmware-rollout-slider-labels {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.firmware-rollout-exclusion-groups {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.firmware-rollout-exclusion-list {
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.5rem;
+}
+
+.firmware-rollout-sku-btn {
+    margin-left: auto;
+}
+
+.firmware-rollout-wizard-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.firmware-rollout-wizard-nav > :only-child {
+    margin-left: auto;
+}
+
+.firmware-rollout-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    padding: 0.6rem 0.85rem;
+    margin-bottom: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
+}
+
+.firmware-rollout-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.firmware-rollout-stat .detail-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.firmware-rollout-stat .detail-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.firmware-rollout-waves {
+    margin-top: 0.75rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.firmware-rollout-wave {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.firmware-rollout-wave-no {
+    min-width: 1.6rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.firmware-rollout-wave-eta {
+    min-width: 4.5rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.firmware-rollout-wave-devices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+}
+
+.firmware-rollout-wave-device {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.firmware-rollout-version-badge {
+    margin-left: 0.4rem;
+    text-decoration: none;
+}
+
+a.firmware-rollout-version-badge:hover {
+    color: var(--text-primary);
+}
+
+.firmware-rollout-steps {
+    margin-top: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-map-stage {
+        height: 320px;
+    }
+
+    .firmware-rollout-inline {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+
+    .firmware-rollout-inline .form-label {
+        min-width: 0;
+    }
+
+    .firmware-rollout-stats {
+        gap: 1rem;
+    }
+}

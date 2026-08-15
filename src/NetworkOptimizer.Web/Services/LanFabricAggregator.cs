@@ -155,6 +155,16 @@ public sealed class LanFabricAggregator
     /// </summary>
     public void WriteAggregates(IReadOnlyList<UniFiDeviceResponse> devices, MonitoringLiveStats liveStats, DateTime now)
     {
+        // A parent's downlink_table claim contradicting a device's own uplink field means that
+        // uplink block is stale and describes the wrong link - reading the port it names reports
+        // the mesh backhaul backwards (and repeatedly overwrites the correct vwiresta aggregate).
+        // Such devices skip the port-based first pass and take the wireless-mesh path instead.
+        // A claim that AGREES with the device's own uplink changes nothing.
+        var meshClaims = UniFiDiscovery.BuildMeshParentByChild(devices);
+        bool HasContradictedUplink(UniFiDeviceResponse d) =>
+            meshClaims.TryGetValue(NormalizeMac(d.Mac), out var claim)
+            && claim.Contradicts(d.Uplink?.UplinkMac);
+
         // Post-process: override device aggregates with their parent-uplink-port
         // counters. For APs (spec 5.6) we already did this. For switches and gateways,
         // summing every interface counter on the device double-counts traffic that
@@ -166,7 +176,8 @@ public sealed class LanFabricAggregator
         foreach (var dev in devices.Where(d => d.Uplink != null
                                                && !string.IsNullOrEmpty(d.Uplink.UplinkMac)
                                                && (d.DeviceType == DeviceType.AccessPoint
-                                                   || d.DeviceType == DeviceType.Switch)))
+                                                   || d.DeviceType == DeviceType.Switch)
+                                               && !HasContradictedUplink(d)))
         {
             var devMac = NormalizeMac(dev.Mac);
             var parentMac = NormalizeMac(dev.Uplink!.UplinkMac);
@@ -241,10 +252,13 @@ public sealed class LanFabricAggregator
         // NetworkPathAnalyzer treats device.Uplink.Type == "wireless" as the mesh marker;
         // mirror that here for consistency with how the speed-test path tracer identifies
         // mesh hops.
+        // A contradicted uplink also qualifies: the child IS wirelessly uplinked (the parent's
+        // downlink_table proves it), its stale uplink block just still says "wire".
         foreach (var dev in devices.Where(d =>
             (d.DeviceType == DeviceType.AccessPoint || d.DeviceType == DeviceType.DeviceBridge)
             && d.Uplink != null
-            && string.Equals(d.Uplink.Type, "wireless", StringComparison.OrdinalIgnoreCase)))
+            && (string.Equals(d.Uplink.Type, "wireless", StringComparison.OrdinalIgnoreCase)
+                || HasContradictedUplink(d))))
         {
             var devMac = NormalizeMac(dev.Mac);
             double sumIn = 0, sumOut = 0;

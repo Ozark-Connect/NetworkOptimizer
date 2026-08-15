@@ -3,7 +3,7 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=7';
+import * as flowData from './lan-flow-data.js?v=8';
 import { valueSortedTooltip } from './chart-tooltip.js?v=15';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 

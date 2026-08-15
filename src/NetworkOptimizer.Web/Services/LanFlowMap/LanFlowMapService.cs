@@ -388,6 +388,10 @@ public class LanFlowMapService
                         var stats = _liveStats.GetForDevice(childDev);
                         if (stats != null && stats.LastRateUpdate.HasValue)
                         {
+                            // Every aggregate writer stores uploads in RateInBps and downloads in
+                            // RateOutBps (LanFabricAggregator, the fast tier's vwiresta swap), so
+                            // downloads = link downstream. Do not "correct" this to a raw-ifIn
+                            // reading - the raw counters are swapped before they land here.
                             rates = new LinkLiveRates
                             {
                                 DownstreamBps = stats.RateOutBps ?? 0,
@@ -1390,30 +1394,82 @@ public class LanFlowMapService
         // Second pass: uplink edges. Build them as (child -> parent), so on the wire the
         // FromNodeId is the leaf side and the data flowing toward it (DownstreamBps) is
         // gateway -> device per spec 5.7.1.
+        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
+        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
+        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
+        // An uplink is only useful if it names a device that is actually on the map. UniFi has been
+        // seen reporting a stale one after a reboot - present, so nothing looked wrong, but naming
+        // something no node exists for. The edge then hangs off nothing and the client drops it,
+        // which is indistinguishable from having no uplink at all: the device draws isolated.
+        var deviceMacs = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)));
+
         foreach (var d in topology.Devices)
         {
             var mac = NormalizeMac(d.Mac);
-            if (string.IsNullOrEmpty(d.UplinkMac)) continue;
-            var parentMac = NormalizeMac(d.UplinkMac);
-            if (mac == parentMac) continue;
+            var uplinkMac = NormalizeMac(d.UplinkMac);
+            var fromDownlinkTable = false;
 
-            var isWirelessBackhaul = string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase);
+            // A parent naming this device in its downlink_table outranks the device's own uplink
+            // field ONLY when the two disagree. The field can be stale or plain wrong after a
+            // reboot - it has been seen naming a switch that actually hangs off the AP - and
+            // pointing a child at something downstream of itself closes a loop the layout cannot
+            // place, so the device ends up with no position at all: isolated on 3D, absent from
+            // 2D. When child and parent agree, the child's own report (capacity, band, uplink
+            // port) is authoritative and this path is inert.
+            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac))
+            {
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
+                    mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, claim.ParentMac);
+                uplinkMac = claim.ParentMac;
+                fromDownlinkTable = true;
+            }
+            if (string.IsNullOrEmpty(uplinkMac)) continue;
+            var parentMac = NormalizeMac(uplinkMac);
+            if (mac == parentMac) continue;
+            if (!deviceMacs.Contains(parentMac))
+            {
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} uplinks to {Parent}, which is not a device on this site; no edge drawn",
+                    mac, parentMac);
+                continue;
+            }
+
+            // A downlink_table entry is a wireless backhaul by definition; UplinkType came from
+            // the half that was missing, so it cannot be consulted for these.
+            var isWirelessBackhaul = fromDownlinkTable
+                || string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase);
             var link = new LanLink
             {
                 Id = $"uplink-{mac}",
                 FromNodeId = "dev-" + parentMac,
                 ToNodeId = "dev-" + mac,
                 Kind = isWirelessBackhaul ? LanLinkKind.MeshBackhaul : LanLinkKind.Uplink,
-                CapacityBps = ResolveUplinkCapacityBps(d),
-                Band = isWirelessBackhaul ? NormalizeBand(d.UplinkRadioBand) : null,
+                // Negotiated speed and band belong to the link the child described. When that is
+                // not this link, they are not ours to show - a wired 1 Gbps read off a stale
+                // uplink is how a mesh backhaul ends up labelled 1 Gbps.
+                CapacityBps = fromDownlinkTable ? null : ResolveUplinkCapacityBps(d),
+                Band = isWirelessBackhaul && !fromDownlinkTable ? NormalizeBand(d.UplinkRadioBand) : null,
             };
             if (isWirelessBackhaul)
             {
-                // Mesh PHY is asymmetric: the child's uplink RX rate caps traffic
-                // toward it (downstream), its TX rate caps traffic toward the
-                // parent (upstream).
-                if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
-                if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                // Mesh PHY is asymmetric, and which field is which depends on who reported it.
+                // The child's own fields are the child's perspective: its RX caps traffic toward
+                // it (downstream), its TX caps traffic toward the parent (upstream). A claim from
+                // the parent is the opposite way round - the parent transmitting IS the child
+                // receiving - and it also describes a different link from the one the child's
+                // stale uplink fields refer to, so the two are never mixed.
+                if (fromDownlinkTable)
+                {
+                    if (claim.TxRateKbps > 0) link.CapacityDownBps = claim.TxRateKbps * 1_000L;
+                    if (claim.RxRateKbps > 0) link.CapacityUpBps = claim.RxRateKbps * 1_000L;
+                }
+                else
+                {
+                    if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
+                    if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                }
             }
 
             // For wired uplinks, the parent switch port carries the throughput we want.
@@ -1431,7 +1487,14 @@ public class LanFlowMapService
             // Stash the child's own uplink port ifName on its node. The historic
             // endpoint uses this as a fallback when the parent doesn't expose
             // SNMP data (e.g., switch plugged into a mesh AP's Ethernet port).
-            if (d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
+            //
+            // Not when the parent came from its downlink table: the port the child names is the
+            // one on the link it was wrong about, and here it faces DOWN - the switch hangs off
+            // the AP. Readers of this invert it, because reading an uplink at the child's end
+            // reverses direction, so pointing them at a downstream port reports the mesh link
+            // backwards. Leaving it unset drops them to the device aggregate, which is the right
+            // source for an AP whose backhaul is a radio anyway.
+            if (!fromDownlinkTable && d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
             {
                 var childNode = snapshot.Nodes.FirstOrDefault(n => n.Id == "dev-" + mac);
                 if (childNode != null && nameMaps.TryGetValue((mac, d.LocalUplinkPort.Value), out var localMap))
@@ -1836,10 +1899,9 @@ public class LanFlowMapService
             }
             snapshot.Links.Add(wanLink);
 
-            // Seed live rates from WanSummary. On a WAN port the polled device IS the
-            // gateway, so the direction convention flips relative to internal uplinks:
-            //   RateIn  on gateway's WAN port = bytes from internet to gateway = downstream.
-            //   RateOut on gateway's WAN port = bytes from gateway to internet = upstream.
+            // Seed live rates from WanSummary. MonitoringPathView convention:
+            //   LiveRateInBps  = WAN port TX = uploads   = upstream.
+            //   LiveRateOutBps = WAN port RX = downloads = downstream.
             if (wan.LiveRateInBps.HasValue || wan.LiveRateOutBps.HasValue)
             {
                 snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
@@ -2074,10 +2136,14 @@ public class LanFlowMapService
                     var stats = _liveStats.GetForDevice(dev);
                     if (stats != null && stats.LastRateUpdate.HasValue)
                     {
+                        // Aggregate convention: RateInBps = uploads, RateOutBps = downloads
+                        // (see the live-tick reader). This seed read the fields reversed since
+                        // the original 3D map; the live tick replaced it within seconds, which
+                        // is why it never showed. Keep both mappings identical.
                         rates = new LinkLiveRates
                         {
-                            DownstreamBps = stats.RateInBps ?? 0,
-                            UpstreamBps = stats.RateOutBps ?? 0,
+                            DownstreamBps = stats.RateOutBps ?? 0,
+                            UpstreamBps = stats.RateInBps ?? 0,
                             AsOf = stats.LastRateUpdate.Value,
                         };
                     }

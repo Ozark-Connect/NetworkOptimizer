@@ -81,6 +81,10 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<LicenseKeyRecord> LicenseKeyRecords { get; set; }
     public DbSet<SiteLicenseAssignment> SiteLicenseAssignments { get; set; }
     public DbSet<TourState> TourStates { get; set; }
+    public DbSet<FirmwareRolloutSettings> FirmwareRolloutSettings { get; set; }
+    public DbSet<FirmwareRolloutPlan> FirmwareRolloutPlans { get; set; }
+    public DbSet<FirmwareRolloutStep> FirmwareRolloutSteps { get; set; }
+    public DbSet<FirmwareModelTiming> FirmwareModelTimings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -581,6 +585,45 @@ public class NetworkOptimizerDbContext : DbContext
         {
             // One row per WAN: the console's own WAN group is the identity that survives a rename.
             entity.HasIndex(e => e.WanNetworkgroup).IsUnique();
+        });
+
+        // FirmwareRolloutSettings configuration (singleton - only one row)
+        modelBuilder.Entity<FirmwareRolloutSettings>(entity =>
+        {
+            entity.ToTable("FirmwareRolloutSettings");
+            entity.Property(e => e.Mode).HasConversion<int>();
+            entity.Property(e => e.SpacingProfile).HasConversion<int>();
+            entity.Property(e => e.AutopilotWindowMode).HasConversion<int>();
+        });
+
+        // FirmwareRolloutPlan configuration
+        modelBuilder.Entity<FirmwareRolloutPlan>(entity =>
+        {
+            entity.ToTable("FirmwareRolloutPlans");
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.ScheduledStartAt);
+            entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        // FirmwareRolloutStep configuration
+        modelBuilder.Entity<FirmwareRolloutStep>(entity =>
+        {
+            entity.ToTable("FirmwareRolloutSteps");
+            entity.HasIndex(e => new { e.PlanId, e.Wave });
+            entity.HasIndex(e => e.DeviceMac);
+            entity.Property(e => e.State).HasConversion<int>();
+            entity.HasOne<FirmwareRolloutPlan>()
+                .WithMany()
+                .HasForeignKey(e => e.PlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // FirmwareModelTiming configuration (one row per model, the self-learning store)
+        modelBuilder.Entity<FirmwareModelTiming>(entity =>
+        {
+            entity.ToTable("FirmwareModelTimings");
+            entity.HasIndex(e => e.Model).IsUnique();
         });
     }
 }

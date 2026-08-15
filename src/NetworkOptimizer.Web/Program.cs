@@ -261,6 +261,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IStarlinkRepository, NetworkOptimizer.Storage.Repositories.StarlinkRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IFirmwareRolloutRepository, NetworkOptimizer.Storage.Repositories.FirmwareRolloutRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
@@ -288,6 +289,16 @@ builder.Services.AddSingleton<AgentOnGatewayDetector>();
 // licensing data is instance-wide registry data in the main database.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient("LicenseServer", client => client.Timeout = TimeSpan.FromSeconds(10));
+
+// Ubiquiti's public release feed: publish dates, changelog links, and prior-version firmware URLs
+// the console's latest-only catalog cannot supply. Read-only and anonymous, so a plain singleton.
+builder.Services.AddHttpClient(
+    NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient.HttpClientName,
+    client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient>();
+// Publish dates (autopilot's release-ripeness gate) and changelog links (the soak report) off that feed.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.IReleaseMetadataSource,
+    NetworkOptimizer.Web.Services.Firmware.ReleaseFeedMetadataSource>();
 builder.Services.AddSingleton<LicenseServerClient>();
 builder.Services.AddSingleton<LicenseStateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicenseStateService>());
@@ -654,6 +665,27 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
+// group switches and rollout alerts. One instance per site, owned by the registry on the same
+// terms as monitoring collection (default always runs; non-default sites start/stop on site
+// enable/disable), and its reconcile tick also starts plans whose scheduled time has come.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());
+// The page's whole surface (settings, preview, controls) goes through the gate. Built per request
+// against the site in context: the executor comes from the registry that owns it, and the command
+// client is site-pinned the same way the registry pins it for the executor.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Firmware.IRolloutPlanningSource,
+    NetworkOptimizer.Web.Services.Firmware.RolloutPlanningSource>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirmwareRolloutService>(sp =>
+{
+    var slug = sp.GetRequiredService<SiteContextService>().Slug;
+    return ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutService>(
+        sp,
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
+        ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
+});
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.

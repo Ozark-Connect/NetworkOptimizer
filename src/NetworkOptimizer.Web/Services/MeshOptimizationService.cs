@@ -64,9 +64,6 @@ public class MeshOptimizationService : IMeshOptimizationService
         if (string.IsNullOrWhiteSpace(host))
             return MeshOptimizationResult.NoOp(iface, "This AP has no reachable address.");
 
-        if (string.IsNullOrWhiteSpace(iface) || !ValidStaIface.IsMatch(iface))
-            return MeshOptimizationResult.NoOp(iface, "This AP isn't a wireless mesh child.");
-
         // The action runs over the shared UniFi device SSH credentials. Without them every
         // wpa_cli call just fails with a generic error, so check up front and point the user at
         // where to set it up.
@@ -75,6 +72,19 @@ public class MeshOptimizationService : IMeshOptimizationService
             (!string.IsNullOrEmpty(sshSettings.Password) || !string.IsNullOrEmpty(sshSettings.PrivateKeyPath));
         if (!sshConfigured)
             return MeshOptimizationResult.NoOp(iface, "Set up UniFi Device SSH in Settings to re-pair the uplink.");
+
+        // UniFi does not always report a mesh child's own uplink - after a parent reboots it can
+        // describe the pair only from the parent's side - and the interface name lives on exactly
+        // the half that goes missing. The device knows it either way, so ask it rather than let a
+        // reporting gap disable the action.
+        if (string.IsNullOrWhiteSpace(iface) || !ValidStaIface.IsMatch(iface))
+        {
+            iface = await DiscoverStaInterfaceAsync(host, cancellationToken);
+            if (iface == null)
+                return MeshOptimizationResult.NoOp(null, "This AP isn't a wireless mesh child.");
+
+            _logger.LogDebug("[MeshOptimize] {Ap}: UniFi reported no backhaul iface; found {Iface} on the device", apName, iface);
+        }
 
         // The per-interface wpa_supplicant control socket lives in different dirs across AP
         // platforms. U7-class APs run one global wpa_supplicant and nest the socket under
@@ -162,6 +172,25 @@ public class MeshOptimizationService : IMeshOptimizationService
             apName, iface, result.Action, before.Bssid, before.Rssi, after.Bssid, after.Rssi);
 
         return result;
+    }
+
+    /// <summary>
+    /// The AP's own STA backhaul interface, read off the device. A wired AP has none, which is how
+    /// this also answers "is it actually a mesh child" when UniFi will not say. Both wpa_supplicant
+    /// layouts are searched, the same pair the control socket is probed in below.
+    /// </summary>
+    /// <param name="host">AP address.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task<string?> DiscoverStaInterfaceAsync(string host, CancellationToken cancellationToken)
+    {
+        var (ok, output) = await _ssh.RunCommandAsync(
+            host,
+            "ls /sys/class/net 2>/dev/null | grep -x 'vwiresta[0-9]*' | head -1",
+            cancellationToken: cancellationToken);
+
+        if (!ok) return null;
+        var name = output?.Trim().Split('\n', '\r').FirstOrDefault()?.Trim();
+        return !string.IsNullOrEmpty(name) && ValidStaIface.IsMatch(name) ? name : null;
     }
 
     /// <summary>Read the current backhaul BSSID and RSSI in a single SSH round trip.</summary>

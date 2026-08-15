@@ -33,6 +33,7 @@ public class DeviceStateAlertEvaluator
 
     private readonly IAlertEventBus _eventBus;
     private readonly DeviceTransitionTracker _transitions;
+    private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ILogger<DeviceStateAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, DeviceAlertState> _states = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _siteSlug;
@@ -42,14 +43,21 @@ public class DeviceStateAlertEvaluator
     /// <param name="transitions">Which devices UniFi reports as mid-transition.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this instance evaluates for (one per site, owned by the registry).</param>
+    /// <param name="rolloutWindows">
+    /// Devices inside their own firmware rollout window. Separate from <paramref name="transitions"/>
+    /// because UniFi flips a device to plain Offline partway through some upgrades, which is exactly
+    /// the window where its own report cannot be relied on.
+    /// </param>
     public DeviceStateAlertEvaluator(
         IAlertEventBus eventBus,
         DeviceTransitionTracker transitions,
         ILogger<DeviceStateAlertEvaluator> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
     {
         _eventBus = eventBus;
         _transitions = transitions;
+        _rolloutWindows = rolloutWindows;
         _logger = logger;
         _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
@@ -114,6 +122,15 @@ public class DeviceStateAlertEvaluator
                 state.ConsecutiveOffline = 0;
                 _logger.LogDebug(
                     "Not alerting on {Device} ({Mac}) going offline: it was mid-transition moments ago",
+                    label, deviceMac);
+                return;
+            }
+
+            if (_rolloutWindows?.IsInRolloutWindow(_siteSlug, deviceMac, now) == true)
+            {
+                state.ConsecutiveOffline = 0;
+                _logger.LogDebug(
+                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading it",
                     label, deviceMac);
                 return;
             }

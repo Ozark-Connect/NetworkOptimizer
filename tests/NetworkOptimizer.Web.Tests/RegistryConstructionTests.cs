@@ -66,6 +66,56 @@ public class RegistryConstructionTests
         { typeof(Iperf3SpeedTestService), new[] { typeof(string), typeof(NetworkPathAnalyzer), typeof(TopologySnapshotService), typeof(SiteAlertEventBus) } },
         // WanDataUsageRegistry
         { typeof(WanDataUsageService), new[] { typeof(string), typeof(SiteAlertEventBus) } },
+        // FirmwareRolloutRegistry - the orchestrator's collaborators are built by the registry too,
+        // so each of their CreateInstance calls is mirrored here alongside the orchestrator's.
+        { typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRepositoryAccessor), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.RolloutDeviceObserver), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.LitmusService), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.RolloutHealthGate), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.MeshRepairQueue), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.RolloutPlanningScope), new[] { typeof(string) } },
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.RolloutChannelManager),
+            new[] { typeof(string), typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient) }
+        },
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.RolloutAutopilot),
+            new[]
+            {
+                typeof(string),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRepositoryAccessor),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutPlanningScope),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient),
+                typeof(SiteAlertEventBus)
+            }
+        },
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutOrchestrator),
+            new[]
+            {
+                typeof(string),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRepositoryAccessor),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutDeviceObserver),
+                typeof(NetworkOptimizer.Web.Services.Firmware.LitmusService),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutHealthGate),
+                typeof(NetworkOptimizer.Web.Services.Firmware.MeshRepairQueue),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutChannelManager),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutAutopilot),
+                typeof(SiteAlertEventBus)
+            }
+        },
+        // Program.cs builds the gated service the same runtime-bound way (explicit orchestrator +
+        // command client from the registry), so its call site is mirrored here too.
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutService),
+            new[]
+            {
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutOrchestrator),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient)
+            }
+        },
     };
 
     [Theory]
