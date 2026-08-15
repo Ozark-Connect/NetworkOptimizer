@@ -100,7 +100,7 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         var timings = await _repositories.UseAsync((r, c) => r.GetModelTimingsAsync(c), cancellationToken);
         var inputs = await _planning.UseAsync(
-            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, c), cancellationToken);
+            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, c), cancellationToken);
 
         var ripeness = await EvaluateRipenessAsync(inputs.Context.Devices, settings.MinReleaseAgeDays, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings, ripeness.UnripeMacs);

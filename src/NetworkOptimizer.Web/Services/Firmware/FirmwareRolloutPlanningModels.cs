@@ -51,7 +51,8 @@ public class PlannerDevice
     public string? FromVersion { get; init; }
 
     /// <summary>Target version the console reports (UpgradeToFirmware).</summary>
-    public string? ToVersion { get; init; }
+    /// <remarks>Set during the gather, once the console has staged this device's channel.</remarks>
+    public string? ToVersion { get; set; }
 
     /// <summary>Normalized parent MAC, null for the root or when unknown.</summary>
     public string? UplinkMac { get; init; }

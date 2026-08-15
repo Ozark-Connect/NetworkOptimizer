@@ -1015,6 +1015,23 @@ public class RolloutPlannerTests
     }
 
     [Fact]
+    public void Plan_UnderAChannelChange_WithholdsTheTargetVersion()
+    {
+        // The console stages one channel at a time, so the version it reports is the build for the
+        // channel it is on now. Naming it under a channel change proposes an EA build to a site
+        // that asked for RC, and gives the executor the wrong version to verify against.
+        var devices = new[] { Ap(ApMac, "AP-1", "SKU-AP1") };
+
+        var result = Plan(devices, Settings(globalChannel: FirmwareChannels.ReleaseCandidate),
+            currentConsoleChannel: FirmwareChannels.Release);
+
+        result.Steps.Should().ContainSingle().Which.ToVersion.Should().BeNull();
+        result.Document.Waves[0].Steps[0].ToVersion.Should().BeNull();
+        result.Document.ChannelGroups.Should().ContainSingle()
+            .Which.RequiresConsoleChange.Should().BeTrue();
+    }
+
+    [Fact]
     public void Plan_CloudGateway_NamesItselfAsTheConsole()
     {
         var devices = new[] { Gw(model: "UDRULT", displayModel: "UCG-Ultra") };
@@ -1067,7 +1084,10 @@ public class RolloutPlannerTests
     {
         var devices = new[] { Ap(ApMac, "AP-1", "SKU-AP1", displayModel: "U7 Pro") };
 
-        var result = Plan(devices, Settings(globalChannel: FirmwareChannels.ReleaseCandidate));
+        // Same channel the console is already on, so this exercises the facts, not the
+        // channel-change path that deliberately withholds a target.
+        var result = Plan(devices, Settings(globalChannel: FirmwareChannels.ReleaseCandidate),
+            currentConsoleChannel: FirmwareChannels.ReleaseCandidate);
 
         var step = result.Steps.Should().ContainSingle().Subject;
         step.DeviceMac.Should().Be(ApMac);

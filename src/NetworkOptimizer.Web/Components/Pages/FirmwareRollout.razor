@@ -420,6 +420,7 @@ else if (_wizardOpen)
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.UpgradableCount</span><span class="detail-label">to upgrade</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@_preview.Plan.Waves.Count</span><span class="detail-label">waves</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : SiteTime(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
                     @if (_preview.ExcludedCount > 0)
                     {
                         <div class="firmware-rollout-stat"><span class="detail-value">@_preview.ExcludedCount</span><span class="detail-label">excluded</span></div>
@@ -1130,6 +1131,9 @@ else
     {
         get
         {
+            // Start now means now, not the window that would have been proposed instead.
+            if (_scheduleMode == "now") return DateTime.UtcNow;
+
             // Until the slider is dragged, the answer is the proposed instant itself - rounding it
             // back out of an hour offset is what made the label disagree with the suggestion.
             if (!_startMoved && _preview?.ProposedWindow?.StartUtc is { } proposed && proposed != default)

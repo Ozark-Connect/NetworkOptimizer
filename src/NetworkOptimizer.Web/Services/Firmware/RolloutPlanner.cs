@@ -100,7 +100,11 @@ public class RolloutPlanner
                             DisplayModel = device.DisplayModel,
                             DeviceType = FirmwareDeviceTypes.Code(device.Type),
                             FromVersion = device.FromVersion,
-                            ToVersion = device.ToVersion,
+                            // The console stages one channel at a time, so a version it reports
+                            // belongs to the channel it is on now. Under a channel change it is
+                            // the wrong build to name, and the right one is unknowable until the
+                            // switch happens.
+                            ToVersion = requiresChange ? null : device.ToVersion,
                             IsCanary = isCanary,
                             HeldForCanary = held,
                             IsMeshParticipant = IsMeshParticipant(device, meshParents),
@@ -108,7 +112,7 @@ public class RolloutPlanner
                             OfflineBudgetSeconds = FirmwareTimingEstimator.OfflineBudgetSeconds(cls),
                         });
                         steps.Add(MakeStep(device, group.Channel, waveNumber,
-                            held ? FirmwareRolloutStepState.Held : FirmwareRolloutStepState.Pending));
+                            held ? FirmwareRolloutStepState.Held : FirmwareRolloutStepState.Pending, requiresChange));
                     }
                     doc.Waves.Add(planWave);
                 }
@@ -472,14 +476,17 @@ public class RolloutPlanner
         return cls;
     }
 
-    private static FirmwareRolloutStep MakeStep(PlannerDevice d, string channel, int wave, FirmwareRolloutStepState state) => new()
+    private static FirmwareRolloutStep MakeStep(
+        PlannerDevice d, string channel, int wave, FirmwareRolloutStepState state, bool channelChanges = false) => new()
     {
         DeviceMac = d.Mac,
         DeviceName = string.IsNullOrEmpty(d.Name) ? d.DisplayModel : d.Name,
         Model = d.Model,
         DeviceType = FirmwareDeviceTypes.Code(d.Type),
         FromVersion = d.FromVersion,
-        ToVersion = d.ToVersion,
+        // Under a channel change the console has not staged this channel's build yet, so there is
+        // no target to verify against until it does. The executor reads it once it has.
+        ToVersion = channelChanges ? null : d.ToVersion,
         Channel = channel,
         Wave = wave,
         State = state,

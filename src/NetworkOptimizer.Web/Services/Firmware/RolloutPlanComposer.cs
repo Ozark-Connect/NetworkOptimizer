@@ -32,6 +32,7 @@ public static class RolloutPlanComposer
         IRolloutPlanningSource planning,
         IReadOnlyList<FirmwareModelTiming> siteTimings,
         IFirmwareCommandClient commands,
+        FirmwareRolloutSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
@@ -44,11 +45,67 @@ public static class RolloutPlanComposer
         var currentChannel = await commands.GetDeviceChannelAsync(cancellationToken);
         var console = await commands.GetConsoleSystemInfoAsync(cancellationToken);
 
+        if (settings != null)
+            currentChannel = await StageEveryPlannedChannelAsync(
+                planning, commands, context, settings, currentChannel, cancellationToken);
+
         return new RolloutPlanInputs(
             context,
             estimator,
             string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel,
             console);
+    }
+
+    /// <summary>
+    /// Gives every device the target version for the channel IT is planned on.
+    ///
+    /// The console holds one channel's catalog at a time - "change channel, re-run list-available,
+    /// get that channel's URLs" - so with a per-model or per-type override in play, one refresh
+    /// can only ever describe part of the plan. Each distinct channel is therefore visited once
+    /// and the devices belonging to it take their target from that pass. The channel is not
+    /// restored: planning on a channel is committing to it, and the rollout sets it again per wave.
+    /// </summary>
+    /// <returns>The channel the console was left on.</returns>
+    private static async Task<string?> StageEveryPlannedChannelAsync(
+        IRolloutPlanningSource planning,
+        IFirmwareCommandClient commands,
+        RolloutPlanningContext context,
+        FirmwareRolloutSettings settings,
+        string? currentChannel,
+        CancellationToken cancellationToken)
+    {
+        var wanted = context.Devices
+            .Where(d => d.Upgradable)
+            .Select(d => RolloutPlanner.ResolveChannel(d, settings))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Already-current channel first, so a single-channel plan costs nothing extra.
+        var ordered = wanted
+            .OrderByDescending(c => string.Equals(c, currentChannel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var channel in ordered)
+        {
+            // The channel already active needs nothing: the context in hand was read on it.
+            if (string.Equals(channel, currentChannel, StringComparison.OrdinalIgnoreCase)) continue;
+
+            // A refused write is the Early Access gate being off. Those devices keep no target
+            // rather than being quoted the channel we failed to leave.
+            if (!await commands.SetDeviceChannelAsync(channel, cancellationToken)) continue;
+            currentChannel = channel;
+            await commands.CheckForUpdatesAsync(cancellationToken);
+
+            var staged = await planning.GetContextAsync(cancellationToken);
+            var byMac = staged.Devices.ToDictionary(d => d.Mac, StringComparer.OrdinalIgnoreCase);
+            foreach (var device in context.Devices.Where(d =>
+                d.Upgradable && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+            {
+                device.ToVersion = byMac.TryGetValue(device.Mac, out var fresh) ? fresh.ToVersion : null;
+            }
+        }
+
+        return currentChannel;
     }
 
     /// <summary>Orders a plan from the frozen inputs.</summary>
