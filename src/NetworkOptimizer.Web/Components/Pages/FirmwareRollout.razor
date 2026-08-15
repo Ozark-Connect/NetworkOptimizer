@@ -1041,10 +1041,10 @@ else
         if (!_exSkus.Add(model)) _exSkus.Remove(model);
     }
 
-    /// <summary>Every model on the site, keyed by the console's code and labeled by product name.</summary>
     /// <summary>
-    /// One row per model family, so a site running the same AP in two colors gets one control
-    /// rather than two that quietly govern each other - the planner resolves both to one key.
+    /// Every model on the site, one row per family and labeled by product name. A site running the
+    /// same AP in two colors gets one control rather than two that quietly govern each other, since
+    /// the planner resolves both to one key.
     /// </summary>
     private List<(string Code, string Label)> SiteModels =>
         (_preview?.Devices ?? [])

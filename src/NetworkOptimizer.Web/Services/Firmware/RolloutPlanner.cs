@@ -229,8 +229,8 @@ public class RolloutPlanner
     /// <summary>Effective channel: per-SKU override, then per-type, then global.</summary>
     public static string ResolveChannel(PlannerDevice d, FirmwareRolloutSettings settings)
     {
-        // Matched on the family at both ends, so a channel pinned to a model covers its other
-        // color, and a map written against a raw console code still resolves.
+        // Exact code first so a pin deliberately set on one color still wins, then the family, so a
+        // pin covers the same hardware in another shell and a map written against a raw code resolves.
         var bySku = ParseMap(settings.PerSkuChannelsJson);
         if (bySku.TryGetValue(d.Model, out var skuChannel) && !string.IsNullOrWhiteSpace(skuChannel))
             return skuChannel;
