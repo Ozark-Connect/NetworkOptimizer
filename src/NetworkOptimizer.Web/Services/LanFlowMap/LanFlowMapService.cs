@@ -1403,6 +1403,15 @@ public class LanFlowMapService
             {
                 uplinkMac = derivedParent;
                 fromDownlinkTable = true;
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} reports no uplink; taking {Parent} from the parent's downlink table",
+                    mac, derivedParent);
+            }
+            else if (string.IsNullOrEmpty(uplinkMac))
+            {
+                _logger.LogDebug(
+                    "[LanFlowMap] {Mac} reports no uplink and no parent claims it ({Known} derived pairs)",
+                    mac, meshParentByChild.Count);
             }
             if (string.IsNullOrEmpty(uplinkMac)) continue;
             var parentMac = NormalizeMac(uplinkMac);
