@@ -1576,8 +1576,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         // The image this plan committed to, captured on this device's own channel. Only used when it
-        // names the version this step is for: the catalog is keyed by model name, and a mismatch
-        // means it matched a different product - a UDB bridge on 6.5.89 pairs with a 1.5.1 entry.
+        // names the version this step is for - the catalog is matched by model code, so a
+        // disagreement means the entry is not this step's build and the URL cannot be trusted.
         var image = document.TargetImages
             .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
         var planned = image != null
