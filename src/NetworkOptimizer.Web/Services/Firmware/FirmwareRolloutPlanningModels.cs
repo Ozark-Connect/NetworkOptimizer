@@ -265,6 +265,13 @@ public class RolloutPlanDocument
     /// <summary>When the UniFi OS step starts, relative to the rollout's start.</summary>
     public int UniFiOsStartOffsetSeconds { get; set; }
 
+    /// <summary>
+    /// MAC of the device that IS the console, so the map can mark it while a console step runs.
+    /// Only a Cloud Gateway is its own console; on a site whose console is a Cloud Key or a
+    /// self-hosted install this stays null, and the console steps have nothing on the map to mark.
+    /// </summary>
+    public string? ConsoleMac { get; set; }
+
     public int TotalEstimatedSeconds { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>

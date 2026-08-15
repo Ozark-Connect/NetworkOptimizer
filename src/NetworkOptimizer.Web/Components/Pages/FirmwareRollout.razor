@@ -277,7 +277,7 @@ else if (_wizardOpen)
                             @foreach (var device in FilteredExclusionCandidates)
                             {
                                 var derived = DerivedExclusion(device);
-                                <label class="checkbox-label firmware-rollout-device-row" data-tooltip="@derived">
+                                <label class="checkbox-label firmware-rollout-device-row">
                                     <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
                                     <span>@device.Name</span>
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
@@ -286,7 +286,7 @@ else if (_wizardOpen)
                                         <span class="firmware-rollout-chip chip-active"
                                               data-tooltip="@UpdateTooltip(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
                                     }
-                                    <button type="button" class="btn btn-sm btn-secondary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(device.Model) ? "Include model" : "Exclude model")</button>
+                                    <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(device.Model) ? "Include model" : "Exclude model")</button>
                                 </label>
                             }
                         </div>

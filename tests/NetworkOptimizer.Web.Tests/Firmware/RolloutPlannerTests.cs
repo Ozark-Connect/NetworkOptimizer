@@ -1015,6 +1015,37 @@ public class RolloutPlannerTests
     }
 
     [Fact]
+    public void Plan_CloudGateway_NamesItselfAsTheConsole()
+    {
+        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+
+        var doc = Plan(devices, Settings(includeUniFiOs: true)).Document;
+
+        doc.ConsoleMac.Should().Be(GatewayMac);
+    }
+
+    [Fact]
+    public void Plan_CloudGateway_IsStillTheConsoleWithTheUniFiOsUpdateTurnedOff()
+    {
+        var devices = new[] { Gw(model: "UCGULTRA", displayModel: "UCG-Ultra") };
+
+        // The UniFi Network application still installs on it, so the map has a node to mark.
+        var doc = Plan(devices, Settings(includeUniFiOs: false)).Document;
+
+        doc.ConsoleMac.Should().Be(GatewayMac);
+    }
+
+    [Fact]
+    public void Plan_NetworkOnlyGateway_IsNotTheConsole()
+    {
+        var devices = new[] { Gw(model: "UXGPRO", displayModel: "UXG-Pro") };
+
+        var doc = Plan(devices, Settings(includeUniFiOs: true)).Document;
+
+        doc.ConsoleMac.Should().BeNull();
+    }
+
+    [Fact]
     public void Plan_AccessPointsAndSwitches_CarryTheStandardBudget()
     {
         var devices = new[]

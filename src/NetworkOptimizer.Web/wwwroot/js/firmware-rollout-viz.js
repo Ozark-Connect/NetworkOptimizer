@@ -201,7 +201,7 @@ export function play() {
     // Play is what sets the traffic moving.
     flowData.publishPlayState(false, 'historic');
     _lastTick = performance.now();
-    const speedup = 60; // 1 s wall clock = 1 min of plan
+    const speedup = 120; // 1 s wall clock = 2 min of plan
     const tick = () => {
         if (!_playing) return;
         const now = performance.now();
@@ -267,10 +267,58 @@ function applyOverlays() {
         }
     }
 
+    applyConsoleOverlay(overlays);
+
     for (const mac of _excluded) {
         overlays[mac.toLowerCase()] = { dim: true };
     }
     map2d.setNodeOverlays(overlays);
+}
+
+/// The UniFi Network and UniFi OS steps have no device of their own, so they mark the console.
+/// Only a Cloud Gateway is its own console - elsewhere consoleMac is absent and neither step
+/// touches the map. The console is also a device in the last wave, so the console step wins the
+/// node only while it is the one actually running.
+function applyConsoleOverlay(overlays) {
+    const mac = (_plan.consoleMac || '').toLowerCase();
+    if (!mac) return;
+    const con = _mode === 'planned' ? plannedConsoleState() : liveConsoleState();
+    if (!con) return;
+    if (con.state !== 'upgrading' && overlays[mac]) return;
+
+    const ov = { color: COLORS[con.state] || COLORS.pending, tip: con.tip };
+    if (con.state === 'upgrading') ov.pulse = true;
+    if (con.state === 'failed') ov.badge = '!';
+    overlays[mac] = ov;
+}
+
+/// Which console step the playhead is inside, if any. UniFi Network runs ahead of wave 1 and
+/// UniFi OS after every device step, so at most one is ever live.
+function plannedConsoleState() {
+    const sec = _playheadSec;
+    if (_plan.includesUniFiNetworkUpdate) {
+        const end = _plan.uniFiNetworkUpdateSeconds || 0;
+        if (sec < end) return { state: 'upgrading', tip: 'Updating the UniFi Network application' };
+    }
+    if (_plan.includesUniFiOsUpdate) {
+        const start = _plan.uniFiOsStartOffsetSeconds || 0;
+        const end = start + (_plan.uniFiOsUpdateSeconds || 0);
+        if (sec >= start && sec < end) return { state: 'upgrading', tip: 'Updating UniFi OS' };
+        if (sec >= end) return { state: 'done', tip: 'UniFi OS updated' };
+    }
+    return null;
+}
+
+function liveConsoleState() {
+    const os = _plan.uniFiOsUpdate, app = _plan.networkAppUpdate;
+    for (const [step, label] of [[os, 'UniFi OS'], [app, 'the UniFi Network application']]) {
+        if (!step?.triggered) continue;
+        if (!step.settled) return { state: 'upgrading', tip: `Updating ${label}` };
+        if (step.outcome === 'refused' || step.outcome === 'stuck') {
+            return { state: 'failed', tip: `${label} did not update (${step.outcome})` };
+        }
+    }
+    return null;
 }
 
 const STATE_WORDS = {
