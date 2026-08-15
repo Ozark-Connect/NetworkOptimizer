@@ -488,7 +488,7 @@ else
         <div class="card-body firmware-rollout-landing">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
-                <p class="firmware-rollout-note">No rollout is scheduled or running. Autopilot is on: the next time updates are waiting, a rollout will be planned into the site's quietest window and announced ahead of time.</p>
+                <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
             }
             else
             {
@@ -502,8 +502,20 @@ else
                 </SiteAdminOnly>
             }
             <SiteAdminOnly>
-                <button class="btn btn-primary" @onclick="OpenWizardAsync" disabled="@_busy">
-                    @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Plan a Rollout</span> }
+                @{
+                    // Autopilot already has the site covered, so planning by hand is the exception
+                    // here rather than the action the page is for.
+                    var autopilotOn = _settings?.Mode == FirmwareRolloutMode.Autopilot;
+                }
+                <button class="btn @(autopilotOn ? "btn-secondary" : "btn-primary")" @onclick="OpenWizardAsync" disabled="@_busy">
+                    @if (_busy)
+                    {
+                        <span class="spinner spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>@(autopilotOn ? "Plan one now" : "Plan a Rollout")</span>
+                    }
                 </button>
             </SiteAdminOnly>
         </div>
