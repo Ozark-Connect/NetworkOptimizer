@@ -53,4 +53,33 @@ public class FirmwareVersionFormatTests
     [Fact]
     public void ShortOrNull_ShortensWhenThereIs() =>
         FirmwareVersionFormat.ShortOrNull("7.5.10.17129").Should().Be("7.5.10");
+
+    [Fact]
+    public void SameBuild_CatalogStringAgainstWhatTheDeviceReports_Matches()
+    {
+        // The live case this exists for: a switch upgraded to the catalog's 7.5.10.17129 comes
+        // back reporting 7.5.10, and comparing them literally called a good upgrade a failure.
+        FirmwareVersionFormat.SameBuild("7.5.10", "7.5.10.17129").Should().BeTrue();
+        FirmwareVersionFormat.SameBuild("7.5.10.17129", "7.5.10").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("US3.rtl93xx_7.5.6+17090.260622.0846", "7.5.6")]
+    [InlineData("UXGA6AA.ipq9574.v5.1.26.0bc0fe4.260716.1128", "5.1.26")]
+    public void SameBuild_LooksThroughThePlatformAndBuildStamp(string reported, string target) =>
+        FirmwareVersionFormat.SameBuild(reported, target).Should().BeTrue();
+
+    [Theory]
+    [InlineData("7.5.1", "7.5.10")]
+    [InlineData("7.5.9", "7.5.10.17129")]
+    [InlineData("7.4.10", "7.5.10")]
+    public void SameBuild_DifferentVersions_DoNotMatch(string left, string right) =>
+        FirmwareVersionFormat.SameBuild(left, right).Should().BeFalse();
+
+    [Theory]
+    [InlineData(null, "7.5.10")]
+    [InlineData("7.5.10", null)]
+    [InlineData("", "7.5.10")]
+    public void SameBuild_WithNothingToCompare_IsFalse(string? left, string? right) =>
+        FirmwareVersionFormat.SameBuild(left, right).Should().BeFalse();
 }

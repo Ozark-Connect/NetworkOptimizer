@@ -39,4 +39,19 @@ public static class FirmwareVersionFormat
     /// <summary>Short form, or null when there is no version to show.</summary>
     public static string? ShortOrNull(string? firmware) =>
         string.IsNullOrWhiteSpace(firmware) ? null : Short(firmware);
+
+    /// <summary>
+    /// Whether two firmware strings name the same build. The two sides of a comparison never carry
+    /// the same amount of it: the catalog names <c>7.5.10.17129</c> while the device that just
+    /// installed it reports <c>7.5.10</c>, so comparing them literally calls a good upgrade a
+    /// failure. The version is therefore all that can be compared - a device never reports the
+    /// build number, so two builds of one version are indistinguishable from here by construction.
+    /// </summary>
+    /// <param name="left">One version, in any of the fleet's shapes.</param>
+    /// <param name="right">The other.</param>
+    public static bool SameBuild(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
+        return string.Equals(Short(left), Short(right), StringComparison.OrdinalIgnoreCase);
+    }
 }

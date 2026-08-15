@@ -122,8 +122,12 @@ public class FirmwareRolloutSettings
     /// <summary>How far ahead of an autopilot run the heads-up alert is published.</summary>
     public int NotifyHoursAhead { get; set; } = 12;
 
-    /// <summary>How long after completion the report waits before it is built.</summary>
-    public int SoakHours { get; set; } = 24;
+    /// <summary>
+    /// Settled running measured on each side of the before/after resource comparison, and so how
+    /// long after a device returns its report line is final. Not a delay on top of the numbers:
+    /// the report is built once every device has been measured over this window.
+    /// </summary>
+    public int SoakHours { get; set; } = 2;
 
     /// <summary>Minimum age of a published firmware release before autopilot will roll it out. 0 disables the gate.</summary>
     public int MinReleaseAgeDays { get; set; }

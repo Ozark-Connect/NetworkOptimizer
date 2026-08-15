@@ -48,8 +48,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     public static readonly TimeSpan ShortLitmusSettle = TimeSpan.FromMinutes(5);
 
-    /// <summary>Length of the before and after windows the resource comparison averages over.</summary>
-    public static readonly TimeSpan ResourceWindow = TimeSpan.FromHours(1);
+    /// <summary>
+    /// Length of the before and after windows the resource comparison averages over, when a site
+    /// has no soak configured. The soak IS this window: it is how much settled running sits on each
+    /// side of the comparison, not a wait bolted on after the numbers are already in.
+    /// </summary>
+    public static readonly TimeSpan ResourceWindow = TimeSpan.FromHours(2);
+
+    /// <summary>The configured soak, as the window the comparison reads on both sides.</summary>
+    private static TimeSpan ResourceWindowFor(FirmwareRolloutSettings settings) =>
+        settings.SoakHours > 0 ? TimeSpan.FromHours(settings.SoakHours) : ResourceWindow;
 
     /// <summary>How long to wait for the console to stage a device's target build before commanding anyway.</summary>
     public static readonly TimeSpan CatalogReflectWait = TimeSpan.FromMinutes(5);
@@ -486,7 +494,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     // --- Start ---------------------------------------------------------------------------------
 
+    /// <summary>
+    /// One start at a time per plan. The scheduled-start check reads the status and only writes it
+    /// several awaits later - a window two callers both got through on 2026-08-14, each running the
+    /// whole pre-flight and each announcing the rollout. Keyed by site and plan rather than held on
+    /// the instance, so it holds even where more than one executor resolves to the same site.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> StartGates = new();
+
     private async Task<bool> BeginAsync(FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken)
+    {
+        var gate = StartGates.GetOrAdd($"{_siteSlug}:{plan.Id}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            // Re-read inside the gate: whoever held it first may have started this already.
+            var current = await _repositories.UseAsync((r, c) => r.GetPlanAsync(plan.Id, c), cancellationToken);
+            if (current is null or { Status: not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced or FirmwareRolloutStatus.Draft) })
+                return current is { Status: FirmwareRolloutStatus.Running };
+
+            return await BeginCoreAsync(current, overrideHealthGate, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<bool> BeginCoreAsync(FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken)
     {
         if (!overrideHealthGate)
         {
@@ -540,6 +575,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return true;
     }
 
+    private const string NoBackupNote =
+        "No console backup was taken: this site connects with a UniFi API key, which cannot reach the "
+        + "console's backup endpoint. Only network devices are upgraded.";
+
     private async Task<bool> RunPreFlightBackupAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)
     {
         // A site connected with an API key cannot reach the console's own endpoints at all, so the
@@ -553,11 +592,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 "Skipping the pre-flight backup for rollout {Id} on site {Site}: the console API is out of reach, "
                 + "so there is no backup to take", plan.Id, _siteSlug);
             var document = ParseDocument(plan);
-            document.Notes.Add(
-                "No console backup was taken: this site connects with a UniFi API key, which cannot reach the "
-                + "console's backup endpoint. Only network devices are upgraded.");
-            plan.PlanJson = JsonSerializer.Serialize(document);
-            await PersistPlanAsync(plan, cancellationToken);
+            // A plan that is postponed and retried comes back through here, so do not stack it.
+            if (!document.Notes.Contains(NoBackupNote))
+            {
+                document.Notes.Add(NoBackupNote);
+                plan.PlanJson = JsonSerializer.Serialize(document);
+                await PersistPlanAsync(plan, cancellationToken);
+            }
             return true;
         }
 
@@ -988,7 +1029,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (VersionsMatch(observation.Firmware, step.ToVersion) && !VersionsMatch(step.FromVersion, step.ToVersion))
         {
             step.WentDownAt ??= step.CommandedAt;
-            await MarkBackOnlineAsync(step, observation, cancellationToken);
+            await MarkBackOnlineAsync(document, steps, step, observation, cancellationToken);
             return;
         }
 
@@ -1057,7 +1098,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         if (observation != null && UniFiDeviceStateMap.ToStatus(observation.State).Kind == DeviceStatusKind.Online)
         {
-            await MarkBackOnlineAsync(step, observation, cancellationToken);
+            await MarkBackOnlineAsync(document, steps, step, observation, cancellationToken);
             return;
         }
 
@@ -1119,21 +1160,28 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     private async Task MarkBackOnlineAsync(
-        FirmwareRolloutStep step, RolloutDeviceObservation observation, CancellationToken cancellationToken)
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        RolloutDeviceObservation observation,
+        CancellationToken cancellationToken)
     {
         step.BackAt = Now;
         if (step.WentDownAt is DateTime down)
             step.DowntimeSeconds = (int)Math.Max(0, (Now - down).TotalSeconds);
 
         // rc:ok and a full offline/online cycle both lie. The reported version is the only proof.
+        // Through FailStepAsync, not inline: a device that came back on the old firmware is the
+        // clearest evidence the build is bad, so its model must stop here like any other failure.
         if (!string.IsNullOrWhiteSpace(step.ToVersion) && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
-            step.State = FirmwareRolloutStepState.Failed;
-            step.Error = $"The device cycled but came back on {observation.Firmware ?? "an unknown version"}, not {step.ToVersion}.";
-            await PersistStepAsync(step, cancellationToken);
             _logger.LogError(
                 "{Device} on site {Site} rebooted but is still on {Version}, not {Target}",
                 step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
+            await FailStepAsync(
+                document, steps, step,
+                $"The device cycled but came back on {observation.Firmware ?? "an unknown version"}, not {step.ToVersion}.",
+                cancellationToken);
             return;
         }
 
@@ -1239,16 +1287,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
     {
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var window = ResourceWindowFor(settings);
+
         var due = steps.Where(s =>
             s.State is FirmwareRolloutStepState.LitmusPassed
             && s.PostStatsJson == null
             && s.BackAt is DateTime back
-            && Now >= back + CoolDown + ResourceWindow);
+            && Now >= back + CoolDown + window);
 
         foreach (var step in due.ToList())
         {
             var from = step.BackAt!.Value + CoolDown;
-            var post = await _litmus.CaptureStatsAsync(step.DeviceMac, from, from + ResourceWindow, cancellationToken);
+            var post = await _litmus.CaptureStatsAsync(step.DeviceMac, from, from + window, cancellationToken);
             step.PostStatsJson = JsonSerializer.Serialize(post);
 
             var comparison = LitmusThresholds.Compare(ParseStats(step.PreStatsJson), post);
@@ -1416,8 +1467,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 return;
         }
 
+        // Historical, so the window costs nothing to widen: it is read out of what the site already
+        // recorded before the command, and has to match the after-window for the two to compare.
+        var preWindow = ResourceWindowFor(settings);
         step.PreStatsJson = JsonSerializer.Serialize(
-            await _litmus.CaptureStatsAsync(step.DeviceMac, Now - ResourceWindow, Now, cancellationToken));
+            await _litmus.CaptureStatsAsync(step.DeviceMac, Now - preWindow, Now, cancellationToken));
 
         var result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
         if (!result.IsOk)
@@ -1499,8 +1553,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
 
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+
+        // Due when the comparisons are in, not on a clock of its own: every upgraded device has
+        // been measured over its own soak window, so there is nothing left to wait for. Waiting
+        // past that only delayed a report whose numbers were already final.
+        var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
+            or FirmwareRolloutStepState.RegressionFlagged).ToList();
+        if (measured.Count > 0 && measured.Any(s => s.PostStatsJson == null))
+            return;
+
         var completedAt = plan.CompletedAt ?? Now;
-        if (Now - completedAt < TimeSpan.FromHours(Math.Max(0, settings.SoakHours)))
+        if (measured.Count == 0 && Now - completedAt < ResourceWindowFor(settings))
             return;
 
         var document = ParseDocument(plan);
@@ -1962,14 +2025,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Version equality across the two spellings the console and the feed use. Whitespace and a
     /// leading "v" differ between sources for the same build.
     /// </summary>
-    private static bool VersionsMatch(string? left, string? right)
-    {
-        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
-            return false;
-        return string.Equals(Canonical(left), Canonical(right), StringComparison.OrdinalIgnoreCase);
-
-        static string Canonical(string version) => version.Trim().TrimStart('v', 'V').Replace('+', '.');
-    }
+    private static bool VersionsMatch(string? left, string? right) =>
+        NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(left, right);
 
     private static RolloutPlanDocument ParseDocument(FirmwareRolloutPlan plan)
     {

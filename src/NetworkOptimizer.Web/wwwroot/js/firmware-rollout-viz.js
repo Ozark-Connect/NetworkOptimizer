@@ -90,6 +90,7 @@ export async function mount(stageId, timelineId, opts) {
 export function dispose() {
     pause();
     _historicGen++;
+    map2d.stopDataPolling();
     flowData.clearLiveRates();
     flowData.resetPlayback();
     flowData.publishPlayState(false, 'live');
@@ -180,8 +181,20 @@ export function setLiveSteps(planDoc, steps, startedAtMs) {
     _plan = planDoc || _plan;
     _liveSteps = steps || [];
     _liveStartMs = startedAtMs || null;
+    const wasPlanned = _mode !== 'live';
     _mode = 'live';
-    pause();
+
+    // A running rollout wants the traffic it is actually causing, so this is the one mode that
+    // polls. The preview's pause belongs to its playhead, and live has no playhead to hold still.
+    if (wasPlanned) {
+        _playing = false;
+        if (_playTimer) cancelAnimationFrame(_playTimer);
+        _playTimer = 0;
+        _historicGen++;
+        flowData.publishPlayState(false, 'live');
+        map2d.startDataPolling();
+    }
+
     renderTimeline();
     applyOverlays();
 }
@@ -267,16 +280,21 @@ function applyOverlays() {
         for (const step of _liveSteps || []) {
             const mac = (step.deviceMac || step.mac || '').toLowerCase();
             const state = LIVE_STATE[step.state] ?? 'pending';
-            if (state === 'excluded') continue; // dimmed below with _excluded
             const doc = byMac[mac];
-            overlays[mac] = overlayFor(state, doc?.s || {}, doc?.wave || {}, step);
+            overlays[mac] = state === 'excluded'
+                ? { dim: true }
+                : overlayFor(state, doc?.s || {}, doc?.wave || {}, step);
         }
     }
 
     applyConsoleOverlay(overlays);
 
-    for (const mac of _excluded) {
-        overlays[mac.toLowerCase()] = { dim: true };
+    // Planned mode only. The live run carries its own exclusions in the step states, and dimming
+    // from the preview's list here painted a device grey over whatever it was really doing.
+    if (_mode === 'planned') {
+        for (const mac of _excluded) {
+            overlays[mac.toLowerCase()] = { dim: true };
+        }
     }
     map2d.setNodeOverlays(overlays);
 }

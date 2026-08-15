@@ -42,7 +42,7 @@ else if (_active != null)
                     }
                     @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
                     {
-                        <button class="btn btn-sm btn-secondary" @onclick="() => ControlAsync(RolloutService.PostponeAsync)" disabled="@_busy">Postpone</button>
+                        <button class="btn btn-sm btn-secondary" @onclick="PostponeAsync" disabled="@_busy">Postpone 24h</button>
                     }
                     @if (_active.Status is not FirmwareRolloutStatus.SoakWait)
                     {
@@ -52,6 +52,10 @@ else if (_active != null)
             </div>
         </div>
         <div class="card-body">
+            @if (_controlNotice != null)
+            {
+                <div class="alert alert-info firmware-rollout-note">@_controlNotice</div>
+            }
             @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
                 <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>. Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
@@ -62,7 +66,7 @@ else if (_active != null)
             }
             @if (_active.Status == FirmwareRolloutStatus.SoakWait)
             {
-                <p class="firmware-rollout-note">All devices are through. The report is being soaked for - resource comparisons need settle time - and will be ready within @(_settings?.SoakHours ?? 24) hours of completion.</p>
+                <p class="firmware-rollout-note">Every device is upgraded. The report compares @SoakHours hours of settled running against the same stretch before the upgrade, so it lands about @SoakHours hours after the last device came back.</p>
             }
             @foreach (var note in _active.Plan.Notes)
             {
@@ -677,6 +681,9 @@ else
     private bool _wizardOpen;
     private int _step = 1;
     private string? _wizardError;
+    private string? _controlNotice;
+
+    private int SoakHours => _settings?.SoakHours > 0 ? _settings.SoakHours : 2;
     private bool _exportingPdf;
 
     private FirmwareRolloutSettings? _settings;
@@ -1100,9 +1107,21 @@ else
         _ => "Rollout in Progress",
     };
 
+    /// <summary>
+    /// Postpone moves a start time by a fixed step and says nothing on its own, so a click that
+    /// worked and a click that did nothing look identical - which is how one turns into several.
+    /// </summary>
+    private async Task PostponeAsync()
+    {
+        await ControlAsync(RolloutService.PostponeAsync);
+        if (_active?.ScheduledStartAt is { } at)
+            _controlNotice = $"Postponed. The rollout now starts {LocalTime(at)}.";
+    }
+
     private async Task ControlAsync(Func<int, CancellationToken, Task> action)
     {
         if (_active == null) return;
+        _controlNotice = null;
         _busy = true;
         try
         {
@@ -1304,8 +1323,8 @@ else
     {
         FirmwareRolloutStepState.Pending => "Queued",
         FirmwareRolloutStepState.Held => "Held for canary",
-        FirmwareRolloutStepState.Commanded => "Upgrading",
-        FirmwareRolloutStepState.Down => "Rebooting",
+        FirmwareRolloutStepState.Commanded => "Starting",
+        FirmwareRolloutStepState.Down => "Upgrading",
         FirmwareRolloutStepState.BackOnline => "Back online",
         FirmwareRolloutStepState.CoolDown => "Cooling down",
         FirmwareRolloutStepState.LitmusPassed => "Upgraded",

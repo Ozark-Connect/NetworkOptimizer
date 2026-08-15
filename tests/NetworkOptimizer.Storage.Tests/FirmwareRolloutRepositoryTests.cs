@@ -43,7 +43,7 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         settings.GlobalChannel.Should().Be("release");
         settings.SuppressStandardAlerts.Should().BeTrue();
         settings.NotifyHoursAhead.Should().Be(12);
-        settings.SoakHours.Should().Be(24);
+        settings.SoakHours.Should().Be(2);
         settings.MinReleaseAgeDays.Should().Be(0);
         settings.WaiveBackup.Should().BeFalse();
         settings.PerWaveApproval.Should().BeFalse();

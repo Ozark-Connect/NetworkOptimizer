@@ -20429,6 +20429,10 @@ body.kiosk-mode .status-indicators {
 }
 
 @media (max-width: 768px) {
+    .firmware-rollout-legend {
+        display: none;
+    }
+
     .firmware-rollout-timeline {
         gap: 0.5rem;
         flex-wrap: wrap;

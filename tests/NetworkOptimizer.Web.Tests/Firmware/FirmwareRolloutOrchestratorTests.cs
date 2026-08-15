@@ -103,6 +103,52 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task FullCycleOnTheWrongVersion_AlsoDropsTheRestOfTheModel()
+    {
+        // A device that came back on its old firmware is the clearest evidence the build is bad,
+        // and this failure used to be written inline instead of through FailStepAsync - so the
+        // peer it was meant to protect went ahead and upgraded anyway (live, 2026-08-14).
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
+    }
+
+    [Fact]
+    public async Task BackOnTheTargetVersionReportedWithoutItsBuildNumber_Passes()
+    {
+        // The catalog names 7.5.10.17129; the switch that installed it reports 7.5.10. Comparing
+        // them literally failed a good upgrade and aborted the model behind it (live, 2026-08-14).
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac, to: "7.5.10.17129"));
+        harness.Observer.Set(ApMac, Online, "7.5.9", upgradeTo: "7.5.10.17129");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, "7.5.9");
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, "7.5.10");
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State
+            .Should().NotBe(FirmwareRolloutStepState.Failed);
+    }
+
+    [Fact]
     public async Task NoTransitionInsideTheGraceWindow_RetriesOverSsh()
     {
         using var harness = new RolloutHarness();

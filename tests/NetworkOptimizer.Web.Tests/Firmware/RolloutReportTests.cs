@@ -40,16 +40,18 @@ public class RolloutReportTests
     [Fact]
     public async Task Report_IsBuiltWhenTheSoakWindowHasPassed()
     {
+        // The soak IS the comparison window: the report is due once every upgraded device has been
+        // measured over it, not on a clock of its own that keeps running after the numbers are in.
         using var harness = new RolloutHarness();
-        await harness.WithSettingsAsync(s => s.SoakHours = 24);
+        await harness.WithSettingsAsync(s => s.SoakHours = 4);
         var start = harness.Time.GetUtcNow().UtcDateTime;
         var plan = await harness.SeedSoakingPlanAsync(
             Document(Wave(1, PlanStep(ApMac))),
             start.AddHours(-1),
             start,
-            Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start, pre: Stats(10, 40), post: Stats(11, 41)));
+            Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start, pre: Stats(10, 40)));
 
-        await harness.TickAsync(TimeSpan.FromHours(23));
+        await harness.TickAsync(TimeSpan.FromHours(3));
         (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
         (await harness.PlanAsync(plan.Id))!.ReportJson.Should().BeNull();
 
