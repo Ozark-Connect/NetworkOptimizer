@@ -149,13 +149,13 @@ public class RolloutReportPdfGenerator
                     columns.RelativeColumn(1f);
                 });
 
-                HeaderRow(table, "Site resource use", "Before", "After");
+                HeaderRow(table, "Upgraded device resource use", "Before", "After");
 
-                Cell(table, "CPU (mean of devices measured both sides)");
+                Cell(table, "CPU (mean)");
                 Cell(table, FormatPercent(report.SiteCpuBeforeMean));
                 Cell(table, FormatPercent(report.SiteCpuAfterMean));
 
-                Cell(table, "Memory (mean of devices measured both sides)");
+                Cell(table, "Memory (mean)");
                 Cell(table, FormatPercent(report.SiteMemBeforeMean));
                 Cell(table, FormatPercent(report.SiteMemAfterMean));
             });

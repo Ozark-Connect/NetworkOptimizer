@@ -624,11 +624,11 @@ else
                         <div class="firmware-rollout-stat"><span class="detail-value">@Duration(rep.TotalSeconds)</span><span class="detail-label">duration</span></div>
                         @if (rep.SiteCpuBeforeMean is { } cb && rep.SiteCpuAfterMean is { } ca)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">site CPU</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">mean device CPU</span></div>
                         }
                         @if (rep.SiteMemBeforeMean is { } mb && rep.SiteMemAfterMean is { } ma)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">site memory</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">mean device memory</span></div>
                         }
                     </div>
                     @if (rep.UniFiNetworkUpdateOutcome != null)
