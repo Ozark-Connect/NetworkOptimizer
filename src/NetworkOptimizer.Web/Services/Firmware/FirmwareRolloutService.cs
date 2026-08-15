@@ -134,20 +134,34 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         ArgumentNullException.ThrowIfNull(settings);
 
+        // Every step here is a console round trip, and on an agent-relayed site they are the whole
+        // cost of opening the wizard. Timed individually so a slow preview names its own culprit.
+        var timer = System.Diagnostics.Stopwatch.StartNew();
         var (result, context) = await PlanAsync(settings, cancellationToken);
+        var planMs = timer.ElapsedMilliseconds;
         var document = result.Document;
 
         var channels = await _commands.GetChannelAvailabilityAsync(cancellationToken);
+        var channelsMs = timer.ElapsedMilliseconds - planMs;
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+        var consoleMs = timer.ElapsedMilliseconds - planMs - channelsMs;
         var autoUpgrade = await _commands.GetAutoUpgradeEnabledAsync(cancellationToken);
+        var autoUpgradeMs = timer.ElapsedMilliseconds - planMs - channelsMs - consoleMs;
         var active = await _repository.GetActivePlanAsync(cancellationToken);
+        var window = await _planning.ProposeWindowAsync(
+            context, document.TotalEstimatedSeconds, settings, WindowLead(settings), cancellationToken);
+        var windowMs = timer.ElapsedMilliseconds - planMs - channelsMs - consoleMs - autoUpgradeMs;
+
+        _logger.LogDebug(
+            "Firmware Rollout preview built in {Total} ms: plan {Plan} ms, channels {Channels} ms, "
+            + "console {Console} ms, auto-upgrade {Auto} ms, quiet window {Window} ms",
+            timer.ElapsedMilliseconds, planMs, channelsMs, consoleMs, autoUpgradeMs, windowMs);
 
         var preview = new RolloutPreviewView
         {
             Plan = document,
             Steps = result.Steps.Select(s => ToView(s, document)).ToList(),
-            ProposedWindow = await _planning.ProposeWindowAsync(
-                context, document.TotalEstimatedSeconds, settings, WindowLead(settings), cancellationToken),
+            ProposedWindow = window,
             Channels = channels,
             TotalDeviceCount = context.Devices.Count,
             UpgradableCount = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded),
