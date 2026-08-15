@@ -121,7 +121,9 @@ public class QuietWindowService
     /// </summary>
     public async Task<double[]?> BuildBusyFingerprintAsync(IReadOnlyList<PlannerDevice> devices, CancellationToken ct = default)
     {
-        var to = DateTime.UtcNow;
+        // Aligned to the sample window: unaligned edges put the two aggregation passes on
+        // different boundaries, and the same query minutes apart returns different buckets.
+        var to = Floor(DateTime.UtcNow, SampleWindow);
         var from = to.AddDays(-LookbackDays);
         var busy = new double[QuietWindowCalculator.BucketsPerWeek];
         DateTime? earliest = null, latest = null;
@@ -129,17 +131,14 @@ public class QuietWindowService
         var contributing = 0;
         var totalSamples = 0;
 
+        var samplesByMac = await AllDeviceSamplesAsync(devices, from, to, ct);
+
         foreach (var device in devices)
         {
             ct.ThrowIfCancellationRequested();
-            List<(DateTime Time, double Bps)> samples;
-            try
+            if (!samplesByMac.TryGetValue(MacNormalizer.Normalize(device.Mac), out var samples))
             {
-                samples = await DeviceSamplesAsync(device, from, to, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(ex, "Quiet-window: no usable history for {Mac}", device.Mac);
+                _logger.LogDebug("Quiet window {Site}: {Name} ({Mac}) contributed no samples", _siteSlug, device.Name, device.Mac);
                 continue;
             }
             if (samples.Count == 0)
@@ -232,26 +231,42 @@ public class QuietWindowService
     /// APs are the one exception, exactly as the live path treats them: their radio interfaces
     /// over-count beacons, retries and MIMO duplicates, so only the copper and SFP uplinks count.
     /// </remarks>
-    private async Task<List<(DateTime Time, double Bps)>> DeviceSamplesAsync(
-        PlannerDevice device, DateTime from, DateTime to, CancellationToken ct)
+    /// <summary>
+    /// Every device's per-window throughput, in two queries rather than one per device: access
+    /// points count their wired side only, everything else counts every interface. The cost is
+    /// then flat in the size of the site, which is what a large site cannot afford to have scale.
+    /// </summary>
+    private async Task<Dictionary<string, List<(DateTime Time, double Bps)>>> AllDeviceSamplesAsync(
+        IReadOnlyList<PlannerDevice> devices, DateTime from, DateTime to, CancellationToken ct)
     {
-        var rows = await _influx.QueryInterfaceRatesAsync(device.Mac, from, to, SampleWindow, ct);
-        var usable = device.Type == DeviceType.AccessPoint
-            ? rows.Where(IsWiredInterface)
-            : rows;
+        var byMac = new Dictionary<string, List<(DateTime Time, double Bps)>>(StringComparer.OrdinalIgnoreCase);
+        var apMacs = devices.Where(d => d.Type == DeviceType.AccessPoint).Select(d => d.Mac).ToList();
+        var otherMacs = devices.Where(d => d.Type != DeviceType.AccessPoint).Select(d => d.Mac).ToList();
 
-        return usable
-            .GroupBy(r => r.Time)
-            .Select(g => (Time: g.Key, Bps: g.Sum(r => (r.RateInBps ?? 0) + (r.RateOutBps ?? 0))))
-            .OrderBy(p => p.Time)
-            .ToList();
+        foreach (var (macs, wiredOnly) in new[] { (otherMacs, false), (apMacs, true) })
+        {
+            if (macs.Count == 0) continue;
+            try
+            {
+                var rows = await _influx.QueryDeviceRateTotalsAsync(macs, from, to, SampleWindow, wiredOnly, ct);
+                foreach (var row in rows)
+                {
+                    var key = MacNormalizer.Normalize(row.DeviceMac);
+                    if (!byMac.TryGetValue(key, out var list))
+                        byMac[key] = list = [];
+                    list.Add((row.Time, row.Bps));
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Quiet-window: reading history for {Count} devices failed", macs.Count);
+            }
+        }
+
+        return byMac;
     }
 
-    /// <summary>Copper and SFP uplinks; a radio interface is never a wired uplink.</summary>
-    private static bool IsWiredInterface(MonitoringInfluxClient.InterfaceRatePoint row)
-    {
-        var key = string.IsNullOrEmpty(row.PortId) ? row.IfName : row.PortId;
-        return key.StartsWith("eth", StringComparison.OrdinalIgnoreCase)
-            || key.StartsWith("sfp", StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary>Truncates an instant down to the previous boundary of the given size.</summary>
+    private static DateTime Floor(DateTime value, TimeSpan interval) =>
+        new(value.Ticks - value.Ticks % interval.Ticks, value.Kind);
 }
