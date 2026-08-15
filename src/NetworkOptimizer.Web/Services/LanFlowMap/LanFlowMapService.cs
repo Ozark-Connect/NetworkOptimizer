@@ -1405,12 +1405,20 @@ public class LanFlowMapService
             var mac = NormalizeMac(d.Mac);
             var uplinkMac = NormalizeMac(d.UplinkMac);
             var fromDownlinkTable = false;
-            if ((string.IsNullOrEmpty(uplinkMac) || !deviceMacs.Contains(uplinkMac))
-                && meshParentByChild.TryGetValue(mac, out var derivedParent))
+
+            // A parent naming this device in its downlink_table outranks the device's own uplink
+            // field. That field can be stale or plain wrong after a reboot - it has been seen
+            // naming a switch that actually hangs off the AP - and pointing a child at something
+            // downstream of itself closes a loop the layout cannot place, so the device ends up
+            // with no position at all: isolated on 3D, absent from 2D.
+            if (meshParentByChild.TryGetValue(mac, out var derivedParent))
             {
-                _logger.LogDebug(
-                    "[LanFlowMap] {Mac} has no usable uplink (reported {Reported}); taking {Parent} from the parent's downlink table",
-                    mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, derivedParent);
+                if (!string.Equals(uplinkMac, derivedParent, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug(
+                        "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
+                        mac, string.IsNullOrEmpty(uplinkMac) ? "none" : uplinkMac, derivedParent);
+                }
                 uplinkMac = derivedParent;
                 fromDownlinkTable = true;
             }
