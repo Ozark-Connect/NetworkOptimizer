@@ -542,6 +542,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private async Task<bool> RunPreFlightBackupAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)
     {
+        // A site connected with an API key cannot reach the console's own endpoints at all, so the
+        // backup is not failing, it is unavailable. Gating on it there postpones the rollout every
+        // night forever for a condition no amount of waiting fixes. The device upgrades the wizard
+        // offers such a site do not touch the console, which is what the restore point protects.
+        var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+        if (!RolloutPlanComposer.ConsoleReachable(console))
+        {
+            _logger.LogInformation(
+                "Skipping the pre-flight backup for rollout {Id} on site {Site}: the console API is out of reach, "
+                + "so there is no backup to take", plan.Id, _siteSlug);
+            var document = ParseDocument(plan);
+            document.Notes.Add(
+                "No console backup was taken: this site connects with a UniFi API key, which cannot reach the "
+                + "console's backup endpoint. Only network devices are upgraded.");
+            plan.PlanJson = JsonSerializer.Serialize(document);
+            await PersistPlanAsync(plan, cancellationToken);
+            return true;
+        }
+
         var backup = await _commands.TriggerBackupAsync(cancellationToken);
         if (backup.IsOk)
             return true;

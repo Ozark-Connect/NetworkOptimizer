@@ -92,7 +92,7 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>Whether /api/system answered with anything at all.</summary>
-    private static bool ConsoleReachable(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console) =>
+    public static bool ConsoleReachable(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console) =>
         console != null && (console.Firmware != null || console.Apps != null);
 
     /// <summary>Whether the chosen channel offers a UniFi OS build the console is not already on.</summary>
