@@ -1497,10 +1497,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Gets the port speed for a specific port on a device.
-    /// Returns the LAG aggregate speed when the port is part of a Link Aggregation Group.
-    /// </summary>
-    /// <summary>
     /// The uplink to follow out of a device. A parent naming it in the parent's downlink_table
     /// outranks the device's own uplink field, which can be stale after a reboot - it has been
     /// seen naming a switch that actually hangs off the device, which walks the path back down
@@ -1543,6 +1539,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         hop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
     }
 
+    /// <summary>
+    /// Gets the port speed for a specific port on a device.
+    /// Returns the LAG aggregate speed when the port is part of a Link Aggregation Group.
+    /// </summary>
     private int GetPortSpeedFromRawDevices(
         Dictionary<string, UniFiDeviceResponse> rawDevices,
         string? deviceMac,

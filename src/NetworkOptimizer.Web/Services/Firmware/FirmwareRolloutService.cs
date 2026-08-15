@@ -32,6 +32,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// <param name="orchestrator">This site's executor.</param>
     /// <param name="commands">Firmware command surface (the catalog refresh and console reads).</param>
     /// <param name="planning">Topology, coverage, quiet window and rollback-image sources.</param>
+    /// <param name="releaseMetadata">Publish dates and changelog links from the public feed.</param>
     /// <param name="audit">Audit detail for the gated writes.</param>
     /// <param name="caller">Who is asking, recorded as the plan's author.</param>
     /// <param name="logger">Logger.</param>

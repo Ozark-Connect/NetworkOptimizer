@@ -125,13 +125,6 @@ export function publishScrubberWindow(win) {
     _notify('scrubber-window');
 }
 
-// Restore live-mode playback defaults. Called by the 3D map (the playback
-// authority) at the start of each of its mounts, so state left behind by a
-// previous Live View session - historic mode, a paused flag, a parked
-// scrubber - can't leak into the new one. This module is a singleton that
-// outlives SPA navigations while the map instance itself is rebuilt fresh,
-// so without this every remount inherits whatever the last session left.
-// Notifies so any still-mounted consumer UI syncs to the clean state.
 // Drop every cached rate. A page that seeds the store with keys of its own derivation - the
 // Firmware Rollout preview maps id-keyed historic rates onto portKey, which the maps look up
 // first - must call this on teardown, or the next page reads those keys as its own.
@@ -139,6 +132,13 @@ export function clearLiveRates() {
     _liveRates = {};
 }
 
+// Restore live-mode playback defaults. Called by the 3D map (the playback
+// authority) at the start of each of its mounts, so state left behind by a
+// previous Live View session - historic mode, a paused flag, a parked
+// scrubber - can't leak into the new one. This module is a singleton that
+// outlives SPA navigations while the map instance itself is rebuilt fresh,
+// so without this every remount inherits whatever the last session left.
+// Notifies so any still-mounted consumer UI syncs to the clean state.
 export function resetPlayback() {
     _paused = false;
     _mode = 'live';

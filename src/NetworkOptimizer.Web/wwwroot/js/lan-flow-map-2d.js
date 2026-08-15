@@ -875,9 +875,9 @@ class LanFlowMap2D {
         flowData.renderScrubberTicks(this._scrubberEls.ticks,win.startMs,win.endMs);
     }
 
-    /// Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
-    /// Resolved from the snapshot's node kinds, not the layout tree - a hub or cloud edge
-    /// carries no tree node, so tree refs alone let its link survive the hidden node.
+    // Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
+    // Resolved from the snapshot's node kinds, not the layout tree - a hub or cloud edge
+    // carries no tree node, so tree refs alone let its link survive the hidden node.
     _isEdgeVisible(e){
         for(const id of [e.lk?.fromNodeId, e.lk?.toNodeId]){
             if(!id) continue;

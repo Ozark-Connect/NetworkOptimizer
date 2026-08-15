@@ -887,11 +887,10 @@ public static class UniFiProductDatabase
     /// <summary>The catalog's name for this device, or null when it carries neither code.</summary>
     private static string? ResolveKnownProductName(string? model, string? shortname)
     {
-        if (!string.IsNullOrEmpty(model))
-        {
-            var byModel = GetProductName(model);
-            if (byModel != model) return byModel;
-        }
+        // Direct lookup, not GetProductName: some codes map to themselves ("USG", "UDM"), and
+        // a returned-input test would misread those hits as misses.
+        if (!string.IsNullOrEmpty(model) && OfficialModelCodes.TryGetValue(model, out var byModel))
+            return byModel;
         if (!string.IsNullOrEmpty(shortname))
         {
             var byShortname = GetProductNameFromShortname(shortname);

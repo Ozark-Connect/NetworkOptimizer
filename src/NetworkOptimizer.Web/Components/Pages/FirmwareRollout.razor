@@ -94,6 +94,21 @@ else if (_active != null)
                         <tr><th>Wave</th><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>State</th><th class="hide-mobile">Downtime</th><th></th></tr>
                     </thead>
                     <tbody>
+                        @* The console's own phases are not device steps, but they are part of the
+                           run and bracket it: the application first, UniFi OS after every device. *@
+                        @if (_active.Plan.IncludesUniFiNetworkUpdate)
+                        {
+                            <tr>
+                                <td>-</td>
+                                <td>UniFi Network application</td>
+                                <td>@ConsoleRowModel</td>
+                                <td class="hide-mobile">-</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.TargetVersion) ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.NetworkAppUpdate)">@ConsoleChipLabel(_active.Plan.NetworkAppUpdate)</span></td>
+                                <td class="hide-mobile">-</td>
+                                <td></td>
+                            </tr>
+                        }
                         @foreach (var step in _active.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
                         {
                             <tr>
@@ -116,6 +131,19 @@ else if (_active != null)
                                         }
                                     </SiteAdminOnly>
                                 </td>
+                            </tr>
+                        }
+                        @if (_active.Plan.IncludesUniFiOsUpdate)
+                        {
+                            <tr>
+                                <td>-</td>
+                                <td>UniFi OS</td>
+                                <td>@ConsoleRowModel</td>
+                                <td class="hide-mobile">-</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.TargetVersion) ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.UniFiOsUpdate)">@ConsoleChipLabel(_active.Plan.UniFiOsUpdate)</span></td>
+                                <td class="hide-mobile">-</td>
+                                <td></td>
                             </tr>
                         }
                     </tbody>
@@ -293,7 +321,7 @@ else if (_wizardOpen)
                             @foreach (var device in FilteredExclusionCandidates)
                             {
                                 var derived = DerivedExclusion(device);
-                                <label class="checkbox-label firmware-rollout-device-row">
+                                <label class="checkbox-label firmware-rollout-device-row" data-tooltip="@derived">
                                     <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
                                     <span>@device.Name</span>
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
@@ -684,6 +712,43 @@ else
     private string? _controlNotice;
 
     private int SoakHours => _settings?.SoakHours > 0 ? _settings.SoakHours : 2;
+
+    /// <summary>The console's phases run on the gateway when the gateway IS the console.</summary>
+    private string ConsoleRowModel => _active?.Steps
+        .FirstOrDefault(s => string.Equals(s.Mac, _active.Plan.ConsoleMac, StringComparison.OrdinalIgnoreCase))
+        ?.DisplayModel ?? "Console";
+
+    /// <summary>
+    /// A console phase reports progress as triggered/settled plus an outcome word, not as a step
+    /// state, so it needs its own reading of the same three questions the chips answer.
+    /// </summary>
+    private static string ConsoleChipLabel(RolloutConsoleStepState state)
+    {
+        if (!state.Triggered) return "Queued";
+        if (!state.Settled) return "Upgrading";
+        return state.Outcome switch
+        {
+            "updated" => "Upgraded",
+            "nothing-to-update" => "Already current",
+            "unchanged" => "No change",
+            "refused" => "Refused",
+            "stuck" => "Stuck",
+            "skipped" => "Skipped",
+            _ => "Done",
+        };
+    }
+
+    private static string ConsoleChipClass(RolloutConsoleStepState state)
+    {
+        if (!state.Triggered) return "chip-muted";
+        if (!state.Settled) return "chip-active";
+        return state.Outcome switch
+        {
+            "updated" => "chip-success",
+            "refused" or "stuck" => "chip-danger",
+            _ => "chip-muted",
+        };
+    }
     private bool _exportingPdf;
 
     private FirmwareRolloutSettings? _settings;
@@ -1200,7 +1265,10 @@ else
                 URL.revokeObjectURL(a.href);
             }})();");
         }
-        catch { }
+        catch
+        {
+            // A failed download is visible to the user in the browser; nothing to recover here.
+        }
         finally
         {
             _exportingPdf = false;
@@ -1315,7 +1383,9 @@ else
 
     private static string Duration(int seconds)
     {
-        var h = seconds / 3600; var m = (int)Math.Round(seconds % 3600 / 60.0);
+        // Round to whole minutes first so 59m 55s reads 1h 0m, not 1h 60m.
+        var totalMinutes = (int)Math.Round(seconds / 60.0);
+        var h = totalMinutes / 60; var m = totalMinutes % 60;
         return h > 0 ? $"{h}h {m}m" : $"{m}m";
     }
 

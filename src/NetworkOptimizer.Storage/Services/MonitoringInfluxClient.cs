@@ -1293,7 +1293,7 @@ from(bucket: ""{_longtermBucket}"")
     ///
     /// <paramref name="from"/> and <paramref name="to"/> must be aligned to
     /// <paramref name="aggregateWindow"/> or the two passes disagree on where windows begin and
-    /// the totals land in neighbouring buckets.
+    /// the totals land in neighboring buckets.
     /// </remarks>
     /// <param name="deviceMacs">Devices to total. An empty list returns nothing.</param>
     /// <param name="from">Window start (UTC), aligned to <paramref name="aggregateWindow"/>.</param>
@@ -1319,11 +1319,9 @@ from(bucket: ""{_longtermBucket}"")
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(m => $@"r.device_mac == ""{m}"""));
 
-        // A plain disjunction of tag regexes, NEVER a conditional over the two. Influx pushes this
-        // down to the index; the if/else form that expresses port_id-then-if_name precedence exactly
-        // is evaluated per row instead and measured 82 s against 0.26 s for the same 10,752 rows.
-        // The two only disagree where a port whose raw name is not eth/sfp has been renamed to
-        // something that is, which no site has done.
+        // A plain disjunction of tag regexes, NEVER the if/else that expresses port_id-then-if_name
+        // precedence exactly - the conditional runs per row (82 s vs 0.26 s; see remarks). The two
+        // disagree only where a non-eth/sfp port has been renamed to eth*/sfp*, which no site has done.
         const string wiredPrefix = @"/^(?i:eth|sfp)/";
         var interfaceFilter = wiredOnly
             ? $@"  |> filter(fn: (r) => r.port_id =~ {wiredPrefix} or r.if_name =~ {wiredPrefix})

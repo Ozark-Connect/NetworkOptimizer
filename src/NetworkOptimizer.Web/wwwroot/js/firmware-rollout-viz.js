@@ -248,8 +248,9 @@ export function pause() {
 function totalSeconds() { return Math.max(1, _plan?.totalEstimatedSeconds || 1); }
 
 function fmtDuration(s) {
-    s = Math.round(s);
-    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    // Round to whole minutes first so 59m 55s reads 1h 0m, not 1h 60m.
+    const totalMin = Math.round(s / 60);
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
@@ -490,12 +491,15 @@ function renderTimeline() {
             track.setPointerCapture(ev.pointerId);
             scrub(ev);
             const move = (e) => scrub(e);
+            // pointercancel must clean up too, or the stale move handler keeps scrubbing on hover.
             const up = () => {
                 track.removeEventListener('pointermove', move);
                 track.removeEventListener('pointerup', up);
+                track.removeEventListener('pointercancel', up);
             };
             track.addEventListener('pointermove', move);
             track.addEventListener('pointerup', up);
+            track.addEventListener('pointercancel', up);
         });
     }
 

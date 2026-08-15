@@ -74,9 +74,21 @@ public class RegistryConstructionTests
         { typeof(NetworkOptimizer.Web.Services.Firmware.LitmusService), new[] { typeof(string) } },
         { typeof(NetworkOptimizer.Web.Services.Firmware.RolloutHealthGate), new[] { typeof(string) } },
         { typeof(NetworkOptimizer.Web.Services.Firmware.MeshRepairQueue), new[] { typeof(string) } },
+        { typeof(NetworkOptimizer.Web.Services.Firmware.RolloutPlanningScope), new[] { typeof(string) } },
         {
             typeof(NetworkOptimizer.Web.Services.Firmware.RolloutChannelManager),
             new[] { typeof(string), typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient) }
+        },
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.RolloutAutopilot),
+            new[]
+            {
+                typeof(string),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRepositoryAccessor),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutPlanningScope),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient),
+                typeof(SiteAlertEventBus)
+            }
         },
         {
             typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutOrchestrator),
@@ -90,7 +102,18 @@ public class RegistryConstructionTests
                 typeof(NetworkOptimizer.Web.Services.Firmware.RolloutHealthGate),
                 typeof(NetworkOptimizer.Web.Services.Firmware.MeshRepairQueue),
                 typeof(NetworkOptimizer.Web.Services.Firmware.RolloutChannelManager),
+                typeof(NetworkOptimizer.Web.Services.Firmware.RolloutAutopilot),
                 typeof(SiteAlertEventBus)
+            }
+        },
+        // Program.cs builds the gated service the same runtime-bound way (explicit orchestrator +
+        // command client from the registry), so its call site is mirrored here too.
+        {
+            typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutService),
+            new[]
+            {
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutOrchestrator),
+                typeof(NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient)
             }
         },
     };
