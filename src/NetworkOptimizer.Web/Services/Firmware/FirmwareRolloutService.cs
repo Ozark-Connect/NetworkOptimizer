@@ -320,7 +320,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         FirmwareRolloutSettings settings, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
-        var inputs = await RolloutPlanComposer.GatherAsync(_planning, timings, _commands, settings, cancellationToken);
+        var inputs = await RolloutPlanComposer.GatherAsync(_planning, timings, _commands, settings, _logger, cancellationToken);
         return (RolloutPlanComposer.Plan(inputs, settings), inputs.Context);
     }
 

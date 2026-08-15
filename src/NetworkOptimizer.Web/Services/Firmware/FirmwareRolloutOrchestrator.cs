@@ -1560,11 +1560,30 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         step.PreStatsJson = JsonSerializer.Serialize(
             await _litmus.CaptureStatsAsync(step.DeviceMac, Now - preWindow, Now, cancellationToken));
 
-        // The image this plan committed to, captured on this device's own channel. Commanding it by
-        // URL is what lets one rollout install different channels on different models, and it cannot
-        // be undone by the console's channel being changed between planning and now.
-        var planned = document.TargetImages
-            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase))?.Url;
+        // Last gate before this device reboots. The plan can be hours old and the console restages
+        // on its own, so what it runs NOW decides - a target that is not ahead of it is a downgrade
+        // whatever the plan says, and firmware does not come back on its own.
+        // TODO: a deliberate downgrade is the separate opt-in mode, as for the console.
+        if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
+        {
+            _logger.LogWarning(
+                "Refusing to command {Device} on site {Site}: {Target} is not newer than the installed {Installed}",
+                step.DeviceName, _siteSlug, step.ToVersion ?? "no target", observation.Firmware ?? "unknown");
+            step.State = FirmwareRolloutStepState.SkippedExcluded;
+            step.Error = "Nothing newer to install on the planned channel.";
+            await PersistStepAsync(step, cancellationToken);
+            return;
+        }
+
+        // The image this plan committed to, captured on this device's own channel. Only used when it
+        // names the version this step is for: the catalog is keyed by model name, and a mismatch
+        // means it matched a different product - a UDB bridge on 6.5.89 pairs with a 1.5.1 entry.
+        var image = document.TargetImages
+            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+        var planned = image != null
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(image.Version, step.ToVersion)
+            ? image.Url
+            : null;
 
         var result = string.IsNullOrWhiteSpace(planned)
             ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)

@@ -34,6 +34,7 @@ public static class RolloutPlanComposer
         IReadOnlyList<FirmwareModelTiming> siteTimings,
         IFirmwareCommandClient commands,
         FirmwareRolloutSettings? settings = null,
+        ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
@@ -52,7 +53,7 @@ public static class RolloutPlanComposer
             if (!string.IsNullOrEmpty(currentChannel))
                 CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
             currentChannel = await StageEveryPlannedChannelAsync(
-                planning, commands, context, settings, currentChannel, images, cancellationToken);
+                planning, commands, context, settings, currentChannel, images, catalog, logger, cancellationToken);
             console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
         }
 
@@ -81,6 +82,8 @@ public static class RolloutPlanComposer
         FirmwareRolloutSettings settings,
         string? currentChannel,
         List<PlanTargetImage> images,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> priorCatalog,
+        ILogger? logger,
         CancellationToken cancellationToken)
     {
         var wanted = context.Devices
@@ -106,31 +109,96 @@ public static class RolloutPlanComposer
             // rather than being quoted the channel we failed to leave.
             if (!await commands.SetDeviceChannelAsync(channel, cancellationToken)) continue;
             currentChannel = channel;
-            var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
+
+            var catalog = await WaitForCatalogAsync(commands, priorCatalog, channel, logger, cancellationToken);
+            priorCatalog = catalog;
 
             var staged = await planning.GetContextAsync(cancellationToken);
             var byMac = staged.Devices.ToDictionary(d => d.Mac, StringComparer.OrdinalIgnoreCase);
             foreach (var device in context.Devices.Where(d =>
                 d.Upgradable && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
             {
-                device.ToVersion = byMac.TryGetValue(device.Mac, out var fresh) ? fresh.ToVersion : null;
+                // Upgradable travels with the version: it was read on the OLD channel, and a device
+                // this channel has nothing for is not a candidate however it looked before. Keeping
+                // one and replacing the other is what put a device on a build from neither.
+                var known = byMac.TryGetValue(device.Mac, out var fresh);
+                device.ToVersion = known ? fresh!.ToVersion : null;
+                device.Upgradable = known && fresh!.Upgradable;
 
-                // A less aggressive channel can offer an OLDER build than the device is running,
-                // and the console presents that as an available update. Moving a channel down is
-                // not an instruction to roll firmware back, so nothing is planned for it.
-                // TODO: a deliberate fleet-wide downgrade is a separate, opt-in mode - the
-                // per-device rollback already exists, this is the broad version of it.
-                if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion))
-                {
-                    device.ToVersion = null;
-                    device.Upgradable = false;
-                }
             }
 
             CaptureImages(images, context, settings, channel, channel, catalog);
         }
 
+        DropDowngrades(context);
         return currentChannel;
+    }
+
+    /// <summary>
+    /// Drops every device the console is offering an OLDER build than it already runs.
+    ///
+    /// A channel is a line to follow, not a direction to move: selecting a less aggressive one
+    /// makes the console present its build as an available update even when it is behind, so an
+    /// Early Access console offered 6.5.87 to a bridge on 6.5.89 and 7.4.1 to a switch on 7.5.9.
+    /// Applied to every device, not only ones whose channel was switched - the devices already on
+    /// the console's channel are exactly the ones a plan is most likely to contain.
+    /// TODO: a deliberate fleet-wide downgrade is a separate, opt-in mode. The per-device rollback
+    /// already exists; this would be the broad version of it.
+    /// </summary>
+    private static void DropDowngrades(RolloutPlanningContext context)
+    {
+        foreach (var device in context.Devices.Where(d => d.Upgradable))
+        {
+            if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion))
+                continue;
+
+            device.ToVersion = null;
+            device.Upgradable = false;
+        }
+    }
+
+    /// <summary>How long a channel change is given to appear in the catalog.</summary>
+    private static readonly TimeSpan CatalogReflectWait = TimeSpan.FromSeconds(12);
+
+    /// <summary>
+    /// Re-runs Check for Updates until the console has actually restaged for the channel just set.
+    ///
+    /// The console does not repopulate instantly. Reading the device list too early returns the
+    /// PREVIOUS channel's offers, which then read as downgrades and are dropped - so a device with
+    /// a real update on the new channel shows none at all, which is worse than showing the wrong
+    /// one. The catalog changing is the console having restaged; unchanged means still working, or
+    /// two channels genuinely offering the same builds, which is why this is bounded rather than
+    /// waited on indefinitely.
+    /// </summary>
+    private static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
+        IFirmwareCommandClient commands,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> before,
+        string channel,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        static string Fingerprint(IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> c) =>
+            string.Join("|", c.Select(e => $"{e.BaseModel ?? e.Device}={e.Version}").OrderBy(x => x, StringComparer.Ordinal));
+
+        var was = Fingerprint(before);
+        var deadline = DateTime.UtcNow + CatalogReflectWait;
+        var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
+
+        while (Fingerprint(catalog) == was && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            catalog = await commands.CheckForUpdatesAsync(cancellationToken);
+        }
+
+        if (Fingerprint(catalog) == was)
+        {
+            logger?.LogWarning(
+                "The console did not restage after moving devices to {Channel} within {Seconds}s; "
+                + "versions may still describe the previous channel",
+                channel, CatalogReflectWait.TotalSeconds);
+        }
+
+        return catalog;
     }
 
     /// <summary>
