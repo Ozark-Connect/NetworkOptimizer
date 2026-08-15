@@ -46,8 +46,11 @@ public static class RolloutPlanComposer
         var console = await commands.GetConsoleSystemInfoAsync(cancellationToken);
 
         if (settings != null)
+        {
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, cancellationToken);
+            console = await StageNetworkAppChannelAsync(commands, console, settings, cancellationToken);
+        }
 
         return new RolloutPlanInputs(
             context,
@@ -106,6 +109,33 @@ public static class RolloutPlanComposer
         }
 
         return currentChannel;
+    }
+
+    /// <summary>
+    /// Puts the UniFi Network application on its planned channel before its update is read.
+    ///
+    /// The console describes the application with one releaseChannel and one updateAvailable, so
+    /// that version is whatever the channel it is on offers - unlike UniFi OS, which publishes a
+    /// latestByChannel map and needs no switching to be read correctly.
+    /// </summary>
+    /// <returns>The console as it reads on the planned channel, or as it was when nothing changed.</returns>
+    private static async Task<NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo?> StageNetworkAppChannelAsync(
+        IFirmwareCommandClient commands,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        FirmwareRolloutSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (!settings.IncludeUniFiNetwork || !ConsoleReachable(console)) return console;
+
+        var wanted = settings.EffectiveNetworkAppChannel;
+        var current = console!.NetworkApplication?.ReleaseChannel;
+        if (string.IsNullOrEmpty(wanted) || string.Equals(current, wanted, StringComparison.OrdinalIgnoreCase))
+            return console;
+
+        if (!await commands.SetConsoleChannelsAsync(wanted, null, cancellationToken))
+            return console;
+
+        return await commands.GetConsoleSystemInfoAsync(cancellationToken) ?? console;
     }
 
     /// <summary>Orders a plan from the frozen inputs.</summary>
