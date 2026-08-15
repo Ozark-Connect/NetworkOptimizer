@@ -388,10 +388,15 @@ public class LanFlowMapService
                         var stats = _liveStats.GetForDevice(childDev);
                         if (stats != null && stats.LastRateUpdate.HasValue)
                         {
+                            // RecordInterfaceAggregate sums ifIn into RateInBps, so this is the
+                            // device's own perspective: into it is downstream, exactly as the
+                            // historic path reads a vwiresta counter. Reading it the other way
+                            // round reported the backhaul backwards - only visible once a mesh
+                            // child with no vwiresta counters started landing here.
                             rates = new LinkLiveRates
                             {
-                                DownstreamBps = stats.RateOutBps ?? 0,
-                                UpstreamBps = stats.RateInBps ?? 0,
+                                DownstreamBps = stats.RateInBps ?? 0,
+                                UpstreamBps = stats.RateOutBps ?? 0,
                                 AsOf = stats.LastRateUpdate.Value,
                             };
                         }
