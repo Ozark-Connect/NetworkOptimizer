@@ -123,9 +123,9 @@ public sealed class LiveWanScope
     public async Task LoadAsync()
     {
         if (_loaded) return;
-        _loaded = true;
 
         var options = new List<Option>();
+        var consoleAnswered = false;
 
         // Read first: a live WAN needs to know whether a context names it, and the answer decides
         // where a "fix my monitoring" link can usefully send someone.
@@ -154,6 +154,7 @@ public sealed class LiveWanScope
                     NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName),
                     keysWithContext.Contains(key)));
             }
+            consoleAnswered = true;
         }
         catch { /* console unreachable - contexts below still describe the WANs we know of */ }
 
@@ -183,6 +184,12 @@ public sealed class LiveWanScope
         Options = options;
         if (_selected.Count == 0 && options.Count > 0)
             _selected.Add(ResolveDefaultKey(options));
+
+        // Only a load that actually saw something settles the list. Right after a restart the
+        // console has not connected yet, so it answers nothing and the WANs it alone knows about
+        // are missing - latching on that left the filter short one WAN until the page was
+        // reloaded, since a new circuit gets a new instance and tries again.
+        _loaded = consoleAnswered || options.Count > 0;
     }
 
     /// <summary>
