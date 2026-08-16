@@ -15,9 +15,16 @@ public interface IFirmwareRolloutRepository
 
     /// <summary>
     /// Writes the settings singleton. Updates copy every field onto the stored row, so a
-    /// detached instance from the UI replaces the persisted state exactly.
+    /// detached instance from the UI replaces the persisted state exactly - except the autopilot
+    /// snapshot, which only <see cref="SaveAutopilotSnapshotAsync"/> writes.
     /// </summary>
     Task SaveSettingsAsync(FirmwareRolloutSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the standing Autopilot configuration, and nothing else on the row.
+    /// </summary>
+    /// <param name="snapshotJson">Serialized settings, or null to forget them.</param>
+    Task SaveAutopilotSnapshotAsync(string? snapshotJson, CancellationToken cancellationToken = default);
 
     /// <summary>Inserts a new plan and returns it with its assigned Id.</summary>
     Task<FirmwareRolloutPlan> CreatePlanAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken = default);

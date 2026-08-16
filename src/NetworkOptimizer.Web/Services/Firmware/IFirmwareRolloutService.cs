@@ -55,6 +55,34 @@ public interface IFirmwareRolloutService
     Task SaveSettingsAsync(FirmwareRolloutSettings settings, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Writes the settings AND captures them as the standing Autopilot configuration. The only
+    /// writer of that snapshot: a plain save cannot capture one, because every rollout commit goes
+    /// through <see cref="SaveSettingsAsync"/> carrying whatever scope that one rollout used.
+    /// </summary>
+    /// <param name="settings">Settings to store and capture.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutSettingsChanged, TargetType = "firmware_rollout")]
+    Task SaveAutopilotSettingsAsync(FirmwareRolloutSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns Autopilot off, keeping its captured configuration so it can be re-enabled as it was.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutSettingsChanged, TargetType = "firmware_rollout")]
+    Task DisableAutopilotAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns Autopilot back on, restoring the configuration captured when it was last saved.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>False when there is no captured configuration to restore.</returns>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutSettingsChanged, TargetType = "firmware_rollout")]
+    Task<bool> ReEnableAutopilotAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Plans a rollout and books it for a start time. The settings it was planned from are saved as
     /// part of committing it, because the executor reads them live as it runs.
     /// </summary>

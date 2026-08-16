@@ -230,6 +230,62 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public async Task SaveAutopilotSettingsAsync(
+        FirmwareRolloutSettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        settings.Mode = FirmwareRolloutMode.Autopilot;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _repository.SaveSettingsAsync(settings, cancellationToken);
+        await _repository.SaveAutopilotSnapshotAsync(
+            AutopilotSettingsSnapshot.Serialize(settings), cancellationToken);
+
+        _audit.SetDetails(new
+        {
+            mode = settings.Mode.ToString(),
+            globalChannel = settings.GlobalChannel,
+            networkAppChannel = settings.NetworkAppChannel,
+            unifiOsChannel = settings.UniFiOsChannel,
+            includeUniFiOs = settings.IncludeUniFiOs,
+            includeUniFiNetwork = settings.IncludeUniFiNetwork,
+            capturedAutopilotConfig = true,
+        });
+    }
+
+    /// <inheritdoc />
+    public async Task DisableAutopilotAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = await _repository.GetSettingsAsync(cancellationToken);
+        settings.Mode = FirmwareRolloutMode.ManualOnly;
+        await _repository.SaveSettingsAsync(settings, cancellationToken);
+
+        _audit.SetDetails(new { mode = settings.Mode.ToString(), autopilotConfigRetained = true });
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ReEnableAutopilotAsync(CancellationToken cancellationToken = default)
+    {
+        var stored = await _repository.GetSettingsAsync(cancellationToken);
+        var restored = AutopilotSettingsSnapshot.Deserialize(stored.AutopilotSettingsJson);
+        if (restored == null)
+            return false;
+
+        // The snapshot is the standing config, so it becomes the live row wholesale: the executor
+        // reads that row live, and a rollout must run under what it was planned from.
+        restored.Mode = FirmwareRolloutMode.Autopilot;
+        await _repository.SaveSettingsAsync(restored, cancellationToken);
+
+        _audit.SetDetails(new
+        {
+            mode = restored.Mode.ToString(),
+            globalChannel = restored.GlobalChannel,
+            restoredFromCapturedConfig = true,
+        });
+        return true;
+    }
+
+    /// <inheritdoc />
     public async Task<int> SchedulePlanAsync(
         FirmwareRolloutSettings settings, DateTime startAtUtc, CancellationToken cancellationToken = default)
     {
@@ -351,6 +407,11 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // Committing a plan commits the settings it was planned from: the executor reads settings
         // live (suppression, spacing, per-wave approval), so a plan built from unsaved ones would
         // run under whatever was stored instead.
+        //
+        // The mode is the exception, and it is not the caller's to change: planning a one-off is
+        // not a decision to stop autopiloting. The wizard sets it on its working copy to shape the
+        // preview, so it is overwritten here rather than trusted.
+        settings.Mode = (await _repository.GetSettingsAsync(cancellationToken)).Mode;
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
 

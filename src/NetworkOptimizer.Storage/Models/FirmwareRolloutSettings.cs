@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -134,6 +135,17 @@ public class FirmwareRolloutSettings
 
     /// <summary>Pause at every wave boundary until a Site Admin approves the next wave.</summary>
     public bool PerWaveApproval { get; set; }
+
+    /// <summary>
+    /// The standing Autopilot configuration, serialized. The row itself is a working copy - the
+    /// executor reads it live, so committing any rollout writes this row - which left Autopilot's
+    /// own settings with nowhere to live. Written only by an explicit Autopilot save, never
+    /// inferred from <see cref="Mode"/>: a manual rollout on an Autopilot site carries
+    /// Autopilot mode too, so inferring it would let a one-off overwrite the standing config.
+    /// Null means never captured.
+    /// </summary>
+    [JsonIgnore]
+    public string? AutopilotSettingsJson { get; set; }
 
     /// <summary>When these settings were last written.</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

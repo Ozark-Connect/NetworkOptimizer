@@ -401,6 +401,17 @@ else
             {
                 <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
             }
+            else if (HasStoredAutopilotConfig)
+            {
+                <SiteAdminOnly>
+                    <ChildContent>
+                        <p class="firmware-rollout-note"><strong>Autopilot is off.</strong> Your channels and exclusions are still saved.</p>
+                    </ChildContent>
+                    <NotAuthorized>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. When an admin plans one, its progress and report show up here.</p>
+                    </NotAuthorized>
+                </SiteAdminOnly>
+            }
             else
             {
                 <SiteAdminOnly>
@@ -415,17 +426,33 @@ else
             <SiteAdminOnly>
                 @{
                     var autopilotOn = _settings?.Mode == FirmwareRolloutMode.Autopilot;
+                    var offWithConfig = !autopilotOn && HasStoredAutopilotConfig;
                 }
-                <button class="btn @(autopilotOn ? "btn-secondary" : "btn-primary")" @onclick="OpenWizardAsync" disabled="@_busy">
-                    @if (_busy)
+                <div class="firmware-rollout-controls">
+                    @if (offWithConfig)
                     {
-                        <span class="spinner spinner-sm"></span>
+                        <button class="btn btn-primary" @onclick="ReEnableAutopilotAsync" disabled="@_busy">
+                            @if (_busy)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                            }
+                            else
+                            {
+                                <span>Re-enable Autopilot</span>
+                            }
+                        </button>
                     }
-                    else
-                    {
-                        <span>@(autopilotOn ? "Plan Rollout Now" : "Plan a Rollout")</span>
-                    }
-                </button>
+                    <button class="btn @(autopilotOn || offWithConfig ? "btn-secondary" : "btn-primary")" @onclick="OpenWizardAsync" disabled="@_busy">
+                        @if (_busy)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>@(autopilotOn ? "Plan Rollout Now" : "Plan a Rollout")</span>
+                        }
+                    </button>
+                </div>
             </SiteAdminOnly>
         </div>
         @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
@@ -466,10 +493,13 @@ else
                     ToggleSku="ToggleSku"
                     OnChanged="StateHasChanged" />
 
-                <button class="btn btn-primary firmware-rollout-config-save" @onclick="SaveAutopilotSettingsAsync" disabled="@(_busy || !ConfigDirty)">
-                    @if (_busy) { <span class="spinner spinner-sm"></span> }
-                    else { <span>Save</span> }
-                </button>
+                <div class="firmware-rollout-controls firmware-rollout-config-save">
+                    <button class="btn btn-primary" @onclick="SaveAutopilotSettingsAsync" disabled="@(_busy || !ConfigDirty)">
+                        @if (_busy) { <span class="spinner spinner-sm"></span> }
+                        else { <span>Save</span> }
+                    </button>
+                    <button class="btn btn-secondary" @onclick="DisableAutopilotAsync" disabled="@_busy">Turn off Autopilot</button>
+                </div>
                 }
             </div>
             </SiteAdminOnly>
@@ -787,6 +817,7 @@ else
         try
         {
             _settings = await RolloutService.GetSettingsAsync();
+            AdoptStandingAutopilotConfig();
             LoadWorkingSets();
             _active = await RolloutService.GetActivePlanAsync();
             _history = await RolloutService.GetPlanHistoryAsync();
@@ -813,6 +844,7 @@ else
         try
         {
             _settings = await RolloutService.GetSettingsAsync();
+            AdoptStandingAutopilotConfig();
             LoadWorkingSets();
             // First preview: channel options, device models, and console warnings for step 1.
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
@@ -947,9 +979,8 @@ else
         StateHasChanged();
         try
         {
-            var settings = WorkingSettings();
-            settings.Mode = FirmwareRolloutMode.Autopilot;
-            await RolloutService.SaveSettingsAsync(settings);
+            // The capturing save: this is the standing configuration, not one rollout's scope.
+            await RolloutService.SaveAutopilotSettingsAsync(WorkingSettings());
             await ReloadAsync();
         }
         catch (Exception ex)
@@ -960,6 +991,66 @@ else
         {
             _busy = false;
         }
+    }
+
+    private async Task DisableAutopilotAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.DisableAutopilotAsync();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Turning autopilot off failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReEnableAutopilotAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.ReEnableAutopilotAsync();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Re-enabling autopilot failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Whether Autopilot has a captured configuration to come back to.</summary>
+    private bool HasStoredAutopilotConfig => !string.IsNullOrWhiteSpace(_settings?.AutopilotSettingsJson);
+
+    /// <summary>
+    /// On an Autopilot site the page edits the standing configuration, not the row, which any
+    /// one-off rollout since has overwritten with its own scope. Without this the panel shows that
+    /// leftover scope, and the wizard - which preselects Autopilot on such a site - would capture
+    /// it on a click-through commit.
+    /// </summary>
+    private void AdoptStandingAutopilotConfig()
+    {
+        if (_settings?.Mode != FirmwareRolloutMode.Autopilot) return;
+
+        var standing = AutopilotSettingsSnapshot.Deserialize(_settings.AutopilotSettingsJson);
+        if (standing == null) return;
+
+        standing.Id = _settings.Id;
+        standing.Mode = _settings.Mode;
+        standing.AutopilotSettingsJson = _settings.AutopilotSettingsJson;
+        _settings = standing;
     }
 
     // ---- Settings working copies ----
