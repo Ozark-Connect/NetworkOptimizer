@@ -400,7 +400,7 @@ else
 {
     @* ---- Landing ---- *@
     <div class="card" data-tour="firmware-rollout">
-        <div class="card-body firmware-rollout-landing">
+        <div class="card-body firmware-rollout-landing @(_settings?.Mode == FirmwareRolloutMode.Autopilot ? "firmware-rollout-landing-autopilot" : "")">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
                 <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
