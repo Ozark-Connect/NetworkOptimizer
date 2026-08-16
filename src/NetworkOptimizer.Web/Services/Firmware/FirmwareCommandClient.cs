@@ -430,7 +430,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         try
         {
             var command = $"curl -fsSo /tmp/unifi-update.deb '{debUrl}' && apt-get install -y /tmp/unifi-update.deb && rm -f /tmp/unifi-update.deb";
-            var (success, output) = await _gatewaySsh.RunCommandAsync(command, cancellationToken: cancellationToken);
+            var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 
@@ -454,7 +454,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         try
         {
             var (success, output) = await _gatewaySsh.RunCommandAsync(
-                $"ubnt-systool fwupdate {firmwareUrl}", cancellationToken: cancellationToken);
+                $"ubnt-systool fwupdate {firmwareUrl}", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 

@@ -640,8 +640,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         if (!RolloutPlanComposer.ConsoleReachable(console))
         {
-            AddBackupNote(plan, document,
-                "No console backup was taken: the console API is not reachable (API-key connection).");
+            await AddBackupNoteAsync(plan, document,
+                "No console backup was taken: the console API is not reachable (API-key connection).",
+                cancellationToken);
             return;
         }
 
@@ -655,16 +656,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogWarning(
             "Pre-flight console backup failed on site {Site}: {Reason} - proceeding anyway",
             _siteSlug, backup.Message);
-        AddBackupNote(plan, document,
-            $"No console backup was taken: {backup.Message}. The service account may lack Super Admin permission.");
+        await AddBackupNoteAsync(plan, document,
+            $"No console backup was taken: {backup.Message}. The service account may lack Super Admin permission.",
+            cancellationToken);
     }
 
-    private void AddBackupNote(FirmwareRolloutPlan plan, RolloutPlanDocument document, string note)
+    private async Task AddBackupNoteAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, string note, CancellationToken cancellationToken)
     {
         if (!document.Notes.Contains(note))
         {
             document.Notes.Add(note);
             plan.PlanJson = JsonSerializer.Serialize(document);
+            await PersistPlanAsync(plan, cancellationToken);
         }
     }
 
@@ -731,7 +735,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // Wave 0. The UniFi Network application update aligns the firmware catalog every device
         // step then works from, so no device is commanded until it has been through.
+        if (document.NetworkAppUpdate is { Triggered: true, Settled: false } && settings.SuppressStandardAlerts)
+            _suppression.RefreshConsoleCycle(_siteSlug, Now);
+
         var networkAppSettled = await AdvanceNetworkAppUpdateAsync(plan, document, consoleDark, cancellationToken);
+
+        if (networkAppSettled && document.NetworkAppUpdate.Triggered)
+            _suppression.ClearConsoleCycle(_siteSlug);
 
         if (networkAppSettled && plan.Status == FirmwareRolloutStatus.Running)
             await OpenNextWaveAsync(plan, document, settings, steps, byMac, cancellationToken);
@@ -744,8 +754,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The planner forces the gateway's channel group last, so every device step being settled
         // is exactly "the gateway step has settled" - and is also the right point on a plan that
         // has no gateway step at all.
+        if (document.UniFiOsUpdate is { Triggered: true, Settled: false } && settings.SuppressStandardAlerts)
+            _suppression.RefreshConsoleCycle(_siteSlug, Now);
+
         if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
             return;
+
+        _suppression.ClearConsoleCycle(_siteSlug);
 
         await CompleteAsync(plan, document, steps, cancellationToken);
     }
@@ -1064,7 +1079,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedOs, installedOs))
         {
             _logger.LogInformation(
-                "Falling back to SSH for the UniFi OS update on site {Site}", _siteSlug);
+                "Falling back to SSH for the UniFi OS update on site {Site} ({Url})", _siteSlug, document.UniFiOsUpdate.Url);
             var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
             if (ssh.IsOk)
             {

@@ -26,6 +26,18 @@ public class RolloutSuppressionRegistry
     public static readonly TimeSpan WindowFreshness = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _windowRefreshedAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
+
+    /// <summary>
+    /// Marks the entire site as cycling a console-level step (Network app or UniFi OS update).
+    /// Every device goes dark during these, not just the ones being firmware-upgraded.
+    /// </summary>
+    public void RefreshConsoleCycle(string siteSlug, DateTime observedAt) =>
+        _consoleCyclingAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>Ends the console-cycle window for a site.</summary>
+    public void ClearConsoleCycle(string siteSlug) =>
+        _consoleCyclingAt.TryRemove(NormalizeSite(siteSlug), out _);
 
     /// <summary>
     /// Marks a device as inside its rollout window as of now. Called every pass while the device's
@@ -60,12 +72,18 @@ public class RolloutSuppressionRegistry
     /// <param name="now">Current time.</param>
     public bool IsInRolloutWindow(string siteSlug, string? deviceMac, DateTime now)
     {
+        var site = NormalizeSite(siteSlug);
+        var utcNow = now.ToUniversalTime();
+
+        if (_consoleCyclingAt.TryGetValue(site, out var cycleAt) && utcNow - cycleAt <= WindowFreshness)
+            return true;
+
         if (string.IsNullOrWhiteSpace(deviceMac)) return false;
 
-        if (!_windowRefreshedAt.TryGetValue((NormalizeSite(siteSlug), Normalize(deviceMac)), out var at))
+        if (!_windowRefreshedAt.TryGetValue((site, Normalize(deviceMac)), out var at))
             return false;
 
-        return now.ToUniversalTime() - at <= WindowFreshness;
+        return utcNow - at <= WindowFreshness;
     }
 
     /// <summary>Drops every window a site holds (rollout finished, aborted, or the site went away).</summary>
@@ -73,6 +91,7 @@ public class RolloutSuppressionRegistry
     public void ClearSite(string siteSlug)
     {
         var site = NormalizeSite(siteSlug);
+        _consoleCyclingAt.TryRemove(site, out _);
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
     }
