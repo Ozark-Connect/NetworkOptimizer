@@ -2,7 +2,7 @@
   "id": "2.7.0",
   "kind": "whats-new",
   "title": "What's new in v2.7.0",
-  "summary": "Upgrade a whole site's firmware on your schedule, in an order that keeps the network up.",
+  "summary": "Upgrade a whole site's firmware on your schedule, read the gateway's kernel diagnostics, and generate a UniFi Support File - all from Network Optimizer.",
   "steps": [
     {
       "id": "firmware-rollout",
