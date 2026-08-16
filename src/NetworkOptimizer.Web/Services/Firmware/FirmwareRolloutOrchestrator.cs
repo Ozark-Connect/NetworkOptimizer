@@ -761,63 +761,54 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // first; updateAvailable is then the answer, and its absence means nothing to install.
         await _commands.CheckForApplicationUpdatesAsync(cancellationToken);
         var application = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.NetworkApplication;
-        if (application is { HasUpdate: false })
-        {
-            state.Settled = true;
-            state.Outcome = "nothing-to-update";
-            _logger.LogInformation(
-                "The UniFi Network application on site {Site} is current on {Version}; going straight to the devices",
-                _siteSlug, application.Version ?? "its installed build");
-            return;
-        }
 
-        state.TargetVersion = application?.UpdateAvailable;
+        var apiPathAvailable = application is not { HasUpdate: false }
+            && !string.IsNullOrWhiteSpace(application?.Version)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
 
-        // Same gate the console's own update gets: the offer is whatever this channel holds, and
-        // after a channel move down that can be behind what is running.
-        // TODO: a deliberate downgrade would be an explicit, separate action.
-        // Unknown installed version refuses too: IsNewer reads "nothing installed" as newer, which
-        // is right for a device being adopted and wrong for an application already serving a site.
-        if (string.IsNullOrWhiteSpace(application?.Version)
-            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version))
+        if (apiPathAvailable)
         {
-            state.Settled = true;
-            state.Outcome = "nothing-to-update";
-            _logger.LogWarning(
-                "Refusing the UniFi Network application update on site {Site}: {Offered} is not newer than the installed {Installed}",
-                _siteSlug, application?.UpdateAvailable ?? "nothing", application?.Version ?? "unknown");
-            return;
-        }
+            state.TargetVersion = application!.UpdateAvailable;
 
-        if (!await _commands.TriggerNetworkApplicationUpdateAsync(cancellationToken))
-        {
-            // API trigger failed or refused. Try the SSH fallback if we have the .deb URL.
-            if (!string.IsNullOrWhiteSpace(state.Url))
+            if (await _commands.TriggerNetworkApplicationUpdateAsync(cancellationToken))
             {
-                _logger.LogInformation(
-                    "API trigger refused the Network app update on site {Site}; falling back to SSH", _siteSlug);
-                var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
-                if (ssh.IsOk)
-                {
-                    state.Triggered = true;
-                    state.TriggeredAt = Now;
-                    _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
-                    return;
-                }
-                _logger.LogWarning(
-                    "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+                state.Triggered = true;
+                state.TriggeredAt = Now;
+                _logger.LogInformation("Installing the UniFi Network application update on site {Site}", _siteSlug);
+                return;
             }
 
-            state.Settled = true;
-            state.Outcome = "nothing-to-update";
+            _logger.LogWarning("API trigger refused the Network app update on site {Site}", _siteSlug);
+        }
+        else
+        {
             _logger.LogInformation(
-                "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
-            return;
+                "The console on site {Site} does not see a Network app update (installed {Version}); "
+                + "checking the SSH fallback", _siteSlug, application?.Version ?? "unknown");
         }
 
-        state.Triggered = true;
-        state.TriggeredAt = Now;
-        _logger.LogInformation("Installing the UniFi Network application update on site {Site}", _siteSlug);
+        // The console may not see an update because the channel switch failed, but the plan
+        // captured the URL at planning time when the channel was still right.
+        if (!string.IsNullOrWhiteSpace(state.Url))
+        {
+            _logger.LogInformation(
+                "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
+            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+            if (ssh.IsOk)
+            {
+                state.Triggered = true;
+                state.TriggeredAt = Now;
+                _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
+                return;
+            }
+            _logger.LogWarning(
+                "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        }
+
+        state.Settled = true;
+        state.Outcome = "nothing-to-update";
+        _logger.LogInformation(
+            "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
     }
 
     /// <summary>
@@ -1018,65 +1009,60 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await ApplyUniFiOsChannelAsync(plan, document, console, cancellationToken);
 
         var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
-        if (pending?.Version == null)
-        {
-            await SettleUniFiOsAsync(plan, document, "nothing-to-update", cancellationToken);
-            return true;
-        }
-
-        document.UniFiOsUpdate.TargetVersion = pending.Version;
-
-        // Last gate before the console reboots into it. A channel holds its own line, so the build
-        // on offer can be BEHIND what is installed - GA at 4.4.7 while the console runs 5.1.28 -
-        // and downgrading a console is not recoverable from here. Planning refuses these too; this
-        // is the one that matters, because the offer is read fresh at this moment.
-        // TODO: a deliberate console downgrade would be an explicit, separate action.
-        // Unknown installed version refuses too: IsNewer treats "nothing installed" as newer, which
-        // is the right default for a device and the wrong one for the console.
         var installedOs = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.InstalledOsVersion;
-        if (string.IsNullOrWhiteSpace(installedOs)
-            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs))
-        {
-            _logger.LogWarning(
-                "Refusing the UniFi OS update on site {Site}: the {Channel} channel offers {Offered}, which is not newer than the installed {Installed}",
-                _siteSlug, document.ConsoleChannels.UniFiOsChannel ?? "selected", pending.Version, installedOs ?? "unknown");
-            await SettleUniFiOsAsync(plan, document, "nothing-to-update", cancellationToken);
-            return true;
-        }
 
-        if (!await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
+        var apiPathAvailable = pending?.Version != null
+            && !string.IsNullOrWhiteSpace(installedOs)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs);
+
+        if (apiPathAvailable)
         {
-            // API trigger refused. Try the SSH fallback if we have the firmware URL.
-            if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url))
+            document.UniFiOsUpdate.TargetVersion = pending!.Version;
+
+            if (await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
             {
+                document.UniFiOsUpdate.Triggered = true;
+                document.UniFiOsUpdate.TriggeredAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
                 _logger.LogInformation(
-                    "API trigger refused the UniFi OS update on site {Site}; falling back to SSH", _siteSlug);
-                var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
-                if (ssh.IsOk)
-                {
-                    document.UniFiOsUpdate.Triggered = true;
-                    document.UniFiOsUpdate.TriggeredAt = Now;
-                    await PersistDocumentAsync(plan, document, cancellationToken);
-                    _logger.LogInformation(
-                        "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
-                    return false;
-                }
-                _logger.LogWarning(
-                    "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+                    "Installing UniFi OS {Version} on the console for site {Site}; expect it to go dark",
+                    pending.Version, _siteSlug);
+                return false;
             }
 
-            await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
-            _logger.LogWarning("The console on site {Site} refused the UniFi OS update", _siteSlug);
-            return true;
+            _logger.LogWarning("API trigger refused the UniFi OS update on site {Site}", _siteSlug);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "The console on site {Site} does not see a UniFi OS update (installed {Installed}, pending {Pending}); "
+                + "checking the SSH fallback",
+                _siteSlug, installedOs ?? "unknown", pending?.Version ?? "none");
         }
 
-        document.UniFiOsUpdate.Triggered = true;
-        document.UniFiOsUpdate.TriggeredAt = Now;
-        await PersistDocumentAsync(plan, document, cancellationToken);
-        _logger.LogInformation(
-            "Installing UniFi OS {Version} on the console for site {Site}; expect it to go dark",
-            pending.Version, _siteSlug);
-        return false;
+        // The console may not see the build because the channel switch failed, but the plan
+        // captured the firmware URL at planning time when the channel was still right.
+        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url))
+        {
+            _logger.LogInformation(
+                "Falling back to SSH for the UniFi OS update on site {Site}", _siteSlug);
+            var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
+            if (ssh.IsOk)
+            {
+                document.UniFiOsUpdate.Triggered = true;
+                document.UniFiOsUpdate.TriggeredAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogInformation(
+                    "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+                return false;
+            }
+            _logger.LogWarning(
+                "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        }
+
+        var outcome = apiPathAvailable ? "refused" : "nothing-to-update";
+        await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
+        return true;
     }
 
     private async Task SettleUniFiOsAsync(
