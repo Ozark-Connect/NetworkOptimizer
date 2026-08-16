@@ -1284,13 +1284,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 return;
             }
 
-            var b64 = Convert.ToBase64String(result.Data!);
-            var fn = result.Filename ?? "support-file.tgz";
-            await JS.InvokeVoidAsync("eval",
-                $"(() => {{ const b = atob('{b64}'); const a = new Uint8Array(b.length); "
-                + "for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); "
-                + $"const l = document.createElement('a'); l.href = URL.createObjectURL(new Blob([a], {{type:'application/gzip'}})); l.download = '{fn}'; "
-                + "l.click(); URL.revokeObjectURL(l.href); })()");
+            var token = NetworkOptimizer.Web.Endpoints.SupportFileEndpoints.Stage(
+                result.TempFilePath!, result.Filename ?? "support-file.tgz");
+            await JS.InvokeVoidAsync("open", $"/api/support-file/download/{token}", "_self");
         }
         catch (Exception ex)
         {

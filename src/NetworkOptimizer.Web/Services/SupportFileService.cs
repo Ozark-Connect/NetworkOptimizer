@@ -78,11 +78,16 @@ public class SupportFileService : ISupportFileService
                 if (download == null)
                     return SupportFileResult.Fail("Support file was ready but download failed.");
 
-                using var stream = download.Value.stream;
-                using var ms = new MemoryStream();
-                await stream.CopyToAsync(ms, ct);
+                var tempPath = Path.Combine(Path.GetTempPath(), $"netopt-support-{Guid.NewGuid():N}.tgz");
+                await using (var fs = File.Create(tempPath))
+                {
+                    await using var srcStream = download.Value.stream;
+                    await srcStream.CopyToAsync(fs, ct);
+                }
+                _logger.LogInformation("Support file saved to temp: {Path} ({Size} bytes)",
+                    tempPath, new FileInfo(tempPath).Length);
 
-                return SupportFileResult.Ok(ms.ToArray(), download.Value.filename);
+                return SupportFileResult.Ok(tempPath, download.Value.filename);
             }
         }
 
@@ -94,11 +99,11 @@ public class SupportFileResult
 {
     public bool Success { get; init; }
     public string? Error { get; init; }
-    public byte[]? Data { get; init; }
+    public string? TempFilePath { get; init; }
     public string? Filename { get; init; }
 
-    public static SupportFileResult Ok(byte[] data, string filename) =>
-        new() { Success = true, Data = data, Filename = filename };
+    public static SupportFileResult Ok(string tempFilePath, string filename) =>
+        new() { Success = true, TempFilePath = tempFilePath, Filename = filename };
 
     public static SupportFileResult Fail(string error) =>
         new() { Success = false, Error = error };
