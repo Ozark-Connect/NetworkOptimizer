@@ -126,7 +126,7 @@
         <summary>Exclude devices @(ExclusionCount > 0 ? $"({ExclusionCount} rules)" : "")</summary>
         <div class="setup-guide-content">
             <div class="form-group">
-                <input type="text" class="form-control" placeholder="Search devices..." @bind="ExclusionSearch" @bind:event="oninput" />
+                <input type="text" class="form-control" placeholder="Search devices..." @bind="_search" @bind:event="oninput" />
             </div>
             <div class="firmware-rollout-exclusion-groups firmware-rollout-exclude">
                 @foreach (var (code, label) in TypeChannelRows)
@@ -168,13 +168,17 @@
 
     [Parameter] public IEnumerable<(string Code, string Label)> TypeChannelRows { get; set; } = [];
     [Parameter] public IEnumerable<(string Code, string Label)> SiteModels { get; set; } = [];
-    [Parameter] public IReadOnlyList<RolloutDeviceView> FilteredDevices { get; set; } = [];
+    [Parameter] public IReadOnlyList<RolloutDeviceView> AllDevices { get; set; } = [];
 
     [Parameter] public HashSet<string> ExcludedMacs { get; set; } = [];
     [Parameter] public HashSet<string> ExcludedSkus { get; set; } = [];
     [Parameter] public HashSet<string> ExcludedTypes { get; set; } = [];
-    [Parameter] public string ExclusionSearch { get; set; } = "";
-    [Parameter] public EventCallback<string> ExclusionSearchChanged { get; set; }
+
+    private string _search = "";
+    private IEnumerable<RolloutDeviceView> FilteredDevices => string.IsNullOrEmpty(_search)
+        ? AllDevices
+        : AllDevices.Where(d => d.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
+            || d.DisplayModel.Contains(_search, StringComparison.OrdinalIgnoreCase));
 
     [Parameter] public Func<string, string?>? TypeChannel { get; set; }
     [Parameter] public Action<string, string?>? SetTypeChannel { get; set; }

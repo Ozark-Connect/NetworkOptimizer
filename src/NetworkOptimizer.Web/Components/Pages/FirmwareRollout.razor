@@ -23,7 +23,7 @@
 
 @if (_loading)
 {
-    <div class="loading-container"><span class="spinner"></span><span>Loading rollout state...</span></div>
+    <div class="loading-container"><span class="spinner"></span> <span>Loading rollout state...</span></div>
 }
 else if (_active != null)
 {
@@ -201,12 +201,11 @@ else if (_wizardOpen)
                     ShowSequenceHint="true"
                     TypeChannelRows="TypeChannelRows"
                     SiteModels="SiteModels"
-                    FilteredDevices="FilteredExclusionCandidates.ToList()"
+                    AllDevices="_preview?.Devices ?? []"
                     ExcludedMacs="_exMacs"
                     ExcludedSkus="_exSkus"
                     ExcludedTypes="_exTypes"
-                    ExclusionSearch="_exclusionSearch"
-                    TypeChannel="TypeChannel"
+                                        TypeChannel="TypeChannel"
                     SetTypeChannel="SetTypeChannel"
                     SkuChannel="SkuChannel"
                     SetSkuChannel="SetSkuChannel"
@@ -443,12 +442,11 @@ else
                     HasCloudGateway="_preview?.HasCloudGateway == true"
                     TypeChannelRows="TypeChannelRows"
                     SiteModels="SiteModels"
-                    FilteredDevices="FilteredExclusionCandidates.ToList()"
+                    AllDevices="_preview?.Devices ?? []"
                     ExcludedMacs="_exMacs"
                     ExcludedSkus="_exSkus"
                     ExcludedTypes="_exTypes"
-                    ExclusionSearch="_exclusionSearch"
-                    TypeChannel="TypeChannel"
+                                        TypeChannel="TypeChannel"
                     SetTypeChannel="SetTypeChannel"
                     SkuChannel="SkuChannel"
                     SetSkuChannel="SetSkuChannel"
@@ -456,7 +454,7 @@ else
                     UpdateTooltip="UpdateTooltip"
                     ToggleSku="ToggleSku" />
 
-                <button class="btn btn-primary" style="margin-top: 1rem" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
+                <button class="btn btn-primary" style="margin-top: 1.5rem" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
                     @if (_busy) { <span class="spinner spinner-sm"></span> }
                     else { <span>Save</span> }
                 </button>
