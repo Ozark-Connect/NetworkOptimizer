@@ -490,14 +490,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         if (!preview.ConsoleConnected)
             preview.Warnings.Add(
-                "The UniFi Console is not answering, so this preview may be out of date and nothing can " +
-                "start until it is back.");
+                "Your UniFi Console isn't responding. What you're seeing here might be stale, and you " +
+                "can't start a rollout until it's back.");
 
         if (preview.UpgradableCount == 0)
         {
             preview.Notices.Add(
-                "No firmware updates are waiting on this site, so there is nothing to schedule. Choose " +
-                "Autopilot on the Schedule step to have one planned as soon as they arrive.");
+                "You're all up to date. Turn on Autopilot in the Schedule step to have it manage " +
+                "firmware and Console updates automatically.");
         }
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
