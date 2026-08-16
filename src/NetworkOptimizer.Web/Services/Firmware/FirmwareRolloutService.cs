@@ -180,18 +180,24 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             }).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             ConsoleConnected = context.ConsoleConnected,
             IsStandaloneConsole = console?.IsStandaloneConsole == true,
-            // An empty answer means the console API is out of reach (API-key auth), not that the
-            // console has nothing to say.
-            ConsoleApiAvailable = console?.Firmware != null || console?.Apps != null,
+            ConsoleApiAvailable = !_commands.UsesApiKey,
             HasCloudGatewayHardware = context.Devices.Any(d =>
                 FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             // The step only exists where a Cloud Gateway runs the console: a self-hosted console
-            // is out of scope, and a UXG-class gateway has network firmware only.
-            HasCloudGateway = console?.IsStandaloneConsole == false && context.Devices.Any(d =>
+            // is out of scope, and a UXG-class gateway has network firmware only. Only a console
+            // KNOWN to be standalone rules it out - /api/system answers intermittently on an
+            // agent-proxied site, and treating silence as "self-hosted" made the step flicker.
+            HasCloudGateway = console?.IsStandaloneConsole != true && context.Devices.Any(d =>
                 FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             ConsoleAutoUpgradeEnabled = autoUpgrade == true,
             ConsoleOsAutoUpdateEnabled = console?.Firmware?.AutoUpdate?.IsScheduled == true,
-            ConsoleAppsAutoUpdateEnabled = console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true },
+            // Two independent settings reach the same outcome: the console's schedule can carry the
+            // applications along, and each application can also carry a schedule of its own.
+            ConsoleAppsAutoUpdateEnabled =
+                console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true }
+                || console?.Apps?.Controllers?.Any(c =>
+                    string.Equals(c.Name, UniFiConsoleController.NetworkName, StringComparison.OrdinalIgnoreCase)
+                    && c.AutoUpdates) == true,
             HasActivePlan = active != null,
         };
 
@@ -490,28 +496,34 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         if (!preview.ConsoleConnected)
             preview.Warnings.Add(
-                "The UniFi Console is not answering, so this preview may be out of date and nothing can " +
-                "start until it is back.");
+                "Your UniFi Console isn't responding. What you're seeing here might be stale, and you " +
+                "can't start a rollout until it's back.");
 
         if (preview.UpgradableCount == 0)
         {
-            preview.Notices.Add(
-                "No firmware updates are waiting on this site, so there is nothing to schedule. Choose " +
-                "Autopilot on the Schedule step to have one planned as soon as they arrive.");
+            // Naming a surface the rollout was not asked to cover would promise something Autopilot
+            // will not do, so the console half is named only when it is actually included.
+            var covers = settings.IncludeUniFiNetwork || (settings.IncludeUniFiOs && preview.HasCloudGateway)
+                ? "firmware and Console updates"
+                : "firmware";
+
+            preview.Notices.Add(settings.Mode == FirmwareRolloutMode.Autopilot
+                ? $"You're all up to date. Autopilot will pick up new {covers} on its own."
+                : $"You're all up to date. Turn on Autopilot in the Schedule step to have it manage {covers} automatically.");
         }
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
         var autoUpdaters = new List<string>();
         if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("devices");
+        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the UniFi Network application");
         if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("UniFi OS");
-        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the applications");
         if (autoUpdaters.Count > 0)
         {
             var list = autoUpdaters.Count switch
             {
                 1 => autoUpdaters[0],
                 2 => $"{autoUpdaters[0]} and {autoUpdaters[1]}",
-                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))} and {autoUpdaters[^1]}",
+                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))}, and {autoUpdaters[^1]}",
             };
             preview.Warnings.Add(
                 $"UniFi updates {list} on its own schedule. Rollouts still run; turning that off rules " +

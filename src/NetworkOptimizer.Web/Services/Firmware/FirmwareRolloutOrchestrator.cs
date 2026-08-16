@@ -264,7 +264,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             {
                 var soaking = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
                 await WatchRollbacksAsync(plan, soaking, cancellationToken);
-                await RunDueResourceComparisonsAsync(soaking, cancellationToken);
+                var soakDoc = ParseDocument(plan);
+                await RunDueResourceComparisonsAsync(soaking, plan, soakDoc, cancellationToken);
                 await BuildSoakReportIfDueAsync(plan, soaking, cancellationToken);
                 return;
             }
@@ -737,7 +738,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         await PropagateCanaryOutcomesAsync(document, steps, cancellationToken);
-        await RunDueResourceComparisonsAsync(steps, cancellationToken);
+        await RunDueResourceComparisonsAsync(steps, plan, document, cancellationToken);
         EnqueueDueMeshRepairs(document, steps);
 
         // Wave 0. The UniFi Network application update aligns the firmware catalog every device
@@ -932,6 +933,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (info == null)
         {
+            if (state.WentDownAt == null)
+            {
+                state.WentDownAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+            }
+
             if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
@@ -950,6 +957,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The installed version is the definitive answer. Check it before progress state,
         // which can report stale "started"/"updating" after the install has already finished.
         var installed = info.InstalledOsVersion;
+
+        // Downtime is observed, not judged, so it is recorded outside the judge delay below.
+        // Answering on the old version means the reboot is still ahead: a null we saw earlier was
+        // a blip during the download, not the console going away, so the clock restarts.
+        var onTarget = installed != null && OsVersionMatches(installed, state.TargetVersion);
+        if (!onTarget && state.WentDownAt != null && state.BackAt == null)
+        {
+            state.WentDownAt = null;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+        else if (onTarget && state.WentDownAt != null && state.BackAt == null)
+        {
+            state.BackAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+
         if (installed != null && ElapsedReachable(triggeredAt) >= UniFiOsJudgeDelay)
         {
             if (OsVersionMatches(installed, state.TargetVersion))
@@ -1040,6 +1063,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var apiPathAvailable = pending?.Version != null
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs);
+
+        // Capture the gateway's pre-update stats for the report.
+        if (!string.IsNullOrWhiteSpace(document.ConsoleMac) && document.UniFiOsUpdate.PreStatsJson == null)
+        {
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var preWindow = ResourceWindowFor(settings);
+            document.UniFiOsUpdate.PreStatsJson = JsonSerializer.Serialize(
+                await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
+        }
 
         if (apiPathAvailable)
         {
@@ -1420,7 +1452,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
     }
 
-    private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+    private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps,
+        FirmwareRolloutPlan? plan, RolloutPlanDocument? document, CancellationToken cancellationToken)
     {
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         var window = ResourceWindowFor(settings);
@@ -1460,6 +1493,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     $"Lighter After Upgrade: {step.DeviceName}{_siteSuffix}",
                     $"{step.DeviceName} ({step.Model}) went from {step.FromVersion ?? "its previous firmware"} to {step.ToVersion ?? "its new firmware"} and is working less hard since. {comparison.Detail}",
                     step.DeviceMac, step.DeviceName, cancellationToken);
+            }
+        }
+
+        if (plan != null && document != null
+            && document.UniFiOsUpdate is { Outcome: "updated", PostStatsJson: null }
+            && !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && document.UniFiOsUpdate.TriggeredAt is DateTime osTriggered
+            && Now >= osTriggered + GatewayCoolDown + window)
+        {
+            try
+            {
+                var from = osTriggered + GatewayCoolDown;
+                var post = await _litmus.CaptureStatsAsync(document.ConsoleMac, from, from + window, cancellationToken);
+                document.UniFiOsUpdate.PostStatsJson = JsonSerializer.Serialize(post);
+                await PersistDocumentAsync(plan, document, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not capture post-OS-update stats for site {Site}", _siteSlug);
             }
         }
     }
@@ -1744,6 +1796,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// moves it to Reported. The wait is what makes the report worth reading: every device's
     /// before/after resource window has closed by then, so nothing in it is still provisional.
     /// </summary>
+    /// <summary>
+    /// Whether the report must wait for the console's own before/after numbers. Bounded: a capture
+    /// that never lands (no telemetry, Influx down) stops holding the report one window past due.
+    /// </summary>
+    private bool AwaitingGatewayPostStats(RolloutPlanDocument document, TimeSpan window)
+    {
+        var os = document.UniFiOsUpdate;
+        if (os is not { Outcome: "updated", PostStatsJson: null } || string.IsNullOrWhiteSpace(document.ConsoleMac))
+            return false;
+        if (os.TriggeredAt is not DateTime triggered)
+            return false;
+
+        return Now < triggered + GatewayCoolDown + window + window;
+    }
+
     private async Task BuildSoakReportIfDueAsync(
         FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
     {
@@ -1763,6 +1830,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
             or FirmwareRolloutStepState.RegressionFlagged).ToList();
         if (measured.Count > 0 && measured.Any(s => s.PostStatsJson == null))
+            return;
+
+        // The console's window opens a gateway cool-down after ITS trigger, which is always after
+        // the last device wave - so the device comparisons finishing is not enough to report.
+        if (AwaitingGatewayPostStats(ParseDocument(plan), ResourceWindowFor(settings)))
             return;
 
         var completedAt = plan.CompletedAt ?? Now;

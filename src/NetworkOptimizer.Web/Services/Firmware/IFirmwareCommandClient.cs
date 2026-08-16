@@ -158,6 +158,9 @@ public interface IFirmwareCommandClient
     /// <returns>True when the console accepted the install. Acceptance is not success.</returns>
     Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether this site connects with an API key rather than a user account.</summary>
+    bool UsesApiKey { get; }
+
     /// <summary>
     /// SSH fallback: install a UniFi Network application .deb on the gateway via
     /// <c>curl</c> + <c>apt-get install</c>. The gateway host is resolved from the controller URL.

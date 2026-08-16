@@ -50,6 +50,7 @@ internal sealed class CapturingBus : IAlertEventBus
 /// </summary>
 internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 {
+    public bool UsesApiKey { get; set; }
     public FirmwareCommandResult UpgradeResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult ExternalResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult SshResult { get; set; } = FirmwareCommandResult.Ok();

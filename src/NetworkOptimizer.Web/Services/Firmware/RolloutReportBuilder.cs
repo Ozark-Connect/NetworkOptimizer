@@ -45,7 +45,11 @@ public static class RolloutReportBuilder
                 ? (int)Math.Max(0, (completed - started).TotalSeconds)
                 : 0,
             UniFiNetworkUpdateOutcome = document.IncludesUniFiNetworkUpdate ? document.NetworkAppUpdate.Outcome : null,
+            UniFiNetworkFromVersion = document.NetworkAppUpdate.FromVersion,
+            UniFiNetworkToVersion = document.NetworkAppUpdate.TargetVersion,
             UniFiOsUpdateOutcome = document.IncludesUniFiOsUpdate ? document.UniFiOsUpdate.Outcome : null,
+            UniFiOsFromVersion = document.UniFiOsUpdate.FromVersion,
+            UniFiOsToVersion = document.UniFiOsUpdate.TargetVersion,
             Notes = [.. document.Notes],
         };
 
@@ -82,6 +86,41 @@ public static class RolloutReportBuilder
             }
 
             report.Rows.Add(row);
+        }
+
+        // Add the gateway as a row when the OS step ran and it isn't already a device step.
+        if (document.IncludesUniFiOsUpdate && !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)))
+        {
+            var osPre = ParseStats(document.UniFiOsUpdate.PreStatsJson);
+            var osPost = ParseStats(document.UniFiOsUpdate.PostStatsJson);
+            // Every row carries a canonical outcome: the console's own vocabulary would reach the
+            // chip as raw text and be counted by no summary tile.
+            var osOutcome = document.UniFiOsUpdate.Outcome switch
+            {
+                "updated" => RolloutOutcomes.Upgraded,
+                "stuck" => RolloutOutcomes.Failed,
+                "refused" => RolloutOutcomes.Failed,
+                _ => RolloutOutcomes.Skipped,
+            };
+            report.Rows.Add(new RolloutReportRow
+            {
+                Mac = document.ConsoleMac,
+                Name = "Console (UniFi OS)",
+                Model = "Cloud Gateway",
+                DeviceType = "ugw",
+                FromVersion = document.UniFiOsUpdate.FromVersion,
+                ToVersion = document.UniFiOsUpdate.TargetVersion,
+                UpgradedAt = document.UniFiOsUpdate.BackAt,
+                DowntimeSeconds = document.UniFiOsUpdate is { WentDownAt: DateTime osDown, BackAt: DateTime osBack }
+                    ? (int)Math.Max(0, (osBack - osDown).TotalSeconds)
+                    : null,
+                Outcome = osOutcome,
+                CpuBeforeMean = osPre?.CpuPercent,
+                CpuAfterMean = osPost?.CpuPercent,
+                MemBeforeMean = osPre?.MemoryUsedPercent,
+                MemAfterMean = osPost?.MemoryUsedPercent,
+            });
         }
 
         report.DevicesUpgraded = report.Rows.Count(r => r.Outcome is RolloutOutcomes.Upgraded or RolloutOutcomes.RegressionFlagged);

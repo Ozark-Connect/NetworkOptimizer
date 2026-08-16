@@ -15,6 +15,8 @@ namespace NetworkOptimizer.Web.Tests.Firmware;
 /// </summary>
 public class RolloutPlannerTests
 {
+    private static readonly int Cd = (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds;
+    private static readonly int GwCd = (int)FirmwareRolloutOrchestrator.GatewayCoolDown.TotalSeconds;
     private const string GatewayMac = "aa:bb:cc:dd:ee:01";
     private const string DistSwitchMac = "aa:bb:cc:dd:ee:02";
     private const string AccessSwitchMac = "aa:bb:cc:dd:ee:03";
@@ -834,7 +836,7 @@ public class RolloutPlannerTests
         doc.IncludesUniFiNetworkUpdate.Should().BeTrue();
         doc.UniFiNetworkUpdateSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds);
         doc.Waves[0].StartOffsetSeconds.Should().Be(300);
-        doc.TotalEstimatedSeconds.Should().Be(300 + 240 + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(300 + 240 + (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -860,7 +862,7 @@ public class RolloutPlannerTests
         doc.ChannelGroups.Single().RequiresConsoleChange.Should().BeTrue();
         doc.Waves[0].StartOffsetSeconds.Should().Be(RolloutPlanner.ChannelChangeSeconds);
         doc.TotalEstimatedSeconds.Should().Be(
-            RolloutPlanner.ChannelChangeSeconds + 240 + RolloutPlanner.CommandOverheadSeconds
+            RolloutPlanner.ChannelChangeSeconds + 240 + Cd + RolloutPlanner.CommandOverheadSeconds
             + RolloutPlanner.ChannelChangeSeconds);
     }
 
@@ -873,7 +875,7 @@ public class RolloutPlannerTests
 
         doc.ChannelGroups.Single().RequiresConsoleChange.Should().BeFalse();
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
-        doc.TotalEstimatedSeconds.Should().Be(240 + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -894,8 +896,8 @@ public class RolloutPlannerTests
         doc.Waves[0].Steps.Should().HaveCount(2);
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
         // Slowest of the pair (the older AP at 420s), the command allowance, then the AP gap.
-        doc.Waves[1].StartOffsetSeconds.Should().Be(420 + RolloutPlanner.CommandOverheadSeconds + 100);
-        doc.TotalEstimatedSeconds.Should().Be(550 + 240 + RolloutPlanner.CommandOverheadSeconds);
+        doc.Waves[1].StartOffsetSeconds.Should().Be(420 + Cd + RolloutPlanner.CommandOverheadSeconds + 100);
+        doc.TotalEstimatedSeconds.Should().Be(550 + Cd + 240 + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -911,12 +913,14 @@ public class RolloutPlannerTests
         var doc = Plan(devices).Document;
 
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
-        // AP wave: 240 down + 30 overhead + 120 AP gap.
-        doc.Waves[1].StartOffsetSeconds.Should().Be(390);
-        // Switch wave: 480 down + 30 overhead + 180 switch gap.
-        doc.Waves[2].StartOffsetSeconds.Should().Be(1080);
+        // AP wave: 240 down + Cd cooldown + 30 overhead + 120 AP gap.
+        doc.Waves[1].StartOffsetSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds + 120);
+        // Switch wave: 480 down + Cd cooldown + 30 overhead + 180 switch gap.
+        var w1 = doc.Waves[1].StartOffsetSeconds;
+        doc.Waves[2].StartOffsetSeconds.Should().Be(w1 + 480 + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
         // The gateway closes the only group, so its gateway gap is never charged.
-        doc.TotalEstimatedSeconds.Should().Be(1080 + 300 + RolloutPlanner.CommandOverheadSeconds);
+        var w2 = doc.Waves[2].StartOffsetSeconds;
+        doc.TotalEstimatedSeconds.Should().Be(w2 + 300 + GwCd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -957,7 +961,7 @@ public class RolloutPlannerTests
         var last = doc.Waves.Last();
         doc.TotalEstimatedSeconds.Should().Be(
             last.StartOffsetSeconds + last.Steps.Max(s => s.EstimatedDowntimeSeconds)
-            + RolloutPlanner.CommandOverheadSeconds);
+            + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -971,7 +975,7 @@ public class RolloutPlannerTests
         var doc = Plan(devices, estimator: estimator).Document;
 
         StepOf(doc, ApMac).EstimatedDowntimeSeconds.Should().Be(195);
-        doc.TotalEstimatedSeconds.Should().Be(195 + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(195 + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     // ---- Effective class ------------------------------------------------------------

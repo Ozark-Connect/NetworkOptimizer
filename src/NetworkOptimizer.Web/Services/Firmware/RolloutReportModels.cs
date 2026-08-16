@@ -47,9 +47,13 @@ public class RolloutReport
 
     /// <summary>How the UniFi Network application update ended, when one was included.</summary>
     public string? UniFiNetworkUpdateOutcome { get; set; }
+    public string? UniFiNetworkFromVersion { get; set; }
+    public string? UniFiNetworkToVersion { get; set; }
 
     /// <summary>How the console's UniFi OS update ended, when one was included.</summary>
     public string? UniFiOsUpdateOutcome { get; set; }
+    public string? UniFiOsFromVersion { get; set; }
+    public string? UniFiOsToVersion { get; set; }
 
     /// <summary>One row per device the plan covered.</summary>
     public List<RolloutReportRow> Rows { get; set; } = [];

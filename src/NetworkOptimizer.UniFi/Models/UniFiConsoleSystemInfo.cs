@@ -123,6 +123,19 @@ public class UniFiConsoleController
     [JsonPropertyName("rollback")]
     public UniFiConsoleControllerRollback? Rollback { get; set; }
 
+    /// <summary>
+    /// This application's own auto-update schedule. Separate from the console's
+    /// firmware.autoUpdate.includeApplications rider, and set independently of it, so an
+    /// application can update itself while that rider reads false.
+    /// </summary>
+    [JsonPropertyName("updateSchedule")]
+    public JsonElement? UpdateSchedule { get; set; }
+
+    /// <summary>Whether this application updates itself on a schedule.</summary>
+    [JsonIgnore]
+    public bool AutoUpdates =>
+        UpdateSchedule is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined };
+
     /// <summary>Whether the console has a newer build staged for this application.</summary>
     [JsonIgnore]
     public bool HasUpdate => !string.IsNullOrWhiteSpace(UpdateAvailable);

@@ -19563,6 +19563,8 @@ body.kiosk-mode .status-indicators {
 .site-wizard-steps {
     display: flex;
     margin-bottom: 1.25rem;
+    user-select: none;
+    cursor: default;
 }
 
 .site-wizard-step {
@@ -20484,7 +20486,28 @@ body.kiosk-mode .status-indicators {
     flex-shrink: 0;
 }
 
+.firmware-rollout-autopilot-config {
+    padding-top: 0;
+}
+
+.firmware-rollout-config-title {
+    margin-bottom: 0.25rem;
+}
+
+.firmware-rollout-config-intro {
+    display: block;
+    margin-bottom: 1rem;
+}
+
+.firmware-rollout-config-save {
+    margin-top: 1.5rem;
+}
+
 @media (max-width: 768px) {
+    .firmware-rollout-console-verb {
+        display: none;
+    }
+
     .firmware-rollout-landing {
         flex-direction: column;
         align-items: flex-start;

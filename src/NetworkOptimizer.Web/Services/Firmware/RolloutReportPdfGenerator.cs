@@ -135,8 +135,8 @@ public class RolloutReportPdfGenerator
                     LabelledLine(detail, "Failed", report.DevicesFailed.ToString());
                     LabelledLine(detail, "Rolled back", report.DevicesRolledBack.ToString());
                     LabelledLine(detail, "Skipped", report.DevicesSkipped.ToString());
-                    LabelledLine(detail, "UniFi Network application", ConsoleOutcomeLabel(report.UniFiNetworkUpdateOutcome));
-                    LabelledLine(detail, "UniFi OS", ConsoleOutcomeLabel(report.UniFiOsUpdateOutcome));
+                    LabelledLine(detail, "UniFi Network", ConsoleOutcomeWithVersions(report.UniFiNetworkUpdateOutcome, report.UniFiNetworkFromVersion, report.UniFiNetworkToVersion));
+                    LabelledLine(detail, "UniFi OS", ConsoleOutcomeWithVersions(report.UniFiOsUpdateOutcome, report.UniFiOsFromVersion, report.UniFiOsToVersion));
                 });
             });
 
@@ -261,15 +261,29 @@ public class RolloutReportPdfGenerator
 
     private static string ConsoleOutcomeLabel(string? outcome) => outcome switch
     {
-        null or "" => "not included",
-        "updated" => "updated",
-        "nothing-to-update" => "already current",
-        "unchanged" => "accepted but unchanged",
-        "refused" => "refused by the console",
-        "stuck" => "did not come back",
-        "skipped" => "not included",
+        null or "" => "Not included",
+        "updated" => "Updated",
+        "nothing-to-update" => "Already current",
+        "unchanged" => "Accepted but unchanged",
+        "refused" => "Refused by the console",
+        "stuck" => "Did not come back",
+        "skipped" => "Not included",
         _ => outcome,
     };
+
+    private static string ConsoleOutcomeWithVersions(string? outcome, string? from, string? to)
+    {
+        var label = ConsoleOutcomeLabel(outcome);
+        var fromShort = FirmwareVersionFormat.ShortOrNull(from);
+        var toShort = FirmwareVersionFormat.ShortOrNull(to);
+        if (outcome == "updated" && fromShort != null && toShort != null)
+            return $"{fromShort} → {toShort}";
+        if (outcome is "nothing-to-update" or "unchanged" && fromShort != null)
+            return $"{label} {fromShort}";
+        if (outcome == "stuck" && toShort != null)
+            return $"{label}, targeting {toShort}";
+        return label;
+    }
 
     private string OutcomeColor(string outcome) => outcome switch
     {
