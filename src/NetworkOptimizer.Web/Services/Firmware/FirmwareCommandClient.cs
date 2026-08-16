@@ -121,7 +121,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
         try
         {
-            var (success, output) = await _ssh.RunCommandAsync(host, $"upgrade {firmwareUrl}", null, cancellationToken);
+            var (success, output) = await _ssh.RunCommandAsync(host, $"upgrade {firmwareUrl}", null, TimeSpan.FromMinutes(5), cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 

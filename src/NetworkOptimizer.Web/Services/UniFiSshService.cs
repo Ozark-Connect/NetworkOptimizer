@@ -200,6 +200,12 @@ public class UniFiSshService : IUniFiSshService
         return await RunCommandAsync(host, command, portOverride, null, null, null, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        return await RunCommandCoreAsync(host, command, portOverride, null, null, null, timeout, cancellationToken);
+    }
+
     /// <summary>
     /// Run an SSH command on a device with optional per-device credential overrides.
     /// If override values are null/empty, falls back to global settings.
@@ -212,6 +218,19 @@ public class UniFiSshService : IUniFiSshService
         string? passwordOverride,
         string? privateKeyPathOverride,
         CancellationToken cancellationToken = default)
+    {
+        return await RunCommandCoreAsync(host, command, portOverride, usernameOverride, passwordOverride, privateKeyPathOverride, null, cancellationToken);
+    }
+
+    private async Task<(bool success, string output)> RunCommandCoreAsync(
+        string host,
+        string command,
+        int? portOverride,
+        string? usernameOverride,
+        string? passwordOverride,
+        string? privateKeyPathOverride,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
     {
         if (await IsAwaitingAgentAsync())
         {
@@ -257,7 +276,7 @@ public class UniFiSshService : IUniFiSshService
             Timeout = TimeSpan.FromSeconds(5)
         });
 
-        var result = await _sshClient.ExecuteCommandAsync(connection, command, TimeSpan.FromSeconds(30), cancellationToken);
+        var result = await _sshClient.ExecuteCommandAsync(connection, command, timeout ?? TimeSpan.FromSeconds(30), cancellationToken);
 
         return (result.Success, result.Success ? result.Output : result.CombinedOutput);
     }
