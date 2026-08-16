@@ -61,7 +61,9 @@ public class SupportFileService : ISupportFileService
 
         _logger.LogInformation("Starting support file generation");
         if (!await client.GenerateSupportFileAsync(recreate: true, ct))
-            return SupportFileResult.Fail("Failed to start support file generation. The console may have denied the request.");
+            return SupportFileResult.Fail(
+                "The console denied the request. Support file generation requires the console user " +
+                "to have the Super Admin role on the UniFi Console (the same role needed for firmware upgrades).");
 
         var deadline = DateTime.UtcNow + MaxWait;
         while (DateTime.UtcNow < deadline)
