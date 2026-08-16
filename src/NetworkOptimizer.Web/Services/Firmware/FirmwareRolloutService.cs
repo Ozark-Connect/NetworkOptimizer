@@ -191,7 +191,13 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             ConsoleAutoUpgradeEnabled = autoUpgrade == true,
             ConsoleOsAutoUpdateEnabled = console?.Firmware?.AutoUpdate?.IsScheduled == true,
-            ConsoleAppsAutoUpdateEnabled = console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true },
+            // Two independent settings reach the same outcome: the console's schedule can carry the
+            // applications along, and each application can also carry a schedule of its own.
+            ConsoleAppsAutoUpdateEnabled =
+                console?.Firmware?.AutoUpdate is { IsScheduled: true, IncludeApplications: true }
+                || console?.Apps?.Controllers?.Any(c =>
+                    string.Equals(c.Name, UniFiConsoleController.NetworkName, StringComparison.OrdinalIgnoreCase)
+                    && c.AutoUpdates) == true,
             HasActivePlan = active != null,
         };
 
