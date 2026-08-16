@@ -438,7 +438,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             plan.Status = FirmwareRolloutStatus.Aborted;
             plan.CompletedAt = Now;
             await PersistPlanAsync(plan, cancellationToken);
-            _suppression.ClearSite(_siteSlug);
+
+            // Only clear suppression for steps that were dropped. Devices mid-cycle are left to
+            // finish, and their suppression window must stay open until the tick loop sees them
+            // settle (no active plan → ClearSite in the normal sweep).
+            var inFlight = steps.Where(s => !IsSettled(s)).Select(s => s.DeviceMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (inFlight.Count == 0)
+                _suppression.ClearSite(_siteSlug);
+            else
+                foreach (var step in steps.Where(s => IsSettled(s)))
+                    _suppression.Clear(_siteSlug, step.DeviceMac);
+
             _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
         }
         finally
