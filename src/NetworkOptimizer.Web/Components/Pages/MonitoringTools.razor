@@ -610,8 +610,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
 @if (_hasGateway)
 {
-    <div class="card" style="margin-top: 1.5rem;" data-tour="gateway-diagnostics">
-        <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+    <div class="card dmesg-card" data-tour="gateway-diagnostics">
+        <div class="card-header dmesg-card-header">
             <h2 class="card-title">Gateway Diagnostics</h2>
             <button class="btn btn-primary btn-sm"
                     disabled="@(!_gatewaySshConfigured || _siteAgentOffline || _dmesgRunning)"
@@ -628,7 +628,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             </button>
         </div>
         <div class="card-body">
-            <p class="page-description" style="margin-bottom: 0.75rem;">
+            <p class="page-description dmesg-description">
                 Kernel message log from the gateway, parsed into categories. On a long-running
                 multi-WAN gateway the ring buffer fills with connection tracking noise,
                 pushing boot events out; the report counts those and highlights what matters.
@@ -658,7 +658,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 }
                 else
                 {
-                    <div style="margin-bottom: 1rem; color: var(--text-secondary); font-size: 0.85rem;">
+                    <div class="dmesg-stats">
                         @_dmesgReport.TotalLines.ToString("N0") lines
                         @if (_dmesgReport.ApproximateUptime.HasValue)
                         {
@@ -679,25 +679,25 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                     {
                         @foreach (var cat in _dmesgReport.Categories)
                         {
-                            <details class="gateway-diag-section" style="margin-bottom: 0.75rem;">
-                                <summary style="cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                            <details class="dmesg-category">
+                                <summary class="dmesg-category-header">
                                     <span class="status-dot @SeverityDotClass(cat.Severity)"></span>
-                                    <strong>@cat.Title</strong>
-                                    <span style="color: var(--text-secondary); font-size: 0.85rem;">@cat.Summary</span>
+                                    <strong class="dmesg-category-title">@cat.Title</strong>
+                                    <span class="dmesg-category-summary">@cat.Summary</span>
                                 </summary>
                                 @if (cat.Lines.Count > 0)
                                 {
-                                    <pre class="gateway-diag-raw" style="margin-top: 0.5rem; max-height: 300px; overflow-y: auto;">@string.Join("\n", cat.Lines)</pre>
+                                    <pre class="dmesg-category-output">@string.Join("\n", cat.Lines)</pre>
                                 }
                             </details>
                         }
                     }
 
-                    <details class="gateway-diag-section" style="margin-top: 1rem;">
-                        <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.85rem;">
+                    <details class="dmesg-raw">
+                        <summary class="dmesg-raw-toggle">
                             Show raw dmesg output
                         </summary>
-                        <pre class="gateway-diag-raw" style="margin-top: 0.5rem; max-height: 400px; overflow-y: auto;">@_dmesgReport.RawOutput.Trim()</pre>
+                        <pre class="dmesg-raw-output">@_dmesgReport.RawOutput.Trim()</pre>
                     </details>
                 }
             }
@@ -706,8 +706,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 }
 
 <SiteAdminOnly>
-    <div class="card" style="margin-top: 1.5rem;" data-tour="console-support-file">
-        <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+    <div class="card dmesg-card" data-tour="console-support-file">
+        <div class="card-header dmesg-card-header">
             <h2 class="card-title">Console Support File</h2>
             @if (ConnectionService.IsConnected && !ConnectionService.IsApiKeyAuth)
             {
@@ -744,7 +744,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             }
             else
             {
-                <p class="page-description" style="margin-bottom: 0.75rem;">
+                <p class="page-description dmesg-description">
                     Generate a full UniFi OS support file from the console and download it.
                     This is the same bundle the UniFi Console UI produces under Support -
                     the format Ubiquiti Support expects when filing a ticket.
@@ -758,7 +758,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
             @if (_supportFileRunning)
             {
-                <p style="color: var(--text-secondary); font-size: 0.85rem;">
+                <p class="dmesg-stats">
                     The console is bundling diagnostics from all installed applications.
                     This can take a few minutes on consoles running Protect or other apps.
                 </p>
@@ -766,6 +766,60 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         </div>
     </div>
 </SiteAdminOnly>
+
+<style>
+    .dmesg-card { margin-top: 1.5rem; }
+
+    .dmesg-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .dmesg-description { margin-bottom: 0.75rem; }
+
+    .dmesg-stats {
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-category { margin-bottom: 0.75rem; }
+
+    .dmesg-category-header {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .dmesg-category-title { font-size: 0.9rem; }
+
+    .dmesg-category-summary {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-category-output {
+        margin-top: 0.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .dmesg-raw { margin-top: 1rem; }
+
+    .dmesg-raw-toggle {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-raw-output {
+        margin-top: 0.5rem;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+</style>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }

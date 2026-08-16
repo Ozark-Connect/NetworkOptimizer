@@ -75,7 +75,8 @@ public static partial class DmesgParser
 
             // --- Kernel panic / crash ---
             if (body.Contains("Kernel panic", StringComparison.OrdinalIgnoreCase) ||
-                body.Contains("Oops:", StringComparison.OrdinalIgnoreCase) ||
+                (body.Contains("Oops:", StringComparison.OrdinalIgnoreCase) &&
+                 !body.Contains("ramoops", StringComparison.OrdinalIgnoreCase)) ||
                 body.Contains("BUG:", StringComparison.OrdinalIgnoreCase) ||
                 body.Contains("watchdog reset", StringComparison.OrdinalIgnoreCase) ||
                 body.Contains("Watchdog expired", StringComparison.OrdinalIgnoreCase))
