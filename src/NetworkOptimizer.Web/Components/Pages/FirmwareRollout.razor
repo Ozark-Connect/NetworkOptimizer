@@ -6,6 +6,7 @@
 @inject SiteContextService SiteContext
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject SiteConnectionRegistry ConnectionRegistry
 @inject ILogger<FirmwareRollout> Logger
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
@@ -701,10 +702,30 @@ else
     private IEnumerable<(string Code, string Label)> TypeChannelRows =>
         _preview?.HasCloudGateway == true ? AllTypeRows.Where(r => r.Code != "ugw") : AllTypeRows;
 
+    private UniFiConnectionService? _connection;
+
     protected override async Task OnInitializedAsync()
     {
+        _connection = ConnectionRegistry.GetFor(SiteContext.Slug);
+        _connection.OnConnectionChanged += OnConnectionChanged;
         await ReloadAsync();
         _loading = false;
+    }
+
+    private async void OnConnectionChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
+                {
+                    _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+                    StateHasChanged();
+                }
+            });
+        }
+        catch { }
     }
 
     private async Task ReloadAsync()
@@ -1474,6 +1495,8 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        if (_connection != null)
+            _connection.OnConnectionChanged -= OnConnectionChanged;
         _pollTimer?.Dispose();
         await DisposeVizAsync();
         if (_viz != null)
