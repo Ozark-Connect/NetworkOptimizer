@@ -495,9 +495,15 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         if (preview.UpgradableCount == 0)
         {
-            preview.Notices.Add(
-                "You're all up to date. Turn on Autopilot in the Schedule step to have it manage " +
-                "firmware and Console updates automatically.");
+            // Naming a surface the rollout was not asked to cover would promise something Autopilot
+            // will not do, so the console half is named only when it is actually included.
+            var covers = settings.IncludeUniFiNetwork || (settings.IncludeUniFiOs && preview.HasCloudGateway)
+                ? "firmware and Console updates"
+                : "firmware";
+
+            preview.Notices.Add(settings.Mode == FirmwareRolloutMode.Autopilot
+                ? $"You're all up to date. Autopilot will pick up new {covers} on its own."
+                : $"You're all up to date. Turn on Autopilot in the Schedule step to have it manage {covers} automatically.");
         }
 
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
