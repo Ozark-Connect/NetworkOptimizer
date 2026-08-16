@@ -400,39 +400,10 @@ else
 {
     @* ---- Landing ---- *@
     <div class="card" data-tour="firmware-rollout">
-        <div class="card-body firmware-rollout-landing @(_settings?.Mode == FirmwareRolloutMode.Autopilot ? "firmware-rollout-landing-autopilot" : "")">
+        <div class="card-body firmware-rollout-landing">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
                 <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
-
-                <SiteAdminOnly>
-                <div class="firmware-rollout-autopilot-config">
-                    <FirmwareChannelConfig
-                        Settings="_settings"
-                        EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
-                        ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
-                        HasCloudGateway="_preview?.HasCloudGateway == true"
-                        TypeChannelRows="TypeChannelRows"
-                        SiteModels="SiteModels"
-                        FilteredDevices="FilteredExclusionCandidates.ToList()"
-                        ExcludedMacs="_exMacs"
-                        ExcludedSkus="_exSkus"
-                        ExcludedTypes="_exTypes"
-                        ExclusionSearch="_exclusionSearch"
-                        TypeChannel="TypeChannel"
-                        SetTypeChannel="SetTypeChannel"
-                        SkuChannel="SkuChannel"
-                        SetSkuChannel="SetSkuChannel"
-                        DerivedExclusion="DerivedExclusion"
-                        UpdateTooltip="UpdateTooltip"
-                        ToggleSku="ToggleSku" />
-
-                    <button class="btn btn-primary" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
-                        @if (_busy) { <span class="spinner spinner-sm"></span> }
-                        else { <span>Save</span> }
-                    </button>
-                </div>
-                </SiteAdminOnly>
             }
             else
             {
@@ -447,8 +418,6 @@ else
             }
             <SiteAdminOnly>
                 @{
-                    // Autopilot already has the site covered, so planning by hand is the exception
-                    // here rather than the action the page is for.
                     var autopilotOn = _settings?.Mode == FirmwareRolloutMode.Autopilot;
                 }
                 <button class="btn @(autopilotOn ? "btn-secondary" : "btn-primary")" @onclick="OpenWizardAsync" disabled="@_busy">
@@ -463,6 +432,37 @@ else
                 </button>
             </SiteAdminOnly>
         </div>
+        @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+        {
+            <SiteAdminOnly>
+            <div class="card-body firmware-rollout-autopilot-config">
+                <FirmwareChannelConfig
+                    Settings="_settings"
+                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
+                    ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
+                    HasCloudGateway="_preview?.HasCloudGateway == true"
+                    TypeChannelRows="TypeChannelRows"
+                    SiteModels="SiteModels"
+                    FilteredDevices="FilteredExclusionCandidates.ToList()"
+                    ExcludedMacs="_exMacs"
+                    ExcludedSkus="_exSkus"
+                    ExcludedTypes="_exTypes"
+                    ExclusionSearch="_exclusionSearch"
+                    TypeChannel="TypeChannel"
+                    SetTypeChannel="SetTypeChannel"
+                    SkuChannel="SkuChannel"
+                    SetSkuChannel="SetSkuChannel"
+                    DerivedExclusion="DerivedExclusion"
+                    UpdateTooltip="UpdateTooltip"
+                    ToggleSku="ToggleSku" />
+
+                <button class="btn btn-primary" style="margin-top: 1rem" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
+                    @if (_busy) { <span class="spinner spinner-sm"></span> }
+                    else { <span>Save</span> }
+                </button>
+            </div>
+            </SiteAdminOnly>
+        }
     </div>
 
     @if (_history.Count > 0)
@@ -711,8 +711,11 @@ else
         try
         {
             _settings = await RolloutService.GetSettingsAsync();
+            LoadWorkingSets();
             _active = await RolloutService.GetActivePlanAsync();
             _history = await RolloutService.GetPlanHistoryAsync();
+            if (_active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot)
+                _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
             // Any live plan polls, not just a running one. A scheduled or announced plan starts
             // on its own clock, and without a timer nothing re-renders to notice it happened -
             // somebody watching the page through the start time would sit on a stale view.

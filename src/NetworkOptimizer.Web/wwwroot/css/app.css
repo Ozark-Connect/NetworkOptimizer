@@ -20484,15 +20484,9 @@ body.kiosk-mode .status-indicators {
     flex-shrink: 0;
 }
 
-.firmware-rollout-landing-autopilot {
-    flex-direction: column;
-    align-items: flex-start;
-}
-
-.firmware-rollout-landing-autopilot .firmware-rollout-autopilot-config {
-    width: 100%;
+.firmware-rollout-autopilot-config {
     max-width: 600px;
-    margin-top: 0.5rem;
+    padding-top: 0;
 }
 
 @media (max-width: 768px) {
