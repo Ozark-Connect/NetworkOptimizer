@@ -1,4 +1,5 @@
 @page "/firmware-rollout"
+@using NetworkOptimizer.UniFi
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IAsyncDisposable
 @inject IFirmwareRolloutService RolloutService
@@ -1040,12 +1041,16 @@ else
         if (!_exSkus.Add(model)) _exSkus.Remove(model);
     }
 
-    /// <summary>Every model on the site, keyed by the console's code and labeled by product name.</summary>
+    /// <summary>
+    /// Every model on the site, one row per family and labeled by product name. A site running the
+    /// same AP in two colors gets one control rather than two that quietly govern each other, since
+    /// the planner resolves both to one key.
+    /// </summary>
     private List<(string Code, string Label)> SiteModels =>
         (_preview?.Devices ?? [])
             .Where(d => !string.IsNullOrEmpty(d.Model))
-            .GroupBy(d => d.Model, StringComparer.OrdinalIgnoreCase)
-            .Select(g => (Code: g.Key, Label: g.First().DisplayModel))
+            .GroupBy(d => UniFiProductDatabase.GetModelFamily(d.Model, d.DisplayModel), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Code: g.First().Model, Label: g.Key))
             .OrderBy(m => m.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

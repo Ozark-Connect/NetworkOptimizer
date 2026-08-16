@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -61,7 +62,10 @@ public class RolloutPlanner
 
         ordered = ApplyMeshGroupOrdering(ordered, candidates, doc.Notes);
 
-        var skuCounts = candidates.GroupBy(d => d.Model, StringComparer.OrdinalIgnoreCase)
+        // Family, not the raw code: the same AP in another shell has its own console code, and
+        // counting them apart meant one of each was two models of one device - so neither earned
+        // a canary and both went in normal waves with nothing gating them.
+        var skuCounts = candidates.GroupBy(d => d.ModelFamily, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var canaried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceWave = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -225,9 +229,17 @@ public class RolloutPlanner
     /// <summary>Effective channel: per-SKU override, then per-type, then global.</summary>
     public static string ResolveChannel(PlannerDevice d, FirmwareRolloutSettings settings)
     {
+        // Exact code first so a pin deliberately set on one color still wins, then the family, so a
+        // pin covers the same hardware in another shell and a map written against a raw code resolves.
         var bySku = ParseMap(settings.PerSkuChannelsJson);
         if (bySku.TryGetValue(d.Model, out var skuChannel) && !string.IsNullOrWhiteSpace(skuChannel))
             return skuChannel;
+        foreach (var (sku, channel) in bySku)
+        {
+            if (string.IsNullOrWhiteSpace(channel)) continue;
+            if (string.Equals(UniFiProductDatabase.GetModelFamily(sku), d.ModelFamily, StringComparison.OrdinalIgnoreCase))
+                return channel;
+        }
 
         var byType = ParseMap(settings.PerDeviceTypeChannelsJson);
         if (byType.TryGetValue(FirmwareDeviceTypes.Code(d.Type), out var typeChannel) ||
@@ -338,7 +350,7 @@ public class RolloutPlanner
 
         foreach (var d in level)
         {
-            var isCanary = skuCounts.GetValueOrDefault(d.Model, 0) > 1 && canaried.Add(d.Model);
+            var isCanary = skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1 && canaried.Add(d.ModelFamily);
             if (isCanary)
             {
                 waves.Add([(d, true, false)]);
@@ -351,7 +363,7 @@ public class RolloutPlanner
             else solo.Add(d);
         }
 
-        bool Held(PlannerDevice d) => canaried.Contains(d.Model) && skuCounts.GetValueOrDefault(d.Model, 0) > 1;
+        bool Held(PlannerDevice d) => canaried.Contains(d.ModelFamily) && skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1;
 
         Pack(waves, packableAps, spacing.MaxApParallelism,
             (a, b) => neighbors == null || !neighbors.AreNeighbors(a.Mac, b.Mac), Held);
