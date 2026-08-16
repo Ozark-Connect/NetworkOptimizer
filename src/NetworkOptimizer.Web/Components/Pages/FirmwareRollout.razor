@@ -1053,7 +1053,9 @@ else
     /// </summary>
     private string? DerivedExclusion(RolloutDeviceView device)
     {
-        if (_exMacs.Contains(device.Mac)) return null;
+        // A wider rule wins even when the device also has its own. Checking the MAC first left the
+        // checkbox enabled on a device a model rule already covered, so it could be unticked with
+        // no effect - the row simply re-checked itself from the rule that was still there.
         if (SkuExcluded(device)) return $"Excluded by the rule for every {ModelFamilyOf(device)}.";
         if (_exTypes.Contains(device.DeviceType)) return "Excluded by the rule for this device type.";
         return null;
@@ -1071,10 +1073,25 @@ else
             UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase)).ToList();
 
         if (existing.Count > 0)
+        {
             foreach (var s in existing) _exSkus.Remove(s);
-        else
-            _exSkus.Add(device.Model);
+            return;
+        }
+
+        _exSkus.Add(device.Model);
+
+        // The model rule absorbs the individual ticks it now covers. Left behind, they would keep
+        // every one of those devices excluded after Include model, which reads as the button not
+        // working - and they are unreachable while the model rule disables their checkboxes.
+        foreach (var mac in FamilyMacs(family)) _exMacs.Remove(mac);
     }
+
+    /// <summary>MACs of every device on the site in this model family.</summary>
+    private IEnumerable<string> FamilyMacs(string family) =>
+        (_preview?.Devices ?? [])
+            .Where(d => string.Equals(ModelFamilyOf(d), family, StringComparison.OrdinalIgnoreCase))
+            .Select(d => d.Mac)
+            .ToList();
 
     /// <summary>
     /// Every model on the site, one row per family and labeled by product name. A site running the
