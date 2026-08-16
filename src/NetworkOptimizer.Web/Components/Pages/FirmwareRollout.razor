@@ -321,9 +321,13 @@ else if (_wizardOpen)
                         <div class="firmware-rollout-exclusion-list firmware-rollout-exclude">
                             @foreach (var device in FilteredExclusionCandidates)
                             {
+                                @* The tooltip goes on a wrapper, not the row (it fired anywhere along it)
+                                   and not the input (a disabled control emits no hover). *@
                                 var derived = DerivedExclusion(device);
-                                <label class="checkbox-label firmware-rollout-device-row" data-tooltip="@derived">
-                                    <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                <label class="checkbox-label firmware-rollout-device-row">
+                                    <span data-tooltip="@derived">
+                                        <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                    </span>
                                     <span>@device.Name</span>
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
                                     @if (device.Upgradable)
@@ -331,7 +335,7 @@ else if (_wizardOpen)
                                         <span class="firmware-rollout-chip chip-active"
                                               data-tooltip="@UpdateTooltip(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
                                     }
-                                    <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device.Model)" @onclick:stopPropagation="true">@(_exSkus.Contains(device.Model) ? "Include model" : "Exclude model")</button>
+                                    <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
                                 </label>
                             }
                         </div>
@@ -1025,20 +1029,51 @@ else
 
     /// <summary>Excluded by its own rule or by one covering its model or type.</summary>
     private bool IsExcluded(RolloutDeviceView device) =>
-        _exMacs.Contains(device.Mac) || _exSkus.Contains(device.Model) || _exTypes.Contains(device.DeviceType);
+        _exMacs.Contains(device.Mac) || SkuExcluded(device) || _exTypes.Contains(device.DeviceType);
 
-    /// <summary>Why a device is excluded when the rule is not its own, else null.</summary>
+    /// <summary>
+    /// Whether a stored model rule covers this device, matched on the family so a rule written on
+    /// one color covers the same hardware in another. The planner already matches this way, and a
+    /// checkbox that disagreed with it would be showing something the rollout will not do.
+    /// </summary>
+    private bool SkuExcluded(RolloutDeviceView device)
+    {
+        if (_exSkus.Contains(device.Model)) return true;
+        var family = ModelFamilyOf(device);
+        return _exSkus.Any(s => string.Equals(
+            UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ModelFamilyOf(RolloutDeviceView device) =>
+        UniFiProductDatabase.GetModelFamily(device.Model, device.DisplayModel);
+
+    /// <summary>
+    /// Why a device is excluded when the rule is not its own MAC, else null. Doubles as the test
+    /// for whether this row's checkbox can clear it, which it cannot.
+    /// </summary>
     private string? DerivedExclusion(RolloutDeviceView device)
     {
         if (_exMacs.Contains(device.Mac)) return null;
-        if (_exSkus.Contains(device.Model)) return $"Excluded by the rule for every {device.DisplayModel}.";
+        if (SkuExcluded(device)) return $"Excluded by the rule for every {ModelFamilyOf(device)}.";
         if (_exTypes.Contains(device.DeviceType)) return "Excluded by the rule for this device type.";
         return null;
     }
 
-    private void ToggleSku(string model)
+    /// <summary>
+    /// Adds or clears a model rule for the device's whole family. Removing has to sweep the family
+    /// too: the stored rule may name the other color's code, and Include would otherwise appear to
+    /// do nothing.
+    /// </summary>
+    private void ToggleSku(RolloutDeviceView device)
     {
-        if (!_exSkus.Add(model)) _exSkus.Remove(model);
+        var family = ModelFamilyOf(device);
+        var existing = _exSkus.Where(s => string.Equals(
+            UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (existing.Count > 0)
+            foreach (var s in existing) _exSkus.Remove(s);
+        else
+            _exSkus.Add(device.Model);
     }
 
     /// <summary>
