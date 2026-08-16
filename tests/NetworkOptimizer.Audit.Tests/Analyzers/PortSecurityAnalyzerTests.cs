@@ -1760,6 +1760,154 @@ public class PortSecurityAnalyzerTests
             "LAG child port should still be checked by UnusedPortRule");
     }
 
+    [Fact]
+    public void AnalyzePorts_LagParentPort_InheritsUplinkFromChild()
+    {
+        // Reproduces #1142: two devices in a LACP aggregate. The child port has
+        // is_uplink=true but the parent (op_mode=aggregate) does not, so the parent
+        // was falsely flagged for excessive VLANs. The fix propagates IsUplink from
+        // the child to the parent, letting AccessPortVlanRule's uplink exemption work.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""EnterpriseXG-24"",
+                ""mac"": ""aa:bb:cc:dd:ee:01"",
+                ""port_table"": [
+                    { ""port_idx"": 25, ""name"": ""SFP28 25"", ""op_mode"": ""aggregate"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false, ""is_uplink"": false },
+                    { ""port_idx"": 26, ""name"": ""SFP28 26"", ""op_mode"": ""switch"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": 25, ""is_uplink"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Guest", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+
+        var parent = switches[0].Ports.Single(p => p.PortIndex == 25);
+        parent.IsUplink.Should().BeTrue("LAG parent should inherit IsUplink from child");
+        parent.IsLagParent.Should().BeTrue();
+
+        var issues = _engine.AnalyzePorts(switches, networks);
+        issues.Where(i => i.Port == "25" && i.Type == IssueTypes.AccessPortVlan).Should().BeEmpty(
+            "LAG parent with uplink child should not be flagged for excessive VLANs");
+    }
+
+    [Fact]
+    public void AnalyzePorts_LagParentPort_InheritsFabricDeviceFromChild()
+    {
+        // The gateway (udm) uplinks to port 14 (the child), so deviceUplinkLookup has
+        // (switch MAC, 14) but not (switch MAC, 13). The fix propagates ConnectedDeviceType
+        // from child to parent so the fabric exemption catches port 13.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""name"": ""UDM Beast"",
+                ""mac"": ""aa:bb:cc:dd:ee:02"",
+                ""port_table"": [
+                    { ""port_idx"": 13, ""name"": ""SFP28 1"", ""op_mode"": ""aggregate"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false, ""is_uplink"": false },
+                    { ""port_idx"": 14, ""name"": ""SFP28 2"", ""op_mode"": ""switch"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": 13, ""is_uplink"": false }
+                ]
+            },
+            {
+                ""type"": ""usw"",
+                ""name"": ""EnterpriseXG-24"",
+                ""mac"": ""aa:bb:cc:dd:ee:01"",
+                ""uplink"": { ""uplink_mac"": ""aa:bb:cc:dd:ee:02"", ""uplink_remote_port"": 14 },
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Guest", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+
+        var beast = switches.Single(s => s.Name == "UDM Beast");
+        var parent = beast.Ports.Single(p => p.PortIndex == 13);
+        parent.ConnectedDeviceType.Should().Be("usw", "LAG parent should inherit ConnectedDeviceType from child");
+        parent.IsLagParent.Should().BeTrue();
+
+        var issues = _engine.AnalyzePorts(switches, networks);
+        issues.Where(i => i.Port == "13" && i.Type == IssueTypes.AccessPortVlan).Should().BeEmpty(
+            "LAG parent with fabric device on child should not be flagged for excessive VLANs");
+    }
+
+    [Fact]
+    public void AnalyzePorts_LagParentPort_NoFabricDevice_StillFlagged()
+    {
+        // A LAG to a non-fabric device (e.g. server with bonded NICs) should still
+        // be flagged for excessive VLANs since no child has ConnectedDeviceType or IsUplink.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:01"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true },
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""op_mode"": ""aggregate"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false, ""is_uplink"": false },
+                    { ""port_idx"": 5, ""name"": ""Port 5"", ""op_mode"": ""switch"", ""forward"": ""all"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": 4, ""is_uplink"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Guest", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+
+        var parent = switches[0].Ports.Single(p => p.PortIndex == 4);
+        parent.ConnectedDeviceType.Should().BeNull("no fabric device on the LAG");
+        parent.IsUplink.Should().BeFalse("no uplink on the LAG");
+
+        var issues = _engine.AnalyzePorts(switches, networks);
+        issues.Where(i => i.Port == "4" && i.Type == IssueTypes.AccessPortVlan).Should().HaveCount(1,
+            "LAG parent to a non-fabric device should still be flagged for excessive VLANs");
+    }
+
+    [Fact]
+    public void AnalyzePorts_NonLagTrunkPort_UnaffectedByPropagation()
+    {
+        // A regular trunk port (no LAG) with forward="all" and no connected device
+        // should still be flagged, verifying the propagation code doesn't interfere.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:01"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true, ""forward"": ""all"" },
+                    { ""port_idx"": 2, ""name"": ""Port 2"", ""up"": true, ""forward"": ""native"" }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Guest", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        issues.Where(i => i.Port == "1" && i.Type == IssueTypes.AccessPortVlan).Should().HaveCount(1,
+            "regular trunk port with no device should still be flagged");
+        issues.Where(i => i.Port == "2" && i.Type == IssueTypes.AccessPortVlan).Should().BeEmpty(
+            "access port should not be flagged");
+    }
+
     #endregion
 
     #region AddRule Tests
