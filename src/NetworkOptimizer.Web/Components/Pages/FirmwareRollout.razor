@@ -956,6 +956,9 @@ else
     private FirmwareRolloutSettings WorkingSettings()
     {
         var s = _settings!;
+        // The preview answers for what the wizard currently shows, not for what is saved: the mode
+        // is only written on commit, and every save path sets it again before it writes.
+        s.Mode = _scheduleMode == "autopilot" ? FirmwareRolloutMode.Autopilot : FirmwareRolloutMode.ManualOnly;
         s.ExclusionsJson = System.Text.Json.JsonSerializer.Serialize(new
         {
             macs = _exMacs.ToList(),
