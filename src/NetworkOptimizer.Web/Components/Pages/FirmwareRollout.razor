@@ -256,7 +256,7 @@ else if (_wizardOpen)
                     <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
                     @if (AutoUpdaterList() is string autoUpdaters)
                     {
-                        <div class="alert alert-info firmware-rollout-note">UniFi still updates @autoUpdaters on its own schedule. Turn that off first so two updaters never run at once.</div>
+                        <div class="alert alert-warning firmware-rollout-note">UniFi still updates @autoUpdaters on its own schedule. Turn that off first so two updaters never run at once.</div>
                     }
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">Heads-up hours</label>
