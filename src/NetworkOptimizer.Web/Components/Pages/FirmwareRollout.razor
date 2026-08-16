@@ -534,15 +534,15 @@ else
                         {
                             <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">mean device memory</span></div>
                         }
+                        @if (rep.UniFiNetworkUpdateOutcome != null)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@ConsoleStepSummary(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</span><span class="detail-label">UniFi Network</span></div>
+                        }
+                        @if (rep.UniFiOsUpdateOutcome != null)
+                        {
+                            <div class="firmware-rollout-stat"><span class="detail-value">@ConsoleStepSummary(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</span><span class="detail-label">UniFi OS</span></div>
+                        }
                     </div>
-                    @if (rep.UniFiNetworkUpdateOutcome != null)
-                    {
-                        <p class="firmware-rollout-plan-note"><strong>UniFi Network</strong> @ConsoleStepSummary(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</p>
-                    }
-                    @if (rep.UniFiOsUpdateOutcome != null)
-                    {
-                        <p class="firmware-rollout-plan-note"><strong>UniFi OS</strong> @ConsoleStepSummary(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</p>
-                    }
                     @foreach (var issue in rep.Issues)
                     {
                         <div class="alert alert-warning firmware-rollout-note">@issue</div>
