@@ -254,7 +254,10 @@ else if (_wizardOpen)
                 @if (_scheduleMode == "autopilot")
                 {
                     <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
-                    <div class="alert alert-info firmware-rollout-note">Turn off UniFi's own auto-updates first - devices, the UniFi Network application, and UniFi OS - so two updaters never run at once.</div>
+                    @if (AutoUpdaterList() is string autoUpdaters)
+                    {
+                        <div class="alert alert-info firmware-rollout-note">UniFi still updates @autoUpdaters on its own schedule. Turn that off first so two updaters never run at once.</div>
+                    }
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">Heads-up hours</label>
                         <input type="number" class="form-control firmware-rollout-num" min="1" max="168" @bind="_settings.NotifyHoursAhead" />
@@ -866,6 +869,23 @@ else
     {
         _step = 2;
         _ = DisposeVizAsync();
+    }
+
+    /// <summary>The UniFi auto-updaters that are on, or null when none are.</summary>
+    private string? AutoUpdaterList()
+    {
+        var on = new List<string>();
+        if (_preview?.ConsoleAutoUpgradeEnabled == true) on.Add("devices");
+        if (_preview?.ConsoleAppsAutoUpdateEnabled == true) on.Add("the UniFi Network application");
+        if (_preview?.ConsoleOsAutoUpdateEnabled == true) on.Add("UniFi OS");
+
+        return on.Count switch
+        {
+            0 => null,
+            1 => on[0],
+            2 => $"{on[0]} and {on[1]}",
+            _ => $"{string.Join(", ", on.Take(on.Count - 1))}, and {on[^1]}",
+        };
     }
 
     private string CommitLabel => _scheduleMode switch
