@@ -711,6 +711,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             <h2 class="card-title">Console Support File</h2>
             @if (ConnectionService.IsConnected && !ConnectionService.IsApiKeyAuth)
             {
+                <label class="checkbox-label"><input type="checkbox" @bind="_supportFileIncludeAll" /><span>Include all applications</span></label>
                 <button class="btn btn-primary btn-sm"
                         disabled="@_supportFileRunning"
                         @onclick="GenerateSupportFileAsync">
@@ -879,6 +880,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // Console support file
     private bool _supportFileRunning;
     private string? _supportFileError;
+    private bool _supportFileIncludeAll;
 
     private bool CanRunDiagnostics =>
         _gatewaySshConfigured && !_siteAgentOffline && !string.IsNullOrWhiteSpace(_diagInterface);
@@ -1277,7 +1279,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         StateHasChanged();
         try
         {
-            var result = await SupportFile.GenerateAndDownloadAsync();
+            var result = await SupportFile.GenerateAndDownloadAsync(networkOnly: !_supportFileIncludeAll);
             if (!result.Success)
             {
                 _supportFileError = result.Error;

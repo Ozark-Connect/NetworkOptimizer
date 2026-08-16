@@ -8,7 +8,7 @@ public interface ISupportFileService
 {
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SupportFileGenerated, TargetType = "console")]
-    Task<SupportFileResult> GenerateAndDownloadAsync(CancellationToken ct = default);
+    Task<SupportFileResult> GenerateAndDownloadAsync(bool networkOnly = true, CancellationToken ct = default);
 
     [RequireRole(Roles.Viewer)]
     Task<bool> GetIsAvailableAsync();
@@ -44,7 +44,7 @@ public class SupportFileService : ISupportFileService
     public Task<bool> GetIsApiKeyConnectionAsync() =>
         Task.FromResult(_connection.IsApiKeyAuth);
 
-    public async Task<SupportFileResult> GenerateAndDownloadAsync(CancellationToken ct = default)
+    public async Task<SupportFileResult> GenerateAndDownloadAsync(bool networkOnly = true, CancellationToken ct = default)
     {
         if (!_connection.IsConnected)
             return SupportFileResult.Fail("Not connected to a UniFi Console.");
@@ -59,8 +59,8 @@ public class SupportFileService : ISupportFileService
         if (client == null)
             return SupportFileResult.Fail("Console connection is not ready.");
 
-        _logger.LogInformation("Starting support file generation");
-        if (!await client.GenerateSupportFileAsync(recreate: true, ct))
+        _logger.LogInformation("Starting support file generation (networkOnly={NetworkOnly})", networkOnly);
+        if (!await client.GenerateSupportFileAsync(recreate: true, networkOnly, ct))
             return SupportFileResult.Fail(
                 "The console denied the request. Support file generation requires the console user " +
                 "to have the Super Admin role, or the Control Plane - Full Admin permission.");

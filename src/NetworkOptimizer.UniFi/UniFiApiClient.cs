@@ -3584,15 +3584,17 @@ public class UniFiApiClient : IDisposable
     /// poll with <see cref="IsSupportFileReadyAsync"/> until the file is ready.
     /// Requires a username/password session - API key connections will get 403.
     /// </summary>
-    public async Task<bool> GenerateSupportFileAsync(bool recreate, CancellationToken ct = default)
+    public async Task<bool> GenerateSupportFileAsync(bool recreate, bool networkOnly = true, CancellationToken ct = default)
     {
         if (!await EnsureAuthenticatedAsync(ct)) return false;
         var url = $"{_controllerUrl}/api/support/file/generate";
-        _logger.LogDebug("Support file generate: POST {Url}", url);
-        var body = new StringContent(
-            recreate ? """{"recreate":true}""" : """{"recreate":false}""",
-            System.Text.Encoding.UTF8,
-            "application/json");
+        _logger.LogDebug("Support file generate: POST {Url} (networkOnly={NetworkOnly})", url, networkOnly);
+        var json = networkOnly
+            ? (recreate ? """{"recreate":true,"requiredDevices":{},"targets":["network","uos"]}"""
+                        : """{"recreate":false,"requiredDevices":{},"targets":["network","uos"]}""")
+            : (recreate ? """{"recreate":true}"""
+                        : """{"recreate":false}""");
+        var body = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
         var response = await _httpClient!.PostAsync(url, body, ct);
         _logger.LogDebug("Support file generate response: {StatusCode}", response.StatusCode);
         if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NoContent)
