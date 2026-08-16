@@ -438,7 +438,14 @@ public class RolloutPlanner
                 var wave = groupWaves[i];
                 wave.StartOffsetSeconds = t;
                 foreach (var s in wave.Steps) s.EtaOffsetSeconds = t;
-                t += (wave.Steps.Count == 0 ? 0 : wave.Steps.Max(s => s.EstimatedDowntimeSeconds)) + CommandOverheadSeconds;
+                var hasGateway = wave.Steps.Any(s =>
+                    FirmwareDeviceTypes.Parse(s.DeviceType) == DeviceType.Gateway);
+                var cooldown = hasGateway
+                    ? FirmwareRolloutOrchestrator.GatewayCoolDown
+                    : FirmwareRolloutOrchestrator.CoolDown;
+                t += (wave.Steps.Count == 0 ? 0 : wave.Steps.Max(s => s.EstimatedDowntimeSeconds))
+                    + (int)cooldown.TotalSeconds
+                    + CommandOverheadSeconds;
                 if (i < groupWaves.Count - 1) t += GapAfter(wave, spacing);
             }
             if (group.RequiresConsoleChange) t += ChannelChangeSeconds;

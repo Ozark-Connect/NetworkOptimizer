@@ -39,14 +39,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     public static readonly TimeSpan CommandGraceWindow = TimeSpan.FromMinutes(5);
 
-    /// <summary>Settling time after a device is back, so boot spikes are not read as regressions.</summary>
-    public static readonly TimeSpan CoolDown = TimeSpan.FromMinutes(15);
+    /// <summary>Settling time for APs and switches after a reboot.</summary>
+    public static readonly TimeSpan CoolDown = TimeSpan.FromMinutes(5);
+
+    /// <summary>Settling time for gateways - heavier restart, but always the last step so no wave waits on it.</summary>
+    public static readonly TimeSpan GatewayCoolDown = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// How much of the cool-down the short litmus ignores. The first minutes after a boot are all
     /// spike, so the canary is judged on the quiet tail of the cool-down.
     /// </summary>
-    public static readonly TimeSpan ShortLitmusSettle = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan ShortLitmusSettle = TimeSpan.FromMinutes(3);
 
     /// <summary>
     /// Length of the before and after windows the resource comparison averages over, when a site
@@ -1270,7 +1273,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         CancellationToken cancellationToken)
     {
         var backAt = step.BackAt ?? Now;
-        if (ElapsedObserved(backAt) < CoolDown)
+        var cooldown = IsGatewayStep(step) ? GatewayCoolDown : CoolDown;
+        if (ElapsedObserved(backAt) < cooldown)
             return;
 
         var preStats = ParseStats(step.PreStatsJson);
@@ -1432,11 +1436,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             s.State is FirmwareRolloutStepState.LitmusPassed
             && s.PostStatsJson == null
             && s.BackAt is DateTime back
-            && Now >= back + CoolDown + window);
+            && Now >= back + CoolDownFor(s) + window);
 
         foreach (var step in due.ToList())
         {
-            var from = step.BackAt!.Value + CoolDown;
+            var from = step.BackAt!.Value + CoolDownFor(step);
             var post = await _litmus.CaptureStatsAsync(step.DeviceMac, from, from + window, cancellationToken);
             step.PostStatsJson = JsonSerializer.Serialize(post);
 
@@ -2222,6 +2226,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private static bool IsGatewayStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.Gateway;
+
+    private static TimeSpan CoolDownFor(FirmwareRolloutStep step) =>
+        IsGatewayStep(step) ? GatewayCoolDown : CoolDown;
 
     private static bool IsCanary(RolloutPlanDocument document, string mac) =>
         document.Waves.SelectMany(w => w.Steps)
