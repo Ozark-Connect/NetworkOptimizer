@@ -20513,6 +20513,10 @@ body.kiosk-mode .status-indicators {
         flex-direction: column;
         align-items: flex-start;
     }
+
+    .firmware-rollout-autopilot-config {
+        margin-top: 1rem;
+    }
 }
 
 .firmware-rollout-controls {
