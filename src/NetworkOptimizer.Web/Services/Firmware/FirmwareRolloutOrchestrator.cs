@@ -264,7 +264,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             {
                 var soaking = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
                 await WatchRollbacksAsync(plan, soaking, cancellationToken);
-                await RunDueResourceComparisonsAsync(soaking, cancellationToken);
+                var soakDoc = ParseDocument(plan);
+                await RunDueResourceComparisonsAsync(soaking, cancellationToken, plan, soakDoc);
                 await BuildSoakReportIfDueAsync(plan, soaking, cancellationToken);
                 return;
             }
@@ -737,7 +738,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         await PropagateCanaryOutcomesAsync(document, steps, cancellationToken);
-        await RunDueResourceComparisonsAsync(steps, cancellationToken);
+        await RunDueResourceComparisonsAsync(steps, cancellationToken, plan, document);
         EnqueueDueMeshRepairs(document, steps);
 
         // Wave 0. The UniFi Network application update aligns the firmware catalog every device
@@ -954,7 +955,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (OsVersionMatches(installed, state.TargetVersion))
             {
-                await CaptureOsPostStatsAsync(document, cancellationToken);
                 await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
                 _logger.LogInformation(
                     "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
@@ -1103,23 +1103,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var outcome = apiPathAvailable ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
-    }
-
-    private async Task CaptureOsPostStatsAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(document.ConsoleMac) || document.UniFiOsUpdate.PostStatsJson != null)
-            return;
-        try
-        {
-            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
-            var window = ResourceWindowFor(settings);
-            var post = await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - window, Now, cancellationToken);
-            document.UniFiOsUpdate.PostStatsJson = JsonSerializer.Serialize(post);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Could not capture post-OS-update stats for site {Site}", _siteSlug);
-        }
     }
 
     private async Task SettleUniFiOsAsync(
@@ -1447,7 +1430,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
     }
 
-    private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
+    private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps, CancellationToken cancellationToken,
+        FirmwareRolloutPlan? plan = null, RolloutPlanDocument? document = null)
     {
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         var window = ResourceWindowFor(settings);
@@ -1487,6 +1471,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     $"Lighter After Upgrade: {step.DeviceName}{_siteSuffix}",
                     $"{step.DeviceName} ({step.Model}) went from {step.FromVersion ?? "its previous firmware"} to {step.ToVersion ?? "its new firmware"} and is working less hard since. {comparison.Detail}",
                     step.DeviceMac, step.DeviceName, cancellationToken);
+            }
+        }
+
+        if (plan != null && document != null
+            && document.UniFiOsUpdate is { Outcome: "updated", PostStatsJson: null }
+            && !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && document.UniFiOsUpdate.TriggeredAt is DateTime osTriggered
+            && Now >= osTriggered + GatewayCoolDown + window)
+        {
+            try
+            {
+                var from = osTriggered + GatewayCoolDown;
+                var post = await _litmus.CaptureStatsAsync(document.ConsoleMac, from, from + window, cancellationToken);
+                document.UniFiOsUpdate.PostStatsJson = JsonSerializer.Serialize(post);
+                await PersistDocumentAsync(plan, document, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not capture post-OS-update stats for site {Site}", _siteSlug);
             }
         }
     }
