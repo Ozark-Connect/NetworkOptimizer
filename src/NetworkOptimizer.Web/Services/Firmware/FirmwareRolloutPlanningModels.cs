@@ -460,6 +460,12 @@ public class RolloutConsoleStepState
     /// <summary>Resource stats captured after the update settled.</summary>
     public string? PostStatsJson { get; set; }
 
+    /// <summary>First tick the console stopped answering after the trigger.</summary>
+    public DateTime? WentDownAt { get; set; }
+
+    /// <summary>When the console answered again on its new version.</summary>
+    public DateTime? BackAt { get; set; }
+
     /// <summary>Wave this phase runs in: 0 for the application, after the last device for UniFi OS.</summary>
     public int Wave { get; set; }
 }

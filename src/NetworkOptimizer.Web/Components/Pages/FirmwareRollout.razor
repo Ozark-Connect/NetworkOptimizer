@@ -536,11 +536,17 @@ else
                         }
                         @if (rep.UniFiNetworkUpdateOutcome != null)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@ConsoleStepSummary(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</span><span class="detail-label">UniFi Network</span></div>
+                            <div class="firmware-rollout-stat">
+                                <span class="detail-value">@ConsoleStepMarkup(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</span>
+                                <span class="detail-label">UniFi Network</span>
+                            </div>
                         }
                         @if (rep.UniFiOsUpdateOutcome != null)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@ConsoleStepSummary(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</span><span class="detail-label">UniFi OS</span></div>
+                            <div class="firmware-rollout-stat">
+                                <span class="detail-value">@ConsoleStepMarkup(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</span>
+                                <span class="detail-label">UniFi OS</span>
+                            </div>
                         }
                     </div>
                     @foreach (var issue in rep.Issues)
@@ -634,21 +640,47 @@ else
         };
     }
 
-    private static string ConsoleStepSummary(string? outcome, string? from, string? to)
+    /// <summary>Verb plus versions, with the verb dropped on mobile where the versions carry it.</summary>
+    private static RenderFragment ConsoleStepMarkup(string? outcome, string? from, string? to) => builder =>
+    {
+        var word = ConsoleStepWord(outcome);
+        var versions = ConsoleStepVersions(outcome, from, to);
+
+        if (versions == null)
+        {
+            builder.AddContent(0, word);
+            return;
+        }
+
+        builder.OpenElement(1, "span");
+        builder.AddAttribute(2, "class", "firmware-rollout-console-verb");
+        builder.AddContent(3, word + " ");
+        builder.CloseElement();
+        builder.AddContent(4, versions);
+    };
+
+    private static string ConsoleStepWord(string? outcome) => outcome switch
+    {
+        "updated" => "Updated",
+        "nothing-to-update" => "Already current",
+        "unchanged" => "No change",
+        "refused" => "Refused",
+        "stuck" => "Did not come back",
+        "skipped" => "Skipped",
+        _ => outcome ?? "Done",
+    };
+
+    private static string? ConsoleStepVersions(string? outcome, string? from, string? to)
     {
         var fromShort = FirmwareVersionFormat.ShortOrNull(from);
         var toShort = FirmwareVersionFormat.ShortOrNull(to);
-        var versions = fromShort != null && toShort != null ? $"{fromShort} → {toShort}" : toShort ?? fromShort;
 
         return outcome switch
         {
-            "updated" => versions != null ? $"updated ({versions})" : "updated",
-            "nothing-to-update" => "already current" + (fromShort != null ? $" ({fromShort})" : ""),
-            "unchanged" => "no change" + (fromShort != null ? $" ({fromShort})" : ""),
-            "refused" => "refused",
-            "stuck" => "did not come back" + (toShort != null ? $" (targeting {toShort})" : ""),
-            "skipped" => "skipped",
-            _ => outcome ?? "done",
+            "updated" => fromShort != null && toShort != null ? $"{fromShort} → {toShort}" : toShort ?? fromShort,
+            "nothing-to-update" or "unchanged" => fromShort,
+            "stuck" => toShort != null ? $"targeting {toShort}" : null,
+            _ => null,
         };
     }
 

@@ -108,6 +108,10 @@ public static class RolloutReportBuilder
                 DeviceType = "ugw",
                 FromVersion = document.UniFiOsUpdate.FromVersion,
                 ToVersion = document.UniFiOsUpdate.TargetVersion,
+                UpgradedAt = document.UniFiOsUpdate.BackAt,
+                DowntimeSeconds = document.UniFiOsUpdate is { WentDownAt: DateTime osDown, BackAt: DateTime osBack }
+                    ? (int)Math.Max(0, (osBack - osDown).TotalSeconds)
+                    : null,
                 Outcome = osOutcome,
                 CpuBeforeMean = osPre?.CpuPercent,
                 CpuAfterMean = osPost?.CpuPercent,

@@ -180,10 +180,10 @@
         : AllDevices.Where(d => d.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
             || d.DisplayModel.Contains(_search, StringComparison.OrdinalIgnoreCase));
 
-    [Parameter] public Func<string, string?>? TypeChannel { get; set; }
-    [Parameter] public Action<string, string?>? SetTypeChannel { get; set; }
-    [Parameter] public Func<string, string?>? SkuChannel { get; set; }
-    [Parameter] public Action<string, string?>? SetSkuChannel { get; set; }
+    [Parameter] public Func<string, string?> TypeChannel { get; set; } = _ => null;
+    [Parameter] public Action<string, string?> SetTypeChannel { get; set; } = (_, _) => { };
+    [Parameter] public Func<string, string?> SkuChannel { get; set; } = _ => null;
+    [Parameter] public Action<string, string?> SetSkuChannel { get; set; } = (_, _) => { };
     [Parameter] public Func<RolloutDeviceView, string?>? DerivedExclusion { get; set; }
     [Parameter] public Func<RolloutDeviceView, string?>? UpdateTooltip { get; set; }
     [Parameter] public Action<RolloutDeviceView>? ToggleSku { get; set; }

@@ -933,6 +933,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (info == null)
         {
+            if (state.WentDownAt == null)
+            {
+                state.WentDownAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+            }
+
             if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
@@ -955,6 +961,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (OsVersionMatches(installed, state.TargetVersion))
             {
+                state.BackAt ??= Now;
                 await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
                 _logger.LogInformation(
                     "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);

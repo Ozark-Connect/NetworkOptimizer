@@ -20489,6 +20489,10 @@ body.kiosk-mode .status-indicators {
 }
 
 @media (max-width: 768px) {
+    .firmware-rollout-console-verb {
+        display: none;
+    }
+
     .firmware-rollout-landing {
         flex-direction: column;
         align-items: flex-start;
