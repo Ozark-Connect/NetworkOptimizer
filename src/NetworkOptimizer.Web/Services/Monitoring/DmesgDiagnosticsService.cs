@@ -30,7 +30,7 @@ public class DmesgDiagnosticsService
         try
         {
             var (success, commandOutput) = await _gatewaySsh.RunCommandAsync(
-                "dmesg", TimeSpan.FromSeconds(30), ct);
+                "dmesg -T", TimeSpan.FromSeconds(30), ct);
 
             if (!success)
             {

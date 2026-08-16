@@ -729,7 +729,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         <div class="card-body">
             @if (ConnectionService.IsApiKeyAuth)
             {
-                <p class="text-muted">
+                <p class="text-muted dmesg-stats">
                     Support file generation requires a username and password connection to the
                     UniFi Console. API key connections don't have the UniFi OS session this needs.
                     @if (_canConfigure)
@@ -740,7 +740,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             }
             else if (!ConnectionService.IsConnected)
             {
-                <p class="text-muted">Not connected to a UniFi Console.</p>
+                <p class="text-muted dmesg-stats">Not connected to a UniFi Console.</p>
             }
             else
             {
