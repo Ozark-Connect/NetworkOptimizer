@@ -789,7 +789,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The console may not see an update because the channel switch failed, but the plan
         // captured the URL at planning time when the channel was still right.
-        if (!string.IsNullOrWhiteSpace(state.Url))
+        var installedApp = application?.Version;
+        var plannedApp = state.TargetVersion;
+        if (!string.IsNullOrWhiteSpace(state.Url)
+            && !string.IsNullOrWhiteSpace(plannedApp)
+            && !string.IsNullOrWhiteSpace(installedApp)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp))
         {
             _logger.LogInformation(
                 "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
@@ -1042,7 +1047,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The console may not see the build because the channel switch failed, but the plan
         // captured the firmware URL at planning time when the channel was still right.
-        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url))
+        var plannedOs = document.UniFiOsUpdate.TargetVersion;
+        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+            && !string.IsNullOrWhiteSpace(plannedOs)
+            && !string.IsNullOrWhiteSpace(installedOs)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedOs, installedOs))
         {
             _logger.LogInformation(
                 "Falling back to SSH for the UniFi OS update on site {Site}", _siteSlug);
