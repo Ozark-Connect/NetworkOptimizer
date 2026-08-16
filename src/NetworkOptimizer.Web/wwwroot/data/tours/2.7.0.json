@@ -33,7 +33,7 @@
       "selector": "[data-tour=\"console-support-file\"]",
       "title": "Console Support File",
       "listLabel": "Generate a support bundle without leaving the app",
-      "body": "Generate the same UniFi Support File Ubiquiti Support asks for, straight from Network Optimizer. Pick Network only for a fast download, or include everything when you need the full bundle. Requires the console user to have **Super Admin** or **Control Plane - Full Admin**.",
+      "body": "Generate the standard Support File that Ubiquiti Support asks for, straight from Network Optimizer. Pick Network only for a fast download, or include everything when you need the full bundle. Requires the console user to have **Super Admin** or **Control Plane - Full Admin**.",
       "placement": "top",
       "optional": true
     }
