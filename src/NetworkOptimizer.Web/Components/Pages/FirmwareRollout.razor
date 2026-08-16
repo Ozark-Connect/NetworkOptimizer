@@ -215,9 +215,16 @@ else if (_wizardOpen)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
                     }
-                    @if (_preview?.HasCloudGateway == true)
+                    @if (_preview?.HasCloudGateway == true && _preview?.ConsoleApiAvailable != false)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
+                    }
+                    @if (_settings.IncludeUniFiNetwork || (_settings.IncludeUniFiOs && _preview?.HasCloudGateway == true))
+                    {
+                        <small class="form-help">
+                            Console firmware and Network upgrades require the console user to have the
+                            Super Admin role, or the Control Plane - Full Admin permission.
+                        </small>
                     }
                 </div>
 

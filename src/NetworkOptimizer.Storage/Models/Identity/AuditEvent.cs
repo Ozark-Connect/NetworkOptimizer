@@ -153,6 +153,9 @@ public static class AuditActions
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
 
+    // Console support file
+    public const string SupportFileGenerated = "support_file.generated";
+
     // License / agent
     public const string LicenseChanged = "license.changed";
     public const string AgentEnrolled = "agent.enrolled";
