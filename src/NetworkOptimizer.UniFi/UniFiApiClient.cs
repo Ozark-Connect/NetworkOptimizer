@@ -3577,6 +3577,66 @@ public class UniFiApiClient : IDisposable
 
     #endregion
 
+    #region Support File (UniFi OS endpoint, username/password only)
+
+    /// <summary>
+    /// Kicks off support file generation on the UniFi OS console. Returns immediately;
+    /// poll with <see cref="IsSupportFileReadyAsync"/> until the file is ready.
+    /// Requires a username/password session - API key connections will get 403.
+    /// </summary>
+    public async Task<bool> GenerateSupportFileAsync(bool recreate, CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return false;
+        var url = $"{_controllerUrl}/api/support/file/generate";
+        var body = new StringContent(
+            recreate ? """{"recreate":true}""" : """{"recreate":false}""",
+            System.Text.Encoding.UTF8,
+            "application/json");
+        var response = await _httpClient!.PostAsync(url, body, ct);
+        return response.StatusCode == System.Net.HttpStatusCode.NoContent ||
+               response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// Checks whether a support file is ready for download. Returns true when the file is
+    /// available, false when generation is still in progress (HTTP 423 Locked).
+    /// </summary>
+    public async Task<bool> IsSupportFileReadyAsync(CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return false;
+        var request = new HttpRequestMessage(HttpMethod.Head,
+            $"{_controllerUrl}/api/support/file/download");
+        var response = await _httpClient!.SendAsync(request, ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// Downloads the support file. Returns the response stream and the filename from the
+    /// custom Filename header. Caller must dispose the stream. Returns null if the download
+    /// fails or the file isn't ready.
+    /// </summary>
+    public async Task<(Stream stream, string filename)?> DownloadSupportFileAsync(CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return null;
+        var response = await _httpClient!.GetAsync(
+            $"{_controllerUrl}/api/support/file/download",
+            HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var filename = "support-file.tgz";
+        if (response.Headers.TryGetValues("Filename", out var filenames))
+        {
+            var fn = filenames.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(fn)) filename = fn;
+        }
+
+        return (await response.Content.ReadAsStreamAsync(ct), filename);
+    }
+
+    #endregion
+
     public void Dispose()
     {
         // Flag first so any in-flight/queued request skips instead of racing the
