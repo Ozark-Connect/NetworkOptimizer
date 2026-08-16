@@ -25,7 +25,7 @@ GITHUB_BRANCH="main"
 
 # Container defaults
 DEFAULT_HOSTNAME="network-optimizer"
-DEFAULT_DISK_SIZE="10"
+DEFAULT_DISK_SIZE="20"
 DEFAULT_RAM="2048"
 DEFAULT_SWAP="512"
 DEFAULT_CPU="2"
@@ -1049,7 +1049,7 @@ show_completion() {
     echo -e "  Directory:  ${DIM}/opt/network-optimizer${CL}"
     echo -e "  Config:     ${DIM}/opt/network-optimizer/.env${CL}"
     echo -e "  Reference:  ${DIM}/opt/network-optimizer/.env.example${CL} ${DIM}(all options)${CL}"
-    echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d'${CL}"
+    echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d && docker image prune -f'${CL}"
 
     if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
         echo -e "\n${BLD}Traefik HTTPS Proxy:${CL}"
@@ -1057,7 +1057,7 @@ show_completion() {
         echo -e "  Directory:  ${DIM}/opt/network-optimizer-proxy${CL}"
         echo -e "  Config:     ${DIM}/opt/network-optimizer-proxy/dynamic/config.yml${CL}"
         echo -e "  Logs:       ${DIM}pct exec $CT_ID -- docker logs -f traefik-proxy${CL}"
-        echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d'${CL}"
+        echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d && docker image prune -f'${CL}"
     fi
 
     echo -e "\n${BLD}First Run:${CL}"
