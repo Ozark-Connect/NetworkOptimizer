@@ -19,6 +19,7 @@ function resolveColors() {
         pending: cssVar('--text-muted', '#5c5c66'),
         queued: cssVar('--info-color', '#4797ff'),
         upgrading: cssVar('--warning-color', '#e79613'),
+        cooldown: cssVar('--primary-color', '#0550B5'),
         done: cssVar('--success-color', '#24bc70'),
         failed: cssVar('--danger-color', '#ee6368'),
         held: '#a78bfa',
@@ -32,8 +33,8 @@ const LIVE_STATE = {
     1: 'held',       // Held
     2: 'upgrading',  // Commanded
     3: 'upgrading',  // Down
-    4: 'upgrading',  // BackOnline
-    5: 'upgrading',  // CoolDown
+    4: 'cooldown',   // BackOnline
+    5: 'cooldown',   // CoolDown
     6: 'done',       // LitmusPassed
     7: 'done',       // RegressionFlagged (came back; flagged separately via badge)
     8: 'failed',     // Failed
@@ -350,6 +351,7 @@ const STATE_WORDS = {
     queued: 'Queued',
     pending: 'Queued',
     upgrading: 'Upgrading now',
+    cooldown: 'Cooling down',
     done: 'Upgraded',
     failed: 'Failed',
     held: 'Held until its model’s canary passes',
@@ -400,7 +402,7 @@ function renderTimeline() {
     stateRow.className = 'firmware-rollout-legend-row';
     const legendItems = _mode === 'planned'
         ? [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Done'], ['held', 'Held for canary']]
-        : [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['done', 'Upgraded'], ['failed', 'Failed'], ['held', 'Held for canary']];
+        : [['queued', 'Queued'], ['upgrading', 'Upgrading'], ['cooldown', 'Cooling down'], ['done', 'Upgraded'], ['failed', 'Failed'], ['held', 'Held for canary']];
     for (const [state, label] of legendItems) {
         const item = document.createElement('span');
         item.className = 'firmware-rollout-legend-item';
