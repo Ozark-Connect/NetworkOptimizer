@@ -711,20 +711,22 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             <h2 class="card-title">Console Support File</h2>
             @if (ConnectionService.IsConnected && !ConnectionService.IsApiKeyAuth)
             {
-                <label class="checkbox-label"><input type="checkbox" @bind="_supportFileIncludeAll" /><span>Include all applications</span></label>
-                <button class="btn btn-primary btn-sm"
-                        disabled="@_supportFileRunning"
-                        @onclick="GenerateSupportFileAsync">
-                    @if (_supportFileRunning)
-                    {
-                        <span class="spinner spinner-sm"></span>
-                        <span>Generating...</span>
-                    }
-                    else
-                    {
-                        <span>Generate &amp; Download</span>
-                    }
-                </button>
+                <div class="support-file-actions">
+                    <label class="checkbox-label"><input type="checkbox" @bind="_supportFileIncludeAll" /><span>Include all applications</span></label>
+                    <button class="btn btn-primary btn-sm"
+                            disabled="@_supportFileRunning"
+                            @onclick="GenerateSupportFileAsync">
+                        @if (_supportFileRunning)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                            <span>Generating...</span>
+                        }
+                        else
+                        {
+                            <span>Generate &amp; Download</span>
+                        }
+                    </button>
+                </div>
             }
         </div>
         <div class="card-body">
@@ -819,6 +821,12 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         margin-top: 0.5rem;
         max-height: 400px;
         overflow-y: auto;
+    }
+
+    .support-file-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
     }
 </style>
 
