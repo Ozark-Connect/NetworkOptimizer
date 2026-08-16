@@ -132,9 +132,6 @@ public class FirmwareRolloutSettings
     /// <summary>Minimum age of a published firmware release before autopilot will roll it out. 0 disables the gate.</summary>
     public int MinReleaseAgeDays { get; set; }
 
-    /// <summary>Skip the pre-flight console backup that otherwise blocks the first upgrade command.</summary>
-    public bool WaiveBackup { get; set; }
-
     /// <summary>Pause at every wave boundary until a Site Admin approves the next wave.</summary>
     public bool PerWaveApproval { get; set; }
 

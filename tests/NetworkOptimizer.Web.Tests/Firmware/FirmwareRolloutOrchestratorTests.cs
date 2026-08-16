@@ -573,13 +573,12 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
-    public async Task PreFlightBackupSucceeding_LetsTheRolloutStart()
+    public async Task PreFlightBackupRunsWhenConsoleStepsIncluded()
     {
         using var harness = new RolloutHarness();
-        var plan = await harness.SeedScheduledPlanAsync(
-            Document(Wave(1, PlanStep(ApMac))),
-            RolloutHarness.Start,
-            Step(ApMac));
+        var doc = Document(Wave(1, PlanStep(ApMac)));
+        doc.IncludesUniFiNetworkUpdate = true;
+        var plan = await harness.SeedScheduledPlanAsync(doc, RolloutHarness.Start, Step(ApMac));
 
         await harness.TickAsync();
 
@@ -588,30 +587,24 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
-    public async Task PreFlightBackupFailing_PostponesAndNamesWhatCouldNotBeBackedUp()
+    public async Task PreFlightBackupFailing_ProceedsAnyway()
     {
         using var harness = new RolloutHarness();
         harness.Commands.BackupResult = FirmwareCommandResult.Failed("the console could not back up network");
-        var plan = await harness.SeedScheduledPlanAsync(
-            Document(Wave(1, PlanStep(ApMac))),
-            RolloutHarness.Start,
-            Step(ApMac));
+        var doc = Document(Wave(1, PlanStep(ApMac)));
+        doc.IncludesUniFiNetworkUpdate = true;
+        var plan = await harness.SeedScheduledPlanAsync(doc, RolloutHarness.Start, Step(ApMac));
 
         await harness.TickAsync();
 
         var stored = await harness.PlanAsync(plan.Id);
-        stored!.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
-        stored.ScheduledStartAt.Should().Be(RolloutHarness.Start + FirmwareRolloutOrchestrator.HealthPostponeWindow);
-        harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.PostponedHealth)
-            .Which.Message.Should().Contain("could not back up network");
-        harness.Commands.UpgradeCommands.Should().BeEmpty();
+        stored!.Status.Should().Be(FirmwareRolloutStatus.Running);
     }
 
     [Fact]
-    public async Task WaivedBackup_IsNotEvenAttempted()
+    public async Task DeviceOnlyRollout_SkipsBackup()
     {
         using var harness = new RolloutHarness();
-        await harness.WithSettingsAsync(s => s.WaiveBackup = true);
         await harness.SeedScheduledPlanAsync(
             Document(Wave(1, PlanStep(ApMac))),
             RolloutHarness.Start,

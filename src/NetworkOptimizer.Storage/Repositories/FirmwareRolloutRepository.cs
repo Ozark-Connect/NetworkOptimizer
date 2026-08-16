@@ -77,7 +77,6 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
                 existing.NotifyHoursAhead = settings.NotifyHoursAhead;
                 existing.SoakHours = settings.SoakHours;
                 existing.MinReleaseAgeDays = settings.MinReleaseAgeDays;
-                existing.WaiveBackup = settings.WaiveBackup;
                 existing.PerWaveApproval = settings.PerWaveApproval;
                 existing.UpdatedAt = DateTime.UtcNow;
             }

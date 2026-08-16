@@ -201,6 +201,21 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         Calls.Add("unifi-os-update");
         return Task.FromResult(UniFiOsUpdateAccepted);
     }
+
+    public FirmwareCommandResult SshNetworkAppResult { get; set; } = FirmwareCommandResult.Ok();
+    public FirmwareCommandResult SshUniFiOsResult { get; set; } = FirmwareCommandResult.Ok();
+
+    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-network-app-update");
+        return Task.FromResult(SshNetworkAppResult);
+    }
+
+    public Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-unifi-os-update");
+        return Task.FromResult(SshUniFiOsResult);
+    }
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>

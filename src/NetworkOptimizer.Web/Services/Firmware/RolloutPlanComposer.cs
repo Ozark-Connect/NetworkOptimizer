@@ -299,6 +299,9 @@ public static class RolloutPlanComposer
             NetworkAppToVersion = inputs.Console?.NetworkApplication?.UpdateAvailable,
             UniFiOsFromVersion = inputs.Console?.InstalledOsVersion,
             UniFiOsToVersion = OfferedUniFiOsVersion(inputs.Console, settings.EffectiveUniFiOsChannel),
+            NetworkAppDownloadUrl = NetworkAppDebUrl(inputs.Console),
+            UniFiOsDownloadUrl = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.DownloadUrl,
+            IsStandaloneConsole = inputs.Console?.IsStandaloneConsole ?? false,
         });
     }
 
@@ -327,12 +330,23 @@ public static class RolloutPlanComposer
     public static bool ConsoleReachable(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console) =>
         console != null && (console.Firmware != null || console.Apps != null);
 
-    /// <summary>Whether the chosen channel offers a UniFi OS build the console is not already on.</summary>
     /// <summary>The UniFi OS build this channel is offering, whatever its age.</summary>
     private static string? OfferedUniFiOsVersion(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
+        OfferedUniFiOsRelease(console, channel)?.Version;
+
+    private static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
         console?.Firmware?.LatestByChannel is { } byChannel
-        && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
+        && byChannel.TryGetValue(channel, out var release) ? release : null;
+
+    private static string? NetworkAppDebUrl(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
+    {
+        var version = console?.NetworkApplication?.UpdateAvailable;
+        if (string.IsNullOrWhiteSpace(version)) return null;
+        var package = console!.IsStandaloneConsole ? "unifi_sysvinit_all" : "unifi-native_sysvinit";
+        return $"https://dl.ui.com/unifi/{version}/{package}.deb";
+    }
 
     private static bool HasUniFiOsUpdate(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)

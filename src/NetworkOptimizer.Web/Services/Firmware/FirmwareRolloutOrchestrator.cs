@@ -583,10 +583,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
-        if (!settings.WaiveBackup && !await RunPreFlightBackupAsync(plan, cancellationToken))
-            return false;
-
         var document = ParseDocument(plan);
+
+        if (document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
+            await RunPreFlightBackupAsync(plan, document, cancellationToken);
         if (document.IncludesUniFiOsUpdate && await IsStandaloneConsoleAsync(cancellationToken))
         {
             // Standalone UniFi OS Server consoles are often custom deploys, so their OS is never
@@ -624,41 +624,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return true;
     }
 
-    private const string NoBackupNote =
-        "No console backup was taken: this site connects with a UniFi API key, which cannot reach the "
-        + "console's backup endpoint. Only network devices are upgraded.";
-
-    private async Task<bool> RunPreFlightBackupAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)
+    private async Task RunPreFlightBackupAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
     {
-        // A site connected with an API key cannot reach the console's own endpoints at all, so the
-        // backup is not failing, it is unavailable. Gating on it there postpones the rollout every
-        // night forever for a condition no amount of waiting fixes. The device upgrades the wizard
-        // offers such a site do not touch the console, which is what the restore point protects.
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         if (!RolloutPlanComposer.ConsoleReachable(console))
         {
-            _logger.LogInformation(
-                "Skipping the pre-flight backup for rollout {Id} on site {Site}: the console API is out of reach, "
-                + "so there is no backup to take", plan.Id, _siteSlug);
-            var document = ParseDocument(plan);
-            // A plan that is postponed and retried comes back through here, so do not stack it.
-            if (!document.Notes.Contains(NoBackupNote))
-            {
-                document.Notes.Add(NoBackupNote);
-                plan.PlanJson = JsonSerializer.Serialize(document);
-                await PersistPlanAsync(plan, cancellationToken);
-            }
-            return true;
+            AddBackupNote(plan, document,
+                "No console backup was taken: the console API is not reachable (API-key connection).");
+            return;
         }
 
         var backup = await _commands.TriggerBackupAsync(cancellationToken);
         if (backup.IsOk)
-            return true;
+        {
+            _logger.LogInformation("Pre-flight console backup succeeded on site {Site}", _siteSlug);
+            return;
+        }
 
-        // No backup, no rollout. The whole point of the gate is that there is a restore point
-        // before anything reboots, and the site can waive it in settings if it disagrees.
-        await PostponeAsync(plan, $"the pre-flight console backup failed - {backup.Message}", cancellationToken);
-        return false;
+        _logger.LogWarning(
+            "Pre-flight console backup failed on site {Site}: {Reason} - proceeding anyway",
+            _siteSlug, backup.Message);
+        AddBackupNote(plan, document,
+            $"No console backup was taken: {backup.Message}. The service account may lack Super Admin permission.");
+    }
+
+    private void AddBackupNote(FirmwareRolloutPlan plan, RolloutPlanDocument document, string note)
+    {
+        if (!document.Notes.Contains(note))
+        {
+            document.Notes.Add(note);
+            plan.PlanJson = JsonSerializer.Serialize(document);
+        }
     }
 
     private async Task PostponeAsync(FirmwareRolloutPlan plan, string reason, CancellationToken cancellationToken)
@@ -794,8 +791,23 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!await _commands.TriggerNetworkApplicationUpdateAsync(cancellationToken))
         {
-            // Nothing staged, or the console would not take it. Either way there is nothing to
-            // wait for and nothing worth telling anyone about.
+            // API trigger failed or refused. Try the SSH fallback if we have the .deb URL.
+            if (!string.IsNullOrWhiteSpace(state.Url))
+            {
+                _logger.LogInformation(
+                    "API trigger refused the Network app update on site {Site}; falling back to SSH", _siteSlug);
+                var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+                if (ssh.IsOk)
+                {
+                    state.Triggered = true;
+                    state.TriggeredAt = Now;
+                    _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
+                    return;
+                }
+                _logger.LogWarning(
+                    "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            }
+
             state.Settled = true;
             state.Outcome = "nothing-to-update";
             _logger.LogInformation(
@@ -1034,6 +1046,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
         {
+            // API trigger refused. Try the SSH fallback if we have the firmware URL.
+            if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url))
+            {
+                _logger.LogInformation(
+                    "API trigger refused the UniFi OS update on site {Site}; falling back to SSH", _siteSlug);
+                var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
+                if (ssh.IsOk)
+                {
+                    document.UniFiOsUpdate.Triggered = true;
+                    document.UniFiOsUpdate.TriggeredAt = Now;
+                    await PersistDocumentAsync(plan, document, cancellationToken);
+                    _logger.LogInformation(
+                        "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+                    return false;
+                }
+                _logger.LogWarning(
+                    "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            }
+
             await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
             _logger.LogWarning("The console on site {Site} refused the UniFi OS update", _siteSlug);
             return true;

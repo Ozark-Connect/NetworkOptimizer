@@ -1,33 +1,39 @@
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
-/// The real <see cref="IFirmwareCommandClient"/>: the site's UniFi console for API commands and
-/// the site's device SSH service for the direct <c>upgrade &lt;url&gt;</c> path. Both are already
-/// tunnel-routed, so an agent-connected site needs nothing extra here.
+/// The real <see cref="IFirmwareCommandClient"/>: the site's UniFi console for API commands,
+/// the site's device SSH service for the direct <c>upgrade &lt;url&gt;</c> path, and the
+/// gateway SSH service for console-level SSH fallbacks. All are already tunnel-routed, so an
+/// agent-connected site needs nothing extra here.
 /// </summary>
 public class FirmwareCommandClient : IFirmwareCommandClient
 {
     private readonly UniFiConnectionService _connection;
     private readonly IUniFiSshService _ssh;
+    private readonly IGatewaySshService _gatewaySsh;
     private readonly ILogger<FirmwareCommandClient> _logger;
     private readonly string _siteSlug;
 
     /// <param name="siteConnections">Per-site console connections.</param>
     /// <param name="sshRegistry">Per-site device SSH services.</param>
+    /// <param name="gatewaySshRegistry">Per-site gateway SSH services.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this client commands.</param>
     public FirmwareCommandClient(
         SiteConnectionRegistry siteConnections,
         UniFiSshRegistry sshRegistry,
+        GatewaySshRegistry gatewaySshRegistry,
         ILogger<FirmwareCommandClient> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _connection = siteConnections.GetFor(_siteSlug);
         _ssh = sshRegistry.GetFor(_siteSlug);
+        _gatewaySsh = gatewaySshRegistry.GetFor(_siteSlug);
         _logger = logger;
     }
 
@@ -411,6 +417,54 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         {
             _logger.LogWarning(ex, "UniFi OS update on site {Site} threw", _siteSlug);
             return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(
+        string debUrl, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(debUrl))
+            return FirmwareCommandResult.Failed("No .deb URL for the SSH Network app update.");
+
+        try
+        {
+            var command = $"curl -fsSo /tmp/unifi-update.deb '{debUrl}' && apt-get install -y /tmp/unifi-update.deb && rm -f /tmp/unifi-update.deb";
+            var (success, output) = await _gatewaySsh.RunCommandAsync(command, cancellationToken: cancellationToken);
+            if (success)
+                return FirmwareCommandResult.Ok(output);
+
+            return FirmwareCommandResult.Failed(
+                string.IsNullOrWhiteSpace(output) ? "The SSH Network app update failed." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH Network app update for site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH Network app update failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(
+        string firmwareUrl, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(firmwareUrl))
+            return FirmwareCommandResult.Failed("No firmware URL for the SSH UniFi OS update.");
+
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                $"ubnt-systool fwupdate {firmwareUrl}", cancellationToken: cancellationToken);
+            if (success)
+                return FirmwareCommandResult.Ok(output);
+
+            return FirmwareCommandResult.Failed(
+                string.IsNullOrWhiteSpace(output) ? "The SSH UniFi OS update failed." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH UniFi OS update for site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH UniFi OS update failed: {ex.Message}");
         }
     }
 }

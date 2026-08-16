@@ -45,7 +45,6 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         settings.NotifyHoursAhead.Should().Be(12);
         settings.SoakHours.Should().Be(2);
         settings.MinReleaseAgeDays.Should().Be(0);
-        settings.WaiveBackup.Should().BeFalse();
         settings.PerWaveApproval.Should().BeFalse();
         settings.AutopilotWindowMode.Should().Be(FirmwareAutopilotWindowMode.Auto);
 
@@ -97,7 +96,6 @@ public class FirmwareRolloutRepositoryTests : IDisposable
             NotifyHoursAhead = 24,
             SoakHours = 48,
             MinReleaseAgeDays = 7,
-            WaiveBackup = true,
             PerWaveApproval = true,
         };
 
@@ -123,7 +121,6 @@ public class FirmwareRolloutRepositoryTests : IDisposable
         saved.NotifyHoursAhead.Should().Be(24);
         saved.SoakHours.Should().Be(48);
         saved.MinReleaseAgeDays.Should().Be(7);
-        saved.WaiveBackup.Should().BeTrue();
         saved.PerWaveApproval.Should().BeTrue();
         saved.UpdatedAt.Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
     }

@@ -229,7 +229,6 @@ public class FirmwareRolloutServiceTests
         var plan = await harness.Repository.GetPlanAsync(planId);
         plan!.Status.Should().Be(FirmwareRolloutStatus.Running);
         plan.StartedAt.Should().NotBeNull();
-        harness.Commands.BackupCalls.Should().Be(1);
     }
 
     [Fact]

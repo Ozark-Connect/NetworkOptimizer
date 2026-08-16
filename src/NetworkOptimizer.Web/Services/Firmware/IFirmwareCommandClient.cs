@@ -157,4 +157,16 @@ public interface IFirmwareCommandClient
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when the console accepted the install. Acceptance is not success.</returns>
     Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SSH fallback: install a UniFi Network application .deb on the gateway via
+    /// <c>curl</c> + <c>apt-get install</c>. The gateway host is resolved from the controller URL.
+    /// </summary>
+    Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SSH fallback: install a UniFi OS firmware image on the gateway via
+    /// <c>ubnt-systool fwupdate</c>. The gateway host is resolved from the controller URL.
+    /// </summary>
+    Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default);
 }

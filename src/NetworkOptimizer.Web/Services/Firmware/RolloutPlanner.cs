@@ -144,8 +144,10 @@ public class RolloutPlanner
         // it runs. The executor names its own target when it gets there; this is what was planned.
         doc.NetworkAppUpdate.FromVersion = input.NetworkAppFromVersion;
         doc.NetworkAppUpdate.TargetVersion = input.NetworkAppToVersion;
+        doc.NetworkAppUpdate.Url = input.NetworkAppDownloadUrl;
         doc.UniFiOsUpdate.FromVersion = input.UniFiOsFromVersion;
         doc.UniFiOsUpdate.TargetVersion = input.UniFiOsToVersion;
+        doc.UniFiOsUpdate.Url = input.UniFiOsDownloadUrl;
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
         ComputeTimeline(doc, spacing);

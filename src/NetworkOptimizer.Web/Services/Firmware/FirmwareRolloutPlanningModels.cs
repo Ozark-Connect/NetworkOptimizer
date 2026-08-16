@@ -136,6 +136,15 @@ public class RolloutPlanningInput
     /// <inheritdoc cref="NetworkAppFromVersion"/>
     public string? UniFiOsToVersion { get; init; }
 
+    /// <summary>Direct .deb URL for the SSH fallback Network app install.</summary>
+    public string? NetworkAppDownloadUrl { get; init; }
+
+    /// <summary>Direct firmware image URL for the SSH fallback UniFi OS install.</summary>
+    public string? UniFiOsDownloadUrl { get; init; }
+
+    /// <summary>True when the console is a self-hosted UniFi OS Server (uses the all.deb package).</summary>
+    public bool IsStandaloneConsole { get; init; }
+
     /// <summary>
     /// Devices excluded on top of the settings' own exclusion sets. Autopilot's release-ripeness
     /// gate holds a device back here rather than by editing the site's stored exclusions.
@@ -441,6 +450,9 @@ public class RolloutConsoleStepState
 
     /// <summary>Version this surface was running when the plan was made.</summary>
     public string? FromVersion { get; set; }
+
+    /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
+    public string? Url { get; set; }
 
     /// <summary>Wave this phase runs in: 0 for the application, after the last device for UniFi OS.</summary>
     public int Wave { get; set; }
