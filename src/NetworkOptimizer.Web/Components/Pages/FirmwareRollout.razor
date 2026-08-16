@@ -435,18 +435,21 @@ else
         {
             <SiteAdminOnly>
             <div class="card-body firmware-rollout-autopilot-config">
+                <h4 class="card-title" style="margin-bottom: 0.75rem">Autopilot Configuration</h4>
+                <p class="text-secondary" style="margin-bottom: 1rem">Changes here apply to the next autopilot-initiated rollout.</p>
                 <FirmwareChannelConfig
                     Settings="_settings"
-                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
-                    ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
-                    HasCloudGateway="_preview?.HasCloudGateway == true"
+                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
+                    ConsoleApiAvailable="true"
+                    HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true || _settings.IncludeUniFiOs"
+                    ShowConsolePermissionNote="false"
                     TypeChannelRows="TypeChannelRows"
                     SiteModels="SiteModels"
                     AllDevices="_preview?.Devices ?? []"
                     ExcludedMacs="_exMacs"
                     ExcludedSkus="_exSkus"
                     ExcludedTypes="_exTypes"
-                                        TypeChannel="TypeChannel"
+                    TypeChannel="TypeChannel"
                     SetTypeChannel="SetTypeChannel"
                     SkuChannel="SkuChannel"
                     SetSkuChannel="SetSkuChannel"
