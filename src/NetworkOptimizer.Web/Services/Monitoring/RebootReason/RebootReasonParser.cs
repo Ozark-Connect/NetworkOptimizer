@@ -369,10 +369,15 @@ public static class RebootReasonParser
         var haveCurrent = current.Length > 0;
         var havePrevious = previous.Length > 0 && !string.Equals(previous, current, StringComparison.OrdinalIgnoreCase);
 
-        // A detail that already spans both versions is the most specific thing available.
+        if (!haveCurrent)
+            return reason;
+
+        // A detail that already names both versions is trusted only if it agrees with the
+        // device's actual firmware. The console ring can carry a stale entry from a prior
+        // upgrade that ubnt-systool fwupdate did not overwrite.
         var detailNamesBoth = reason.Detail?.Contains(" to ", StringComparison.OrdinalIgnoreCase) == true &&
             reason.Detail.Contains("from", StringComparison.OrdinalIgnoreCase);
-        if (detailNamesBoth || !haveCurrent)
+        if (detailNamesBoth && reason.Detail!.Contains(current, StringComparison.OrdinalIgnoreCase))
             return reason;
 
         if (!havePrevious)
