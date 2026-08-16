@@ -947,12 +947,35 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return true;
         }
 
-        if (UniFiOsUpdateInProgress(info) || ElapsedReachable(triggeredAt) < UniFiOsJudgeDelay)
+        // The installed version is the definitive answer. Check it before progress state,
+        // which can report stale "started"/"updating" after the install has already finished.
+        var installed = info.InstalledOsVersion;
+        if (installed != null && ElapsedReachable(triggeredAt) >= UniFiOsJudgeDelay)
         {
-            if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
-                return false;
+            if (OsVersionMatches(installed, state.TargetVersion))
+            {
+                await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
+                _logger.LogInformation(
+                    "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
+                return true;
+            }
 
-            await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
+            if (!UniFiOsUpdateInProgress(info))
+            {
+                await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
+                _logger.LogError(
+                    "The console on site {Site} came back on UniFi OS {Installed}, not {Target}, so the update did not take",
+                    _siteSlug, installed, state.TargetVersion);
+                return true;
+            }
+        }
+
+        if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
+            return false;
+
+        await SettleUniFiOsAsync(plan, document, installed != null && OsVersionMatches(installed, state.TargetVersion) ? "updated" : "stuck", cancellationToken);
+        if (installed == null || !OsVersionMatches(installed, state.TargetVersion))
+        {
             await PublishAsync(
                 RolloutAlerts.DeviceStuckOffline,
                 AlertSeverity.Critical,
@@ -961,41 +984,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
                 cancellationToken);
-            return true;
         }
-
-        var installed = info.InstalledOsVersion;
-        if (installed != null)
-        {
-            if (OsVersionMatches(installed, state.TargetVersion))
-            {
-                await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
-                _logger.LogInformation(
-                    "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
-            }
-            else
-            {
-                await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
-                _logger.LogError(
-                    "The console on site {Site} came back on UniFi OS {Installed}, not {Target}, so the update did not take",
-                    _siteSlug, installed, state.TargetVersion);
-            }
-            return true;
-        }
-
-        var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
-        if (pending?.Version != null && VersionsMatch(pending.Version, state.TargetVersion))
-        {
-            await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
-            _logger.LogError(
-                "The console on site {Site} came back still offering UniFi OS {Version}, so the update did not take",
-                _siteSlug, state.TargetVersion);
-            return true;
-        }
-
-        await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
-        _logger.LogInformation(
-            "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, state.TargetVersion);
         return true;
     }
 
