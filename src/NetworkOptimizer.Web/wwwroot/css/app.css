@@ -20512,6 +20512,7 @@ body.kiosk-mode .status-indicators {
     .firmware-rollout-landing {
         flex-direction: column;
         align-items: flex-start;
+        padding-top: 0.25rem;
     }
 
     .firmware-rollout-autopilot-config {
