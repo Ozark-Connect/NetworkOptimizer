@@ -954,6 +954,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (OsVersionMatches(installed, state.TargetVersion))
             {
+                await CaptureOsPostStatsAsync(document, cancellationToken);
                 await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
                 _logger.LogInformation(
                     "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
@@ -1041,6 +1042,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs);
 
+        // Capture the gateway's pre-update stats for the report.
+        if (!string.IsNullOrWhiteSpace(document.ConsoleMac) && document.UniFiOsUpdate.PreStatsJson == null)
+        {
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var preWindow = ResourceWindowFor(settings);
+            document.UniFiOsUpdate.PreStatsJson = JsonSerializer.Serialize(
+                await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
+        }
+
         if (apiPathAvailable)
         {
             document.UniFiOsUpdate.TargetVersion = pending!.Version;
@@ -1093,6 +1103,23 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var outcome = apiPathAvailable ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
+    }
+
+    private async Task CaptureOsPostStatsAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(document.ConsoleMac) || document.UniFiOsUpdate.PostStatsJson != null)
+            return;
+        try
+        {
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var window = ResourceWindowFor(settings);
+            var post = await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - window, Now, cancellationToken);
+            document.UniFiOsUpdate.PostStatsJson = JsonSerializer.Serialize(post);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not capture post-OS-update stats for site {Site}", _siteSlug);
+        }
     }
 
     private async Task SettleUniFiOsAsync(

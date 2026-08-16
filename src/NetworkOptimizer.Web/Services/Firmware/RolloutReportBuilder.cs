@@ -88,6 +88,34 @@ public static class RolloutReportBuilder
             report.Rows.Add(row);
         }
 
+        // Add the gateway as a row when the OS step ran and it isn't already a device step.
+        if (document.IncludesUniFiOsUpdate && !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)))
+        {
+            var osPre = ParseStats(document.UniFiOsUpdate.PreStatsJson);
+            var osPost = ParseStats(document.UniFiOsUpdate.PostStatsJson);
+            var osOutcome = document.UniFiOsUpdate.Outcome switch
+            {
+                "updated" => RolloutOutcomes.Upgraded,
+                "stuck" => RolloutOutcomes.Failed,
+                _ => document.UniFiOsUpdate.Outcome ?? RolloutOutcomes.Skipped,
+            };
+            report.Rows.Add(new RolloutReportRow
+            {
+                Mac = document.ConsoleMac,
+                Name = "Console (UniFi OS)",
+                Model = "Cloud Gateway",
+                DeviceType = "ugw",
+                FromVersion = document.UniFiOsUpdate.FromVersion,
+                ToVersion = document.UniFiOsUpdate.TargetVersion,
+                Outcome = osOutcome,
+                CpuBeforeMean = osPre?.CpuPercent,
+                CpuAfterMean = osPost?.CpuPercent,
+                MemBeforeMean = osPre?.MemoryUsedPercent,
+                MemAfterMean = osPost?.MemoryUsedPercent,
+            });
+        }
+
         report.DevicesUpgraded = report.Rows.Count(r => r.Outcome is RolloutOutcomes.Upgraded or RolloutOutcomes.RegressionFlagged);
         report.DevicesRolledBack = report.Rows.Count(r => r.Outcome == RolloutOutcomes.RolledBack);
         report.DevicesFailed = report.Rows.Count(r => r.Outcome == RolloutOutcomes.Failed);

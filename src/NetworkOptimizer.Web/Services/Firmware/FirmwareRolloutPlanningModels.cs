@@ -454,6 +454,12 @@ public class RolloutConsoleStepState
     /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
     public string? Url { get; set; }
 
+    /// <summary>Resource stats captured before the update was triggered.</summary>
+    public string? PreStatsJson { get; set; }
+
+    /// <summary>Resource stats captured after the update settled.</summary>
+    public string? PostStatsJson { get; set; }
+
     /// <summary>Wave this phase runs in: 0 for the application, after the last device for UniFi OS.</summary>
     public int Wave { get; set; }
 }
