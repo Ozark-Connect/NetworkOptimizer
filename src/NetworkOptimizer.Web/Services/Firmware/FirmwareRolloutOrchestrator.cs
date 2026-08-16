@@ -30,8 +30,8 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// </summary>
 public class FirmwareRolloutOrchestrator : BackgroundService
 {
-    /// <summary>How often the executor looks at the world. Modest: upgrades take minutes.</summary>
-    public static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(20);
+    /// <summary>How often the executor polls device state.</summary>
+    public static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// How long after a command a device has to enter Upgrading or go offline before the command is
@@ -717,7 +717,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // A device missing from a console that answered is NOT this - that is the device's own news.
         await TrackVisibilityAsync(plan, document, consoleDark, await IsTunnelDownAsync(), cancellationToken);
 
-        foreach (var step in steps.Where(IsInFlight).ToList())
+        var inFlightSteps = steps.Where(IsInFlight).ToList();
+        if (inFlightSteps.Count > 0 && settings.SuppressStandardAlerts)
+            _suppression.RefreshSiteActive(_siteSlug, Now);
+
+        foreach (var step in inFlightSteps)
         {
             if (settings.SuppressStandardAlerts)
                 _suppression.Refresh(_siteSlug, step.DeviceMac, Now);

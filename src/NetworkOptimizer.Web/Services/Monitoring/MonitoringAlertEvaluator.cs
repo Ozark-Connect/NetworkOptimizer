@@ -138,7 +138,7 @@ public class MonitoringAlertEvaluator
                     return;
                 }
 
-                if (_rolloutWindows?.IsInRolloutWindow(_siteSlug, target.DeviceMac, DateTime.UtcNow) == true)
+                if (_rolloutWindows?.IsSiteActiveRollout(_siteSlug, DateTime.UtcNow) == true)
                 {
                     _logger.LogDebug(
                         "Not declaring {Target} offline: a firmware rollout is in progress on site {Site}",

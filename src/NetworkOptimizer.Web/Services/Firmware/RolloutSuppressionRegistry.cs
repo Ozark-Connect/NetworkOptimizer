@@ -27,6 +27,7 @@ public class RolloutSuppressionRegistry
 
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _windowRefreshedAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
 
     /// <summary>
     /// Marks the entire site as cycling a console-level step (Network app or UniFi OS update).
@@ -38,6 +39,20 @@ public class RolloutSuppressionRegistry
     /// <summary>Ends the console-cycle window for a site.</summary>
     public void ClearConsoleCycle(string siteSlug) =>
         _consoleCyclingAt.TryRemove(NormalizeSite(siteSlug), out _);
+
+    /// <summary>
+    /// Marks the site as having an active rollout. Any device reboot during a rollout can
+    /// take downstream devices dark, so monitoring target alerts are suppressed site-wide.
+    /// </summary>
+    public void RefreshSiteActive(string siteSlug, DateTime observedAt) =>
+        _siteActiveAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>Whether any rollout activity is happening on this site.</summary>
+    public bool IsSiteActiveRollout(string siteSlug, DateTime now)
+    {
+        var site = NormalizeSite(siteSlug);
+        return _siteActiveAt.TryGetValue(site, out var at) && now.ToUniversalTime() - at <= WindowFreshness;
+    }
 
     /// <summary>
     /// Marks a device as inside its rollout window as of now. Called every pass while the device's
@@ -91,6 +106,7 @@ public class RolloutSuppressionRegistry
     public void ClearSite(string siteSlug)
     {
         var site = NormalizeSite(siteSlug);
+        _siteActiveAt.TryRemove(site, out _);
         _consoleCyclingAt.TryRemove(site, out _);
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
