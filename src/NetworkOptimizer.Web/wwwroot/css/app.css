@@ -19563,6 +19563,8 @@ body.kiosk-mode .status-indicators {
 .site-wizard-steps {
     display: flex;
     margin-bottom: 1.25rem;
+    user-select: none;
+    cursor: default;
 }
 
 .site-wizard-step {
