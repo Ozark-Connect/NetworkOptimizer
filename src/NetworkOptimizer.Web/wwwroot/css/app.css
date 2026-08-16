@@ -20482,7 +20482,8 @@ body.kiosk-mode .status-indicators {
     margin: 0;
 }
 
-.firmware-rollout-landing .btn {
+.firmware-rollout-landing .btn,
+.firmware-rollout-landing .firmware-rollout-controls {
     flex-shrink: 0;
 }
 
@@ -20518,6 +20519,7 @@ body.kiosk-mode .status-indicators {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .firmware-rollout-note {

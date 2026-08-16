@@ -86,11 +86,25 @@ public class RolloutAutopilot : IRolloutAutopilot
         if (Now - _lastCheckedAt < CheckInterval)
             return null;
 
-        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
-        if (settings.Mode != FirmwareRolloutMode.Autopilot)
+        var stored = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        if (stored.Mode != FirmwareRolloutMode.Autopilot)
             return null;
 
         _lastCheckedAt = Now;
+
+        // Plan from the standing configuration, not from the row, which any one-off rollout since
+        // has overwritten with its own scope. A site upgrading into this has no snapshot yet: the
+        // row is still faithful there, because a one-off used to turn autopilot off.
+        var settings = AutopilotSettingsSnapshot.Deserialize(stored.AutopilotSettingsJson);
+        if (settings == null)
+        {
+            settings = stored;
+            await _repositories.UseAsync(
+                (r, c) => r.SaveAutopilotSnapshotAsync(AutopilotSettingsSnapshot.Serialize(stored), c),
+                cancellationToken);
+            _logger.LogInformation(
+                "Captured the existing settings as the standing autopilot configuration for site {Site}", _siteSlug);
+        }
 
         // Anything non-terminal owns the site: a scheduled, announced, postponed, running or
         // soaking plan all mean autopilot has nothing to add.
@@ -139,6 +153,15 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         await _planning.UseAsync(
             (p, c) => p.PopulatePriorVersionsAsync(result.Document, result.Steps, c), cancellationToken);
+
+        // The executor reads the row live - channels, spacing, suppression, soak - so committing a
+        // plan built from the standing configuration has to leave the row holding it. Without this
+        // the rollout would apply whatever channel the last one-off left behind.
+        if (!ReferenceEquals(settings, stored))
+        {
+            settings.Mode = FirmwareRolloutMode.Autopilot;
+            await _repositories.UseAsync((r, c) => r.SaveSettingsAsync(settings, c), cancellationToken);
+        }
 
         var plan = await _repositories.UseAsync((r, c) => r.CreatePlanAsync(new FirmwareRolloutPlan
         {

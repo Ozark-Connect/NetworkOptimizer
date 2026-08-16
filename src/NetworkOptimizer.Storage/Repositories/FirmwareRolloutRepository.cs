@@ -78,6 +78,10 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
                 existing.SoakHours = settings.SoakHours;
                 existing.MinReleaseAgeDays = settings.MinReleaseAgeDays;
                 existing.PerWaveApproval = settings.PerWaveApproval;
+                // AutopilotSettingsJson is deliberately NOT copied. Every rollout commit comes
+                // through here, including a one-off on an Autopilot site, and copying it would let
+                // that one-off's scope become the standing config. SaveAutopilotSnapshotAsync is
+                // the only writer.
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else
@@ -92,6 +96,30 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save firmware rollout settings");
+            throw;
+        }
+    }
+
+    public async Task SaveAutopilotSnapshotAsync(string? snapshotJson, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Only this column, so a seed running on the autopilot tick cannot clobber a settings
+            // save a user is making at the same moment.
+            var existing = await _context.FirmwareRolloutSettings.FirstOrDefaultAsync(cancellationToken);
+            if (existing == null)
+            {
+                _logger.LogWarning("No firmware rollout settings row to write the autopilot snapshot to");
+                return;
+            }
+
+            existing.AutopilotSettingsJson = snapshotJson;
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogDebug("Saved the autopilot settings snapshot");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save the autopilot settings snapshot");
             throw;
         }
     }
