@@ -762,7 +762,8 @@ else
             LoadWorkingSets();
             // First preview: channel options, device models, and console warnings for step 1.
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
-            SeedChannelsFromConsole();
+            if (_settings.Mode != FirmwareRolloutMode.Autopilot)
+                SeedChannelsFromConsole();
             SeedStartFromProposal();
             _wizardOpen = true;
             _step = 1;
@@ -779,12 +780,14 @@ else
         }
     }
 
-    private void CloseWizard()
+    private async void CloseWizard()
     {
         _wizardOpen = false;
         _preview = null;
         _wizardError = null;
         _ = DisposeVizAsync();
+        await ReloadAsync();
+        StateHasChanged();
     }
 
     private async Task GoToPreviewAsync()
