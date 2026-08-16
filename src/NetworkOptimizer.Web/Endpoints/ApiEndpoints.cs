@@ -46,6 +46,5 @@ public static class ApiEndpoints
         OntChartEndpoints.Map(app);
         StarlinkChartEndpoints.Map(app);
         SnmpEndpoints.Map(app);
-        SupportFileEndpoints.Map(app);
     }
 }

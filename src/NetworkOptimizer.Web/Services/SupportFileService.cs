@@ -12,16 +12,15 @@ public interface ISupportFileService
 
     [RequireRole(Roles.Viewer)]
     Task<bool> GetIsAvailableAsync();
+
+    [RequireRole(Roles.Viewer)]
+    Task<bool> GetIsApiKeyConnectionAsync();
 }
 
 /// <summary>
 /// Generates and downloads a full UniFi OS console support file (FD21 bundle) for the site.
-/// The endpoints live on the UniFi OS layer, not the Network API, so they require a
-/// username/password session - API key connections cannot authenticate at all.
-///
-/// The flow is fire-and-forget: POST /generate returns immediately, and the caller polls
-/// HEAD /download until it stops returning 423 Locked. On a UOS Server with Network only,
-/// generation takes ~6 seconds; a Cloud Gateway with Protect can take minutes.
+/// The endpoints live on the UniFi OS layer (direct /api/ path, not under /proxy/network/),
+/// so they require a username/password session - API key connections cannot authenticate.
 /// </summary>
 public class SupportFileService : ISupportFileService
 {
@@ -39,13 +38,11 @@ public class SupportFileService : ISupportFileService
         _logger = logger;
     }
 
-    /// <summary>Whether the connection can generate a support file (connected, username/password).</summary>
-    public bool IsAvailable => _connection.IsConnected && !_connection.IsApiKeyAuth;
+    public Task<bool> GetIsAvailableAsync() =>
+        Task.FromResult(_connection.IsConnected && !_connection.IsApiKeyAuth);
 
-    /// <summary>Whether the current connection uses an API key.</summary>
-    public bool IsApiKeyConnection => _connection.IsApiKeyAuth;
-
-    public Task<bool> GetIsAvailableAsync() => Task.FromResult(IsAvailable);
+    public Task<bool> GetIsApiKeyConnectionAsync() =>
+        Task.FromResult(_connection.IsApiKeyAuth);
 
     public async Task<SupportFileResult> GenerateAndDownloadAsync(CancellationToken ct = default)
     {
@@ -79,7 +76,11 @@ public class SupportFileService : ISupportFileService
                 if (download == null)
                     return SupportFileResult.Fail("Support file was ready but download failed.");
 
-                return SupportFileResult.Ok(download.Value.stream, download.Value.filename);
+                using var stream = download.Value.stream;
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms, ct);
+
+                return SupportFileResult.Ok(ms.ToArray(), download.Value.filename);
             }
         }
 
@@ -91,11 +92,11 @@ public class SupportFileResult
 {
     public bool Success { get; init; }
     public string? Error { get; init; }
-    public Stream? Stream { get; init; }
+    public byte[]? Data { get; init; }
     public string? Filename { get; init; }
 
-    public static SupportFileResult Ok(Stream stream, string filename) =>
-        new() { Success = true, Stream = stream, Filename = filename };
+    public static SupportFileResult Ok(byte[] data, string filename) =>
+        new() { Success = true, Data = data, Filename = filename };
 
     public static SupportFileResult Fail(string error) =>
         new() { Success = false, Error = error };

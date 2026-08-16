@@ -3588,11 +3588,18 @@ public class UniFiApiClient : IDisposable
     {
         if (!await EnsureAuthenticatedAsync(ct)) return false;
         var url = $"{_controllerUrl}/api/support/file/generate";
+        _logger.LogDebug("Support file generate: POST {Url}", url);
         var body = new StringContent(
             recreate ? """{"recreate":true}""" : """{"recreate":false}""",
             System.Text.Encoding.UTF8,
             "application/json");
         var response = await _httpClient!.PostAsync(url, body, ct);
+        _logger.LogDebug("Support file generate response: {StatusCode}", response.StatusCode);
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NoContent)
+        {
+            var error = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Support file generate failed: {StatusCode} {Error}", response.StatusCode, error);
+        }
         return response.StatusCode == System.Net.HttpStatusCode.NoContent ||
                response.IsSuccessStatusCode;
     }

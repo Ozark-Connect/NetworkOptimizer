@@ -14,7 +14,7 @@ public static partial class DmesgParser
 {
     private const int MaxLinesPerCategory = 50;
 
-    public static DmesgDiagnosticsReport Parse(string output)
+    public static DmesgDiagnosticsReport Parse(string output, TimeSpan? uptime = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -197,7 +197,7 @@ public static partial class DmesgParser
             CollectedAt = DateTime.UtcNow,
             Categories = categories,
             TotalLines = totalLines,
-            ApproximateUptime = ParseLastTimestamp(lines),
+            ApproximateUptime = uptime,
             RawOutput = output,
             RingBufferDominatedByNoise = noiseRatio > 0.8 && noiseCount > 100
         };
@@ -272,44 +272,4 @@ public static partial class DmesgParser
         return line[(close + 1)..].TrimStart();
     }
 
-    /// <summary>
-    /// Parses the wall-clock timestamp from a dmesg -T line to compute approximate uptime
-    /// from the difference between first and last timestamps.
-    /// </summary>
-    private static TimeSpan? ParseLastTimestamp(string[] lines)
-    {
-        DateTime? first = null, last = null;
-
-        for (int i = 0; i < lines.Length && first == null; i++)
-        {
-            first = ParseWallClock(lines[i]);
-        }
-
-        for (int i = lines.Length - 1; i >= Math.Max(0, lines.Length - 10) && last == null; i--)
-        {
-            last = ParseWallClock(lines[i]);
-        }
-
-        if (first.HasValue && last.HasValue && last > first)
-            return last.Value - first.Value;
-
-        return null;
-    }
-
-    private static DateTime? ParseWallClock(string line)
-    {
-        var trimmed = line.TrimEnd('\r');
-        if (trimmed.Length < 3 || trimmed[0] != '[') return null;
-        var close = trimmed.IndexOf(']');
-        if (close < 2) return null;
-
-        var stamp = trimmed[1..close].Trim();
-        if (DateTime.TryParseExact(stamp, "ddd MMM  d HH:mm:ss yyyy",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) ||
-            DateTime.TryParseExact(stamp, "ddd MMM dd HH:mm:ss yyyy",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
-            return dt;
-
-        return null;
-    }
 }

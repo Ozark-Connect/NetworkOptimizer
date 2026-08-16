@@ -30,7 +30,8 @@ public class DmesgDiagnosticsService
         try
         {
             var (success, commandOutput) = await _gatewaySsh.RunCommandAsync(
-                "dmesg -T", TimeSpan.FromSeconds(30), ct);
+                "echo '###UPTIME'; cat /proc/uptime; echo '###DMESG'; dmesg -T",
+                TimeSpan.FromSeconds(30), ct);
 
             if (!success)
             {
@@ -53,6 +54,33 @@ public class DmesgDiagnosticsService
             };
         }
 
-        return DmesgParser.Parse(output);
+        var (uptime, dmesg) = SplitOutput(output);
+        return DmesgParser.Parse(dmesg, uptime);
+    }
+
+    private static (TimeSpan? uptime, string dmesg) SplitOutput(string output)
+    {
+        TimeSpan? uptime = null;
+        var dmesgStart = output.IndexOf("###DMESG", StringComparison.Ordinal);
+
+        if (dmesgStart >= 0)
+        {
+            var uptimeSection = output[..dmesgStart];
+            var uptimeStart = uptimeSection.IndexOf("###UPTIME", StringComparison.Ordinal);
+            if (uptimeStart >= 0)
+            {
+                var uptimeText = uptimeSection[(uptimeStart + "###UPTIME".Length)..].Trim();
+                var space = uptimeText.IndexOf(' ');
+                var seconds = space > 0 ? uptimeText[..space] : uptimeText;
+                if (double.TryParse(seconds, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var s))
+                    uptime = TimeSpan.FromSeconds(s);
+            }
+
+            var lineEnd = output.IndexOf('\n', dmesgStart);
+            return (uptime, lineEnd >= 0 ? output[(lineEnd + 1)..] : string.Empty);
+        }
+
+        return (null, output);
     }
 }
