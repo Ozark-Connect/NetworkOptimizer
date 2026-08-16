@@ -224,13 +224,6 @@ public class RolloutPreviewView
     public bool HasCloudGatewayHardware { get; set; }
 
     /// <summary>
-    /// Whether the console described itself. Everything derived from it - the UniFi OS step above,
-    /// the channels, the standalone test - reads false until it does, which is not the same answer
-    /// as no. A caller showing those must wait for this rather than render the difference away.
-    /// </summary>
-    public bool ConsoleDetailsKnown { get; set; }
-
-    /// <summary>
     /// Whether the console's own API answered. An API key reaches the UniFi Network application
     /// but not the console, so a key-authenticated site can upgrade devices and nothing else.
     /// </summary>
