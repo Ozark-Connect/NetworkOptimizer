@@ -636,6 +636,10 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
+                // Skip LAG member ports - their config is managed at the aggregate level
+                if (port.LagIdx.HasValue)
+                    continue;
+
                 // Get profile if assigned
                 var profile = !string.IsNullOrEmpty(port.PortConfId) && profilesById.TryGetValue(port.PortConfId, out var p) ? p : null;
                 var settings = VlanAnalysisHelper.GetEffectiveVlanSettings(port, null, profile);
@@ -952,6 +956,10 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
+                // Skip LAG member ports
+                if (port.LagIdx.HasValue)
+                    continue;
+
                 // Skip ports that already have a profile
                 if (!string.IsNullOrEmpty(port.PortConfId))
                     continue;
@@ -1126,6 +1134,10 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
+                // Skip LAG member ports
+                if (port.LagIdx.HasValue)
+                    continue;
+
                 // Skip uplink and disabled ports
                 if (port.IsUplink || port.Forward == "disabled")
                     continue;
