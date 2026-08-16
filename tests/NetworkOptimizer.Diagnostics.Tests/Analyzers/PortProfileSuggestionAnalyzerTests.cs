@@ -1,7 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Diagnostics.Analyzers;
-using Xunit;
 using NetworkOptimizer.UniFi.Models;
+using Xunit;
 
 namespace NetworkOptimizer.Diagnostics.Tests.Analyzers;
 
@@ -4640,6 +4640,116 @@ public class PortProfileSuggestionAnalyzerTests
         // Ports 6 and 7 should NOT be included since they have MAC restriction
         accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 6);
         accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 7);
+    }
+
+    #endregion
+
+    #region LAG Port Exclusion Tests
+
+    [Fact]
+    public void Analyze_LagChildTrunkPorts_ExcludedFromSuggestions()
+    {
+        // LAG child ports are assimilated into the parent and should not get individual
+        // port profile suggestions. The parent should still be included.
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // LAG parent - should still be suggested
+                new SwitchPort { PortIdx = 25, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", LagIdx = 1 },
+                // LAG child - should be excluded
+                new SwitchPort { PortIdx = 26, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", LagIdx = 1, AggregatedBy = 25 },
+                // Enough regular trunk ports to trigger a CreateNew suggestion (threshold=5)
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 },
+            new UniFiNetworkConfig { Id = "net-2", Name = "IoT", Vlan = 20 }
+        };
+
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        var allAffectedPorts = result.SelectMany(s => s.AffectedPorts).ToList();
+        allAffectedPorts.Should().NotContain(p => p.PortIndex == 26, "LAG child should be excluded");
+        allAffectedPorts.Should().Contain(p => p.PortIndex == 25, "LAG parent should still be included");
+    }
+
+    [Fact]
+    public void Analyze_LagChildDisabledPorts_ExcludedFromSuggestions()
+    {
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // LAG child that is disabled - should be excluded
+                new SwitchPort { PortIdx = 25, Forward = "disabled", LagIdx = 1, AggregatedBy = 24 },
+                // Regular disabled ports (enough to trigger a suggestion)
+                new SwitchPort { PortIdx = 1, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 2, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 3, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 4, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 5, Forward = "disabled", PortPoe = true }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        var allAffectedPorts = result.SelectMany(s => s.AffectedPorts).ToList();
+        allAffectedPorts.Should().NotContain(p => p.PortIndex == 25, "LAG child should be excluded even when disabled");
+    }
+
+    [Fact]
+    public void Analyze_NonLagTrunkPorts_StillSuggested()
+    {
+        // Regular trunk ports without LAG should still get suggestions
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 },
+            new UniFiNetworkConfig { Id = "net-2", Name = "IoT", Vlan = 20 }
+        };
+
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        result.Should().NotBeEmpty("non-LAG trunk ports should still get suggestions");
     }
 
     #endregion

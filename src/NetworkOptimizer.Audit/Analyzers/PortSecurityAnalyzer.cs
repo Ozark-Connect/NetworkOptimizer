@@ -415,11 +415,14 @@ public class PortSecurityAnalyzer
             }
         }
 
-        var ports = device.GetArrayOrEmpty("port_table")
+        var rawPorts = device.GetArrayOrEmpty("port_table").ToList();
+        var ports = rawPorts
             .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
+
+        PropagateLagParentMetadata(ports, rawPorts);
 
         return new SwitchInfo
         {
@@ -706,6 +709,44 @@ public class PortSecurityAnalyzer
         };
     }
 
+    /// <summary>
+    /// Propagate ConnectedDeviceType and IsUplink from LAG child ports to their parent.
+    /// deviceUplinkLookup only records the single port from uplink_remote_port, which for
+    /// a LAG is a child port, so the aggregate parent misses the fabric/uplink metadata.
+    /// </summary>
+    private void PropagateLagParentMetadata(List<PortInfo> ports, List<JsonElement> rawPorts)
+    {
+        var lagParents = ports.Where(p => p.IsLagParent).ToList();
+        if (lagParents.Count == 0) return;
+
+        var childToParentIdx = new Dictionary<int, int>();
+        foreach (var raw in rawPorts)
+        {
+            var idx = raw.GetIntOrDefault("port_idx", -1);
+            if (idx >= 0 && raw.TryGetProperty("aggregated_by", out var agg) && agg.ValueKind == JsonValueKind.Number)
+                childToParentIdx[idx] = agg.GetInt32();
+        }
+
+        foreach (var parent in lagParents)
+        {
+            var children = ports.Where(p => childToParentIdx.TryGetValue(p.PortIndex, out var parentIdx) && parentIdx == parent.PortIndex);
+            foreach (var child in children)
+            {
+                if (child.ConnectedDeviceType != null && parent.ConnectedDeviceType == null)
+                {
+                    parent.ConnectedDeviceType = child.ConnectedDeviceType;
+                    _logger.LogDebug("LAG parent port {Port} on {Switch}: inherited ConnectedDeviceType '{Type}' from child port {ChildPort}",
+                        parent.PortIndex, parent.Switch.Name, child.ConnectedDeviceType, child.PortIndex);
+                }
+                if (child.IsUplink && !parent.IsUplink)
+                {
+                    parent.IsUplink = true;
+                    _logger.LogDebug("LAG parent port {Port} on {Switch}: inherited IsUplink from child port {ChildPort}",
+                        parent.PortIndex, parent.Switch.Name, child.PortIndex);
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// Analyze all ports across all switches
