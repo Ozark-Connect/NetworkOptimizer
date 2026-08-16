@@ -9,7 +9,7 @@ public static class SupportFileEndpoints
     {
         var group = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
 
-        group.MapPost("/api/support-file/generate", async (ISupportFileService supportFile, CancellationToken ct) =>
+        group.MapGet("/api/support-file/generate", async (ISupportFileService supportFile, CancellationToken ct) =>
         {
             var result = await supportFile.GenerateAndDownloadAsync(ct);
             if (!result.Success)

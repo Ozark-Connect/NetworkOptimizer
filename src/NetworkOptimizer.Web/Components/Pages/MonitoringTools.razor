@@ -29,6 +29,7 @@
 @inject GatewayDiagnosticsService GatewayDiagnostics
 @inject DmesgDiagnosticsService DmesgDiagnostics
 @inject ISupportFileService SupportFile
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
@@ -1250,6 +1251,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         }
     }
 
+    private IJSObjectReference? _supportFileJs;
+
     private async Task GenerateSupportFileAsync()
     {
         _supportFileRunning = true;
@@ -1257,7 +1260,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         StateHasChanged();
         try
         {
-            await JS.InvokeVoidAsync("open", "/api/support-file/generate", "_blank");
+            _supportFileJs ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", VersionedJs("/js/support-file.js"));
+            await _supportFileJs.InvokeVoidAsync("downloadSupportFile", "/api/support-file/generate");
         }
         catch (Exception ex)
         {
@@ -1269,6 +1274,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             StateHasChanged();
         }
     }
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
     private static string SeverityDotClass(DmesgSeverity severity) => severity switch
     {
