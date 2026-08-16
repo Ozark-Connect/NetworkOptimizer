@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// that pushes boot events out within hours. The parser counts noise categories rather than
 /// showing individual lines, and flags when the buffer is dominated by them.
 /// </summary>
-public static partial class DmesgParser
+public static class DmesgParser
 {
     private const int MaxLinesPerCategory = 50;
 
