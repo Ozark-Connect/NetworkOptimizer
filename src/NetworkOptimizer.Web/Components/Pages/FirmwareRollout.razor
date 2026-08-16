@@ -533,6 +533,157 @@ else
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
                 <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
+
+                <SiteAdminOnly>
+                <div class="firmware-rollout-autopilot-config">
+                    <div class="form-group">
+                        <label class="form-label">Release channel</label>
+                        <select class="form-control firmware-rollout-select" @bind="_settings.GlobalChannel">
+                            <option value="@FirmwareChannels.Release">Official (GA)</option>
+                            <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                            @if (_preview?.Channels.EarlyAccessAvailable == true)
+                            {
+                                <option value="@FirmwareChannels.Beta">Early Access</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        @if (_preview?.ConsoleApiAvailable != false)
+                        {
+                            <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application</span></label>
+                        }
+                        @if (_preview?.HasCloudGateway == true && _preview?.ConsoleApiAvailable != false)
+                        {
+                            <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include UniFi OS updates</span></label>
+                        }
+                    </div>
+
+                    @if (_settings.IncludeUniFiNetwork || (_settings.IncludeUniFiOs && _preview?.HasCloudGateway == true))
+                    {
+                        <details class="setup-guide firmware-rollout-guide">
+                            <summary>Console channels</summary>
+                            <div class="setup-guide-content">
+                                @if (_settings.IncludeUniFiNetwork)
+                                {
+                                    <div class="form-group firmware-rollout-inline">
+                                        <label class="form-label">UniFi Network application</label>
+                                        <select class="form-control firmware-rollout-select" value="@(_settings.NetworkAppChannel ?? "")" @onchange="e => _settings.NetworkAppChannel = Blank(e.Value?.ToString())">
+                                            <option value="">Same as everything else</option>
+                                            <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                            <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                            @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                            {
+                                                <option value="@FirmwareChannels.Beta">Early Access</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                                @if (_settings.IncludeUniFiOs && _preview?.HasCloudGateway == true)
+                                {
+                                    <div class="form-group firmware-rollout-inline">
+                                        <label class="form-label">UniFi OS</label>
+                                        <select class="form-control firmware-rollout-select" value="@(_settings.UniFiOsChannel ?? "")" @onchange="e => _settings.UniFiOsChannel = Blank(e.Value?.ToString())">
+                                            <option value="">Same as everything else</option>
+                                            <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                            <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                            @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                            {
+                                                <option value="@FirmwareChannels.Beta">Early Access</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                            </div>
+                        </details>
+                    }
+
+                    <details class="setup-guide firmware-rollout-guide">
+                        <summary>Per-device-type channels</summary>
+                        <div class="setup-guide-content">
+                            @foreach (var (code, label) in TypeChannelRows)
+                            {
+                                <div class="form-group firmware-rollout-inline">
+                                    <label class="form-label">@label</label>
+                                    <select class="form-control firmware-rollout-select" value="@TypeChannel(code)" @onchange="e => SetTypeChannel(code, e.Value?.ToString())">
+                                        <option value="">Same as everything else</option>
+                                        <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                        <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                        @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                        {
+                                            <option value="@FirmwareChannels.Beta">Early Access</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                        </div>
+                    </details>
+
+                    <details class="setup-guide firmware-rollout-guide">
+                        <summary>Per-model channels</summary>
+                        <div class="setup-guide-content">
+                            @foreach (var model in SiteModels)
+                            {
+                                <div class="form-group firmware-rollout-inline">
+                                    <label class="form-label">@model.Label</label>
+                                    <select class="form-control firmware-rollout-select" value="@SkuChannel(model.Code)" @onchange="e => SetSkuChannel(model.Code, e.Value?.ToString())">
+                                        <option value="">Same as its device type</option>
+                                        <option value="@FirmwareChannels.Release">Official (GA)</option>
+                                        <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
+                                        @if (_preview?.Channels.EarlyAccessAvailable == true)
+                                        {
+                                            <option value="@FirmwareChannels.Beta">Early Access</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            @if (SiteModels.Count == 0)
+                            {
+                                <small class="form-help">Models appear here once the device list has loaded.</small>
+                            }
+                        </div>
+                    </details>
+
+                    <details class="setup-guide firmware-rollout-guide">
+                        <summary>Exclude devices @(_exMacs.Count + _exSkus.Count + _exTypes.Count > 0 ? $"({_exMacs.Count + _exSkus.Count + _exTypes.Count} rules)" : "")</summary>
+                        <div class="setup-guide-content">
+                            <div class="form-group">
+                                <input type="text" class="form-control" placeholder="Search devices..." @bind="_exclusionSearch" @bind:event="oninput" />
+                            </div>
+                            <div class="firmware-rollout-exclusion-groups firmware-rollout-exclude">
+                                @foreach (var (code, label) in TypeChannelRows)
+                                {
+                                    <label class="checkbox-label"><input type="checkbox" checked="@_exTypes.Contains(code)" @onchange="e => ToggleSet(_exTypes, code, e)" /><span>Exclude all @label.ToLowerInvariant()</span></label>
+                                }
+                            </div>
+                            <div class="firmware-rollout-exclusion-list firmware-rollout-exclude">
+                                @foreach (var device in FilteredExclusionCandidates)
+                                {
+                                    var derived = DerivedExclusion(device);
+                                    <label class="checkbox-label firmware-rollout-device-row">
+                                        <span data-tooltip="@derived">
+                                            <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                        </span>
+                                        <span>@device.Name</span>
+                                        <span class="firmware-rollout-muted">@device.DisplayModel</span>
+                                        @if (device.Upgradable)
+                                        {
+                                            <span class="firmware-rollout-chip chip-active"
+                                                  data-tooltip="@UpdateTooltip(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
+                                        }
+                                        <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSku(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+                    </details>
+
+                    <button class="btn btn-primary" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
+                        @if (_busy) { <span class="spinner spinner-sm"></span> }
+                        else { <span>Save</span> }
+                    </button>
+                </div>
+                </SiteAdminOnly>
             }
             else
             {
@@ -934,6 +1085,28 @@ else
         {
             Logger.LogError(ex, "Committing the rollout failed");
             _wizardError = "Starting the rollout failed. See the logs for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAutopilotSettingsAsync()
+    {
+        if (_settings == null) return;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var settings = WorkingSettings();
+            settings.Mode = FirmwareRolloutMode.Autopilot;
+            await RolloutService.SaveSettingsAsync(settings);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Saving autopilot settings failed");
         }
         finally
         {
