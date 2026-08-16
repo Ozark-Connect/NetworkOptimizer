@@ -180,9 +180,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             }).OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             ConsoleConnected = context.ConsoleConnected,
             IsStandaloneConsole = console?.IsStandaloneConsole == true,
-            // An empty answer means the console API is out of reach (API-key auth), not that the
-            // console has nothing to say.
-            ConsoleApiAvailable = console?.Firmware != null || console?.Apps != null,
+            ConsoleApiAvailable = !_commands.UsesApiKey,
             HasCloudGatewayHardware = context.Devices.Any(d =>
                 FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
             // The step only exists where a Cloud Gateway runs the console: a self-hosted console

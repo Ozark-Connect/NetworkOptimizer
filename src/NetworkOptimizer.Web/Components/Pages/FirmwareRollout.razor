@@ -441,8 +441,8 @@ else
                 <FirmwareChannelConfig
                     Settings="_settings"
                     EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
-                    ConsoleApiAvailable="true"
-                    HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true || _settings.IncludeUniFiOs"
+                    ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
+                    HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true"
                     ShowConsolePermissionNote="false"
                     TypeChannelRows="TypeChannelRows"
                     SiteModels="SiteModels"

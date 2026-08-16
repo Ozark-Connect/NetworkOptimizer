@@ -56,6 +56,9 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         return client;
     }
 
+    /// <inheritdoc />
+    public bool UsesApiKey => _connection.Client?.UseApiKey == true;
+
     /// <summary>How long a console command waits for a connection that is still coming up.</summary>
     private static readonly TimeSpan ConnectWait = TimeSpan.FromSeconds(20);
 
