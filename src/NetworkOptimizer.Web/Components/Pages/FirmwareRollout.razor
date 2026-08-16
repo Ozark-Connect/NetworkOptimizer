@@ -215,7 +215,7 @@ else if (_wizardOpen)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application first</span></label>
                     }
-                    @if (_preview?.HasCloudGateway == true)
+                    @if (_preview?.HasCloudGateway == true && _preview?.ConsoleApiAvailable != false)
                     {
                         <label class="checkbox-label"><input type="checkbox" @bind="_settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
                     }
