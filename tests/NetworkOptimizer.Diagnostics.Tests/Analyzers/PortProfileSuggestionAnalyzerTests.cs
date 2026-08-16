@@ -4647,10 +4647,10 @@ public class PortProfileSuggestionAnalyzerTests
     #region LAG Port Exclusion Tests
 
     [Fact]
-    public void Analyze_LagParentAndChildTrunkPorts_ExcludedFromSuggestions()
+    public void Analyze_LagChildTrunkPorts_ExcludedFromSuggestions()
     {
-        // LAG member ports (both parent and child) should not get port profile suggestions
-        // since their config is managed at the aggregate level.
+        // LAG child ports are assimilated into the parent and should not get individual
+        // port profile suggestions. The parent should still be included.
         var device = new UniFiDeviceResponse
         {
             Id = "switch1",
@@ -4659,13 +4659,16 @@ public class PortProfileSuggestionAnalyzerTests
             Type = "usw",
             PortTable = new List<SwitchPort>
             {
-                // LAG parent (op_mode=aggregate)
-                new SwitchPort { PortIdx = 25, Forward = "all", LagIdx = 1 },
-                // LAG child
-                new SwitchPort { PortIdx = 26, Forward = "all", LagIdx = 1, AggregatedBy = 25 },
-                // Regular trunk port (should still be collected)
-                new SwitchPort { PortIdx = 1, Forward = "all" },
-                new SwitchPort { PortIdx = 2, Forward = "all" }
+                // LAG parent - should still be suggested
+                new SwitchPort { PortIdx = 25, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", LagIdx = 1 },
+                // LAG child - should be excluded
+                new SwitchPort { PortIdx = 26, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", LagIdx = 1, AggregatedBy = 25 },
+                // Enough regular trunk ports to trigger a CreateNew suggestion (threshold=5)
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" }
             }
         };
 
@@ -4680,12 +4683,12 @@ public class PortProfileSuggestionAnalyzerTests
         var result = _analyzer.Analyze(devices, portProfiles, networks);
 
         var allAffectedPorts = result.SelectMany(s => s.AffectedPorts).ToList();
-        allAffectedPorts.Should().NotContain(p => p.PortIndex == 25, "LAG parent should be excluded");
         allAffectedPorts.Should().NotContain(p => p.PortIndex == 26, "LAG child should be excluded");
+        allAffectedPorts.Should().Contain(p => p.PortIndex == 25, "LAG parent should still be included");
     }
 
     [Fact]
-    public void Analyze_LagDisabledPorts_ExcludedFromSuggestions()
+    public void Analyze_LagChildDisabledPorts_ExcludedFromSuggestions()
     {
         var device = new UniFiDeviceResponse
         {
@@ -4695,8 +4698,8 @@ public class PortProfileSuggestionAnalyzerTests
             Type = "usw",
             PortTable = new List<SwitchPort>
             {
-                // LAG member that is disabled
-                new SwitchPort { PortIdx = 25, Forward = "disabled", LagIdx = 1 },
+                // LAG child that is disabled - should be excluded
+                new SwitchPort { PortIdx = 25, Forward = "disabled", LagIdx = 1, AggregatedBy = 24 },
                 // Regular disabled ports (enough to trigger a suggestion)
                 new SwitchPort { PortIdx = 1, Forward = "disabled", PortPoe = true },
                 new SwitchPort { PortIdx = 2, Forward = "disabled", PortPoe = true },
@@ -4713,7 +4716,7 @@ public class PortProfileSuggestionAnalyzerTests
         var result = _analyzer.Analyze(devices, portProfiles, networks);
 
         var allAffectedPorts = result.SelectMany(s => s.AffectedPorts).ToList();
-        allAffectedPorts.Should().NotContain(p => p.PortIndex == 25, "LAG member should be excluded even when disabled");
+        allAffectedPorts.Should().NotContain(p => p.PortIndex == 25, "LAG child should be excluded even when disabled");
     }
 
     [Fact]

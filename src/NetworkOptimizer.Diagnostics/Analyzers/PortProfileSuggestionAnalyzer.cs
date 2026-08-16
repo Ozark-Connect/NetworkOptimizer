@@ -636,8 +636,8 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
-                // Skip LAG member ports - their config is managed at the aggregate level
-                if (port.LagIdx.HasValue)
+                // Skip LAG child ports - their config is assimilated into the parent
+                if (port.AggregatedBy.HasValue)
                     continue;
 
                 // Get profile if assigned
