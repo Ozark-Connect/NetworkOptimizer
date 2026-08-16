@@ -348,20 +348,11 @@ else if (_wizardOpen)
                             <span class="firmware-rollout-wave-devices">
                                 @foreach (var step in wave.Steps)
                                 {
-                                    var changelog = ChangelogFor(step.Mac);
                                     <span class="firmware-rollout-wave-device">
                                         @step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")
                                         @if (step.ToVersion != null)
                                         {
-                                            if (changelog != null)
-                                            {
-                                                <a class="firmware-rollout-chip chip-muted firmware-rollout-version-badge" href="@changelog" target="_blank" rel="noopener"
-                                                   data-tooltip="Release notes for @FirmwareVersionFormat.ShortOrNull(step.ToVersion)">@VersionChange(step.FromVersion, step.ToVersion)</a>
-                                            }
-                                            else
-                                            {
-                                                <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
-                                            }
+                                            <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
                                         }
                                     </span>
                                 }
@@ -546,11 +537,11 @@ else
                     </div>
                     @if (rep.UniFiNetworkUpdateOutcome != null)
                     {
-                        <p class="firmware-rollout-plan-note">UniFi Network application: @rep.UniFiNetworkUpdateOutcome</p>
+                        <p class="firmware-rollout-plan-note"><strong>UniFi Network</strong> @ConsoleStepSummary(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</p>
                     }
                     @if (rep.UniFiOsUpdateOutcome != null)
                     {
-                        <p class="firmware-rollout-plan-note">UniFi OS: @rep.UniFiOsUpdateOutcome</p>
+                        <p class="firmware-rollout-plan-note"><strong>UniFi OS</strong> @ConsoleStepSummary(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</p>
                     }
                     @foreach (var issue in rep.Issues)
                     {
@@ -566,16 +557,7 @@ else
                                         <td>@row.Name</td>
                                         <td>@row.Model</td>
                                         <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(row.FromVersion) ?? "-")</td>
-                                        <td>
-                                            @if (row.ChangelogUrl != null)
-                                            {
-                                                <a href="@row.ChangelogUrl" target="_blank" rel="noopener">@(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")</a>
-                                            }
-                                            else
-                                            {
-                                                @(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")
-                                            }
-                                        </td>
+                                        <td>@(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")</td>
                                         <td>@(row.DowntimeSeconds is int d ? Duration(d) : "-")</td>
                                         <td class="hide-mobile">@(row.CpuBeforeMean is { } rcb && row.CpuAfterMean is { } rca ? $"{rcb:0}% → {rca:0}%" : "-")</td>
                                         <td>
@@ -649,6 +631,24 @@ else
             "stuck" => "Stuck",
             "skipped" => "Skipped",
             _ => "Done",
+        };
+    }
+
+    private static string ConsoleStepSummary(string? outcome, string? from, string? to)
+    {
+        var fromShort = FirmwareVersionFormat.ShortOrNull(from);
+        var toShort = FirmwareVersionFormat.ShortOrNull(to);
+        var versions = fromShort != null && toShort != null ? $"{fromShort} → {toShort}" : toShort ?? fromShort;
+
+        return outcome switch
+        {
+            "updated" => versions != null ? $"updated ({versions})" : "updated",
+            "nothing-to-update" => "already current" + (fromShort != null ? $" ({fromShort})" : ""),
+            "unchanged" => "no change" + (fromShort != null ? $" ({fromShort})" : ""),
+            "refused" => "refused",
+            "stuck" => "did not come back" + (toShort != null ? $" (targeting {toShort})" : ""),
+            "skipped" => "skipped",
+            _ => outcome ?? "done",
         };
     }
 

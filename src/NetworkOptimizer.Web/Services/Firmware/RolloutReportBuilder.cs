@@ -45,7 +45,11 @@ public static class RolloutReportBuilder
                 ? (int)Math.Max(0, (completed - started).TotalSeconds)
                 : 0,
             UniFiNetworkUpdateOutcome = document.IncludesUniFiNetworkUpdate ? document.NetworkAppUpdate.Outcome : null,
+            UniFiNetworkFromVersion = document.NetworkAppUpdate.FromVersion,
+            UniFiNetworkToVersion = document.NetworkAppUpdate.TargetVersion,
             UniFiOsUpdateOutcome = document.IncludesUniFiOsUpdate ? document.UniFiOsUpdate.Outcome : null,
+            UniFiOsFromVersion = document.UniFiOsUpdate.FromVersion,
+            UniFiOsToVersion = document.UniFiOsUpdate.TargetVersion,
             Notes = [.. document.Notes],
         };
 
