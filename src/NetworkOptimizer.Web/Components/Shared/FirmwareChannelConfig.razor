@@ -5,7 +5,7 @@
 <div class="firmware-rollout-channel-config">
     <div class="form-group">
         <label class="form-label">Release channel</label>
-        <select class="form-control firmware-rollout-select" @bind="Settings.GlobalChannel">
+        <select class="form-control firmware-rollout-select" value="@Settings.GlobalChannel" @onchange="SetGlobalChannel">
             <option value="@FirmwareChannels.Release">Official (GA)</option>
             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
             @if (EarlyAccessAvailable)
@@ -22,11 +22,11 @@
     <div class="form-group">
         @if (ConsoleApiAvailable)
         {
-            <label class="checkbox-label"><input type="checkbox" @bind="Settings.IncludeUniFiNetwork" /><span>Update the UniFi Network application@(ShowSequenceHint ? " first" : "")</span></label>
+            <label class="checkbox-label"><input type="checkbox" checked="@Settings.IncludeUniFiNetwork" @onchange="SetNetworkIncluded" /><span>Update the UniFi Network application@(ShowSequenceHint ? " first" : "")</span></label>
         }
         @if (HasCloudGateway && ConsoleApiAvailable)
         {
-            <label class="checkbox-label"><input type="checkbox" @bind="Settings.IncludeUniFiOs" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
+            <label class="checkbox-label"><input type="checkbox" checked="@Settings.IncludeUniFiOs" @onchange="SetOsIncluded" /><span>Include the UniFi OS update on the Cloud Gateway</span></label>
         }
         @if (ShowConsolePermissionNote && (Settings.IncludeUniFiNetwork || (Settings.IncludeUniFiOs && HasCloudGateway)))
         {
@@ -46,7 +46,7 @@
                 {
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">UniFi Network application</label>
-                        <select class="form-control firmware-rollout-select" value="@(Settings.NetworkAppChannel ?? "")" @onchange="e => Settings.NetworkAppChannel = Blank(e.Value?.ToString())">
+                        <select class="form-control firmware-rollout-select" value="@(Settings.NetworkAppChannel ?? "")" @onchange="SetNetworkAppChannel">
                             <option value="">Same as everything else</option>
                             <option value="@FirmwareChannels.Release">Official (GA)</option>
                             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -61,7 +61,7 @@
                 {
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">UniFi OS</label>
-                        <select class="form-control firmware-rollout-select" value="@(Settings.UniFiOsChannel ?? "")" @onchange="e => Settings.UniFiOsChannel = Blank(e.Value?.ToString())">
+                        <select class="form-control firmware-rollout-select" value="@(Settings.UniFiOsChannel ?? "")" @onchange="SetOsChannel">
                             <option value="">Same as everything else</option>
                             <option value="@FirmwareChannels.Release">Official (GA)</option>
                             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -83,7 +83,7 @@
             {
                 <div class="form-group firmware-rollout-inline">
                     <label class="form-label">@label</label>
-                    <select class="form-control firmware-rollout-select" value="@TypeChannel(code)" @onchange="e => SetTypeChannel(code, e.Value?.ToString())">
+                    <select class="form-control firmware-rollout-select" value="@TypeChannel(code)" @onchange="e => SetTypeChannelAsync(code, e)">
                         <option value="">Same as everything else</option>
                         <option value="@FirmwareChannels.Release">Official (GA)</option>
                         <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -104,7 +104,7 @@
             {
                 <div class="form-group firmware-rollout-inline">
                     <label class="form-label">@model.Label</label>
-                    <select class="form-control firmware-rollout-select" value="@SkuChannel(model.Code)" @onchange="e => SetSkuChannel(model.Code, e.Value?.ToString())">
+                    <select class="form-control firmware-rollout-select" value="@SkuChannel(model.Code)" @onchange="e => SetSkuChannelAsync(model.Code, e)">
                         <option value="">Same as its device type</option>
                         <option value="@FirmwareChannels.Release">Official (GA)</option>
                         <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
@@ -131,7 +131,7 @@
             <div class="firmware-rollout-exclusion-groups firmware-rollout-exclude">
                 @foreach (var (code, label) in TypeChannelRows)
                 {
-                    <label class="checkbox-label"><input type="checkbox" checked="@ExcludedTypes.Contains(code)" @onchange="e => ToggleSet(ExcludedTypes, code, e)" /><span>Exclude all @label.ToLowerInvariant()</span></label>
+                    <label class="checkbox-label"><input type="checkbox" checked="@ExcludedTypes.Contains(code)" @onchange="e => ToggleSetAsync(ExcludedTypes, code, e)" /><span>Exclude all @label.ToLowerInvariant()</span></label>
                 }
             </div>
             <div class="firmware-rollout-exclusion-list firmware-rollout-exclude">
@@ -140,7 +140,7 @@
                     var derived = DerivedExclusion?.Invoke(device);
                     <label class="checkbox-label firmware-rollout-device-row">
                         <span data-tooltip="@derived">
-                            <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(ExcludedMacs, device.Mac, e)" />
+                            <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSetAsync(ExcludedMacs, device.Mac, e)" />
                         </span>
                         <span>@device.Name</span>
                         <span class="firmware-rollout-muted">@device.DisplayModel</span>
@@ -149,7 +149,7 @@
                             <span class="firmware-rollout-chip chip-active"
                                   data-tooltip="@UpdateTooltip?.Invoke(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
                         }
-                        <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSku?.Invoke(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
+                        <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSkuAsync(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
                     </label>
                 }
             </div>
@@ -203,6 +203,65 @@
         : Settings.IncludeUniFiNetwork ? "UniFi Network" : "UniFi OS";
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    /// <summary>Raised after any edit, so an owner rendering a Save button can re-evaluate.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private Task Changed() => OnChanged.HasDelegate ? OnChanged.InvokeAsync() : Task.CompletedTask;
+
+    private async Task SetGlobalChannel(ChangeEventArgs e)
+    {
+        Settings.GlobalChannel = e.Value?.ToString() ?? Settings.GlobalChannel;
+        await Changed();
+    }
+
+    private async Task SetNetworkIncluded(ChangeEventArgs e)
+    {
+        Settings.IncludeUniFiNetwork = e.Value is true;
+        await Changed();
+    }
+
+    private async Task SetOsIncluded(ChangeEventArgs e)
+    {
+        Settings.IncludeUniFiOs = e.Value is true;
+        await Changed();
+    }
+
+    private async Task SetNetworkAppChannel(ChangeEventArgs e)
+    {
+        Settings.NetworkAppChannel = Blank(e.Value?.ToString());
+        await Changed();
+    }
+
+    private async Task SetOsChannel(ChangeEventArgs e)
+    {
+        Settings.UniFiOsChannel = Blank(e.Value?.ToString());
+        await Changed();
+    }
+
+    private async Task SetTypeChannelAsync(string code, ChangeEventArgs e)
+    {
+        SetTypeChannel(code, e.Value?.ToString());
+        await Changed();
+    }
+
+    private async Task SetSkuChannelAsync(string code, ChangeEventArgs e)
+    {
+        SetSkuChannel(code, e.Value?.ToString());
+        await Changed();
+    }
+
+    private async Task ToggleSetAsync(HashSet<string> set, string key, ChangeEventArgs e)
+    {
+        ToggleSet(set, key, e);
+        await Changed();
+    }
+
+    private async Task ToggleSkuAsync(RolloutDeviceView device)
+    {
+        ToggleSku?.Invoke(device);
+        await Changed();
+    }
 
     private static void ToggleSet(HashSet<string> set, string key, ChangeEventArgs e)
     {

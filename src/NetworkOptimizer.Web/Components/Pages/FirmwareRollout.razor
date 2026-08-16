@@ -463,9 +463,10 @@ else
                     SkuExcluded="SkuExcluded"
                     DerivedExclusion="DerivedExclusion"
                     UpdateTooltip="UpdateTooltip"
-                    ToggleSku="ToggleSku" />
+                    ToggleSku="ToggleSku"
+                    OnChanged="StateHasChanged" />
 
-                <button class="btn btn-primary firmware-rollout-config-save" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
+                <button class="btn btn-primary firmware-rollout-config-save" @onclick="SaveAutopilotSettingsAsync" disabled="@(_busy || !ConfigDirty)">
                     @if (_busy) { <span class="spinner spinner-sm"></span> }
                     else { <span>Save</span> }
                 </button>
@@ -730,6 +731,7 @@ else
     private readonly HashSet<string> _exTypes = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _typeChannels = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _skuChannels = new(StringComparer.OrdinalIgnoreCase);
+    private string? _savedConfig;
 
     private IJSObjectReference? _viz;
     private bool _vizMounted;
@@ -971,7 +973,26 @@ else
         _typeChannels = ParseMap(_settings?.PerDeviceTypeChannelsJson);
         _skuChannels = ParseMap(_settings?.PerSkuChannelsJson);
         _scheduleMode = _settings?.Mode == FirmwareRolloutMode.Autopilot ? "autopilot" : "once";
+        _savedConfig = ConfigSignature();
     }
+
+    /// <summary>
+    /// What the inline editor can change, flattened. The component edits the settings object in
+    /// place, so there is nothing left to compare against once it has - this is taken at load.
+    /// </summary>
+    private string ConfigSignature() => string.Join("|",
+        _settings?.GlobalChannel,
+        _settings?.IncludeUniFiNetwork,
+        _settings?.IncludeUniFiOs,
+        _settings?.NetworkAppChannel,
+        _settings?.UniFiOsChannel,
+        string.Join(",", _exMacs.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _exSkus.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _exTypes.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _typeChannels.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}")),
+        string.Join(",", _skuChannels.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}")));
+
+    private bool ConfigDirty => _savedConfig != null && ConfigSignature() != _savedConfig;
 
     private FirmwareRolloutSettings WorkingSettings()
     {
