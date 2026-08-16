@@ -20488,6 +20488,11 @@ body.kiosk-mode .status-indicators {
     padding-top: 0;
 }
 
+.firmware-rollout-config-intro {
+    display: block;
+    margin-bottom: 1rem;
+}
+
 @media (max-width: 768px) {
     .firmware-rollout-console-verb {
         display: none;

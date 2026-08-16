@@ -94,11 +94,14 @@ public static class RolloutReportBuilder
         {
             var osPre = ParseStats(document.UniFiOsUpdate.PreStatsJson);
             var osPost = ParseStats(document.UniFiOsUpdate.PostStatsJson);
+            // Every row carries a canonical outcome: the console's own vocabulary would reach the
+            // chip as raw text and be counted by no summary tile.
             var osOutcome = document.UniFiOsUpdate.Outcome switch
             {
                 "updated" => RolloutOutcomes.Upgraded,
                 "stuck" => RolloutOutcomes.Failed,
-                _ => document.UniFiOsUpdate.Outcome ?? RolloutOutcomes.Skipped,
+                "refused" => RolloutOutcomes.Failed,
+                _ => RolloutOutcomes.Skipped,
             };
             report.Rows.Add(new RolloutReportRow
             {
