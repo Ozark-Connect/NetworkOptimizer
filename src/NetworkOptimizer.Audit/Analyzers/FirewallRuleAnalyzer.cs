@@ -1402,17 +1402,17 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find management networks that are isolated and don't have effective internet access
-        // Internet can be blocked via: 1) network config (InternetAccessEnabled=false), or
-        // 2) a firewall rule blocking all traffic to the External zone
+        // Find management networks without effective internet access. Internet can be blocked
+        // via: 1) network config (InternetAccessEnabled=false), 2) a firewall rule blocking all
+        // traffic to the External zone, or 3) zone-based isolation. The isolation toggle is not
+        // required: VLAN 1 can't have it, but internet can still be blocked by zones or rules.
         var isolatedMgmtNetworks = networks.Where(n =>
             n.Purpose == NetworkPurpose.Management &&
-            n.NetworkIsolationEnabled &&
             !HasEffectiveInternetAccess(n, rules, externalZoneId)).ToList();
 
         if (!isolatedMgmtNetworks.Any())
         {
-            _logger.LogDebug("No isolated management networks without internet access found");
+            _logger.LogDebug("No management networks without internet access found");
             return issues;
         }
 
