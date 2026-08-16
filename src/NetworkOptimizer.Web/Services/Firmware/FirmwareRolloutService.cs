@@ -515,8 +515,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
         var autoUpdaters = new List<string>();
         if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("devices");
+        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the UniFi Network application");
         if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("UniFi OS");
-        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the applications");
         if (autoUpdaters.Count > 0)
         {
             var list = autoUpdaters.Count switch
