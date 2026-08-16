@@ -1864,6 +1864,7 @@ public class AuditService : IAuditScanService
 
             // Management network firewall access
             Audit.IssueTypes.MgmtMissingUnifiAccess => "Firewall: Missing UniFi Cloud Access",
+            Audit.IssueTypes.MgmtMissingFirmwareDownload => "Firewall: Missing Firmware Download Access",
             Audit.IssueTypes.MgmtMissingAfcAccess => "Firewall: Missing AFC Access",
             Audit.IssueTypes.MgmtMissingNtpAccess => "Firewall: Missing NTP Access",
             Audit.IssueTypes.MgmtMissing5gAccess => "Firewall: Missing 5G/LTE Access",

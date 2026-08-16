@@ -1465,6 +1465,38 @@ public class FirewallRuleAnalyzer
                 });
             }
 
+            // Firmware downloads come from fw-download.ubnt.com, not ui.com. A rule allowing
+            // ui.com keeps cloud management working but devices cannot download firmware updates.
+            var fwDownloadRule = rules.FirstOrDefault(r =>
+                r.Enabled &&
+                r.ActionType.IsAllowAction() &&
+                r.AppliesToSourceNetwork(mgmtNetwork) &&
+                r.WebDomains?.Any(d => d.Contains("ubnt.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
+
+            var hasFwDownloadAccess = fwDownloadRule != null && !IsAllowRuleEclipsedByBlockRule(rules, fwDownloadRule, mgmtNetwork, externalZoneId);
+
+            if (!hasFwDownloadAccess)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.MgmtMissingFirmwareDownload,
+                    Severity = AuditSeverity.Informational,
+                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack firmware download access",
+                    CurrentNetwork = mgmtNetwork.Name,
+                    CurrentVlan = mgmtNetwork.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", mgmtNetwork.Name },
+                        { "vlan", mgmtNetwork.VlanId },
+                        { "required_domain", "ubnt.com" }
+                    },
+                    RuleId = "FW-MGMT-004",
+                    ScoreImpact = 0,
+                    RecommendedAction = "Add firewall rule allowing TCP 443 to ubnt.com for firmware downloads. Without this, devices on this network cannot download firmware updates from Ubiquiti."
+                });
+            }
+
             // Check for AFC (Automated Frequency Coordination) traffic rule - needed for 6GHz WiFi
             // Must have: source = management network, destination web domain = qcs.qualcomm.com, TCP allowed
             // Also check if the allow rule is eclipsed by a block rule with lower index
