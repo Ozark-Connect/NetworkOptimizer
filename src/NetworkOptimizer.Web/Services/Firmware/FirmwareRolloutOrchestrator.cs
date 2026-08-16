@@ -2165,6 +2165,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _escalatedAt.Clear();
         _commandWaitSince.Clear();
 
+        var document = ParseDocument(plan);
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var spacing = ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson);
+        RolloutPlanner.ComputeTimeline(document, spacing);
+        plan.PlanJson = JsonSerializer.Serialize(document);
+        await PersistPlanAsync(plan, cancellationToken);
+
         var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
         var inFlight = steps.Where(IsInFlight).ToList();
         if (inFlight.Count == 0) return;

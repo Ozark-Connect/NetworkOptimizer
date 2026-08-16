@@ -426,7 +426,7 @@ public class RolloutPlanner
     }
 
     /// <summary>Cumulative offsets: channel changes at group edges, gaps between waves.</summary>
-    private static void ComputeTimeline(RolloutPlanDocument doc, ResolvedSpacing spacing)
+    internal static void ComputeTimeline(RolloutPlanDocument doc, ResolvedSpacing spacing)
     {
         var t = doc.UniFiNetworkUpdateSeconds;
         foreach (var group in doc.ChannelGroups)
