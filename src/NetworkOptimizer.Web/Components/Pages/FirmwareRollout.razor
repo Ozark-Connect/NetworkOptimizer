@@ -438,11 +438,11 @@ else
                         <span>Loading your settings...</span>
                     </div>
                 }
-                else if (!_preview.ConsoleConnected)
+                else if (!_preview.ConsoleDetailsKnown)
                 {
                     <div class="alert alert-info">
-                        These settings are read back from your UniFi Console, which is not reachable right now.
-                        They will appear once it reconnects.
+                        These settings are read back from your UniFi Console, which has not answered yet.
+                        They will appear once it does.
                     </div>
                 }
                 else

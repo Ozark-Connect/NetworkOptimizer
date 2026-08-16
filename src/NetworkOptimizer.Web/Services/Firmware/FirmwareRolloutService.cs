@@ -183,6 +183,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             ConsoleApiAvailable = !_commands.UsesApiKey,
             HasCloudGatewayHardware = context.Devices.Any(d =>
                 FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs),
+            ConsoleDetailsKnown = console != null,
             // The step only exists where a Cloud Gateway runs the console: a self-hosted console
             // is out of scope, and a UXG-class gateway has network firmware only.
             HasCloudGateway = console?.IsStandaloneConsole == false && context.Devices.Any(d =>
