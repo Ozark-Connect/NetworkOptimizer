@@ -381,17 +381,19 @@
                     opts.delay = [delayMs, 200];
                 }
                 tippy(el, opts);
+                el.setAttribute('data-tooltip-bound', '');
             });
         }
 
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
-            // Clean up orphaned tippy instances (elements that no longer have data-tooltip but still have _tippy)
-            // This happens when Blazor reuses elements and removes the data-tooltip attribute
-            document.querySelectorAll('.path-connector, .wireless-icon, .isp-event-badge').forEach(function(el) {
-                if (el._tippy && !el.hasAttribute('data-tooltip')) {
-                    el._tippy.destroy();
-                }
+            // Elements Blazor kept but whose data-tooltip it removed - the tooltip is no longer true
+            // and would otherwise hover forever. Found by the marker set at bind time: a tippy
+            // instance is a JS property, so there is nothing to select on without one. This used to
+            // name three classes, which meant every other dynamic tooltip in the app went stale.
+            document.querySelectorAll('[data-tooltip-bound]:not([data-tooltip])').forEach(function(el) {
+                if (el._tippy) el._tippy.destroy();
+                el.removeAttribute('data-tooltip-bound');
             });
 
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
@@ -472,6 +474,7 @@
                     // Initialize new tooltip for dynamically added element
                     tippy(el, opts);
                 }
+                el.setAttribute('data-tooltip-bound', '');
             });
         }, 500);
 
