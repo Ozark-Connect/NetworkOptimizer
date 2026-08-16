@@ -512,27 +512,27 @@ else
                 @if (_reportTyped is { } rep)
                 {
                     <div class="firmware-rollout-stats">
-                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesUpgraded</span><span class="detail-label">upgraded</span></div>
+                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesUpgraded</span><span class="detail-label">Upgraded</span></div>
                         @if (rep.DevicesFailed > 0)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesFailed</span><span class="detail-label">failed</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesFailed</span><span class="detail-label">Failed</span></div>
                         }
                         @if (rep.DevicesRolledBack > 0)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesRolledBack</span><span class="detail-label">rolled back</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesRolledBack</span><span class="detail-label">Rolled back</span></div>
                         }
                         @if (rep.DevicesSkipped > 0)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesSkipped</span><span class="detail-label">skipped</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesSkipped</span><span class="detail-label">Skipped</span></div>
                         }
-                        <div class="firmware-rollout-stat"><span class="detail-value">@Duration(rep.TotalSeconds)</span><span class="detail-label">duration</span></div>
+                        <div class="firmware-rollout-stat"><span class="detail-value">@Duration(rep.TotalSeconds)</span><span class="detail-label">Duration</span></div>
                         @if (rep.SiteCpuBeforeMean is { } cb && rep.SiteCpuAfterMean is { } ca)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">mean device CPU</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">Mean device CPU</span></div>
                         }
                         @if (rep.SiteMemBeforeMean is { } mb && rep.SiteMemAfterMean is { } ma)
                         {
-                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">mean device memory</span></div>
+                            <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">Mean device memory</span></div>
                         }
                         @if (rep.UniFiNetworkUpdateOutcome != null)
                         {
