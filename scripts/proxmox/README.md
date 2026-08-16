@@ -25,7 +25,7 @@ The script will guide you through:
 ## Requirements
 
 - **Proxmox VE 7.0** or later
-- **10GB** disk space minimum (20GB recommended)
+- **20GB** disk space recommended (10GB is workable, but Docker never reclaims the image an upgrade replaces)
 - **2GB** RAM minimum (4GB recommended)
 - Internet access for downloading container template and Docker images
 
@@ -50,7 +50,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | RAM | 2048 MB | Container memory |
 | Swap | 512 MB | Swap space |
 | CPU | 2 cores | Container CPU cores |
-| Disk | 10 GB | Root filesystem size |
+| Disk | 20 GB | Root filesystem size |
 | Storage | `local-lvm` | Proxmox storage for container |
 | VLAN Tag | None | Tag network interface for VLAN-aware bridges |
 | Network | DHCP | Static IP also supported (with DNS) |
@@ -69,7 +69,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 To update to the latest version, run from your **Proxmox host**:
 
 ```bash
-pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose pull && docker compose up -d"
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d && docker image prune -f'
 ```
 
 Or enter the container first:
@@ -77,13 +77,13 @@ Or enter the container first:
 ```bash
 pct enter <CT_ID>
 cd /opt/network-optimizer
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d && docker image prune -f
 ```
 
 If you installed Traefik, update it separately:
 
 ```bash
-pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d"
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d && docker image prune -f'
 ```
 
 ## Post-Installation
@@ -146,7 +146,7 @@ pct exec <CT_ID> -- docker logs -f network-optimizer
 pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose restart"
 
 # Update to latest version
-pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose pull && docker compose up -d"
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d && docker image prune -f'
 
 # Check health
 pct exec <CT_ID> -- curl -s http://localhost:8042/api/health
@@ -158,7 +158,7 @@ Or enter the container first:
 pct enter <CT_ID>
 cd /opt/network-optimizer
 docker compose logs -f
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d && docker image prune -f
 ```
 
 ## HTTPS with Traefik
@@ -186,7 +186,7 @@ During installation, you can optionally enable HTTPS via a built-in [Traefik](ht
 pct exec <CT_ID> -- docker logs -f traefik-proxy
 
 # Update Traefik
-pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d"
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d && docker image prune -f'
 
 # Edit proxy configuration
 pct exec <CT_ID> -- nano /opt/network-optimizer-proxy/dynamic/config.yml

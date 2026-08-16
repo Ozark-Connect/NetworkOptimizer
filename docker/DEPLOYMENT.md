@@ -180,7 +180,7 @@ http://<container-ip>:8042
 
 **Updating:**
 ```bash
-pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose pull && docker compose up -d"
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d && docker image prune -f'
 ```
 
 For advanced configuration, troubleshooting, and manual installation see the [full Proxmox guide](../scripts/proxmox/README.md).
@@ -813,7 +813,7 @@ docker builder prune -f
 
 Your `data/`, `logs/`, and `.env` files are preserved. Future updates are now just:
 ```bash
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d && docker image prune -f
 ```
 
 ## Troubleshooting
