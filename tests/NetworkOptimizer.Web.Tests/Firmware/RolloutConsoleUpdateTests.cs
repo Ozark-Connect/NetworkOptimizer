@@ -191,7 +191,10 @@ public class RolloutConsoleUpdateTests
         await harness.TickAsync(TimeSpan.FromMinutes(5));
         (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
 
-        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo();
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.6" },
+        };
         harness.Commands.PendingUniFiOs = null;
         await harness.TickAsync(TimeSpan.FromMinutes(5));
 
@@ -384,13 +387,15 @@ public class RolloutConsoleUpdateTests
     private static async Task RunDeviceToLitmusAsync(RolloutHarness harness, string mac)
     {
         var existing = harness.Observer.Devices[mac];
+        var isGateway = existing.Model is "UDMA6A8" or "UCGF" or "UDR" or "UDMPRO";
         harness.Observer.Devices[mac] = existing with { State = (int)UniFiDeviceState.Disconnected };
         await harness.TickAsync(TimeSpan.FromSeconds(20));
 
         harness.Observer.Devices[mac] = existing with { State = Online, Firmware = ToVersion, UpgradeToFirmware = null };
         await harness.TickAsync(TimeSpan.FromMinutes(4));
         await harness.TickAsync(TimeSpan.FromSeconds(20));
-        await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown);
+        var cooldown = isGateway ? FirmwareRolloutOrchestrator.GatewayCoolDown : FirmwareRolloutOrchestrator.CoolDown;
+        await harness.TickAsync(cooldown);
     }
 }
 
