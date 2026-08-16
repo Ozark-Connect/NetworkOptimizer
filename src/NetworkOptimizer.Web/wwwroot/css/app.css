@@ -20488,9 +20488,17 @@ body.kiosk-mode .status-indicators {
     padding-top: 0;
 }
 
+.firmware-rollout-config-title {
+    margin-bottom: 0.25rem;
+}
+
 .firmware-rollout-config-intro {
     display: block;
     margin-bottom: 1rem;
+}
+
+.firmware-rollout-config-save {
+    margin-top: 1.5rem;
 }
 
 @media (max-width: 768px) {

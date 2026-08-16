@@ -429,8 +429,24 @@ else
         {
             <SiteAdminOnly>
             <div class="card-body firmware-rollout-autopilot-config">
-                <h4 class="card-title" style="margin-bottom: 0.25rem">Autopilot Configuration</h4>
+                <h4 class="card-title firmware-rollout-config-title">Autopilot Configuration</h4>
                 <small class="form-help firmware-rollout-config-intro">Changes here apply to the next autopilot-initiated rollout.</small>
+                @if (_preview == null)
+                {
+                    <div class="loading-container">
+                        <span class="spinner spinner-sm"></span>
+                        <span>Loading your settings...</span>
+                    </div>
+                }
+                else if (!_preview.ConsoleConnected)
+                {
+                    <div class="alert alert-info">
+                        These settings are read back from your UniFi Console, which is not reachable right now.
+                        They will appear once it reconnects.
+                    </div>
+                }
+                else
+                {
                 <FirmwareChannelConfig
                     Settings="_settings"
                     EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
@@ -453,10 +469,11 @@ else
                     UpdateTooltip="UpdateTooltip"
                     ToggleSku="ToggleSku" />
 
-                <button class="btn btn-primary" style="margin-top: 1.5rem" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
+                <button class="btn btn-primary firmware-rollout-config-save" @onclick="SaveAutopilotSettingsAsync" disabled="@_busy">
                     @if (_busy) { <span class="spinner spinner-sm"></span> }
                     else { <span>Save</span> }
                 </button>
+                }
             </div>
             </SiteAdminOnly>
         }
