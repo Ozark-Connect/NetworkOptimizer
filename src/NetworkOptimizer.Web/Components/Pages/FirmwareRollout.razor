@@ -321,10 +321,13 @@ else if (_wizardOpen)
                         <div class="firmware-rollout-exclusion-list firmware-rollout-exclude">
                             @foreach (var device in FilteredExclusionCandidates)
                             {
-                                @* Tooltip on the checkbox alone: on the row it fired anywhere along it. *@
+                                @* The tooltip goes on a wrapper, not the row (it fired anywhere along it)
+                                   and not the input (a disabled control emits no hover). *@
                                 var derived = DerivedExclusion(device);
                                 <label class="checkbox-label firmware-rollout-device-row">
-                                    <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" data-tooltip="@derived" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                    <span data-tooltip="@derived">
+                                        <input type="checkbox" checked="@IsExcluded(device)" disabled="@(derived != null)" @onchange="e => ToggleSet(_exMacs, device.Mac, e)" />
+                                    </span>
                                     <span>@device.Name</span>
                                     <span class="firmware-rollout-muted">@device.DisplayModel</span>
                                     @if (device.Upgradable)
