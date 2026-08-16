@@ -956,8 +956,8 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
-                // Skip LAG member ports
-                if (port.LagIdx.HasValue)
+                // Skip LAG child ports - their config is assimilated into the parent
+                if (port.AggregatedBy.HasValue)
                     continue;
 
                 // Skip ports that already have a profile
@@ -1134,8 +1134,8 @@ public class PortProfileSuggestionAnalyzer
 
             foreach (var port in device.PortTable)
             {
-                // Skip LAG member ports
-                if (port.LagIdx.HasValue)
+                // Skip LAG child ports - their config is assimilated into the parent
+                if (port.AggregatedBy.HasValue)
                     continue;
 
                 // Skip uplink and disabled ports
