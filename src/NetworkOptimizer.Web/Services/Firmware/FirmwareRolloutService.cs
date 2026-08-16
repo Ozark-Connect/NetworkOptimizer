@@ -523,7 +523,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             {
                 1 => autoUpdaters[0],
                 2 => $"{autoUpdaters[0]} and {autoUpdaters[1]}",
-                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))} and {autoUpdaters[^1]}",
+                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))}, and {autoUpdaters[^1]}",
             };
             preview.Warnings.Add(
                 $"UniFi updates {list} on its own schedule. Rollouts still run; turning that off rules " +
