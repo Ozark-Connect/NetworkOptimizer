@@ -813,7 +813,7 @@ docker builder prune -f
 
 Your `data/`, `logs/`, and `.env` files are preserved. Future updates are now just:
 ```bash
-docker compose pull && docker compose up -d && docker image prune -f
+docker compose pull && docker compose up -d
 ```
 
 ## Troubleshooting

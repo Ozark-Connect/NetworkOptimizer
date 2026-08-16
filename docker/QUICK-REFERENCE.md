@@ -65,7 +65,7 @@ docker-compose logs -f network-optimizer
 
 **Docker Image:**
 ```bash
-docker compose pull && docker compose up -d && docker image prune -f
+docker compose pull && docker compose up -d
 ```
 
 **From Source:**
