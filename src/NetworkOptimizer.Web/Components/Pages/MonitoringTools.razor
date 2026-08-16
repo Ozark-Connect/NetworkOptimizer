@@ -629,9 +629,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         </div>
         <div class="card-body">
             <p class="page-description dmesg-description">
-                Kernel message log from the gateway, parsed into categories. On a long-running
-                multi-WAN gateway the ring buffer fills with connection tracking noise,
-                pushing boot events out; the report counts those and highlights what matters.
+                Kernel message log from the gateway, parsed into categories. Noise like
+                connection tracking churn is counted rather than listed, so the findings
+                that matter stand out.
             </p>
 
             @if (!_gatewaySshConfigured && !_siteAgentOffline)
@@ -749,7 +749,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             else
             {
                 <p class="page-description dmesg-description">
-                    Generate a full UniFi OS support file from the console and download it.
+                    Generate a full UniFi Support File from the console and download it.
                     This is the same bundle the UniFi Console UI produces under
                     Settings - Control Plane - Console - the format Ubiquiti Support
                     expects when filing a ticket.
