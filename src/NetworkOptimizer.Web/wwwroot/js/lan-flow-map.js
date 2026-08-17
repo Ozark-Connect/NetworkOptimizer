@@ -768,22 +768,6 @@ export class LanFlowMap {
         for (const node of snap.nodes) {
             if (positions.has(node.id)) continue;
             const theta = (Math.random() * 2 - 1) * Math.PI;
-            // A client starts beside the device it is connected to, 6-12 units out - the same
-            // spacing a client added mid-playback gets. Seeding every leaf around the origin
-            // instead left the relaxation to drag them in against everything else's repulsion,
-            // and they settled far wider than the AP they belong to.
-            const isLeaf = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
-            const parentPos = isLeaf && node.parentId ? positions.get(node.parentId) : null;
-            if (parentPos) {
-                const dist = 6 + Math.random() * 6;
-                positions.set(node.id, {
-                    x: parentPos.x + Math.cos(theta) * dist,
-                    y: parentPos.y - 1.5 + Math.random(),
-                    z: parentPos.z + Math.sin(theta) * dist,
-                    pinned: false,
-                });
-                continue;
-            }
             const r = 12 + Math.random() * 8;
             positions.set(node.id, {
                 x: Math.cos(theta) * r,
@@ -881,6 +865,7 @@ export class LanFlowMap {
         // Post-layout: push WiFi clients outward from their parent AP so they
         // fan out rather than clustering tightly around the infrastructure.
         const WIFI_SPREAD = 1.4;
+        const CLIENT_MAX_PARENT_DIST = 12;
         for (const node of snap.nodes) {
             if (node.kind !== NODE_KIND.WifiClient) continue;
             const p = positions.get(node.id);
@@ -894,9 +879,13 @@ export class LanFlowMap {
             const dz = p.z - pp.z;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
             if (d < 0.1) continue;
-            p.x = pp.x + dx * WIFI_SPREAD;
-            p.y = pp.y + dy * WIFI_SPREAD;
-            p.z = pp.z + dz * WIFI_SPREAD;
+            // Fan out, but not off into the distance: repulsion from every other leaf can push a
+            // client far past its AP, and the 1.4 above then multiplies that. Cap the result at
+            // the spacing a client added mid-playback gets, which is the spacing that reads right.
+            const spread = Math.min(d * WIFI_SPREAD, CLIENT_MAX_PARENT_DIST) / d;
+            p.x = pp.x + dx * spread;
+            p.y = pp.y + dy * spread;
+            p.z = pp.z + dz * spread;
         }
 
         // Safety net: should never trigger given the step clamp above, but if any
