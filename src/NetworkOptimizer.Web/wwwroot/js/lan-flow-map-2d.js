@@ -878,6 +878,10 @@ class LanFlowMap2D {
     // Links inherit their endpoints' visibility: hiding a node leaves no dangling edge.
     // Resolved from the snapshot's node kinds, not the layout tree - a hub or cloud edge
     // carries no tree node, so tree refs alone let its link survive the hidden node.
+    //
+    // Never judge an infra endpoint by _isNodeVisible: the name and band filters narrow which
+    // CLIENTS are drawn while infra is always drawn, so asking it about a switch erased every
+    // infra link the moment a filter was typed.
     _isEdgeVisible(e){
         for(const id of [e.lk?.fromNodeId, e.lk?.toNodeId]){
             if(!id) continue;
@@ -886,6 +890,7 @@ class LanFlowMap2D {
             if(kind===NK.WiredClient&&this._hideWiredClients) return false;
             if(kind===NK.WifiClient&&this._hideWifiClients) return false;
             if(kind===NK.Cloud&&this._hideClouds) return false;
+            if(kind!==NK.WiredClient&&kind!==NK.WifiClient) continue;
             const tn=this._treeMap.get(id);
             if(tn&&!this._isNodeVisible(tn)) return false;
         }

@@ -3,7 +3,7 @@
 // planned (preview: scrub or play the sequence over estimated times) and live
 // (actual step states with a now marker). No chart library - DOM + the map canvas.
 
-import * as map2d from './lan-flow-map-2d.js?v=2'; // bump v= when lan-flow-map-2d.js changes
+import * as map2d from './lan-flow-map-2d.js?v=3'; // bump v= when lan-flow-map-2d.js changes
 // KEEP IN SYNC with lan-flow-map-2d.js: the same specifier, so both share one store.
 import * as flowData from './lan-flow-data.js?v=8';
 
