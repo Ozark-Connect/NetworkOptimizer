@@ -2012,9 +2012,17 @@ export class LanFlowMap {
     // A spot for a client inside its parent's room: an angle of its own, a radius bounded by how
     // far the room actually goes, and a nudge off anything already placed there.
     _placeInRoom(nodeId, parentPos, floorZ, preferred, taken) {
-        const wallsForFloor = (this._wallSegs || [])
-            .filter(f => Math.abs((f.z ?? 0) * (this._anchorScale ?? 1) * 0.8 - parentPos.y) < 6)
-            .flatMap(f => f.segs);
+        const scale = this._anchorScale ?? 1;
+        // The floor this AP sits above: its base elevation is what client heights are measured
+        // from, since an AP is usually on the ceiling and hanging clients under it would leave
+        // every device floating at head-height of the storey above.
+        let floor = null;
+        for (const f of this._wallSegs || []) {
+            const baseY = (f.z ?? 0) * scale * 0.8;
+            if (baseY - 0.5 > parentPos.y) continue;
+            if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs };
+        }
+        const wallsForFloor = floor ? floor.segs : [];
 
         // Stable angle per client, so a rebuild puts it back where it was.
         const rnd = _roamSeed(nodeId);
@@ -2044,16 +2052,26 @@ export class LanFlowMap {
             for (let attempt = 0; attempt < 8; attempt++) {
                 const angle = rnd() * Math.PI * 2;
                 const r = ringRadius * (0.75 + rnd() * 0.35);
+                // Staggered through the room's height rather than strung at one level: each
+                // client takes the next of five bands between floor and ceiling with jitter
+                // inside it, so a busy room reads with depth. No floor to measure from means no
+                // room either, so those sit below the AP as before.
+                const band = (this._roomBand = ((this._roomBand ?? -1) + 1) % 5);
+                const wallH = 2.9 * scale * 0.8;
+                const y = floor
+                    ? floor.baseY + wallH * (0.1 + band * 0.19 + rnd() * 0.13)
+                    : parentPos.y - 1.5 + rnd() * 2;
                 const cand = {
                     x: parentPos.x + Math.cos(angle) * r,
-                    y: parentPos.y - 1.5 + rnd(),
+                    y,
                     z: parentPos.z + Math.sin(angle) * r,
                     pinned: false,
                 };
                 last = cand;
+                // Two clients may share a footprint if they are on different shelves.
                 const clash = taken.some(t => {
-                    const dx = t.x - cand.x, dz = t.z - cand.z;
-                    return dx * dx + dz * dz < 4;
+                    const dx = t.x - cand.x, dz = t.z - cand.z, dy = t.y - cand.y;
+                    return dx * dx + dz * dz < 4 && Math.abs(dy) < 1.2;
                 });
                 if (!clash) return cand;
             }
