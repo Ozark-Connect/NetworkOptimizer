@@ -1883,18 +1883,24 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.Status = FirmwareRolloutStatus.Reported;
         await PersistPlanAsync(plan, cancellationToken);
 
-        var issues = report.Issues.Count == 0
-            ? "Nothing came out of it needing a look."
-            : $"{report.Issues.Count} thing{(report.Issues.Count == 1 ? "" : "s")} came out of it worth a look.";
+        var issues = report.Issues.Count switch
+        {
+            0 => "Nothing regressed.",
+            1 => "1 thing is worth a look.",
+            var count => $"{count} things are worth a look.",
+        };
+
+        var consoleOnly = steps.Count == 0 && RolloutScopeCopy.IncludesConsole(document);
+        var subject = consoleOnly
+            ? $"{(string.IsNullOrWhiteSpace(document.ConsoleName) ? "The console" : document.ConsoleName)} has"
+            : $"{report.DevicesUpgraded} device{(report.DevicesUpgraded == 1 ? " has" : "s have")}";
 
         await PublishAsync(
             RolloutAlerts.ReportReady,
             AlertSeverity.Info,
             $"Firmware Rollout Report Ready{_siteSuffix}",
-            $"{(steps.Count == 0 && RolloutScopeCopy.IncludesConsole(document)
-                ? "The console has"
-                : $"{report.DevicesUpgraded} device{(report.DevicesUpgraded == 1 ? " has" : "s have")}")} been running "
-            + $"{(steps.Count == 0 ? "its" : "their")} new firmware for {settings.SoakHours} hours. {issues} "
+            $"{subject} been running {(consoleOnly || report.DevicesUpgraded == 1 ? "its" : "their")} new firmware "
+            + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
             + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
 
