@@ -882,7 +882,7 @@ export class LanFlowMap {
             const pp = positions.get(parentId);
             if (!pp) continue;
 
-            const room = this._placeInRoom(node.id, pp, null, CLIENT_MAX_PARENT_DIST, placedNear);
+            const room = this._placeInRoom(node.id, pp, p, CLIENT_MAX_PARENT_DIST, placedNear);
             if (room) {
                 p.x = room.x; p.y = room.y; p.z = room.z;
                 placedNear.push(p);
@@ -2011,7 +2011,7 @@ export class LanFlowMap {
 
     // A spot for a client inside its parent's room: an angle of its own, a radius bounded by how
     // far the room actually goes, and a nudge off anything already placed there.
-    _placeInRoom(nodeId, parentPos, floorZ, preferred, taken) {
+    _placeInRoom(nodeId, parentPos, current, preferred, taken) {
         const scale = this._anchorScale ?? 1;
         // The floor this AP sits above: its base elevation is what client heights are measured
         // from, since an AP is usually on the ceiling and hanging clients under it would leave
@@ -2043,15 +2043,29 @@ export class LanFlowMap {
             }
         }
 
-        // Fill the room first, then keep going in wider rings. A room that runs out of space
-        // pushes the overflow outside it rather than stacking clients on top of each other -
-        // being outside the walls is a smaller lie than two devices in the same spot.
+        // Start from where the relaxation already put this client - it has spread the leaves
+        // apart sensibly - and let the room only pull it in. Ignoring that and re-scattering
+        // everything from scratch is what threw devices across the property.
+        let baseAngle = rnd() * Math.PI * 2;
+        let baseDist = radius * (0.55 + rnd() * 0.45);
+        if (current) {
+            const dx = current.x - parentPos.x, dz = current.z - parentPos.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d > 0.1) {
+                baseAngle = Math.atan2(dz, dx);
+                baseDist = Math.min(d, radius);
+            }
+        }
+
+        // Fill the room first, then step outward gently. A room that runs out of space pushes the
+        // overflow past its walls rather than stacking devices on each other, but a step of a few
+        // percent per ring keeps that a nudge instead of a launch.
         let last = null;
         for (let ring = 0; ring < 6; ring++) {
-            const ringRadius = radius * (1 + ring * 0.45);
-            for (let attempt = 0; attempt < 8; attempt++) {
-                const angle = rnd() * Math.PI * 2;
-                const r = ringRadius * (0.75 + rnd() * 0.35);
+            const ringRadius = baseDist * (1 + ring * 0.12);
+            for (let attempt = 0; attempt < 12; attempt++) {
+                const angle = baseAngle + (attempt === 0 && ring === 0 ? 0 : (rnd() - 0.5) * Math.PI);
+                const r = ringRadius * (0.9 + rnd() * 0.2);
                 // Staggered through the room's height rather than strung at one level: each
                 // client takes the next of five bands between floor and ceiling with jitter
                 // inside it, so a busy room reads with depth. No floor to measure from means no
