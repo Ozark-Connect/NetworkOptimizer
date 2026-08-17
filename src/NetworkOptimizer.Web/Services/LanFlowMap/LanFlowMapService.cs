@@ -1604,14 +1604,25 @@ public class LanFlowMapService
             };
 
             update.AddedClientNodes.Add(node);
+            var linkId = $"cli-link-{clientMac}";
             update.AddedClientLinks.Add(new LanLink
             {
-                Id = $"cli-link-{clientMac}",
+                Id = linkId,
                 FromNodeId = parentId,
                 ToNodeId = nodeId,
                 Kind = wired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
                 Band = band,
             });
+
+            // The rate pass above walks the snapshot's links, and this one is not in it - so
+            // without this a client rebuilt for an instant drew a dead line while its throughput
+            // sat right here in the same telemetry point.
+            update.LinkRates[linkId] = new LinkLiveRates
+            {
+                DownstreamBps = p.TxThroughputBps ?? 0,
+                UpstreamBps = p.RxThroughputBps ?? 0,
+                AsOf = p.Time,
+            };
         }
 
         foreach (var (mac, p) in wiredClientRates) Add(mac, p, wired: true);

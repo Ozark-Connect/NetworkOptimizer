@@ -768,6 +768,22 @@ export class LanFlowMap {
         for (const node of snap.nodes) {
             if (positions.has(node.id)) continue;
             const theta = (Math.random() * 2 - 1) * Math.PI;
+            // A client starts beside the device it is connected to, 6-12 units out - the same
+            // spacing a client added mid-playback gets. Seeding every leaf around the origin
+            // instead left the relaxation to drag them in against everything else's repulsion,
+            // and they settled far wider than the AP they belong to.
+            const isLeaf = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+            const parentPos = isLeaf && node.parentId ? positions.get(node.parentId) : null;
+            if (parentPos) {
+                const dist = 6 + Math.random() * 6;
+                positions.set(node.id, {
+                    x: parentPos.x + Math.cos(theta) * dist,
+                    y: parentPos.y - 1.5 + Math.random(),
+                    z: parentPos.z + Math.sin(theta) * dist,
+                    pinned: false,
+                });
+                continue;
+            }
             const r = 12 + Math.random() * 8;
             positions.set(node.id, {
                 x: Math.cos(theta) * r,
