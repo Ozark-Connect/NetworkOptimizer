@@ -1522,6 +1522,9 @@ export class LanFlowMap {
         if (!pos || !group || !apPos) return;
         if (explicitPos) {
             pos.x = explicitPos.x; pos.y = explicitPos.y; pos.z = explicitPos.z;
+        } else if (pos.pinned) {
+            // A device someone placed stays where they put it. Roaming changes which AP it talks
+            // to, not where it physically is, so only the link is re-pointed below.
         } else {
             // Same scatter as a freshly-attached client (_addNodeIncremental): random
             // angle, 6-12 units out, slight y jitter - but seeded off the client id so
