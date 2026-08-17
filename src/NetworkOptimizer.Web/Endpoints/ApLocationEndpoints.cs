@@ -42,8 +42,10 @@ public static class ApLocationEndpoints
         var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // AP Location API endpoints
-        read.MapGet("/api/ap-locations", async (NetworkOptimizerDbContext db) =>
+        read.MapGet("/api/ap-locations", async (NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory, SiteContextService siteContext) =>
         {
+            // The site's own database, matching where the writes below land.
+            using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var locations = await db.ApLocations.ToListAsync();
             return Results.Ok(locations);
         });

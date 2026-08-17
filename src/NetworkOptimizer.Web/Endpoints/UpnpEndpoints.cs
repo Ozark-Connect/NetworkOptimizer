@@ -41,11 +41,8 @@ public static class UpnpEndpoints
         var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // UPnP Notes API endpoints
-        read.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
-        {
-            var notes = await db.UpnpNotes.ToListAsync();
-            return Results.Ok(notes);
-        });
+        read.MapGet("/api/upnp/notes", async (IUpnpNoteService notes) =>
+            Results.Ok(await notes.GetNotesAsync()));
 
         // IUpnpNoteService gates this on the site in context (Site Operator) and resolves the
         // site's own database; the group carries the metadata only.

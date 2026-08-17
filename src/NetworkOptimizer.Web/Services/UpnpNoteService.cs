@@ -18,6 +18,10 @@ namespace NetworkOptimizer.Web.Services;
 [MutatingService(SiteScoped = true)]
 public interface IUpnpNoteService
 {
+    /// <summary>Every note on this site. A read, so any Viewer may have it.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<UpnpNote>> GetNotesAsync();
+
     /// <summary>Writes a note against a mapping, or clears it when the text is empty.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "upnp_note")]
@@ -36,6 +40,13 @@ public class UpnpNoteService : IUpnpNoteService
     {
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<UpnpNote>> GetNotesAsync()
+    {
+        using var db = _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+        return await db.UpnpNotes.ToListAsync();
     }
 
     /// <inheritdoc />

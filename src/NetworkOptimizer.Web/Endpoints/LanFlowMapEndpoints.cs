@@ -15,7 +15,6 @@ public static class LanFlowMapEndpoints
         // authorization policy, which is what architecture test A1 checks. Reads are any
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
 
         read.MapGet("/api/monitoring/lan-flow-map/snapshot",
             async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>

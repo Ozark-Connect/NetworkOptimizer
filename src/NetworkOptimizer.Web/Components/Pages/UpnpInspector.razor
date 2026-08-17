@@ -350,7 +350,7 @@
     {
         try
         {
-            var notesList = await Db.UpnpNotes.ToListAsync();
+            var notesList = await UpnpNotes.GetNotesAsync();
             notes = notesList
                 .Where(n => !string.IsNullOrEmpty(n.Note))
                 .ToDictionary(
