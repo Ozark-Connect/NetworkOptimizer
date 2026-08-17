@@ -101,7 +101,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 ScheduledStartAt = plan.ScheduledStartAt,
                 StartedAt = plan.StartedAt,
                 CompletedAt = plan.CompletedAt,
-                DeviceCount = document.Waves.Sum(w => w.Steps.Count),
+                DeviceCount = RolloutScopeCopy.DeviceCount(document),
                 WaveCount = document.Waves.Count,
                 HasReport = !string.IsNullOrEmpty(plan.ReportJson),
             };

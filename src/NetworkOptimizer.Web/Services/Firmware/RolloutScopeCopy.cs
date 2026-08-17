@@ -16,6 +16,32 @@ public static class RolloutScopeCopy
     }
 
     /// <summary>
+    /// Whether the console is upgraded as a device in its own right: a Cloud Gateway taking a UniFi
+    /// OS build that no device step already covers. This is the rule the report adds its console row
+    /// under, so anything counting devices has to ask it rather than count waves.
+    /// </summary>
+    /// <param name="document">The plan document.</param>
+    public static bool ConsoleCountsAsDevice(RolloutPlanDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.IncludesUniFiOsUpdate
+            && !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && !document.Waves.SelectMany(w => w.Steps)
+                .Any(s => string.Equals(s.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Devices the rollout upgrades, the console included where it is one of them. Matches the
+    /// report's row count: a console-only rollout is one device, not none.
+    /// </summary>
+    /// <param name="document">The plan document.</param>
+    public static int DeviceCount(RolloutPlanDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.Waves.Sum(w => w.Steps.Count) + (ConsoleCountsAsDevice(document) ? 1 : 0);
+    }
+
+    /// <summary>
     /// The console surfaces a plan covers, or null when it covers none.
     /// </summary>
     /// <param name="document">The plan document.</param>
