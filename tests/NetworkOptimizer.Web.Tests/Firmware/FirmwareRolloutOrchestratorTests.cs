@@ -30,6 +30,60 @@ public class FirmwareRolloutOrchestratorTests
     private static readonly TimeSpan PastWaveGap = TimeSpan.FromMinutes(5);
 
     [Fact]
+    public async Task SilentDevice_AcrossAGapWeCouldNotSee_IsNotFailedForSilenceNobodyHeard()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Litmus.Verdict = LitmusVerdict.Silent("The device stopped reporting health after the upgrade.");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Upgrading, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        // Part of the post-upgrade window goes unseen - the console answers either side of it, so
+        // the cool-down still completes, but the telemetry gap in the middle proves nothing.
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+        harness.Observer.ConsoleDark = true;
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+        harness.Observer.ConsoleDark = false;
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.CoolDown);
+
+        // Bounded: silence that outlasts the grace is judged on whatever we have.
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+        await harness.TickAsync(TimeSpan.FromSeconds(10));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+    }
+
+    [Fact]
+    public async Task SilentDevice_WhileWeCanSeeTheSite_StillFails()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Litmus.Verdict = LitmusVerdict.Silent("The device stopped reporting health after the upgrade.");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Upgrading, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown + TimeSpan.FromMinutes(1));
+        await harness.TickAsync(TimeSpan.FromSeconds(10));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+    }
+
+    [Fact]
     public async Task HappyPath_RunsTheDeviceThroughToLitmusPassed()
     {
         using var harness = new RolloutHarness();

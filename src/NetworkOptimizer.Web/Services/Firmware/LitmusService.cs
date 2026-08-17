@@ -7,13 +7,19 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <summary>Whether a device passed its post-upgrade checks, and why not when it did not.</summary>
 /// <param name="Passed">True when nothing objected.</param>
 /// <param name="Reason">What failed, for the step's Error field and the SKU-abort alert.</param>
-public sealed record LitmusVerdict(bool Passed, string? Reason = null)
+public sealed record LitmusVerdict(bool Passed, string? Reason = null, bool Silence = false)
 {
     /// <summary>Nothing objected.</summary>
     public static LitmusVerdict Pass() => new(true);
 
     /// <summary>Something objected.</summary>
     public static LitmusVerdict Fail(string reason) => new(false, reason);
+
+    /// <summary>
+    /// The device said nothing at all. A failure like any other where we were watching, but the
+    /// caller may know we were not - a device cannot be condemned for silence nobody heard.
+    /// </summary>
+    public static LitmusVerdict Silent(string reason) => new(false, reason, Silence: true);
 }
 
 /// <summary>
@@ -152,7 +158,7 @@ public class LitmusService : IRolloutLitmusService
         if (!post.HasSamples)
         {
             return preStats is { HasSamples: true }
-                ? LitmusVerdict.Fail("The device stopped reporting health after the upgrade.")
+                ? LitmusVerdict.Silent("The device stopped reporting health after the upgrade.")
                 : LitmusVerdict.Pass();
         }
 

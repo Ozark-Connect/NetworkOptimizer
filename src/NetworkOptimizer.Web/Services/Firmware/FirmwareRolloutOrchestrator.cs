@@ -1311,8 +1311,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
 
         var preStats = ParseStats(step.PreStatsJson);
+        var windowFrom = backAt + ShortLitmusSettle;
         var verdict = await _litmus.RunShortLitmusAsync(
-            step.DeviceMac, preStats, backAt + ShortLitmusSettle, Now, cancellationToken);
+            step.DeviceMac, preStats, windowFrom, Now, cancellationToken);
+
+        // Silence we did not watch is not evidence. Telemetry stops for reasons that have nothing
+        // to do with this device - another device's reboot cutting the path, a dropped tunnel, the
+        // console restarting - and failing it here can roll back a healthy device for someone
+        // else's outage. Wait out one more cool-down for the site to come back, then judge on
+        // whatever we have: a device that is genuinely gone still fails, just later.
+        if (verdict is { Passed: false, Silence: true }
+            && WasBlindDuring(windowFrom, Now)
+            && Now < backAt + cooldown + cooldown)
+        {
+            return;
+        }
 
         if (!verdict.Passed)
         {
@@ -2111,6 +2124,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// not running says nothing about the device it would otherwise condemn.
     /// </summary>
     private TimeSpan ElapsedObserved(DateTime from) => ObservedBetween(_visibility, from, Now, vantageOnly: false);
+
+    /// <summary>Whether any of that stretch went unseen, so silence in it proves nothing.</summary>
+    private bool WasBlindDuring(DateTime from, DateTime to) =>
+        to > from && ObservedBetween(_visibility, from, to, vantageOnly: false) < to - from;
 
     /// <summary>
     /// How much of that time this server could have reached the site at all - our own outages taken
