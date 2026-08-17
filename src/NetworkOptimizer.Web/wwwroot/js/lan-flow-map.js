@@ -711,6 +711,9 @@ export class LanFlowMap {
         // Pin devices to a fixed physical size relative to the buildings (which
         // are built in meters * this same factor). Unanchored sites have a tiny
         // default bounds radius, so the ratio clamps to 1.0 and nothing changes.
+        // Kept for nodes added after this pass (a client rebuilt mid-playback): its saved
+        // placement has to be projected with the same scale or it lands somewhere else.
+        this._anchorScale = scale;
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
@@ -1957,15 +1960,32 @@ export class LanFlowMap {
         const parentId = link.fromNodeId === node.id ? link.toNodeId : link.fromNodeId;
         const parentPos = this._positions.get(parentId);
         if (!parentPos) return;
-        // Scatter near parent
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 6 + Math.random() * 6;
-        const pos = {
-            x: parentPos.x + Math.cos(angle) * dist,
-            y: parentPos.y - 1.5 + Math.random(),
-            z: parentPos.z + Math.sin(angle) * dist,
-            pinned: false,
-        };
+        // A device the user has placed goes where they put it, even when it is being added back
+        // mid-playback rather than laid out with everything else. Same projection as _layoutNodes,
+        // so it lands on the same spot it holds in live.
+        const p = node.placement;
+        const scale = this._anchorScale;
+        let pos;
+        if (p && p.source === PLACEMENT_SOURCE.Anchor && Number.isFinite(scale)
+            && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
+            const mountM = Number.isFinite(p.heightM) ? p.heightM : 2.9 * 0.5;
+            pos = {
+                x: -p.x * scale,
+                y: p.z * scale * 0.8 + mountM * scale * 0.8,
+                z: p.y * scale,
+                pinned: true,
+            };
+        } else {
+            // Scatter near parent
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 6 + Math.random() * 6;
+            pos = {
+                x: parentPos.x + Math.cos(angle) * dist,
+                y: parentPos.y - 1.5 + Math.random(),
+                z: parentPos.z + Math.sin(angle) * dist,
+                pinned: false,
+            };
+        }
         this._positions.set(node.id, pos);
 
         // Build node mesh (same as _buildNodes for a single node)
