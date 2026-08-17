@@ -2016,10 +2016,15 @@ export class LanFlowMap {
         // The floor this AP sits above: its base elevation is what client heights are measured
         // from, since an AP is usually on the ceiling and hanging clients under it would leave
         // every device floating at head-height of the storey above.
+        // Tolerance in metres, not scene units: a ceiling-mounted AP hangs a little under the
+        // floor above, and on a large site the whole scene shrinks until a fixed unit slack would
+        // read that AP as belonging upstairs. Mount type otherwise does not matter here - wall,
+        // desk and ceiling APs on one storey all resolve to the same room.
+        const slack = 0.35 * scale * 0.8;
         let floor = null;
         for (const f of this._wallSegs || []) {
             const baseY = (f.z ?? 0) * scale * 0.8;
-            if (baseY - 0.5 > parentPos.y) continue;
+            if (baseY - slack > parentPos.y) continue;
             if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs };
         }
         const wallsForFloor = floor ? floor.segs : [];
