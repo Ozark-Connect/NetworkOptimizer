@@ -660,8 +660,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogWarning(
             "Pre-flight console backup failed on site {Site}: {Reason} - proceeding anyway",
             _siteSlug, backup.Message);
+        // UniFi backs itself up before applying an update through its own API, whatever the account
+        // is, so our backup failing is not the exposure the old wording implied. It still matters on
+        // the SSH path, which is why the unreachable-console note above is left as it is.
         await AddBackupNoteAsync(plan, document,
-            $"No console backup was taken: {backup.Message}. The service account may lack Super Admin permission.",
+            $"Our own console backup didn't run ({backup.Message}) - that needs Super Admin. UniFi takes "
+            + "its own before applying an update through its API, so you do have a backup available if you need it.",
             cancellationToken);
     }
 
