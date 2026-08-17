@@ -324,6 +324,16 @@ public class RolloutPlanDocument
     public string? ConsoleMac { get; set; }
 
     /// <summary>
+    /// The console device's own name and model code, so its rows read like every device row rather
+    /// than as a generic console. Absent on plans built before this was captured; the report falls
+    /// back to naming it a Cloud Gateway.
+    /// </summary>
+    public string? ConsoleName { get; set; }
+
+    /// <summary>Console model code, resolved to a product name where the catalog knows it.</summary>
+    public string? ConsoleModel { get; set; }
+
+    /// <summary>
     /// The site's own timezone, as the console reports it. Times are shown in the server's zone -
     /// one clock across every site an operator watches - and this is what the site-local reading
     /// beside them is built from, where the two differ.

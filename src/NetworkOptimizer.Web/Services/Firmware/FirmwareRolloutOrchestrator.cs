@@ -1822,6 +1822,27 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return Now < triggered + GatewayCoolDown + window + window;
     }
 
+    /// <summary>
+    /// Names the console row from the live device list on a plan built before the planner captured
+    /// it. Cosmetic, so a console that will not answer leaves the report's generic labels in place.
+    /// </summary>
+    /// <returns>True when the document gained a console name and is worth persisting.</returns>
+    private async Task<bool> NameConsoleFromSiteAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(document.ConsoleMac) || !string.IsNullOrWhiteSpace(document.ConsoleName))
+            return false;
+
+        var observations = await _observer.ObserveAsync(cancellationToken);
+        var console = observations.FirstOrDefault(o =>
+            string.Equals(o.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase));
+        if (console == null)
+            return false;
+
+        document.ConsoleName = console.Name;
+        document.ConsoleModel = console.Model;
+        return true;
+    }
+
     private async Task BuildSoakReportIfDueAsync(
         FirmwareRolloutPlan plan, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
     {
@@ -1853,6 +1874,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
 
         var document = ParseDocument(plan);
+        if (await NameConsoleFromSiteAsync(document, cancellationToken))
+            plan.PlanJson = JsonSerializer.Serialize(document);
         var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
         var report = RolloutReportBuilder.Build(plan, document, steps, Now, changelogs);
 

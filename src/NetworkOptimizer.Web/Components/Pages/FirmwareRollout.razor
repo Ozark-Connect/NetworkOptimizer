@@ -665,10 +665,24 @@ else
 
     private string SoakLabel => $"{SoakHours} hour{(SoakHours == 1 ? "" : "s")}";
 
-    /// <summary>The console's phases run on the gateway when the gateway IS the console.</summary>
-    private string ConsoleRowModel => _active?.Steps
-        .FirstOrDefault(s => string.Equals(s.Mac, _active.Plan.ConsoleMac, StringComparison.OrdinalIgnoreCase))
-        ?.DisplayModel ?? "Console";
+    /// <summary>
+    /// The console's phases run on the gateway when the gateway IS the console. Its device step
+    /// names the model where it has one; a console with no device step of its own is named from the
+    /// plan.
+    /// </summary>
+    private string ConsoleRowModel
+    {
+        get
+        {
+            var step = _active?.Steps
+                .FirstOrDefault(s => string.Equals(s.Mac, _active.Plan.ConsoleMac, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(step?.DisplayModel))
+                return step.DisplayModel;
+
+            var model = _active?.Plan.ConsoleModel;
+            return string.IsNullOrWhiteSpace(model) ? "Console" : UniFiProductDatabase.GetBestProductName(model, null);
+        }
+    }
 
     /// <summary>
     /// A console phase reports progress as triggered/settled plus an outcome word, not as a step

@@ -106,8 +106,12 @@ public static class RolloutReportBuilder
             report.Rows.Add(new RolloutReportRow
             {
                 Mac = document.ConsoleMac,
-                Name = "Console (UniFi OS)",
-                Model = "Cloud Gateway",
+                Name = string.IsNullOrWhiteSpace(document.ConsoleName)
+                    ? "Console (UniFi OS)"
+                    : $"{document.ConsoleName} (UniFi OS)",
+                Model = string.IsNullOrWhiteSpace(document.ConsoleModel)
+                    ? "Cloud Gateway"
+                    : UniFiProductDatabase.GetBestProductName(document.ConsoleModel, null),
                 DeviceType = "ugw",
                 FromVersion = document.UniFiOsUpdate.FromVersion,
                 ToVersion = document.UniFiOsUpdate.TargetVersion,

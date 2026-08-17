@@ -75,6 +75,8 @@ public class RolloutPlanner
         var cloudGateway = input.Devices
             .FirstOrDefault(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
         doc.ConsoleMac = cloudGateway?.Mac;
+        doc.ConsoleName = cloudGateway?.Name;
+        doc.ConsoleModel = cloudGateway?.Model;
 
         var includeOs = settings.IncludeUniFiOs
             && input.UniFiOsUpdateAvailable
