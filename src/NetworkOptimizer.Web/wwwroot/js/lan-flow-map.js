@@ -2060,7 +2060,12 @@ export class LanFlowMap {
         // Fill the room first, then step outward gently. A room that runs out of space pushes the
         // overflow past its walls rather than stacking devices on each other, but a step of a few
         // percent per ring keeps that a nudge instead of a launch.
+        // Best of a handful rather than first acceptable: taking the first spot that merely
+        // clears everything leaves the gap between two nearby devices unused, because both push
+        // their own clients away from it. Scoring by how empty a spot is fills that space.
         let last = null;
+        let best = null;
+        let bestScore = -1;
         for (let ring = 0; ring < 6; ring++) {
             const ringRadius = baseDist * (1 + ring * 0.12);
             for (let attempt = 0; attempt < 12; attempt++) {
@@ -2082,15 +2087,22 @@ export class LanFlowMap {
                     pinned: false,
                 };
                 last = cand;
-                // Two clients may share a footprint if they are on different shelves.
-                const clash = taken.some(t => {
-                    const dx = t.x - cand.x, dz = t.z - cand.z, dy = t.y - cand.y;
-                    return dx * dx + dz * dz < 4 && Math.abs(dy) < 1.2;
-                });
-                if (!clash) return cand;
+                // How far this spot sits from the nearest thing already placed, height included
+                // so a different shelf is not treated as the same spot.
+                let nearest = Infinity;
+                for (const t of taken) {
+                    const dx = t.x - cand.x, dz = t.z - cand.z, dy = (t.y - cand.y) * 0.6;
+                    const d2 = dx * dx + dz * dz + dy * dy;
+                    if (d2 < nearest) nearest = d2;
+                }
+                if (nearest > bestScore) { bestScore = nearest; best = cand; }
+                // Roomy enough that looking further would only be churn.
+                if (nearest > 36) return cand;
             }
+            // A ring with a genuinely clear spot ends the search; otherwise widen.
+            if (bestScore > 9) return best;
         }
-        return last;
+        return best ?? last;
     }
 
     // Incremental client add: create mesh near parent, create link pipe + particles.
