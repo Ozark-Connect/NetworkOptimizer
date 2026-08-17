@@ -77,8 +77,10 @@ else if (_active != null)
 
             @if (ActivePlanHasMap)
             {
-                <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
-                <div id="firmware-rollout-timeline"></div>
+                <div id="firmware-rollout-map-fs" class="firmware-rollout-map-fs">
+                    <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                    <div id="firmware-rollout-timeline"></div>
+                </div>
             }
             else
             {
@@ -314,8 +316,10 @@ else if (_wizardOpen)
                     }
                 </div>
 
-                <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
-                <div id="firmware-rollout-timeline"></div>
+                <div id="firmware-rollout-map-fs" class="firmware-rollout-map-fs">
+                    <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                    <div id="firmware-rollout-timeline"></div>
+                </div>
 
                 @foreach (var note in _preview.Plan.Notes)
                 {
@@ -1532,7 +1536,11 @@ else
             if (!_vizMounted)
             {
                 await _viz.InvokeVoidAsync("mount", "firmware-rollout-map-stage", "firmware-rollout-timeline",
-                    new { storagePrefix = SiteContext.ScopeStorageKey("firmwareRollout") });
+                    new
+                    {
+                        storagePrefix = SiteContext.ScopeStorageKey("firmwareRollout"),
+                        fullscreenEl = "firmware-rollout-map-fs",
+                    });
                 _vizMounted = true;
                 _vizMode = null;
             }

@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=8';
+import * as flowData from './lan-flow-data.js?v=9';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -367,7 +367,7 @@ class LanFlowMap2D {
         if(this._unsub)this._unsub();
         if(this._resizeObs)this._resizeObs.disconnect();
         if(this._onKeyDown)document.removeEventListener('keydown',this._onKeyDown);
-        if(this._isFullscreen)this._el.classList.remove('lan-flow-map-fullscreen');
+        if(this._isFullscreen)(this._fsTarget||this._el).classList.remove('lan-flow-map-fullscreen');
         this._streams=[];
         // The mobile scrubber lives outside _el (below the stage), so clearing
         // _el's children alone would leave it behind on unmount.
@@ -910,6 +910,12 @@ class LanFlowMap2D {
 
     _isNodeVisible(n){
         const k=n.d.kind;
+        // The snapshot carries the clients connected NOW, so playback has to be told who was
+        // connected THEN - otherwise a client that is up today is drawn at every past instant.
+        if(isClient(k)){
+            const present=flowData.getPresentClients();
+            if(present&&!present.has(n.d.id))return false;
+        }
         if(k===NK.VirtualHub&&this._hideVirtualHubs)return false;
         if(k===NK.WiredClient&&this._hideWiredClients)return false;
         if(k===NK.WifiClient&&this._hideWifiClients)return false;
@@ -939,7 +945,7 @@ class LanFlowMap2D {
 
     _toggleFullscreen(){
         this._isFullscreen=!this._isFullscreen;
-        const el=this._el;
+        const el=this._fsTarget||this._el;
         if(this._isFullscreen){
             el.classList.add('lan-flow-map-fullscreen');
             this._fsBtn.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2186,6 +2192,9 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
+    // Fullscreen the element that holds the map AND its sibling controls, where a page has them:
+    // expanding the stage alone leaves its timeline behind the overlay.
+    if(opts?.fullscreenEl)_inst._fsTarget=document.getElementById(opts.fullscreenEl);
     if(opts?.hideOverlayControls)_inst._hideOverlayControls=true;
     if(opts?.hideFilter)_inst._hideFilter=true;
     if(opts?.hideVirtualHubs)_inst._hideVirtualHubs=true;

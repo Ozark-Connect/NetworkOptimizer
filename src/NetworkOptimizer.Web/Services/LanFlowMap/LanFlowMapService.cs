@@ -260,6 +260,14 @@ public class LanFlowMapService
     private const double HistoricOnlineWindowSeconds = 60;
 
     /// <summary>
+    /// Tolerance for deciding a client was connected at the scrub instant. Wider than the device
+    /// window on purpose: a client pass can be skipped when the console is slow to answer, and
+    /// leaving a client on the map one sample too long is a smaller error than blinking one out
+    /// that was really there.
+    /// </summary>
+    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromMinutes(3);
+
+    /// <summary>
     /// Instants within this many seconds of now are the "live edge". The historic cache
     /// fetches a window 5 min AHEAD of its fetch instant, but that ahead portion is empty
     /// when fetched (the data isn't written yet), and an agent-run speed test can delay
@@ -669,6 +677,19 @@ public class LanFlowMapService
             if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wiredClientRates[p.ClientMac] = p;
+        }
+
+        // Who was connected at this instant, wired and wireless alike. A point far from `at` is
+        // somewhere else in the cached window and says nothing about now, so it does not count.
+        foreach (var (mac, p) in wifiClientRates)
+        {
+            if ((p.Time - at).Duration() <= ClientPresenceTolerance)
+                update.PresentClientIds.Add("cli-" + NormalizeMac(mac));
+        }
+        foreach (var (mac, p) in wiredClientRates)
+        {
+            if ((p.Time - at).Duration() <= ClientPresenceTolerance)
+                update.PresentClientIds.Add("cli-" + NormalizeMac(mac));
         }
 
         // WiFi client connection stats at the scrub instant (band/signal/PHY rate). Keyed

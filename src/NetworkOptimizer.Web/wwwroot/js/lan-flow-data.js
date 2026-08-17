@@ -19,6 +19,7 @@ let _liveRates = {};
 let _cloudStats = {};
 let _nodeBadges = {};
 let _clientStats = {};
+let _presentClients = null;
 let _paused = false;
 let _mode = 'live';
 let _scrubberValue = 10000;
@@ -34,6 +35,8 @@ export function getLiveRates()  { return _liveRates; }
 export function getCloudStats() { return _cloudStats; }
 export function getNodeBadges() { return _nodeBadges; }
 export function getClientStats() { return _clientStats; }
+// Client node ids connected at the scrub instant, or null in live mode (no filtering).
+export function getPresentClients() { return _presentClients; }
 export function isPaused()       { return _paused; }
 export function getMode()        { return _mode; }
 export function getScrubber()    { return { value: _scrubberValue, right: _scrubberRight, speed: _playbackSpeed }; }
@@ -94,6 +97,11 @@ function _applyHistoricClients(update) {
 }
 
 export function publishLive(update) {
+    // Historic ticks carry only the links that were moving, and the store MERGES - so a link
+    // idle at this instant would keep whatever live value seeded it and read as still busy.
+    if (_mode === 'historic' && update.linkRates) {
+        for (const key in _liveRates) _liveRates[key] = { downstreamBps: 0, upstreamBps: 0 };
+    }
     if (update.linkRates)   Object.assign(_liveRates, update.linkRates);
     if (update.cloudStats)  _cloudStats = update.cloudStats;
     if (update.nodeBadges)  _nodeBadges = update.nodeBadges;
@@ -101,6 +109,11 @@ export function publishLive(update) {
     // don't, so this clears them when returning to live - renderers then fall back to
     // the snapshot values, which live snapshot rebuilds keep current.
     _clientStats = update.clientStats || {};
+    // Who was actually connected at this instant. Null in live mode, where the snapshot is the
+    // truth and every client in it is by definition connected.
+    _presentClients = _mode === 'historic' && update.presentClientIds
+        ? new Set(update.presentClientIds)
+        : null;
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
     if (_applyHistoricClients(update)) _notify('snapshot');
@@ -142,6 +155,7 @@ export function clearLiveRates() {
 export function resetPlayback() {
     _paused = false;
     _mode = 'live';
+    _presentClients = null;
     _scrubberValue = 10000;
     _scrubberRight = 'Live';
     _playbackSpeed = 1;

@@ -20460,6 +20460,19 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0;
 }
 
+.firmware-rollout-map-fs.lan-flow-map-fullscreen {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem;
+    gap: 0.5rem;
+}
+
+.firmware-rollout-map-fs.lan-flow-map-fullscreen .firmware-rollout-map-stage {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+}
+
 .firmware-rollout-map-stage {
     /* The map positions its own tooltip and panels against this box. */
     position: relative;

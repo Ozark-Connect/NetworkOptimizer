@@ -395,6 +395,14 @@ public class LanFlowMapHistoricUpdate
 
     /// <summary>Leaf links for <see cref="AddedClientNodes"/>, same shape as the snapshot's.</summary>
     public List<LanLink> AddedClientLinks { get; set; } = new();
+
+    /// <summary>
+    /// Client node ids carrying telemetry at the scrub instant - who was connected then, including
+    /// the ones still connected now. The snapshot only knows who is connected NOW, so without this
+    /// a client that is up today is drawn at every past instant, whether it was there or not.
+    /// Empty in live mode, where the snapshot is the truth.
+    /// </summary>
+    public List<string> PresentClientIds { get; set; } = new();
 }
 
 public class LanBuilding
