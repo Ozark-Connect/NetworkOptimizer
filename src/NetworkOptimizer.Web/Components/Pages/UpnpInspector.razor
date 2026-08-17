@@ -12,6 +12,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<UpnpInspector> Logger
 @inject NetworkOptimizerDbContext Db
+@inject IUpnpNoteService UpnpNotes
 @inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
@@ -438,35 +439,7 @@
 
         try
         {
-            var existing = await Db.UpnpNotes.FirstOrDefaultAsync(n =>
-                n.HostIp == hostIp && n.Port == port && n.Protocol == protocol);
-
-            if (existing != null)
-            {
-                if (string.IsNullOrEmpty(trimmedNote))
-                {
-                    Db.UpnpNotes.Remove(existing);
-                }
-                else
-                {
-                    existing.Note = trimmedNote;
-                    existing.UpdatedAt = DateTime.UtcNow;
-                }
-            }
-            else if (!string.IsNullOrEmpty(trimmedNote))
-            {
-                Db.UpnpNotes.Add(new UpnpNote
-                {
-                    HostIp = hostIp,
-                    Port = port,
-                    Protocol = protocol,
-                    Note = trimmedNote,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                });
-            }
-
-            await Db.SaveChangesAsync();
+            await UpnpNotes.SaveNoteAsync(hostIp, port, protocol, trimmedNote);
             savedNotes.Add(noteKey);
 
             // Clear "Saved" indicator after 2 seconds using timer

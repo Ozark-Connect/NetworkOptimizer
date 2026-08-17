@@ -774,6 +774,13 @@ builder.Services.AddMutatingService<IMeshOptimizationService, MeshOptimizationSe
 builder.Services.AddScoped<ApMapService>();
 // GetApMapMarkersAsync stays ungated - every map draws AP markers from it, including a Viewer's.
 builder.Services.AddMutatingService<IApMapAdminService>(sp => sp.GetRequiredService<ApMapService>());
+// Per-site annotations and monitoring setup that used to be written straight from the page and
+// the API: the service is the gate (UPnP notes Site Operator; custom OIDs Operator to add, Admin
+// to remove, matching the card).
+builder.Services.AddScoped<UpnpNoteService>();
+builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredService<UpnpNoteService>());
+builder.Services.AddScoped<CustomOidService>();
+builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
 // per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
 // its own data (consumers - WiFiOptimizerService, floor-plan endpoints - are scoped).
@@ -1388,6 +1395,24 @@ app.Use(async (context, next) =>
 // instead of a bare 401 from a policy failure. With authentication disabled the policies short-
 // circuit to success (GlobalRoleHandler), so nothing changes for those installs.
 app.UseAuthorization();
+
+// API endpoints carry authorization metadata; the gated service behind them is what actually
+// decides, and it refuses by throwing. Without this that lands as a 500 - the caller was told
+// nothing, and the log reads like a fault rather than a refusal. Blazor has the same translation
+// in GateRefusalBoundary.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (NetworkOptimizer.Web.Services.Gates.AuthorizationDeniedException)
+        when (context.Request.Path.StartsWithSegments("/api") && !context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "You do not have permission to do that on this site." });
+    }
+});
 
 
 // Site selection via ?site=<slug> is per browser tab: it wins over the site cookie on

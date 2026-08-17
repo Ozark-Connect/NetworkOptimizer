@@ -75,8 +75,12 @@ public static class LanFlowMapEndpoints
                 return Results.Ok(items);
             });
 
-        admin.MapPost("/api/monitoring/lan-flow-map/device-placement",
-            async (DevicePlacementRequest req, ApMapService apMap, LanFlowMapService svc) =>
+        // Placing a device is the same act as placing an AP, and IApMapAdminService already says
+        // who may: Site Operator on the site in context. Going through the interface rather than
+        // the class puts this endpoint on that gate instead of demanding install-wide Admin, which
+        // no Site Admin or Operator could satisfy.
+        read.MapPost("/api/monitoring/lan-flow-map/device-placement",
+            async (DevicePlacementRequest req, IApMapAdminService apMap, LanFlowMapService svc) =>
             {
                 if (string.IsNullOrWhiteSpace(req.Mac))
                     return Results.BadRequest("mac is required");

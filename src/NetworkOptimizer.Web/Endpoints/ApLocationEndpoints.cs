@@ -38,7 +38,8 @@ public static class ApLocationEndpoints
         // authorization policy, which is what architecture test A1 checks. Reads are any
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        // Metadata only - IApMapAdminService gates these on the site in context.
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // AP Location API endpoints
         read.MapGet("/api/ap-locations", async (NetworkOptimizerDbContext db) =>
@@ -47,7 +48,10 @@ public static class ApLocationEndpoints
             return Results.Ok(locations);
         });
 
-        admin.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, NetworkOptimizerDbContext db) =>
+        // Through the gated service, not the DbContext: it carries the Site Operator gate the
+        // Signal Map's own editing uses, and it resolves the SITE's database - injecting the
+        // context here wrote a managed site's placements into the main install's.
+        admin.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, IApMapAdminService apMap) =>
         {
             var request = await context.Request.ReadFromJsonAsync<ApLocationRequest>();
             if (request == null)
@@ -55,46 +59,11 @@ public static class ApLocationEndpoints
                 return Results.BadRequest(new { error = "Request body is required" });
             }
 
-            // Normalize MAC to lowercase for consistent matching
-            var normalizedMac = mac.ToLowerInvariant();
-
-            var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
-            if (existing != null)
-            {
-                existing.Latitude = request.Latitude;
-                existing.Longitude = request.Longitude;
-                existing.Floor = request.Floor ?? 1;
-                existing.UpdatedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                var location = new ApLocation
-                {
-                    ApMac = normalizedMac,
-                    Latitude = request.Latitude,
-                    Longitude = request.Longitude,
-                    Floor = request.Floor ?? 1,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                db.ApLocations.Add(location);
-            }
-
-            await db.SaveChangesAsync();
+            await apMap.SaveApLocationAsync(mac, request.Latitude, request.Longitude, request.Floor ?? 1);
             return Results.Ok(new { success = true });
         });
 
-        admin.MapDelete("/api/ap-locations/{mac}", async (string mac, NetworkOptimizerDbContext db) =>
-        {
-            var normalizedMac = mac.ToLowerInvariant();
-            var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
-            if (existing == null)
-            {
-                return Results.NotFound();
-            }
-
-            db.ApLocations.Remove(existing);
-            await db.SaveChangesAsync();
-            return Results.NoContent();
-        });
+        admin.MapDelete("/api/ap-locations/{mac}", async (string mac, IApMapAdminService apMap) =>
+            await apMap.DeleteApLocationAsync(mac) ? Results.NoContent() : Results.NotFound());
     }
 }

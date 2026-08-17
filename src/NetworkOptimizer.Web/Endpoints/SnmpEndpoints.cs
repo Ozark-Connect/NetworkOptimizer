@@ -16,7 +16,7 @@ public static class SnmpEndpoints
         // authorization policy, which is what architecture test A1 checks. Reads are any
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         read.MapPost("/api/monitoring/snmp/oid-check", async (
             TestOidRequest request,
@@ -119,67 +119,32 @@ public static class SnmpEndpoints
             return Results.Ok(oids);
         });
 
+        // ICustomOidService gates these on the site in context - Operator to add or edit, Admin
+        // to remove - matching the Device Stats card's own gates. The group carries metadata only.
         admin.MapPost("/api/monitoring/snmp/custom-oids", async (
             SaveCustomOidRequest request,
-            SiteDbContextFactory siteDbFactory,
-            SiteContextService siteContext,
-            CancellationToken ct) =>
+            ICustomOidService oids) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceMac) ||
                 string.IsNullOrWhiteSpace(request.Oid) ||
                 string.IsNullOrWhiteSpace(request.FieldName))
                 return Results.BadRequest("DeviceMac, Oid, and FieldName are required.");
 
-            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
-            var now = DateTime.UtcNow;
-
             if (request.Id > 0)
             {
-                var existing = await db.CustomOidConfigurations.FindAsync(new object[] { request.Id }, ct);
-                if (existing == null) return Results.NotFound();
-
-                existing.Oid = request.Oid.Trim();
-                existing.FieldName = request.FieldName.Trim();
-                existing.ValueType = request.ValueType;
-                existing.Scope = request.Scope;
-                existing.Enabled = request.Enabled;
-                existing.Description = request.Description?.Trim();
-                existing.UpdatedAt = now;
-            }
-            else
-            {
-                db.CustomOidConfigurations.Add(new CustomOidConfiguration
-                {
-                    DeviceMac = request.DeviceMac.Trim(),
-                    Oid = request.Oid.Trim(),
-                    FieldName = request.FieldName.Trim(),
-                    ValueType = request.ValueType,
-                    Scope = request.Scope,
-                    Enabled = request.Enabled,
-                    Description = request.Description?.Trim(),
-                    CreatedAt = now,
-                    UpdatedAt = now
-                });
+                return await oids.UpdateAsync(request.Id, request.Oid, request.FieldName,
+                    request.ValueType, request.Scope, request.Enabled, request.Description)
+                    ? Results.Ok()
+                    : Results.NotFound();
             }
 
-            await db.SaveChangesAsync(ct);
+            await oids.AddAsync(request.DeviceMac.Trim(), request.Oid, request.FieldName,
+                request.ValueType, request.Scope, request.Description);
             return Results.Ok();
         });
 
-        admin.MapDelete("/api/monitoring/snmp/custom-oids/{id:int}", async (
-            int id,
-            SiteDbContextFactory siteDbFactory,
-            SiteContextService siteContext,
-            CancellationToken ct) =>
-        {
-            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
-            var entry = await db.CustomOidConfigurations.FindAsync(new object[] { id }, ct);
-            if (entry == null) return Results.NotFound();
-
-            db.CustomOidConfigurations.Remove(entry);
-            await db.SaveChangesAsync(ct);
-            return Results.Ok();
-        });
+        admin.MapDelete("/api/monitoring/snmp/custom-oids/{id:int}", async (int id, ICustomOidService oids) =>
+            await oids.DeleteAsync(id) ? Results.Ok() : Results.NotFound());
     }
 
     public static SnmpPoller? BuildPollerFromSettings(

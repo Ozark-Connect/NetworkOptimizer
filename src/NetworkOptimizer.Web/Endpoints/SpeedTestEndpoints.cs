@@ -14,7 +14,9 @@ public static class SpeedTestEndpoints
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
         var operate = app.MapGroup("").RequireAuthorization(Policies.RequireOperator);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        // IClientSpeedTestService gates deletion on the site in context; the group carries the
+        // metadata only.
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // --- LAN iperf3 Speed Test ---
 

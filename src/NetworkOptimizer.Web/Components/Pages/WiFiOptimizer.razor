@@ -6,6 +6,9 @@
 @using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
 @inject WiFiOptimizerService WiFiService
 @inject IClientSpeedTestService SpeedTestService
 @inject ClientDashboardService DashboardService
@@ -17,6 +20,7 @@
 @inject SiteContextService SiteContext
 @inject PullToRefreshState PtrState
 @inject IApMapAdminService ApMapAdmin
+@inject IAuthorizationService Authz
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -615,7 +619,7 @@
                                        and signal comes from the same half that can go missing. *@
                                     @if (ap.IsMeshChild)
                                     {
-                                        <div class="ap-mesh-info ap-mesh-info-with-action">
+                                        <div class="ap-mesh-info @(_canOperate ? "ap-mesh-info-with-action" : "")">
                                             <SiteOperatorOnly>
                                                 <button class="btn btn-sm btn-primary optimize-mesh-btn"
                                                         @onclick="@(() => OptimizeMeshAsync(ap))"
@@ -930,6 +934,21 @@
 
     private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
     private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Whether this user may act on the site. Drives layout only - the controls themselves are
+    /// gated by SiteOperatorOnly, and the service behind them is the actual boundary. The
+    /// mesh row reserves space for a button that a Viewer never gets, so it needs to know.
+    /// </summary>
+    private bool _canOperate = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canOperate = AuthState is null
+            || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteOperator)).Succeeded;
+    }
 
     protected override void OnInitialized()
     {

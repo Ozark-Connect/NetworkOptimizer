@@ -1,3 +1,6 @@
+            await CustomOids.AddAsync(_expandedDeviceMac, _editOid, _editFieldName,
+                _editValueType, _editScope, _editDescription);
+
 @using System.Net
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Monitoring
@@ -12,6 +15,7 @@
 @inject ICredentialProtectionService CredentialProtection
 @inject ILoggerFactory LoggerFactory
 @inject AgentSnmpQueryService AgentSnmpQuery
+@inject ICustomOidService CustomOids
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -484,13 +488,7 @@
 
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entry = await db.CustomOidConfigurations.FindAsync(id);
-            if (entry != null)
-            {
-                db.CustomOidConfigurations.Remove(entry);
-                await db.SaveChangesAsync();
-            }
+            await CustomOids.DeleteAsync(id);
             await LoadCustomOids(_expandedDeviceMac);
         }
         catch (Exception ex)

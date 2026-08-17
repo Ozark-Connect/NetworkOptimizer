@@ -17,7 +17,11 @@ public static class AlertEndpoints
         // authenticated user; changes go through IAlertConfigService, which is gated and audited at
         // the service layer as well, so a live Blazor circuit cannot reach them either.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        // IAlertConfigService gates every one of these on the site in context (Site Admin to
+        // configure, Site Operator to acknowledge), so the group carries the metadata and the
+        // service carries the boundary. Requiring install-wide Admin here locked a site's own
+        // admin out of their own alerting.
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // --- Alert Rules ---
         read.MapGet("/api/alerts/rules", async (IAlertRepository repo) =>

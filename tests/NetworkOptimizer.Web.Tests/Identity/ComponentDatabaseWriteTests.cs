@@ -26,7 +26,6 @@ public class ComponentDatabaseWriteTests
         "Settings.razor",
         "SfpModulesCard.razor",
         "SnmpDeviceStatusCard.razor",
-        "UpnpInspector.razor",
         "WanContextsCard.razor",
     };
 

@@ -38,7 +38,7 @@ public static class UpnpEndpoints
         // authorization policy, which is what architecture test A1 checks. Reads are any
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // UPnP Notes API endpoints
         read.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
@@ -47,7 +47,9 @@ public static class UpnpEndpoints
             return Results.Ok(notes);
         });
 
-        admin.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbContext db) =>
+        // IUpnpNoteService gates this on the site in context (Site Operator) and resolves the
+        // site's own database; the group carries the metadata only.
+        admin.MapPut("/api/upnp/notes", async (HttpContext context, IUpnpNoteService notes) =>
         {
             var request = await context.Request.ReadFromJsonAsync<UpnpNoteRequest>();
             if (request == null || string.IsNullOrWhiteSpace(request.HostIp) ||
@@ -56,44 +58,7 @@ public static class UpnpEndpoints
                 return Results.BadRequest(new { error = "HostIp, Port, and Protocol are required" });
             }
 
-            // Normalize protocol to lowercase
-            var protocol = request.Protocol.ToLowerInvariant();
-
-            // Find existing note or create new
-            var existing = await db.UpnpNotes.FirstOrDefaultAsync(n =>
-                n.HostIp == request.HostIp &&
-                n.Port == request.Port &&
-                n.Protocol == protocol);
-
-            if (existing != null)
-            {
-                // Update or delete if note is empty
-                if (string.IsNullOrWhiteSpace(request.Note))
-                {
-                    db.UpnpNotes.Remove(existing);
-                }
-                else
-                {
-                    existing.Note = request.Note;
-                    existing.UpdatedAt = DateTime.UtcNow;
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(request.Note))
-            {
-                // Create new note
-                var note = new UpnpNote
-                {
-                    HostIp = request.HostIp,
-                    Port = request.Port,
-                    Protocol = protocol,
-                    Note = request.Note,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                db.UpnpNotes.Add(note);
-            }
-
-            await db.SaveChangesAsync();
+            await notes.SaveNoteAsync(request.HostIp, request.Port, request.Protocol, request.Note);
             return Results.Ok(new { success = true });
         });
     }
