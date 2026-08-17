@@ -663,9 +663,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // UniFi backs itself up before applying an update through its own API, whatever the account
         // is, so our backup failing is not the exposure the old wording implied. It still matters on
         // the SSH path, which is why the unreachable-console note above is left as it is.
+        // The reason is left out on purpose: in practice it is always the account, and the console's
+        // own wording for it ("did not answer the backup request") reads as a timeout instead.
         await AddBackupNoteAsync(plan, document,
-            $"Our own console backup didn't run ({backup.Message}) - that needs Super Admin. UniFi takes "
-            + "its own before applying an update through its API, so you do have a backup available if you need it.",
+            "Our Console backup didn't run, usually due to the service account role or permissions. "
+            + "UniFi takes its own before applying an update through its API, so you do have a backup "
+            + "available if you need it.",
             cancellationToken);
     }
 
