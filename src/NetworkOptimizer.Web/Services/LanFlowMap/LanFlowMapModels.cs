@@ -33,6 +33,15 @@ public class LanFlowMapSnapshot
     /// Server-side only; used by the historic endpoint to query InfluxDB.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<string> WanIfNames { get; set; } = new();
+
+    /// <summary>
+    /// Saved placements by MAC, already projected into scene coordinates. Server-side only: the
+    /// historic pass rebuilds clients that are not connected now, and without this they would be
+    /// laid out by the force engine even when the user has placed them - the projection depends on
+    /// a centre and scale computed during this build, so it cannot be redone later.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<string, LanPlacement> AnchorsByMac { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public enum LanNodeKind

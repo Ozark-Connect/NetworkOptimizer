@@ -119,6 +119,7 @@ public class LanFlowMapService
         var apAnchorMacs = new HashSet<string>(
             markers.Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
                    .Select(m => NormalizeMac(m.Mac)));
+        snapshot.AnchorsByMac = anchors;
         var droppedAnchors = PruneAnchorOutliers(anchors, apAnchorMacs);
         if (droppedAnchors.Count > 0)
         {
@@ -1597,6 +1598,9 @@ public class LanFlowMapService
                 PhyTxKbps = wired ? null : p.TxRateKbps,
                 PhyRxKbps = wired ? null : p.RxRateKbps,
                 SwitchPortName = wired && p.Port is > 0 ? $"Port {p.Port}" : null,
+                // A client the user has placed keeps that position even at instants it was offline;
+                // rebuilding it without one dropped it back to the force layout mid-playback.
+                Placement = snapshot.AnchorsByMac.GetValueOrDefault(clientMac),
             };
 
             update.AddedClientNodes.Add(node);
