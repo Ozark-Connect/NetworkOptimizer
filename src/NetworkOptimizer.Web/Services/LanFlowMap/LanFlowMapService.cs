@@ -1072,8 +1072,21 @@ public class LanFlowMapService
                     _ => (MonitoringTargetType?)null
                 };
                 if (targetType == null) continue;
+                // This cloud's own targets first, lowest RTT winning, exactly as the live path
+                // chooses. The type bucket is the fallback for a target with no stored series.
                 MonitoringInfluxClient.LatencyPoint? best = null;
-                if (cached.LatencyByTargetType.TryGetValue(targetType.Value, out var latPts))
+                foreach (var targetId in cloud.RttTargetIds)
+                {
+                    if (!cached.LatencyByTargetId.TryGetValue(targetId, out var pts) || pts.Count == 0)
+                        continue;
+                    var nearest = pts
+                        .Where(p => p.RttAvgMs.HasValue)
+                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                        .FirstOrDefault();
+                    if (nearest?.RttAvgMs == null) continue;
+                    if (best?.RttAvgMs == null || nearest.RttAvgMs < best.RttAvgMs) best = nearest;
+                }
+                if (best == null && cached.LatencyByTargetType.TryGetValue(targetType.Value, out var latPts))
                 {
                     best = latPts
                         .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
@@ -2475,6 +2488,20 @@ public class LanFlowMapService
             catch (Exception ex) { _logger.LogDebug(ex, "Historic latency fetch failed for {Type}", targetType); }
         }
 
+        // Per target as well as per type: a type bucket cannot tell one WAN's ISP from another's,
+        // so on a multi-WAN site both globes would read whichever point happened to be nearest in
+        // time. The live path keys off each cloud's own targets and this mirrors it.
+        var latencyByTarget = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var targetId in snapshot.Clouds.SelectMany(c => c.RttTargetIds).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                latencyByTarget[targetId] = await _influx.QueryLatencyAsync(targetId, from, to, ct: ct);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Historic latency fetch failed for target {Target}", targetId); }
+        }
+
         // Combined ISP+Transit mean - the series the WAN live chart plots. WAN globe
         // loss reads from this during playback so globe and chart always agree.
         IReadOnlyList<MonitoringInfluxClient.LatencyPoint> meanIspTransit = Array.Empty<MonitoringInfluxClient.LatencyPoint>();
@@ -2485,7 +2512,8 @@ public class LanFlowMapService
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
 
-        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, meanIspTransit);
+        return new HistoricDataCache(
+            from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(
