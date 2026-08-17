@@ -31,6 +31,10 @@ public class RolloutPlanner
         var doc = new RolloutPlanDocument();
         var steps = new List<FirmwareRolloutStep>();
 
+        // Coverage, not a constant, decides how many APs move together - the oracle already proves
+        // a wave is neighbor-free, so the flat cap only has to stand in where nothing proves it.
+        var apCap = EffectiveApCap(input, spacing);
+
         var depths = ComputeDepths(input.Devices);
         var meshParents = input.Devices
             .Where(d => d.WirelessUplink && d.UplinkMac != null)
@@ -90,7 +94,7 @@ public class RolloutPlanner
 
             foreach (var levelDevices in Levels(group.Devices, depths))
             {
-                foreach (var wave in BuildLevelWaves(levelDevices, meshParents, spacing, input.Neighbors, skuCounts, canaried))
+                foreach (var wave in BuildLevelWaves(levelDevices, meshParents, spacing, apCap, input.Neighbors, skuCounts, canaried))
                 {
                     waveNumber++;
                     var planWave = new PlanWave { Number = waveNumber, Channel = group.Channel };
@@ -152,6 +156,7 @@ public class RolloutPlanner
         doc.UniFiOsUpdate.Url = input.UniFiOsDownloadUrl;
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
+        ComputeWaveOverlap(doc, candidates, input.Neighbors, spacing, apCap);
         ComputeTimeline(doc, spacing);
         AddNotes(doc, input, candidates);
 
@@ -342,6 +347,7 @@ public class RolloutPlanner
         List<PlannerDevice> level,
         HashSet<string> meshParents,
         ResolvedSpacing spacing,
+        int apCap,
         IApNeighborOracle? neighbors,
         Dictionary<string, int> skuCounts,
         HashSet<string> canaried)
@@ -369,13 +375,28 @@ public class RolloutPlanner
 
         bool Held(PlannerDevice d) => canaried.Contains(d.ModelFamily) && skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1;
 
-        Pack(waves, packableAps, spacing.MaxApParallelism,
+        Pack(waves, packableAps, apCap,
             (a, b) => neighbors == null || !neighbors.AreNeighbors(a.Mac, b.Mac), Held);
         foreach (var d in solo) waves.Add([(d, false, Held(d))]);
         Pack(waves, packableSwitches, spacing.MaxSwitchParallelism, (_, _) => true, Held);
         foreach (var d in gateways) waves.Add([(d, false, Held(d))]);
 
         return waves;
+    }
+
+    /// <summary>
+    /// How many APs may be in one wave. Placement data means the oracle can prove a set is
+    /// neighbor-free, so the bound becomes a share of the site's APs and a 200-AP site stops
+    /// crawling six at a time. The flat profile cap is the floor, so small sites do not change, and
+    /// it stays the only bound where nothing corroborates coverage: with no oracle every pair reads
+    /// as compatible, and roaming edges alone prove that two APs DO overlap, never that they do not.
+    /// </summary>
+    internal static int EffectiveApCap(RolloutPlanningInput input, ResolvedSpacing spacing)
+    {
+        if (input.Neighbors?.HasPlacementData != true) return spacing.MaxApParallelism;
+        var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
+        var share = (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0));
+        return Math.Max(spacing.MaxApParallelism, share);
     }
 
     /// <summary>First-fit packing under a size cap and a pairwise compatibility predicate.</summary>
@@ -428,28 +449,117 @@ public class RolloutPlanner
     }
 
     /// <summary>Cumulative offsets: channel changes at group edges, gaps between waves.</summary>
+    /// <summary>
+    /// Which earlier waves each wave may run alongside. A device's cool-down is its own settle, so it
+    /// should only hold back devices whose outcome it can affect - but that is a topology question,
+    /// and the executor has no topology at runtime. So it is answered here, once, and both the
+    /// timeline and the executor read the answer.
+    /// </summary>
+    internal static void ComputeWaveOverlap(
+        RolloutPlanDocument doc,
+        List<PlannerDevice> candidates,
+        IApNeighborOracle? neighbors,
+        ResolvedSpacing spacing,
+        int apCap)
+    {
+        var byMac = candidates
+            .GroupBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        // Every device above this one, to the root. A reboot anywhere on that path cuts the image
+        // download and the litmus reading alike, so ancestry is the test, not the parent link.
+        HashSet<string> Ancestors(string mac)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var at = byMac.TryGetValue(mac, out var d) ? d.UplinkMac : null;
+            while (at != null && seen.Add(at))
+                at = byMac.TryGetValue(at, out var parent) ? parent.UplinkMac : null;
+            return seen;
+        }
+
+        var ancestorsOf = doc.Waves
+            .SelectMany(w => w.Steps)
+            .Select(s => s.Mac)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(m => m, Ancestors, StringComparer.OrdinalIgnoreCase);
+
+        bool Related(PlanWaveStep a, PlanWaveStep b)
+        {
+            if (FirmwareDeviceTypes.Parse(a.DeviceType) == DeviceType.Gateway
+                || FirmwareDeviceTypes.Parse(b.DeviceType) == DeviceType.Gateway)
+                return true;
+
+            var fa = byMac.TryGetValue(a.Mac, out var da) ? da.ModelFamily : a.Model;
+            var fb = byMac.TryGetValue(b.Mac, out var db) ? db.ModelFamily : b.Model;
+            if (string.Equals(fa, fb, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (ancestorsOf.TryGetValue(a.Mac, out var aa) && aa.Contains(b.Mac)) return true;
+            if (ancestorsOf.TryGetValue(b.Mac, out var ab) && ab.Contains(a.Mac)) return true;
+
+            return neighbors?.AreNeighbors(a.Mac, b.Mac) == true;
+        }
+
+        for (var j = 0; j < doc.Waves.Count; j++)
+        {
+            var later = doc.Waves[j];
+            for (var i = 0; i < j; i++)
+            {
+                var earlier = doc.Waves[i];
+                // A channel group switch is a console-wide setting, so two groups can never be in
+                // flight together whatever their devices are.
+                if (!string.Equals(earlier.Channel, later.Channel, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (earlier.Steps.Any(a => later.Steps.Any(b => Related(a, b))))
+                    continue;
+                // The parallelism caps bound how many of a class may be down at once. Two waves
+                // that respect them individually can breach them together, which is exactly the
+                // coverage promise the AP cap stands in for where there is no placement data.
+                if (CountOf(earlier, DeviceType.AccessPoint) + CountOf(later, DeviceType.AccessPoint)
+                        > apCap
+                    || CountOf(earlier, DeviceType.Switch) + CountOf(later, DeviceType.Switch)
+                        > spacing.MaxSwitchParallelism)
+                {
+                    continue;
+                }
+                later.MayOverlapWaves.Add(earlier.Number);
+            }
+        }
+    }
+
     internal static void ComputeTimeline(RolloutPlanDocument doc, ResolvedSpacing spacing)
     {
         var t = doc.UniFiNetworkUpdateSeconds;
+        var startAt = new Dictionary<int, int>();
+        var finishAt = new Dictionary<int, int>();
         foreach (var group in doc.ChannelGroups)
         {
             if (group.RequiresConsoleChange) t += ChannelChangeSeconds;
             var groupWaves = doc.Waves.Where(w => w.Number >= group.FirstWave && w.Number <= group.LastWave).ToList();
+            var groupStart = t;
             for (var i = 0; i < groupWaves.Count; i++)
             {
                 var wave = groupWaves[i];
-                wave.StartOffsetSeconds = t;
-                foreach (var s in wave.Steps) s.EtaOffsetSeconds = t;
-                var hasGateway = wave.Steps.Any(s =>
-                    FirmwareDeviceTypes.Parse(s.DeviceType) == DeviceType.Gateway);
-                var cooldown = hasGateway
-                    ? FirmwareRolloutOrchestrator.GatewayCoolDown
-                    : FirmwareRolloutOrchestrator.CoolDown;
-                t += (wave.Steps.Count == 0 ? 0 : wave.Steps.Max(s => s.EstimatedDowntimeSeconds))
-                    + (int)cooldown.TotalSeconds
-                    + CommandOverheadSeconds;
-                if (i < groupWaves.Count - 1) t += GapAfter(wave, spacing);
+                // The executor measures the gap against the wave it is about to command, so this
+                // does too: preview and rollout have to agree on when a wave is allowed to start.
+                var gap = GapFor(wave, spacing);
+                var at = groupStart;
+                foreach (var earlier in groupWaves.Take(i))
+                {
+                    at = Math.Max(at, wave.MayOverlapWaves.Contains(earlier.Number)
+                        ? startAt[earlier.Number] + gap
+                        : finishAt[earlier.Number] + gap);
+                }
+                // The concurrency ceiling: only so much of the site moves at once, however
+                // unrelated the waves are.
+                var capped = i - spacing.MaxWaveOverlap;
+                if (capped >= 0) at = Math.Max(at, finishAt[groupWaves[capped].Number]);
+
+                wave.StartOffsetSeconds = at;
+                foreach (var s in wave.Steps) s.EtaOffsetSeconds = at;
+                startAt[wave.Number] = at;
+                finishAt[wave.Number] = at + WaveDurationSeconds(wave);
             }
+            if (groupWaves.Count > 0) t = groupWaves.Max(w => finishAt[w.Number]);
             if (group.RequiresConsoleChange) t += ChannelChangeSeconds;
         }
         doc.UniFiOsStartOffsetSeconds = doc.UniFiOsUpdateSeconds > 0 ? t : 0;
@@ -457,7 +567,22 @@ public class RolloutPlanner
         doc.TotalEstimatedSeconds = t;
     }
 
-    private static int GapAfter(PlanWave wave, ResolvedSpacing spacing)
+    private static int CountOf(PlanWave wave, DeviceType type) =>
+        wave.Steps.Count(s => FirmwareDeviceTypes.Parse(s.DeviceType) == type);
+
+    /// <summary>Command to settled, for one wave: its slowest device plus its cool-down.</summary>
+    private static int WaveDurationSeconds(PlanWave wave)
+    {
+        var hasGateway = wave.Steps.Any(s => FirmwareDeviceTypes.Parse(s.DeviceType) == DeviceType.Gateway);
+        var cooldown = hasGateway
+            ? FirmwareRolloutOrchestrator.GatewayCoolDown
+            : FirmwareRolloutOrchestrator.CoolDown;
+        return (wave.Steps.Count == 0 ? 0 : wave.Steps.Max(s => s.EstimatedDowntimeSeconds))
+            + (int)cooldown.TotalSeconds
+            + CommandOverheadSeconds;
+    }
+
+    private static int GapFor(PlanWave wave, ResolvedSpacing spacing)
     {
         var gap = 0;
         foreach (var s in wave.Steps)

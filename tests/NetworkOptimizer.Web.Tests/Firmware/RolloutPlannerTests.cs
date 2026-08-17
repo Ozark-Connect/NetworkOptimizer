@@ -99,6 +99,125 @@ public class RolloutPlannerTests
 
     private static List<string> WaveMacs(PlanWave wave) => wave.Steps.Select(s => s.Mac).ToList();
 
+    // ---- Wave overlap: a cool-down settles one device, it does not stop the rollout ----
+
+    [Fact]
+    public void Overlap_UnrelatedWaves_MayRunTogether()
+    {
+        // An AP and a switch hanging off the gateway side by side: different classes, neither
+        // above the other, so neither one's reboot can reach the other.
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Sw(DistSwitchMac, "Switch-1", "SKU-SW1", GatewayMac),
+            Ap(ApMac, "AP-1", "SKU-AP1", GatewayMac),
+        };
+
+        var doc = Plan(devices).Document;
+
+        doc.Waves.Should().HaveCount(2);
+        doc.Waves[1].MayOverlapWaves.Should().Contain(doc.Waves[0].Number);
+        doc.Waves[1].StartOffsetSeconds.Should().BeLessThan(
+            doc.Waves[0].StartOffsetSeconds + 480 + Cd + RolloutPlanner.CommandOverheadSeconds);
+    }
+
+    [Fact]
+    public void Overlap_SameModelFamily_NeverRunsTogether()
+    {
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Sw(DistSwitchMac, "Switch-1", "SKU-SW1", GatewayMac),
+            Sw(AccessSwitchMac, "Switch-2", "SKU-SW1", GatewayMac),
+        };
+
+        var doc = Plan(devices).Document;
+
+        doc.Waves.SelectMany(w => w.MayOverlapWaves).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Overlap_ApNeighbors_NeverRunTogether()
+    {
+        var ap1 = ApMac;
+        var ap2 = "aa:bb:cc:dd:ee:05";
+        var oracle = new ApNeighborOracle(hasPlacementData: true);
+        oracle.AddNeighbors(ap1, ap2);
+
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Sw(DistSwitchMac, "Switch-1", "SKU-SW1", GatewayMac, upgradable: false),
+            Ap(ap1, "AP-1", "SKU-AP1", DistSwitchMac),
+            Ap(ap2, "AP-2", "SKU-AP2", DistSwitchMac),
+        };
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
+        doc.Waves.Should().HaveCount(2);
+        doc.Waves[1].MayOverlapWaves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Overlap_DeviceAboveAnother_NeverRunsTogether()
+    {
+        // The AP reaches the console through the switch, so the switch's reboot cuts its download.
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Sw(DistSwitchMac, "Switch-1", "SKU-SW1", GatewayMac),
+            Ap(ApMac, "AP-1", "SKU-AP1", DistSwitchMac),
+        };
+
+        var doc = Plan(devices).Document;
+
+        doc.Waves.SelectMany(w => w.MayOverlapWaves).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Overlap_TheGateway_NeverRunsWithAnything()
+    {
+        var devices = new[]
+        {
+            Gw(),
+            Sw(DistSwitchMac, "Switch-1", "SKU-SW1", GatewayMac),
+        };
+
+        var doc = Plan(devices).Document;
+
+        doc.Waves.Last().Steps.Should().ContainSingle(s => s.Mac == GatewayMac);
+        doc.Waves.Last().MayOverlapWaves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ApCap_WithPlacementData_ScalesWithTheFleetRatherThanTheFlatCap()
+    {
+        // 40 APs, none neighbors, placement data backing that: Balanced allows 10% of the fleet,
+        // which is well above the flat cap of 3.
+        var oracle = new ApNeighborOracle(hasPlacementData: true);
+        var devices = new List<PlannerDevice> { Gw(upgradable: false) };
+        for (var i = 0; i < 40; i++)
+            devices.Add(Ap($"aa:bb:cc:dd:11:{i:x2}", $"AP-{i}", $"SKU-AP{i}"));
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Count.Should().Be(4);
+    }
+
+    [Fact]
+    public void ApCap_WithoutPlacementData_StaysOnTheFlatCap()
+    {
+        var oracle = new ApNeighborOracle(hasPlacementData: false);
+        var devices = new List<PlannerDevice> { Gw(upgradable: false) };
+        for (var i = 0; i < 40; i++)
+            devices.Add(Ap($"aa:bb:cc:dd:12:{i:x2}", $"AP-{i}", $"SKU-AP{i}"));
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Count.Should().Be(3);
+    }
+
+
     private static int WaveOf(RolloutPlanDocument doc, string mac) =>
         doc.Waves.Single(w => w.Steps.Any(s => s.Mac == mac)).Number;
 
@@ -901,7 +1020,7 @@ public class RolloutPlannerTests
     }
 
     [Fact]
-    public void Plan_InterWaveGap_IsTheWavesOwnDeviceClassAndIsNotChargedAfterTheLastWave()
+    public void Plan_InterWaveGap_IsTheStartingWavesDeviceClassAndIsNotChargedAfterTheLastWave()
     {
         var devices = new[]
         {
@@ -913,11 +1032,12 @@ public class RolloutPlannerTests
         var doc = Plan(devices).Document;
 
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
-        // AP wave: 240 down + Cd cooldown + 30 overhead + 120 AP gap.
-        doc.Waves[1].StartOffsetSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds + 120);
-        // Switch wave: 480 down + Cd cooldown + 30 overhead + 180 switch gap.
+        // The gap belongs to the wave about to START, matching what the executor waits for before
+        // commanding it: the switch wave follows the AP wave's cycle plus the 180s switch gap.
+        doc.Waves[1].StartOffsetSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
+        // Gateway wave: the switch's cycle, then the 300s gateway gap.
         var w1 = doc.Waves[1].StartOffsetSeconds;
-        doc.Waves[2].StartOffsetSeconds.Should().Be(w1 + 480 + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
+        doc.Waves[2].StartOffsetSeconds.Should().Be(w1 + 480 + Cd + RolloutPlanner.CommandOverheadSeconds + 300);
         // The gateway closes the only group, so its gateway gap is never charged.
         var w2 = doc.Waves[2].StartOffsetSeconds;
         doc.TotalEstimatedSeconds.Should().Be(w2 + 240 + GwCd + RolloutPlanner.CommandOverheadSeconds);

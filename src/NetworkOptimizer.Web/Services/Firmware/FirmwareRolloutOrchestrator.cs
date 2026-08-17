@@ -129,6 +129,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private IReadOnlyList<UniFiFirmwareCatalogEntry> _catalog = [];
     private DateTime _catalogReadAt = DateTime.MinValue;
     private DateTime? _lastWaveSettledAt;
+    private DateTime? _lastWaveCommandedAt;
     private int _reconciledPlanId;
     private bool _restoreSweepDone;
     private bool _resumeGapCharged;
@@ -1574,15 +1575,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         Dictionary<string, RolloutDeviceObservation> byMac,
         CancellationToken cancellationToken)
     {
-        if (steps.Any(IsInFlight))
-            return;
-
         var pending = steps.Where(s => !IsSettled(s)).ToList();
         if (pending.Count == 0)
             return;
 
-        var wave = pending.Min(s => s.Wave);
+        // The lowest wave with anything left to command. Waves already moving are skipped rather
+        // than ending the pass, which is what lets an unrelated wave start behind them.
+        var startable = pending
+            .Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held)
+            .Select(s => s.Wave)
+            .DefaultIfEmpty(-1)
+            .Min();
+        if (startable < 0)
+            return;
+
+        var wave = startable;
         var waveSteps = pending.Where(s => s.Wave == wave).ToList();
+
+        // A cool-down is a device settling, not the site holding its breath: it blocks only the
+        // waves the planner found a topology relationship with. Waves are still commanded in
+        // order - a blocked wave ends the pass rather than letting a later one jump it.
+        var mayOverlap = document.Waves.FirstOrDefault(w => w.Number == wave)?.MayOverlapWaves ?? [];
+        var inFlightWaves = steps.Where(IsInFlight).Select(s => s.Wave).Distinct().ToList();
+        if (inFlightWaves.Any(w => w != wave && !mayOverlap.Contains(w)))
+            return;
+
+        var spacingLimits = ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson);
+        if (!inFlightWaves.Contains(wave) && inFlightWaves.Count >= spacingLimits.MaxWaveOverlap)
+            return;
 
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
@@ -1606,18 +1626,30 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
-        if (_lastWaveSettledAt is DateTime settled && Now - settled < GapBefore(waveSteps, settings))
+        // Both anchors hold: the gap is measured from the last wave to settle AND from the last one
+        // commanded. Overlapping waves settle long after they start, so a start-anchored gap is the
+        // only thing spacing them apart.
+        var gap = GapBefore(waveSteps, settings);
+        if (_lastWaveSettledAt is DateTime settled && Now - settled < gap)
+            return;
+        if (_lastWaveCommandedAt is DateTime commanded && Now - commanded < gap)
             return;
 
         var channel = waveSteps.Select(s => s.Channel).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
         if (!string.IsNullOrWhiteSpace(channel))
             await EnsureChannelAsync(plan, channel, cancellationToken);
 
-        foreach (var step in waveSteps.Where(s => s.State == FirmwareRolloutStepState.Pending))
+        var commandable = waveSteps.Where(s => s.State == FirmwareRolloutStepState.Pending).ToList();
+        foreach (var step in commandable)
         {
             byMac.TryGetValue(step.DeviceMac, out var observation);
             await CommandStepAsync(document, steps, step, observation, settings, cancellationToken);
         }
+
+        // Anchor the gap on a command that actually went out. A step the console was too dark to
+        // command is still Pending and must be free to retry on the very next pass.
+        if (commandable.Any(s => s.State != FirmwareRolloutStepState.Pending))
+            _lastWaveCommandedAt = Now;
     }
 
     private async Task PauseForApprovalAsync(

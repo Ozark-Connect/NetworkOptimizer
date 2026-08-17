@@ -171,6 +171,20 @@ public class ResolvedSpacing
     public int MaxApParallelism { get; init; }
     public int MaxSwitchParallelism { get; init; }
 
+    /// <summary>
+    /// Share of the site's APs that may upgrade together when real placement data backs the
+    /// coverage answer. The flat cap is a floor, so small sites are unchanged; a large site stops
+    /// being throttled to a handful at a time when the oracle can prove the set is neighbor-free.
+    /// </summary>
+    public int ApCoveragePercent { get; init; }
+
+    /// <summary>
+    /// How many waves may be in flight together. A device's cool-down only holds up waves it has a
+    /// topology relationship with, so this is the ceiling on how much of the site moves at once.
+    /// Two on the most cautious profile: one settling device should never stall the whole rollout.
+    /// </summary>
+    public int MaxWaveOverlap { get; init; }
+
     /// <summary>Advanced-override JSON shape; every field optional on top of the preset.</summary>
     private class Overrides
     {
@@ -179,15 +193,17 @@ public class ResolvedSpacing
         [JsonPropertyName("gatewayGapSeconds")] public int? GatewayGapSeconds { get; set; }
         [JsonPropertyName("maxApParallelism")] public int? MaxApParallelism { get; set; }
         [JsonPropertyName("maxSwitchParallelism")] public int? MaxSwitchParallelism { get; set; }
+        [JsonPropertyName("maxWaveOverlap")] public int? MaxWaveOverlap { get; set; }
+        [JsonPropertyName("apCoveragePercent")] public int? ApCoveragePercent { get; set; }
     }
 
     public static ResolvedSpacing For(FirmwareSpacingProfile profile, string? advancedJson)
     {
-        var (apGap, swGap, gwGap, apPar, swPar) = profile switch
+        var (apGap, swGap, gwGap, apPar, swPar, waveOverlap, apPct) = profile switch
         {
-            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1),
-            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4),
-            _ => (120, 180, 300, 3, 2),
+            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1, 2, 5),
+            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4, 4, 20),
+            _ => (120, 180, 300, 3, 2, 3, 10),
         };
 
         Overrides? o = null;
@@ -204,6 +220,8 @@ public class ResolvedSpacing
             GatewayGapSeconds = Math.Max(0, o?.GatewayGapSeconds ?? gwGap),
             MaxApParallelism = Math.Max(1, o?.MaxApParallelism ?? apPar),
             MaxSwitchParallelism = Math.Max(1, o?.MaxSwitchParallelism ?? swPar),
+            MaxWaveOverlap = Math.Max(1, o?.MaxWaveOverlap ?? waveOverlap),
+            ApCoveragePercent = Math.Clamp(o?.ApCoveragePercent ?? apPct, 1, 100),
         };
     }
 }
@@ -521,6 +539,14 @@ public class PlanWave
     public string Channel { get; set; } = string.Empty;
     public int StartOffsetSeconds { get; set; }
     public List<PlanWaveStep> Steps { get; set; } = [];
+
+    /// <summary>
+    /// Earlier waves this one may run alongside, so a device's cool-down does not hold up devices it
+    /// has no relationship with. Computed at plan time because only the planner knows the topology
+    /// the test needs. Empty means wait for everything before it, which is what plans built before
+    /// this existed carry - and the safe default.
+    /// </summary>
+    public List<int> MayOverlapWaves { get; set; } = [];
 }
 
 public class PlanWaveStep
