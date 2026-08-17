@@ -232,7 +232,7 @@ public class RolloutPlanningSource : IRolloutPlanningSource
         if (apMacs.Count < 2) return null;
 
         var placed = await LoadPlacementsAsync(apMacs);
-        var oracle = new ApNeighborOracle(hasPlacementData: placed.Count >= 2);
+        var oracle = new ApNeighborOracle(hasPlacementData: placed.Count >= 2, placedApCount: placed.Count);
         var anyData = false;
 
         if (placed.Count >= 2)
