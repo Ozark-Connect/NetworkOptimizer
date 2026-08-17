@@ -25,7 +25,6 @@ public class ComponentDatabaseWriteTests
         "InfluxSetupWizard.razor",
         "Settings.razor",
         "SfpModulesCard.razor",
-        "SnmpDeviceStatusCard.razor",
         "WanContextsCard.razor",
     };
 
