@@ -28,8 +28,8 @@ public class FirmwareTimingEstimatorTests
     [InlineData(FirmwareDeviceClass.AccessPoint, 240)]
     [InlineData(FirmwareDeviceClass.OlderAccessPoint, 420)]
     [InlineData(FirmwareDeviceClass.Switch, 480)]
-    [InlineData(FirmwareDeviceClass.GatewayNetworkOnly, 300)]
-    [InlineData(FirmwareDeviceClass.CloudGatewayUniFiOs, 1080)]
+    [InlineData(FirmwareDeviceClass.GatewayNetworkOnly, 240)]
+    [InlineData(FirmwareDeviceClass.CloudGatewayUniFiOs, 360)]
     public void SeedDowntimeSeconds_MatchesMeasuredResearchValues(FirmwareDeviceClass cls, int expected)
     {
         FirmwareTimingEstimator.SeedDowntimeSeconds(cls).Should().Be(expected);

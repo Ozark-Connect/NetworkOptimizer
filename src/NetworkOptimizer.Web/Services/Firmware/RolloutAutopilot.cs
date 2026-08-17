@@ -215,10 +215,12 @@ public class RolloutAutopilot : IRolloutAutopilot
         {
             EventType = RolloutAlerts.Upcoming,
             Source = RolloutAlerts.Source,
-            Severity = AlertSeverity.Info,
+            // Warning, not Info: this is the one chance to postpone before an unattended rollout
+            // reboots the site, and it has to stand out from the run-of-the-mill notifications.
+            Severity = AlertSeverity.Warning,
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
-                $"{devices} device{(devices == 1 ? "" : "s")} will be upgraded starting "
+                $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(result.Document, devices))} will be upgraded starting "
                 + $"{startAtUtc.ToLocalTime():ddd MMM d, h:mm tt}{SiteAside(window, startAtUtc)}, "
                 + $"in about {hours:0} hour{(Math.Round(hours) == 1 ? "" : "s")} - chosen from {window.Basis}. "
                 + "Open Firmware Rollout to postpone or stop it.",

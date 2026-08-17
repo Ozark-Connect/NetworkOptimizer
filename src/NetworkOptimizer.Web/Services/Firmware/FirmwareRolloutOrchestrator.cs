@@ -631,7 +631,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.Started,
             AlertSeverity.Info,
             $"Firmware Rollout Started{_siteSuffix}",
-            $"Upgrading {upgrading} device{(upgrading == 1 ? "" : "s")} across {document.Waves.Count} wave{(document.Waves.Count == 1 ? "" : "s")}.",
+            $"Upgrading {RolloutScopeCopy.Scope(document, upgrading, document.Waves.Count)}.",
             null, null, cancellationToken);
 
         _logger.LogInformation("Firmware rollout {Id} started on site {Site}", plan.Id, _siteSlug);
@@ -1749,8 +1749,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.Completed,
             AlertSeverity.Info,
             $"Firmware Rollout Complete{_siteSuffix}",
-            $"{upgraded} device{(upgraded == 1 ? "" : "s")} upgraded, {failed} failed, {dropped} dropped."
-            + ConsoleUpdateSummary(document)
+            // A console-only rollout has no device tallies to report, and printing three zeros
+            // reads as a rollout that did nothing.
+            (steps.Count == 0 && RolloutScopeCopy.IncludesConsole(document)
+                ? ConsoleUpdateSummary(document).TrimStart()
+                : $"{upgraded} device{(upgraded == 1 ? "" : "s")} upgraded, {failed} failed, {dropped} dropped."
+                  + ConsoleUpdateSummary(document))
             + " The report follows after the soak.",
             null, null, cancellationToken);
 
@@ -1857,7 +1861,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.ReportReady,
             AlertSeverity.Info,
             $"Firmware Rollout Report Ready{_siteSuffix}",
-            $"{report.DevicesUpgraded} device{(report.DevicesUpgraded == 1 ? "" : "s")} have been running their new firmware for {settings.SoakHours} hours. {issues} Open Firmware Rollout for the before-and-after.",
+            $"{(steps.Count == 0 && RolloutScopeCopy.IncludesConsole(document)
+                ? "The console has"
+                : $"{report.DevicesUpgraded} device{(report.DevicesUpgraded == 1 ? " has" : "s have")}")} been running "
+            + $"{(steps.Count == 0 ? "its" : "their")} new firmware for {settings.SoakHours} hours. {issues} "
+            + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
 
         _logger.LogInformation(

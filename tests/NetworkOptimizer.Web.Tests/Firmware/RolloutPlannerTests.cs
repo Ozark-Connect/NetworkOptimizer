@@ -920,7 +920,7 @@ public class RolloutPlannerTests
         doc.Waves[2].StartOffsetSeconds.Should().Be(w1 + 480 + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
         // The gateway closes the only group, so its gateway gap is never charged.
         var w2 = doc.Waves[2].StartOffsetSeconds;
-        doc.TotalEstimatedSeconds.Should().Be(w2 + 300 + GwCd + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(w2 + 240 + GwCd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -989,7 +989,7 @@ public class RolloutPlannerTests
 
         var step = StepOf(doc, GatewayMac);
         step.OfflineBudgetSeconds.Should().Be(FirmwareTimingEstimator.DefaultOfflineBudgetSeconds);
-        step.EstimatedDowntimeSeconds.Should().Be(300);
+        step.EstimatedDowntimeSeconds.Should().Be(240);
         doc.IncludesUniFiOsUpdate.Should().BeFalse();
     }
 
@@ -1002,7 +1002,7 @@ public class RolloutPlannerTests
 
         var step = StepOf(doc, GatewayMac);
         step.OfflineBudgetSeconds.Should().Be(FirmwareTimingEstimator.CloudGatewayOfflineBudgetSeconds);
-        step.EstimatedDowntimeSeconds.Should().Be(1080);
+        step.EstimatedDowntimeSeconds.Should().Be(360);
         doc.IncludesUniFiOsUpdate.Should().BeTrue();
     }
 

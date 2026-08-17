@@ -68,7 +68,7 @@ else if (_active != null)
             }
             @if (_active.Status == FirmwareRolloutStatus.SoakWait)
             {
-                <p class="firmware-rollout-note">Every device is upgraded. The report compares @SoakHours hours of settled running against the same stretch before the upgrade, so it lands about @SoakHours hours after the last device came back.</p>
+                <p class="firmware-rollout-note">All devices have upgraded. We're giving them @SoakLabel to settle, then comparing against the @SoakLabel before the upgrade. That's when the report shows up.</p>
             }
             @foreach (var note in _active.Plan.Notes)
             {
@@ -107,7 +107,7 @@ else if (_active != null)
                                 <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.FromVersion) ?? "-")</td>
                                 <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.TargetVersion) ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.NetworkAppUpdate)">@ConsoleChipLabel(_active.Plan.NetworkAppUpdate)</span></td>
-                                <td class="hide-mobile">-</td>
+                                <td class="hide-mobile">@ConsoleDowntime(_active.Plan.NetworkAppUpdate)</td>
                                 <td></td>
                             </tr>
                         }
@@ -144,7 +144,7 @@ else if (_active != null)
                                 <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.FromVersion) ?? "-")</td>
                                 <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.TargetVersion) ?? "-")</td>
                                 <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.UniFiOsUpdate)">@ConsoleChipLabel(_active.Plan.UniFiOsUpdate)</span></td>
-                                <td class="hide-mobile">-</td>
+                                <td class="hide-mobile">@ConsoleDowntime(_active.Plan.UniFiOsUpdate)</td>
                                 <td></td>
                             </tr>
                         }
@@ -663,6 +663,8 @@ else
 
     private int SoakHours => _settings?.SoakHours > 0 ? _settings.SoakHours : 2;
 
+    private string SoakLabel => $"{SoakHours} hour{(SoakHours == 1 ? "" : "s")}";
+
     /// <summary>The console's phases run on the gateway when the gateway IS the console.</summary>
     private string ConsoleRowModel => _active?.Steps
         .FirstOrDefault(s => string.Equals(s.Mac, _active.Plan.ConsoleMac, StringComparison.OrdinalIgnoreCase))
@@ -672,6 +674,15 @@ else
     /// A console phase reports progress as triggered/settled plus an outcome word, not as a step
     /// state, so it needs its own reading of the same three questions the chips answer.
     /// </summary>
+    /// <summary>
+    /// How long the console was away, as soon as it is back - the same moment a device row gets
+    /// its downtime. Waiting for the report would leave this blank for the length of the soak.
+    /// </summary>
+    private static string ConsoleDowntime(RolloutConsoleStepState state) =>
+        state is { WentDownAt: DateTime down, BackAt: DateTime back }
+            ? Duration((int)Math.Max(0, (back - down).TotalSeconds))
+            : "-";
+
     private static string ConsoleChipLabel(RolloutConsoleStepState state)
     {
         if (!state.Triggered) return "Queued";

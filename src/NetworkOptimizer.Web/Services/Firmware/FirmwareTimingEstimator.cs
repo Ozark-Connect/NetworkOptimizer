@@ -33,8 +33,12 @@ public class FirmwareTimingEstimator
         FirmwareDeviceClass.AccessPoint => 240,
         FirmwareDeviceClass.OlderAccessPoint => 420,
         FirmwareDeviceClass.Switch => 480,
-        FirmwareDeviceClass.GatewayNetworkOnly => 300,
-        FirmwareDeviceClass.CloudGatewayUniFiOs => 1080,
+        FirmwareDeviceClass.GatewayNetworkOnly => 240,
+        // The original 18 minutes was vendor guidance, not a measurement: the 2026-08-14 research
+        // could not observe this cycle at all, because the console being down is also what stops
+        // us polling it. Five real upgrades since measured 170-283 s, median 230. The console's
+        // own step never feeds the learned timings, so this seed is what a site keeps.
+        FirmwareDeviceClass.CloudGatewayUniFiOs => 360,
         _ => 480,
     };
 

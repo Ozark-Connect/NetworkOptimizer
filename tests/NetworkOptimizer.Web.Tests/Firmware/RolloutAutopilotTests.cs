@@ -82,7 +82,8 @@ public class RolloutAutopilotTests
 
         var alert = harness.Bus.Published.Should().ContainSingle().Subject;
         alert.EventType.Should().Be(RolloutAlerts.Upcoming);
-        alert.Severity.Should().Be(AlertSeverity.Info);
+        // The one chance to postpone before an unattended rollout reboots the site.
+        alert.Severity.Should().Be(AlertSeverity.Warning);
         alert.SourceUrl.Should().Be(RolloutAlerts.SourceUrl);
         alert.Message.Should().Contain("postpone");
     }
