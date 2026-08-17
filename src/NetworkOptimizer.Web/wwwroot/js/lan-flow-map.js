@@ -2044,7 +2044,10 @@ export class LanFlowMap {
                 // room, and sizing off that would post clients through the wall.
                 hits.sort((x, y) => x - y);
                 const median = hits[Math.floor(hits.length / 2)];
-                radius = Math.max(2.5, Math.min(preferred, median * 0.6));
+                // Fraction of the way to the wall the first ring sits at. Devices belong near the
+                // AP they are talking to, so this is deliberately well inside the room; the
+                // overflow rings step outward from here when it fills.
+                radius = Math.max(2.0, Math.min(preferred, median * 0.4));
             }
         }
 
@@ -2058,6 +2061,8 @@ export class LanFlowMap {
             const d = Math.sqrt(dx * dx + dz * dz);
             if (d > 0.1) {
                 baseAngle = Math.atan2(dz, dx);
+                // Keep the direction the relaxation chose, but not its distance when that is
+                // wider than the room allows.
                 baseDist = Math.min(d, radius);
             }
         }
