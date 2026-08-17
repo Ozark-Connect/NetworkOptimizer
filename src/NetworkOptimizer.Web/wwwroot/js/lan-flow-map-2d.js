@@ -1230,8 +1230,15 @@ class LanFlowMap2D {
             if(desired===cur)continue;
             const newParent=this._treeMap.get(desired);
             if(!newParent)continue; // historic AP not in current topology - leave in place
-            const curParent=this._treeMap.get(cur);
-            if(curParent){const i=curParent.clients.indexOf(tn);if(i>=0)curParent.clients.splice(i,1);}
+            // Detach from wherever it actually is, not from where the bookkeeping says: a client
+            // left in two parents' lists is laid out under one and has its edge matched from the
+            // other, which draws a link clear across the map.
+            let found=0;
+            for(const[,p]of this._treeMap){
+                const i=p.clients.indexOf(tn);
+                if(i>=0){p.clients.splice(i,1);found++;}
+            }
+            if(found>1)console.warn('[lan-flow-map-2d] client was under',found,'parents:',tn.d.id);
             newParent.clients.push(tn);
             const edge=this._edges.find(e=>e.tn===tn||e.fn===tn);
             if(edge){if(edge.tn===tn)edge.fn=newParent;else edge.tn=newParent;}
@@ -1500,7 +1507,10 @@ class LanFlowMap2D {
                 if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=false;sibEdges.push(edge);}
                 matchTree(c);
             }
-            for(const c of n.clients.slice(0,G.maxClients)){
+            // The same set the layout just positioned. Reading n.clients here instead would set
+            // edge coordinates from a node this pass never placed, leaving the line at its old
+            // position while the node draws somewhere else.
+            for(const c of (n._visClients||n.clients.slice(0,G.maxClients))){
                 const cT=c.y-G.clientR;
                 // Match the client's uplink edge by TN identity, not link ids: during
                 // roam playback the client is re-parented to its historic AP, so the
