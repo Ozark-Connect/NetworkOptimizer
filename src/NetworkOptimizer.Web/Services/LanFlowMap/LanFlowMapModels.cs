@@ -403,6 +403,14 @@ public class LanFlowMapHistoricUpdate
     /// Empty in live mode, where the snapshot is the truth.
     /// </summary>
     public List<string> PresentClientIds { get; set; } = new();
+
+    /// <summary>
+    /// Client node ids with telemetry anywhere in the fetched window - the clients playback can say
+    /// anything about at all. A client that never appears (one behind a device bridge writes no
+    /// point, having no switch port to be tagged with) is unknowable rather than absent, and is left
+    /// on the map as it was before presence was filtered.
+    /// </summary>
+    public List<string> MeasuredClientIds { get; set; } = new();
 }
 
 public class LanBuilding

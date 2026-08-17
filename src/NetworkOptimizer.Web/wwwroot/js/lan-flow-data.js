@@ -20,6 +20,7 @@ let _cloudStats = {};
 let _nodeBadges = {};
 let _clientStats = {};
 let _presentClients = null;
+let _measuredClients = null;
 let _paused = false;
 let _mode = 'live';
 let _scrubberValue = 10000;
@@ -37,6 +38,9 @@ export function getNodeBadges() { return _nodeBadges; }
 export function getClientStats() { return _clientStats; }
 // Client node ids connected at the scrub instant, or null in live mode (no filtering).
 export function getPresentClients() { return _presentClients; }
+// Client node ids playback can say anything about. A client outside this set writes no telemetry
+// (one behind a device bridge has no switch port to be tagged with), so its absence is not evidence.
+export function getMeasuredClients() { return _measuredClients; }
 export function isPaused()       { return _paused; }
 export function getMode()        { return _mode; }
 export function getScrubber()    { return { value: _scrubberValue, right: _scrubberRight, speed: _playbackSpeed }; }
@@ -114,6 +118,9 @@ export function publishLive(update) {
     _presentClients = _mode === 'historic' && update.presentClientIds
         ? new Set(update.presentClientIds)
         : null;
+    _measuredClients = _mode === 'historic' && update.measuredClientIds
+        ? new Set(update.measuredClientIds)
+        : null;
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
     if (_applyHistoricClients(update)) _notify('snapshot');
@@ -156,6 +163,7 @@ export function resetPlayback() {
     _paused = false;
     _mode = 'live';
     _presentClients = null;
+    _measuredClients = null;
     _scrubberValue = 10000;
     _scrubberRight = 'Live';
     _playbackSpeed = 1;

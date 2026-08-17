@@ -679,6 +679,19 @@ public class LanFlowMapService
                 wiredClientRates[p.ClientMac] = p;
         }
 
+        // Every client the window can speak to at all, before narrowing to this instant. Clients
+        // outside it write no telemetry, so their absence proves nothing and playback leaves them be.
+        foreach (var p in cached.WifiClients)
+        {
+            if (!string.IsNullOrEmpty(p.ClientMac))
+                update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
+        }
+        foreach (var p in cached.WiredClients)
+        {
+            if (!string.IsNullOrEmpty(p.ClientMac))
+                update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
+        }
+
         // Who was connected at this instant, wired and wireless alike. A point far from `at` is
         // somewhere else in the cached window and says nothing about now, so it does not count.
         foreach (var (mac, p) in wifiClientRates)

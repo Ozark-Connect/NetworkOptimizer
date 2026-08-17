@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=9';
+import * as flowData from './lan-flow-data.js?v=10';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -918,7 +918,11 @@ class LanFlowMap2D {
         // connected THEN - otherwise a client that is up today is drawn at every past instant.
         if(isClient(k)){
             const present=flowData.getPresentClients();
-            if(present&&!present.has(n.d.id))return false;
+            const measured=flowData.getMeasuredClients();
+            // Hide only what we can actually see coming and going. A client that writes no
+            // telemetry at all - a camera behind a device bridge has no switch port, so its
+            // counters never land anywhere - is unknowable, and stays drawn as it always was.
+            if(present&&measured&&measured.has(n.d.id)&&!present.has(n.d.id))return false;
         }
         if(k===NK.VirtualHub&&this._hideVirtualHubs)return false;
         if(k===NK.WiredClient&&this._hideWiredClients)return false;
@@ -1224,7 +1228,8 @@ class LanFlowMap2D {
     /// built against. Cheap: a size and a membership check over client nodes only.
     _presenceChanged(){
         const present=flowData.getPresentClients();
-        const key=present?[...present].sort().join(','):'';
+        const measured=flowData.getMeasuredClients();
+        const key=present?[...present].sort().join(',')+'|'+(measured?measured.size:0):'';
         if(key===this._presenceKey)return false;
         this._presenceKey=key;
         return true;
