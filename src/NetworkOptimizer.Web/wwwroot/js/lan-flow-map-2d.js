@@ -1068,13 +1068,18 @@ class LanFlowMap2D {
         if(d.kind===NK.VirtualHub){
             // Hub throughput is its upstream port link, not the summed members.
             const hr=this._virtualHubRates(d.id);inBps=hr.down;outBps=hr.up;any=hr.any;
-        }else if(isFab&&b){
+        }else if(isFab&&b&&(b.fabricIngressBps!=null||b.fabricEgressBps!=null
+            ||b.aggregateInBps!=null||b.aggregateOutBps!=null)){
             if(b.fabricIngressBps!=null||b.fabricEgressBps!=null){
                 inBps=b.fabricIngressBps||0;outBps=b.fabricEgressBps||0;any=true;
-            }else if(b.aggregateInBps!=null||b.aggregateOutBps!=null){
+            }else{
                 inBps=b.aggregateInBps||0;outBps=b.aggregateOutBps||0;any=true;
             }
         }else{
+            // A fabric node whose badge carries no figures sums its own links instead. A UDB
+            // classifies as a Switch but is deliberately left out of the fabric sum (its single
+            // directional downlink series is not a switch fabric), and live has no badge for it
+            // at all - so without this, playback showed nothing where live shows a rate.
             for(const e of this._edges){
                 if(e.lk.fromNodeId!==d.id&&e.lk.toNodeId!==d.id)continue;
                 const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
@@ -1093,11 +1098,14 @@ class LanFlowMap2D {
 
         // Negotiated link speed (wired port or wireless PHY), directly above throughput.
         if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
-        else if(d.phyTxKbps||d.phyRxKbps){
+        else if(cs?.phyTxKbps||cs?.phyRxKbps||d.phyTxKbps||d.phyRxKbps){
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
             // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
-            const downKbps=isMeshUplink?d.phyRxKbps:d.phyTxKbps;
-            const upKbps=isMeshUplink?d.phyTxKbps:d.phyRxKbps;
+            // Playback's own rate wins over the snapshot's, as band and signal above do -
+            // reading d alone showed today's negotiated rate at every past instant.
+            const pTx=cs?.phyTxKbps??d.phyTxKbps, pRx=cs?.phyRxKbps??d.phyRxKbps;
+            const downKbps=isMeshUplink?pRx:pTx;
+            const upKbps=isMeshUplink?pTx:pRx;
             const dl=downKbps?`↓${formatSpeed(Math.round(downKbps/1000))}`:'';
             const ul=upKbps?`↑${formatSpeed(Math.round(upKbps/1000))}`:'';
             rows.push(['Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
