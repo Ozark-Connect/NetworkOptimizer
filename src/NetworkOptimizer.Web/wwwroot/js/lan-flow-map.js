@@ -862,10 +862,17 @@ export class LanFlowMap {
             }
         }
 
-        // Post-layout: push WiFi clients outward from their parent AP so they
-        // fan out rather than clustering tightly around the infrastructure.
+        // Post-layout: put each unplaced client in the room its AP is in, and where no walls are
+        // drawn, push it outward from the AP so leaves don't clump on the infrastructure.
         const WIFI_SPREAD = 1.4;
         const CLIENT_MAX_PARENT_DIST = 12;
+        this._buildRoomWalls(snap, scale);
+        const takenByParent = new Map();
+        for (const [id, pos] of positions) {
+            if (!pos.pinned) continue;
+            takenByParent.set(id, pos);
+        }
+        const placedNear = [...takenByParent.values()];
         for (const node of snap.nodes) {
             if (node.kind !== NODE_KIND.WifiClient) continue;
             const p = positions.get(node.id);
@@ -874,6 +881,13 @@ export class LanFlowMap {
             if (!parentId) continue;
             const pp = positions.get(parentId);
             if (!pp) continue;
+
+            const room = this._placeInRoom(node.id, pp, null, CLIENT_MAX_PARENT_DIST, placedNear);
+            if (room) {
+                p.x = room.x; p.y = room.y; p.z = room.z;
+                placedNear.push(p);
+                continue;
+            }
             const dx = p.x - pp.x;
             const dy = p.y - pp.y;
             const dz = p.z - pp.z;
@@ -1959,6 +1973,94 @@ export class LanFlowMap {
         }, 30000);
     }
 
+
+    // ---- Room-aware client placement -------------------------------------------------
+    //
+    // An unplaced client belongs in the room its AP is in, not on a ring around it. Rooms are
+    // not stored as polygons, so the room is measured instead: cast rays from the AP across the
+    // floor's wall segments and take how far each one travels. That handles L-shapes and alcoves
+    // without solving the planar graph, and a floor with no walls drawn simply yields nothing and
+    // the caller falls back to the ring.
+    _buildRoomWalls(snap, scale) {
+        this._wallSegs = [];
+        for (const b of snap.buildings || []) {
+            for (const f of b.floors || []) {
+                const segs = [];
+                for (const w of f.walls || []) {
+                    const pts = (w.points || []).map(pt => ({ x: -pt.x * scale, z: pt.y * scale }));
+                    for (let i = 1; i < pts.length; i++) segs.push([pts[i - 1], pts[i]]);
+                }
+                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs });
+            }
+        }
+    }
+
+    // Distance from a point to the first wall along a direction, or null if it reaches nothing.
+    _rayToWall(segs, ox, oz, dx, dz) {
+        let best = null;
+        for (const [a, b] of segs) {
+            const sx = b.x - a.x, sz = b.z - a.z;
+            const denom = dx * sz - dz * sx;
+            if (Math.abs(denom) < 1e-9) continue;
+            const t = ((a.x - ox) * sz - (a.z - oz) * sx) / denom;
+            const u = ((a.x - ox) * dz - (a.z - oz) * dx) / denom;
+            if (t > 0.01 && u >= 0 && u <= 1 && (best === null || t < best)) best = t;
+        }
+        return best;
+    }
+
+    // A spot for a client inside its parent's room: an angle of its own, a radius bounded by how
+    // far the room actually goes, and a nudge off anything already placed there.
+    _placeInRoom(nodeId, parentPos, floorZ, preferred, taken) {
+        const wallsForFloor = (this._wallSegs || [])
+            .filter(f => Math.abs((f.z ?? 0) * (this._anchorScale ?? 1) * 0.8 - parentPos.y) < 6)
+            .flatMap(f => f.segs);
+
+        // Stable angle per client, so a rebuild puts it back where it was.
+        const rnd = _roamSeed(nodeId);
+        let radius = preferred;
+        if (wallsForFloor.length > 0) {
+            const hits = [];
+            for (let i = 0; i < 24; i++) {
+                const a = (i / 24) * Math.PI * 2;
+                const d = this._rayToWall(wallsForFloor, parentPos.x, parentPos.z, Math.cos(a), Math.sin(a));
+                if (d !== null) hits.push(d);
+            }
+            if (hits.length >= 8) {
+                // Median, not the per-ray distance: a doorway lets one ray shoot into the next
+                // room, and sizing off that would post clients through the wall.
+                hits.sort((x, y) => x - y);
+                const median = hits[Math.floor(hits.length / 2)];
+                radius = Math.max(2.5, Math.min(preferred, median * 0.6));
+            }
+        }
+
+        // Fill the room first, then keep going in wider rings. A room that runs out of space
+        // pushes the overflow outside it rather than stacking clients on top of each other -
+        // being outside the walls is a smaller lie than two devices in the same spot.
+        let last = null;
+        for (let ring = 0; ring < 6; ring++) {
+            const ringRadius = radius * (1 + ring * 0.45);
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const angle = rnd() * Math.PI * 2;
+                const r = ringRadius * (0.75 + rnd() * 0.35);
+                const cand = {
+                    x: parentPos.x + Math.cos(angle) * r,
+                    y: parentPos.y - 1.5 + rnd(),
+                    z: parentPos.z + Math.sin(angle) * r,
+                    pinned: false,
+                };
+                last = cand;
+                const clash = taken.some(t => {
+                    const dx = t.x - cand.x, dz = t.z - cand.z;
+                    return dx * dx + dz * dz < 4;
+                });
+                if (!clash) return cand;
+            }
+        }
+        return last;
+    }
+
     // Incremental client add: create mesh near parent, create link pipe + particles.
     _addNodeIncremental(node, snap) {
         if (node.kind === NODE_KIND.Cloud) return;
@@ -1984,13 +2086,13 @@ export class LanFlowMap {
                 pinned: true,
             };
         } else {
-            // Scatter near parent
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 6 + Math.random() * 6;
-            pos = {
-                x: parentPos.x + Math.cos(angle) * dist,
+            // Same room placement the layout pass uses, so a client that pops back in mid-playback
+            // lands where it would have on a fresh load rather than on a ring of its own.
+            const taken = [...this._positions.values()];
+            pos = this._placeInRoom(node.id, parentPos, null, 12, taken) || {
+                x: parentPos.x + Math.cos(Math.random() * Math.PI * 2) * 8,
                 y: parentPos.y - 1.5 + Math.random(),
-                z: parentPos.z + Math.sin(angle) * dist,
+                z: parentPos.z + Math.sin(Math.random() * Math.PI * 2) * 8,
                 pinned: false,
             };
         }
