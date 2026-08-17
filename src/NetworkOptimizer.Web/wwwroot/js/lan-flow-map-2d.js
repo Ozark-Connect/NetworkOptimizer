@@ -338,6 +338,9 @@ class LanFlowMap2D {
                             // Client churn or same topology: update data in place
                             const rebuilt=this._updateSnapshotData(s);
                             this._snapshot=s;
+                            // Kinds are cached off the snapshot, and this path replaces it without
+                            // a layout rebuild - so clients that joined or left resolve stale.
+                            this._nodeKinds=null;
                             this._needsStaticRedraw=true;
                             if(rebuilt)this._refitIfScrubbing();
                         }
