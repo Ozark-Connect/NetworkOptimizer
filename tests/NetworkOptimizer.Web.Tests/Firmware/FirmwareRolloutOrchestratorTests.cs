@@ -55,8 +55,9 @@ public class FirmwareRolloutOrchestratorTests
 
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.CoolDown);
 
-        // Bounded: silence that outlasts the grace is judged on whatever we have.
-        await harness.TickAsync(TimeSpan.FromMinutes(4));
+        // Bounded, and the bound is measured the way the cool-down is: one extra cool-down of time
+        // we could actually see, however long the blackout lasted.
+        await harness.TickAsync(TimeSpan.FromMinutes(8));
         await harness.TickAsync(TimeSpan.FromSeconds(10));
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
     }

@@ -1322,7 +1322,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // whatever we have: a device that is genuinely gone still fails, just later.
         if (verdict is { Passed: false, Silence: true }
             && WasBlindDuring(windowFrom, Now)
-            && Now < backAt + cooldown + cooldown)
+            && ElapsedObserved(backAt) < cooldown + cooldown)
         {
             return;
         }
@@ -1617,6 +1617,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!inFlightWaves.Contains(wave) && inFlightWaves.Count >= spacingLimits.MaxWaveOverlap)
             return;
 
+        // Waves that each fit the per-class caps can breach them together, and on a site with no
+        // placements the AP cap is the only thing standing in for coverage. Count devices, not
+        // waves. Plans built before overlap carry no caps and never reach here with anything in
+        // flight, so zero means "unset" rather than "none allowed".
+        if (!inFlightWaves.Contains(wave) && document.MaxApsInFlight > 0)
+        {
+            var inFlight = steps.Where(IsInFlight).ToList();
+            if (InFlightCount(inFlight, DeviceType.AccessPoint) + InFlightCount(waveSteps, DeviceType.AccessPoint)
+                    > document.MaxApsInFlight
+                || InFlightCount(inFlight, DeviceType.Switch) + InFlightCount(waveSteps, DeviceType.Switch)
+                    > Math.Max(1, document.MaxSwitchesInFlight))
+            {
+                return;
+            }
+        }
+
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
             // Nothing in this wave can move and no canary is left to release it. Rather than stall
@@ -1645,7 +1661,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var gap = GapBefore(waveSteps, settings);
         if (_lastWaveSettledAt is DateTime settled && Now - settled < gap)
             return;
-        if (_lastWaveCommandedAt is DateTime commanded && Now - commanded < gap)
+        var commandedAt = _lastWaveCommandedAt ?? document.LastWaveCommandedAt;
+        if (commandedAt is DateTime commanded && Now - commanded < gap)
             return;
 
         var channel = waveSteps.Select(s => s.Channel).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
@@ -1662,7 +1679,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // Anchor the gap on a command that actually went out. A step the console was too dark to
         // command is still Pending and must be free to retry on the very next pass.
         if (commandable.Any(s => s.State != FirmwareRolloutStepState.Pending))
+        {
             _lastWaveCommandedAt = Now;
+            // Persisted as well: this is the only thing spacing overlapping waves apart, and a
+            // restart while a wave is in flight would otherwise release the next one immediately.
+            document.LastWaveCommandedAt = Now;
+            plan.PlanJson = JsonSerializer.Serialize(document);
+            await PersistPlanAsync(plan, cancellationToken);
+        }
     }
 
     private async Task PauseForApprovalAsync(
@@ -2388,6 +2412,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return FirmwareTimingEstimator.OfflineBudgetSeconds(
             FirmwareTimingEstimator.Classify(type, step.Model, step.Model));
     }
+
+    private static int InFlightCount(IEnumerable<FirmwareRolloutStep> steps, DeviceType type) =>
+        steps.Count(s => FirmwareDeviceTypes.Parse(s.DeviceType) == type);
 
     private static bool IsGatewayStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.Gateway;

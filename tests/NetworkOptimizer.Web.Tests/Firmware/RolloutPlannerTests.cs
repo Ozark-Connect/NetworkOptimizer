@@ -194,7 +194,7 @@ public class RolloutPlannerTests
     {
         // 40 APs, none neighbors, placement data backing that: Balanced allows 10% of the fleet,
         // which is well above the flat cap of 3.
-        var oracle = new ApNeighborOracle(hasPlacementData: true);
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 40);
         var devices = new List<PlannerDevice> { Gw(upgradable: false) };
         for (var i = 0; i < 40; i++)
             devices.Add(Ap($"aa:bb:cc:dd:11:{i:x2}", $"AP-{i}", $"SKU-AP{i}"));
@@ -205,8 +205,9 @@ public class RolloutPlannerTests
     }
 
     [Fact]
-    public void ApCap_WithoutPlacementData_StaysOnTheFlatCap()
+    public void ApCap_LargeFleetWithoutPlacementData_StillMovesFasterThanTheFlatCap()
     {
+        // Placement is optional and most large sites skip it, so fleet size alone earns the share.
         var oracle = new ApNeighborOracle(hasPlacementData: false);
         var devices = new List<PlannerDevice> { Gw(upgradable: false) };
         for (var i = 0; i < 40; i++)
@@ -214,7 +215,55 @@ public class RolloutPlannerTests
 
         var doc = Plan(devices, neighbors: oracle).Document;
 
+        doc.Waves[0].Steps.Count.Should().Be(4);
+    }
+
+    [Fact]
+    public void ApCap_SmallFleetWithoutPlacementData_StaysOnTheFlatCap()
+    {
+        var oracle = new ApNeighborOracle(hasPlacementData: false);
+        var devices = new List<PlannerDevice> { Gw(upgradable: false) };
+        for (var i = 0; i < 12; i++)
+            devices.Add(Ap($"aa:bb:cc:dd:13:{i:x2}", $"AP-{i}", $"SKU-AP{i}"));
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
         doc.Waves[0].Steps.Count.Should().Be(3);
+    }
+
+    [Fact]
+    public void ApCap_BarelyPlacedFleet_DoesNotEarnTheFullShare()
+    {
+        // Two placed APs out of 40 say nothing about the other 38, so the share scales down to the
+        // fleet-size allowance rather than the placement-backed one.
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 2);
+        var devices = new List<PlannerDevice> { Gw(upgradable: false) };
+        for (var i = 0; i < 40; i++)
+            devices.Add(Ap($"aa:bb:cc:dd:14:{i:x2}", $"AP-{i}", $"SKU-AP{i}"));
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Count.Should().Be(4);
+    }
+
+    [Fact]
+    public void Overlap_AncestorThroughADeviceThatIsNotUpgrading_StillBlocks()
+    {
+        // The middle switch is already current, so it is not a step - but it still carries the AP's
+        // traffic, and rebooting the switch above it cuts the AP off.
+        var upper = AccessSwitchMac;
+        var middle = "aa:bb:cc:dd:ee:07";
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Sw(upper, "Upper", "SKU-SW1", GatewayMac),
+            Sw(middle, "Middle", "SKU-SW9", upper, upgradable: false),
+            Ap(ApMac, "AP-1", "SKU-AP1", middle),
+        };
+
+        var doc = Plan(devices).Document;
+
+        doc.Waves.SelectMany(w => w.MayOverlapWaves).Should().BeEmpty();
     }
 
 

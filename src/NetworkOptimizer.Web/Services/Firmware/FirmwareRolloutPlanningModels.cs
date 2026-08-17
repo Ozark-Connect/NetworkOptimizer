@@ -95,6 +95,13 @@ public interface IApNeighborOracle
 
     /// <summary>Whether real placement data backed this oracle (surfaces in plan notes).</summary>
     bool HasPlacementData { get; }
+
+    /// <summary>
+    /// How many APs actually have placements. Coverage answers are only as good as this: two placed
+    /// APs on a fleet of forty say nothing about the other thirty-eight, and silence from the oracle
+    /// about an unplaced pair is absence of data, not evidence they do not overlap.
+    /// </summary>
+    int PlacedApCount { get; }
 }
 
 /// <summary>
@@ -359,6 +366,24 @@ public class RolloutPlanDocument
     public string? TimeZoneId { get; set; }
 
     public int TotalEstimatedSeconds { get; set; }
+
+    /// <summary>
+    /// The most APs and switches that may be upgrading at once across every wave in flight. The
+    /// planner sizes waves against these; the executor holds the same line when it overlaps them,
+    /// because waves that each fit can breach the cap together. Zero on plans built before wave
+    /// overlap existed, which is read as "no limit beyond one wave at a time".
+    /// </summary>
+    public int MaxApsInFlight { get; set; }
+
+    /// <inheritdoc cref="MaxApsInFlight"/>
+    public int MaxSwitchesInFlight { get; set; }
+
+    /// <summary>
+    /// When a wave was last commanded. The gap between waves is measured from it as well as from
+    /// the last settle, and with waves overlapping it is the only one of the two that spaces their
+    /// starts - so it has to survive a restart mid-rollout.
+    /// </summary>
+    public DateTime? LastWaveCommandedAt { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>
     public List<string> Notes { get; set; } = [];

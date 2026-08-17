@@ -156,7 +156,9 @@ public class RolloutPlanner
         doc.UniFiOsUpdate.Url = input.UniFiOsDownloadUrl;
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
-        ComputeWaveOverlap(doc, candidates, input.Neighbors, spacing, apCap);
+        doc.MaxApsInFlight = apCap;
+        doc.MaxSwitchesInFlight = spacing.MaxSwitchParallelism;
+        ComputeWaveOverlap(doc, candidates, input.Devices, input.Neighbors, spacing, apCap);
         ComputeTimeline(doc, spacing);
         AddNotes(doc, input, candidates);
 
@@ -385,18 +387,43 @@ public class RolloutPlanner
     }
 
     /// <summary>
-    /// How many APs may be in one wave. Placement data means the oracle can prove a set is
-    /// neighbor-free, so the bound becomes a share of the site's APs and a 200-AP site stops
-    /// crawling six at a time. The flat profile cap is the floor, so small sites do not change, and
-    /// it stays the only bound where nothing corroborates coverage: with no oracle every pair reads
-    /// as compatible, and roaming edges alone prove that two APs DO overlap, never that they do not.
+    /// A fleet big enough that upgrading APs a handful at a time is not a real option, whatever the
+    /// site has drawn on its Signal Map. Placement is optional and most large sites skip it.
+    /// </summary>
+    public const int LargeApFleet = 25;
+
+    /// <summary>
+    /// How many APs may be in one wave. Three inputs, and the largest wins.
+    /// <para>
+    /// The profile's flat cap is the floor, so small sites behave exactly as they always have.
+    /// Placements raise it toward a share of the fleet, scaled by how much of the fleet is actually
+    /// placed: two placed APs out of forty prove nothing about the other thirty-eight, and the
+    /// oracle's silence on an unplaced pair is missing data rather than evidence they do not
+    /// overlap. A fleet past <see cref="LargeApFleet"/> gets that share whether or not it is
+    /// placed: Signal Map placement is optional, most large sites skip it, and the alternative is a
+    /// 200-AP site rolling three at a time for two days.
+    /// </para>
     /// </summary>
     internal static int EffectiveApCap(RolloutPlanningInput input, ResolvedSpacing spacing)
     {
-        if (input.Neighbors?.HasPlacementData != true) return spacing.MaxApParallelism;
         var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
-        var share = (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0));
-        return Math.Max(spacing.MaxApParallelism, share);
+        var flat = spacing.MaxApParallelism;
+        if (aps <= flat) return flat;
+
+        var placed = input.Neighbors?.HasPlacementData == true ? input.Neighbors.PlacedApCount : 0;
+        var covered = placed >= 2
+            ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0) * Math.Min(1.0, placed / (double)aps))
+            : 0;
+
+        // Fleet size sets how many, placements set which ones: the oracle's job is keeping
+        // neighbors out of the same wave, not bounding the wave. So a large unplaced fleet gets the
+        // same share - the flat cap still holds below the threshold, where a bad guess costs a
+        // bigger fraction of the site's coverage.
+        var large = aps >= LargeApFleet
+            ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0))
+            : 0;
+
+        return Math.Max(flat, Math.Max(covered, large));
     }
 
     /// <summary>First-fit packing under a size cap and a pairwise compatibility predicate.</summary>
@@ -458,6 +485,7 @@ public class RolloutPlanner
     internal static void ComputeWaveOverlap(
         RolloutPlanDocument doc,
         List<PlannerDevice> candidates,
+        IReadOnlyList<PlannerDevice> allDevices,
         IApNeighborOracle? neighbors,
         ResolvedSpacing spacing,
         int apCap)
@@ -466,14 +494,21 @@ public class RolloutPlanner
             .GroupBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
+        // The whole topology, not just what is being upgraded: a switch that is already current
+        // still carries its subtree's traffic, and walking only candidates would sever the chain
+        // there and read a device and its own grandparent as unrelated.
+        var topology = allDevices
+            .GroupBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
         // Every device above this one, to the root. A reboot anywhere on that path cuts the image
         // download and the litmus reading alike, so ancestry is the test, not the parent link.
         HashSet<string> Ancestors(string mac)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var at = byMac.TryGetValue(mac, out var d) ? d.UplinkMac : null;
+            var at = topology.TryGetValue(mac, out var d) ? d.UplinkMac : null;
             while (at != null && seen.Add(at))
-                at = byMac.TryGetValue(at, out var parent) ? parent.UplinkMac : null;
+                at = topology.TryGetValue(at, out var parent) ? parent.UplinkMac : null;
             return seen;
         }
 
@@ -552,7 +587,7 @@ public class RolloutPlanner
                 // The concurrency ceiling: only so much of the site moves at once, however
                 // unrelated the waves are.
                 var capped = i - spacing.MaxWaveOverlap;
-                if (capped >= 0) at = Math.Max(at, finishAt[groupWaves[capped].Number]);
+                if (capped >= 0) at = Math.Max(at, finishAt[groupWaves[capped].Number] + gap);
 
                 wave.StartOffsetSeconds = at;
                 foreach (var s in wave.Steps) s.EtaOffsetSeconds = at;

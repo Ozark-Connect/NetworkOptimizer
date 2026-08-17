@@ -27,7 +27,6 @@ public class RolloutFleetScaleTests
         int distSwitches, int accessPerDist, int apsPerAccess, bool placementData = true)
     {
         var devices = new List<PlannerDevice>();
-        var oracle = new ApNeighborOracle(placementData);
         var aps = new List<string>();
 
         devices.Add(New(GatewayMac, DeviceType.Gateway, "SKU-GW", "Gateway", null));
@@ -51,13 +50,12 @@ public class RolloutFleetScaleTests
             }
         }
 
-        // Each AP overlaps the two laid out next to it.
+        var oracle = new ApNeighborOracle(placementData, placementData ? aps.Count : 0);
         for (var i = 1; i < aps.Count; i++)
         {
             oracle.AddNeighbors(aps[i - 1], aps[i]);
             if (i >= 2) oracle.AddNeighbors(aps[i - 2], aps[i]);
         }
-
         return (devices, oracle);
     }
 
@@ -186,7 +184,7 @@ public class RolloutFleetScaleTests
     }
 
     [Fact]
-    public void LargeFleet_WithCoverageData_FinishesSoonerThanWithout()
+    public void LargeFleet_WithoutCoverageData_IsNoSlowerAndStillPacksSafely()
     {
         var settings = Settings(FirmwareSpacingProfile.Balanced);
 
@@ -209,7 +207,18 @@ public class RolloutFleetScaleTests
             Neighbors = roamingOnly,
         }).Document;
 
-        withCoverage.TotalEstimatedSeconds.Should().BeLessThan(withoutCoverage.TotalEstimatedSeconds);
+        // Fleet size sets the wave size either way, so the estimates match. What placements buy is
+        // WHICH APs share a wave: with them, no wave holds a neighbor pair.
+        withCoverage.TotalEstimatedSeconds.Should().BeLessThanOrEqualTo(withoutCoverage.TotalEstimatedSeconds);
+        foreach (var wave in withCoverage.Waves)
+        {
+            foreach (var a in wave.Steps)
+            {
+                wave.Steps.Where(b => b.Mac != a.Mac)
+                    .Any(b => neighbors.AreNeighbors(a.Mac, b.Mac))
+                    .Should().BeFalse();
+            }
+        }
     }
 
     /// <summary>

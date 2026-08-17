@@ -348,6 +348,10 @@ class LanFlowMap2D {
                 }
             }else if(ev==='live'){
                 Object.assign(this._liveRates,flowData.getLiveRates());
+                // Which clients were connected changes as you scrub, and only clients the layout
+                // placed have coordinates - so a client coming back mid-playback would otherwise
+                // draw at the origin with a degenerate link until something else forced a rebuild.
+                if(this._presenceChanged())this._relayout();
                 this._applyClientAssoc();
                 this._updateStreamRates();
                 this._updateCloudStats();
@@ -1216,6 +1220,16 @@ class LanFlowMap2D {
     // playback). The historic update carries clientStats[clientId].apNodeId; in live
     // mode it's empty, so every client falls back to its snapshot parent (reset).
     // Only relayouts when an association actually changed, so steady live is free.
+    /// Whether the set of clients present at this instant differs from the one the layout was
+    /// built against. Cheap: a size and a membership check over client nodes only.
+    _presenceChanged(){
+        const present=flowData.getPresentClients();
+        const key=present?[...present].sort().join(','):'';
+        if(key===this._presenceKey)return false;
+        this._presenceKey=key;
+        return true;
+    }
+
     _applyClientAssoc(){
         if(!this._root)return;
         const stats=flowData.getClientStats()||{};

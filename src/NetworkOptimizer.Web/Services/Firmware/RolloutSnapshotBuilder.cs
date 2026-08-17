@@ -50,12 +50,16 @@ public class ApNeighborOracle : IApNeighborOracle
 {
     private readonly HashSet<(string, string)> _pairs = [];
 
-    public ApNeighborOracle(bool hasPlacementData)
+    public ApNeighborOracle(bool hasPlacementData, int placedApCount = 0)
     {
         HasPlacementData = hasPlacementData;
+        PlacedApCount = placedApCount;
     }
 
     public bool HasPlacementData { get; }
+
+    /// <inheritdoc />
+    public int PlacedApCount { get; }
 
     public void AddNeighbors(string macA, string macB)
     {
