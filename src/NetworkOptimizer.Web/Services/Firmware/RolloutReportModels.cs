@@ -67,10 +67,11 @@ public class RolloutReport
     {
         get
         {
-            // The OS update is already a Rows entry and counted in DevicesUpgraded.
-            // Only the Network app update is not in Rows.
-            var networkAppUpdated = UniFiNetworkUpdateOutcome == "updated";
-            return DevicesUpgraded + (networkAppUpdated ? 1 : 0);
+            // The OS update is already a Rows entry counted in DevicesUpgraded, and it is the
+            // same console the Network app runs on. Only add +1 for the Network app when there
+            // is no OS row to represent the console.
+            var networkAppOnly = UniFiNetworkUpdateOutcome == "updated" && UniFiOsUpdateOutcome is null or "skipped";
+            return DevicesUpgraded + (networkAppOnly ? 1 : 0);
         }
     }
 
