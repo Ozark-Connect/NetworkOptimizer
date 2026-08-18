@@ -20554,6 +20554,10 @@ body.kiosk-mode .status-indicators {
     margin-top: 1rem;
 }
 
+.firmware-rollout-deploy-now .firmware-rollout-note {
+    margin: 0 0.5rem 0 0;
+}
+
 .firmware-rollout-note {
     color: var(--text-secondary);
     font-size: 0.9rem;
