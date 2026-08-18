@@ -20,7 +20,7 @@
       "level": "minor",
       "badge": "improved",
       "url": "/wifi-optimizer?tab=channels&recommend=true",
-      "selector": "[data-tour=\"channel-analysis\"]",
+      "selector": "[data-tour=\"wifi-channels\"]",
       "title": "Wi-Fi Channel Recommendation",
       "listLabel": "Channel recommendations weigh measured performance, not just airtime",
       "body": "Recommendations now weigh what your network measured, not just how busy the air was - including the speeds your clients actually got, where InfluxDB is collecting.",
