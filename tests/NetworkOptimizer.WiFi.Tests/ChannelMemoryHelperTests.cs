@@ -153,13 +153,43 @@ public class ChannelMemoryHelperTests
     }
 
     [Fact]
-    public void MergeLongTermOutcomes_BelowMinSamples_Ignored()
+    public void MergeLongTermOutcomes_JustBelowFloor_AdmittedAtReducedCredibility()
     {
+        // Nearly-there evidence is kept and marked, not discarded: dropping it reverts the channel
+        // to "never measured", where the mild unknown penalty beats a channel known to be mediocre.
         var buckets = new[] { Bucket(1, 20, samples: ChannelMemoryHelper.MinLongTermSamples - 1, util: 50, interf: 40, txRetry: 15) };
+        var credibility = new Dictionary<int, double>();
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 20, Now, credibilityOut: credibility);
+
+        merged.Should().NotBeNull();
+        merged![1].Utilization.Should().BeApproximately(50, 0.001, "the average itself is unchanged");
+        credibility[1].Should().BeInRange(ChannelMemoryHelper.SoftFloorFraction, 1.0);
+        credibility[1].Should().BeLessThan(1.0);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_FarBelowFloor_StillIgnored()
+    {
+        // Genuinely too thin to mean anything - the soft floor is not an open door.
+        var buckets = new[] { Bucket(1, 20, samples: 3, util: 50, interf: 40, txRetry: 15) };
 
         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(null, buckets, currentWidthMhz: 20, Now);
 
         merged.Should().BeNull();
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_FullStrengthEvidence_IsFullyCredible()
+    {
+        var buckets = new[] { Bucket(1, 20, samples: 200, util: 50, interf: 40, txRetry: 15) };
+        var credibility = new Dictionary<int, double>();
+
+        ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 20, Now, credibilityOut: credibility);
+
+        credibility[1].Should().Be(1.0);
     }
 
     [Fact]
@@ -417,13 +447,13 @@ public class ChannelMemoryHelperTests
         // pooled they clear it - which is the whole point of keying on occupied spectrum.
         var buckets = new[]
         {
-            Bucket(149, 80, samples: 8, util: 20, interf: 10, txRetry: 5),
-            Bucket(157, 80, samples: 8, util: 20, interf: 10, txRetry: 5)
+            Bucket(149, 80, samples: 5, util: 20, interf: 10, txRetry: 5),
+            Bucket(157, 80, samples: 5, util: 20, interf: 10, txRetry: 5)
         };
 
         var apart = ChannelMemoryHelper.MergeLongTermOutcomes(
             null, buckets, currentWidthMhz: 80, Now, band: RadioBand.Unknown);
-        apart.Should().BeNull("neither bucket clears the floor on its own");
+        apart.Should().BeNull("neither bucket clears even the soft floor on its own");
 
         var pooled = ChannelMemoryHelper.MergeLongTermOutcomes(
             null, buckets, currentWidthMhz: 80, Now, band: RadioBand.Band5GHz);
@@ -457,8 +487,8 @@ public class ChannelMemoryHelperTests
     {
         var buckets = new[]
         {
-            Bucket(1, 20, samples: 8, util: 20, interf: 10, txRetry: 5),
-            Bucket(6, 20, samples: 8, util: 20, interf: 10, txRetry: 5)
+            Bucket(1, 20, samples: 5, util: 20, interf: 10, txRetry: 5),
+            Bucket(6, 20, samples: 5, util: 20, interf: 10, txRetry: 5)
         };
 
         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
@@ -473,8 +503,8 @@ public class ChannelMemoryHelperTests
         var recent = new Dictionary<int, (double, double, double)> { [153] = (99, 99, 99) };
         var buckets = new[]
         {
-            Bucket(149, 80, samples: 8, util: 20, interf: 10, txRetry: 5),
-            Bucket(157, 80, samples: 8, util: 20, interf: 10, txRetry: 5)
+            Bucket(149, 80, samples: 5, util: 20, interf: 10, txRetry: 5),
+            Bucket(157, 80, samples: 5, util: 20, interf: 10, txRetry: 5)
         };
 
         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
@@ -520,7 +550,7 @@ public class ChannelMemoryHelperTests
         trusted![1].Utilization.Should().BeApproximately(50, 0.001);
 
         var discounted = ChannelMemoryHelper.MergeLongTermOutcomes(
-            null, buckets, currentWidthMhz: 20, Now, band: RadioBand.Band2_4GHz, historyConfidence: 0.4);
+            null, buckets, currentWidthMhz: 20, Now, band: RadioBand.Band2_4GHz, historyConfidence: 0.2);
         discounted.Should().BeNull("the same evidence must clear a higher bar on a churning band");
     }
 }

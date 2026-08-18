@@ -31,7 +31,13 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
     private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
-    private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient _influx;
+    /// <summary>
+    /// The registry rather than a MonitoringInfluxClient directly: the client is IAsyncDisposable,
+    /// and injecting it here put one into scopes this service creates and disposes synchronously,
+    /// which throws and took down propagation loading and the whole channel analysis with it. The
+    /// registry owns its clients, so nothing scope-owned is added.
+    /// </summary>
+    private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly ChannelPlanCache _planCache;
 
     /// <summary>
@@ -70,7 +76,7 @@ public class WiFiOptimizerService : IWiFiScanService
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
-        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         ChannelPlanCache planCache,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
@@ -88,7 +94,7 @@ public class WiFiOptimizerService : IWiFiScanService
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
         _channelMemoryRepository = channelMemoryRepository;
-        _influx = influx;
+        _influxRegistry = influxRegistry;
         _planCache = planCache;
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -949,7 +955,7 @@ public class WiFiOptimizerService : IWiFiScanService
             // simply scores without client evidence, which is its documented fallback.
             using var timeout = new CancellationTokenSource(ClientRateQueryTimeout);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var rows = await _influx.QueryClientChannelRatesAsync(
+            var rows = await _influxRegistry.GetFor(_siteSlug).QueryClientChannelRatesAsync(
                 to - ClientOutcomeHelper.ClientRateWindow, to, timeout.Token);
             _logger.LogDebug("[ChannelRec] client rate query returned {Rows} row(s) in {Elapsed} ms",
                 rows.Count, sw.ElapsedMilliseconds);
@@ -1379,7 +1385,8 @@ public class WiFiOptimizerService : IWiFiScanService
                     var bandSoak = historicalContext?.Soak.GetValueOrDefault(band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
                         aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak,
-                        clientRates?.GetValueOrDefault(band));
+                        clientRates?.GetValueOrDefault(band),
+                        historicalContext?.Credibility.GetValueOrDefault(band));
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, options, hasBuildingData);
@@ -1415,6 +1422,9 @@ public class WiFiOptimizerService : IWiFiScanService
         /// <summary>Soak-period state keyed by band → AP MAC (lower). An entry exists only
         /// when the radio changed channels within the soak window.</summary>
         public Dictionary<RadioBand, Dictionary<string, ChannelSoakInfo>> Soak { get; } = new();
+
+        /// <summary>How far each channel's remembered stress is trusted, 0-1, per band and AP.</summary>
+        public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> Credibility { get; } = new();
     }
 
     /// <summary>
@@ -1634,13 +1644,15 @@ public class WiFiOptimizerService : IWiFiScanService
                         if (buckets.Count == 0) continue;
 
                         var recent = context.Stress[band].GetValueOrDefault(macLower);
+                        var credibility = new Dictionary<int, double>();
                         var confidence = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(
                             neighborLoad.GetValueOrDefault((macLower, bandCode)));
                         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
                             recent, buckets, radio.ChannelWidth ?? 20, now,
                             ChannelMemoryHelper.MinLongTermSamples, band, confidence,
                             trace: msg => _logger.LogDebug("[ChannelRec] {ApName} {Band}: {Message}",
-                                ap.Name, band, msg));
+                                ap.Name, band, msg),
+                            credibilityOut: credibility);
                         if (merged == null) continue;
 
                         // Logged unconditionally: when confidence suppresses the memory the channel
@@ -1651,6 +1663,13 @@ public class WiFiOptimizerService : IWiFiScanService
                             ap.Name, band, merged.Count - (recent?.Count ?? 0),
                             neighborLoad.GetValueOrDefault((macLower, bandCode)), confidence);
                         context.Stress[band][macLower] = merged;
+                        if (credibility.Count > 0)
+                        {
+                            if (!context.Credibility.TryGetValue(band, out var bandCred))
+                                context.Credibility[band] = bandCred =
+                                    new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+                            bandCred[macLower] = credibility;
+                        }
                     }
                 }
             }

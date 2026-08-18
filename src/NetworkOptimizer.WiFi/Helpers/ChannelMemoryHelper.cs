@@ -28,6 +28,17 @@ public static class ChannelMemoryHelper
     public const int MinLongTermSamples = 12;
 
     /// <summary>
+    /// Fraction of <see cref="MinLongTermSamples"/> at which a channel's evidence still speaks,
+    /// at reduced credibility. Below the full floor a measured average is noisier, not wrong, and
+    /// discarding it outright reverts the channel to "never measured" - where the mild
+    /// unknown-channel penalty beats a channel we know to be mediocre, and the optimizer moves
+    /// onto the worse one. Observed on a live site: a radio's worst 2.4 GHz channel sat at 11.1
+    /// effective samples against a floor of 12 and was recommended precisely because it had been
+    /// forgotten. Evidence below this fraction is still dropped - it is too thin to mean anything.
+    /// </summary>
+    public const double SoftFloorFraction = 0.5;
+
+    /// <summary>
     /// Half-life for aging long-term outcomes: a bucket's weight halves every 60 days, so
     /// month-old evidence speaks nearly at full strength while a five-month-old outcome
     /// contributes ~25% - the RF neighborhood drifts, and the average should tilt toward
@@ -173,7 +184,8 @@ public static class ChannelMemoryHelper
         int minSampleCount = MinLongTermSamples,
         RadioBand band = RadioBand.Unknown,
         double historyConfidence = 1.0,
-        Action<string>? trace = null)
+        Action<string>? trace = null,
+        IDictionary<int, double>? credibilityOut = null)
     {
         Dictionary<int, (double, double, double)>? merged = recentStress != null
             ? new Dictionary<int, (double, double, double)>(recentStress)
@@ -201,15 +213,21 @@ public static class ChannelMemoryHelper
             var pooledChannels = group.Select(b => b.Channel).Distinct().Count();
             // Confidence scales the evidence bar, not the averages: on a churning band the same
             // history has to be larger or fresher to speak at all, but what it says is unchanged.
-            if (effectiveWeight * historyConfidence < minSampleCount)
+            var credibility = Math.Min(1.0, effectiveWeight * historyConfidence / minSampleCount);
+            if (credibility < SoftFloorFraction)
             {
                 trace?.Invoke(
                     $"span {group.Key} rejected: {effectiveWeight:F1} effective x {historyConfidence:F2} " +
-                    $"confidence < {minSampleCount} floor ({pooledChannels} control channel(s) pooled)");
+                    $"confidence = {credibility:F2} of floor {minSampleCount} " +
+                    $"({pooledChannels} control channel(s) pooled)");
                 continue;
             }
 
-            if (pooledChannels > 1)
+            if (credibility < 1.0)
+                trace?.Invoke(
+                    $"span {group.Key} admitted at {credibility:F2} credibility " +
+                    $"({effectiveWeight:F1} effective x {historyConfidence:F2} confidence, floor {minSampleCount})");
+            else if (pooledChannels > 1)
                 trace?.Invoke(
                     $"span {group.Key} pooled {pooledChannels} control channels to {effectiveWeight:F1} " +
                     $"effective samples (floor {minSampleCount}, confidence {historyConfidence:F2})");
@@ -225,6 +243,7 @@ public static class ChannelMemoryHelper
                 // Recent data still wins per channel - it reflects today's RF neighborhood.
                 if (merged.ContainsKey(channel)) continue;
                 merged[channel] = stats;
+                if (credibilityOut != null) credibilityOut[channel] = credibility;
             }
         }
 

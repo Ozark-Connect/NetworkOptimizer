@@ -428,7 +428,8 @@ public class ChannelRecommendationService
         RecommendationOptions? options = null,
         Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
         Dictionary<string, ChannelSoakInfo>? soakInfo = null,
-        Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null)
+        Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null,
+        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -495,6 +496,7 @@ public class ChannelRecommendationService
                 Interference = radio.Interference ?? 0,
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
                 HistoricalStress = apHistStress,
+                HistoricalStressCredibility = historicalCredibility?.GetValueOrDefault(macLower),
                 SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
@@ -2130,8 +2132,10 @@ public class ChannelRecommendationService
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, histSpan))
                 {
-                    confidence = Math.Max(confidence, HistoricOccupancyConfidence);
-                    break;
+                    // Thin evidence buys a proportionally weaker claim to having observed the
+                    // channel, so the unknown-channel penalty is only partly waived.
+                    var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
+                    confidence = Math.Max(confidence, HistoricOccupancyConfidence * cred);
                 }
             }
         }
@@ -2194,29 +2198,34 @@ public class ChannelRecommendationService
             // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
             double contentionPenalty = 0;
             double utilizationPenalty = 0;
-            bool hasDataForAssignedChannel = false;
+            // How well the assigned channel is evidenced, 0 (never measured) to 1 (full strength).
+            // Propagated estimates carry no credibility entry and count at full weight, as before.
+            double assignedCredibility = 0;
 
             foreach (var (histChannel, stress) in effectiveStress)
             {
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
                 {
-                    hasDataForAssignedChannel = true;
+                    var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
+                    assignedCredibility = Math.Max(assignedCredibility, cred);
 
                     if (stress.TxRetryPct < StressMinThreshold &&
                         stress.Utilization < StressMinThreshold &&
                         stress.Interference < StressMinThreshold)
                         continue;
 
-                    contentionPenalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                        + (stress.Interference / 100.0) * InterferenceStressWeight;
-                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight;
+                    contentionPenalty += ((stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                        + (stress.Interference / 100.0) * InterferenceStressWeight) * cred;
+                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight * cred;
                 }
             }
 
-            // Unknown channels carry more risk than measured ones
-            if (!hasDataForAssignedChannel)
-                contentionPenalty += UnknownChannelPenalty;
+            // Unknown channels carry more risk than measured ones. Faded rather than switched:
+            // a channel measured on thin evidence is part known, and paying the full unknown
+            // penalty for it would erase what we did measure - which is how a radio's worst
+            // channel came to look like its best one once its record aged past the floor.
+            contentionPenalty += UnknownChannelPenalty * (1.0 - assignedCredibility);
 
             // Apply co-channel resolution scaling. TX-retry and interference are pure contention,
             // already counted by the internal weight term, so they scale all the way down to avoid

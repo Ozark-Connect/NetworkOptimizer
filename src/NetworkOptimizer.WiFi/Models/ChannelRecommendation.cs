@@ -213,6 +213,14 @@ public class InterferenceGraph
 /// </summary>
 public class ApNode
 {
+    /// <summary>
+    /// How far each entry in <see cref="HistoricalStress"/> is trusted, 0-1, keyed by channel.
+    /// Absent or 1.0 means full strength. Below 1.0 the measurement stands but its penalty and
+    /// its claim to having "observed" the channel are scaled down together, so thin evidence
+    /// fades toward the unknown-channel treatment instead of falling off a cliff into it.
+    /// </summary>
+    public Dictionary<int, double>? HistoricalStressCredibility { get; set; }
+
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int CurrentChannel { get; set; }
