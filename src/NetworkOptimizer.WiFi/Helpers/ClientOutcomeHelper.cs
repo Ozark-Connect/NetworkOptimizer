@@ -11,19 +11,26 @@ namespace NetworkOptimizer.WiFi.Helpers;
 public static class ClientOutcomeHelper
 {
     /// <summary>
-    /// Active samples a channel needs before it may raise the bar on a move. Lower than the
-    /// impetus floor on purpose: declining to move is the cheap error.
+    /// Active 15-minute windows a channel needs before it may raise the bar on a move - about five
+    /// hours of real traffic. Lower than the impetus floor on purpose: declining to move is the
+    /// cheap error.
     /// </summary>
-    public const int MinSamplesForVeto = 200;
+    public const int MinWindowsForVeto = 20;
 
     /// <summary>
-    /// Active samples a channel needs before it may lower the bar. Moving costs client
-    /// disruption and a soak period, so originating one demands more evidence than blocking one.
+    /// Active windows a channel needs before it may lower the bar, about half a day of real
+    /// traffic. Moving costs client disruption and a soak period, so originating a move demands
+    /// more evidence than blocking one.
     /// </summary>
-    public const int MinSamplesForImpetus = 500;
+    public const int MinWindowsForImpetus = 50;
 
-    /// <summary>Distinct clients required per channel, so one chatty device cannot speak for a channel.</summary>
-    public const int MinDistinctClients = 2;
+    /// <summary>
+    /// Distinct days a channel's evidence must span. Windows alone can all come from one unusual
+    /// evening; days force the comparison to survive more than a single session. This replaces a
+    /// distinct-client floor: client_mac is a field rather than a tag, so per-client aggregation
+    /// needs a pivot over raw points that measured 33s against 1s for the windowed query.
+    /// </summary>
+    public const int MinDistinctDays = 3;
 
     /// <summary>Candidate must beat the current channel by this much before it lowers the bar.</summary>
     public const double ImpetusRatio = 1.15;
@@ -48,10 +55,10 @@ public static class ClientOutcomeHelper
     /// measured on the current channel versus the candidate. Returns 1.0 - changing nothing -
     /// whenever the evidence is missing, thin, or equivocal, which is the common case.
     /// </summary>
-    /// <param name="samples">Per-channel, per-client, per-signal-band aggregates for this AP radio</param>
+    /// <param name="samples">Per-channel, per-signal-band, per-day aggregates for this AP radio</param>
     /// <param name="currentChannel">Channel the radio is on now</param>
     /// <param name="candidateChannel">Channel the search wants to move it to</param>
-    /// <param name="reason">Human-readable justification when the factor is not 1.0</param>
+    /// <param name="reason">Why the factor came out as it did, for the recommendation log</param>
     public static double MoveThresholdFactor(
         IReadOnlyList<ClientRateSample>? samples,
         int currentChannel,
@@ -59,82 +66,104 @@ public static class ClientOutcomeHelper
         out string? reason)
     {
         reason = null;
-        if (samples == null || samples.Count == 0 || currentChannel == candidateChannel) return 1.0;
+        if (samples == null || samples.Count == 0)
+        {
+            reason = "no client history for this radio";
+            return 1.0;
+        }
+        if (currentChannel == candidateChannel) return 1.0;
 
         var current = Summarize(samples, currentChannel);
         var candidate = Summarize(samples, candidateChannel);
-        if (current == null || candidate == null) return 1.0;
+        if (current == null || candidate == null)
+        {
+            reason = current == null
+                ? $"no client history on current ch {currentChannel}"
+                : $"no client history on candidate ch {candidateChannel}";
+            return 1.0;
+        }
 
         // Compare only where the two channels overlap in signal strength. Rate tracks distance
         // hard enough that an unmatched band would report the client mix, not the channel.
         var sharedBands = current.ByBand.Keys.Intersect(candidate.ByBand.Keys).ToList();
-        if (sharedBands.Count == 0) return 1.0;
+        if (sharedBands.Count == 0)
+        {
+            reason = "no overlapping signal bands between the two channels";
+            return 1.0;
+        }
 
-        double curWeighted = 0, candWeighted = 0, weightTotal = 0;
-        var sharedSamples = 0;
+        double curWeighted = 0, candWeighted = 0;
+        var sharedWindows = 0;
         foreach (var band in sharedBands)
         {
             var c = current.ByBand[band];
             var k = candidate.ByBand[band];
             // Weight by the thinner side: a band one channel barely visited must not dominate.
-            var weight = Math.Min(c.Samples, k.Samples);
+            var weight = Math.Min(c.Windows, k.Windows);
             if (weight <= 0) continue;
             curWeighted += c.MeanRateMbps * weight;
             candWeighted += k.MeanRateMbps * weight;
-            weightTotal += weight;
-            sharedSamples += weight;
+            sharedWindows += weight;
         }
 
-        if (weightTotal <= 0 || curWeighted <= 0) return 1.0;
+        if (sharedWindows <= 0 || curWeighted <= 0)
+        {
+            reason = "no comparable windows in the shared signal bands";
+            return 1.0;
+        }
 
-        var currentMean = curWeighted / weightTotal;
-        var candidateMean = candWeighted / weightTotal;
+        var currentMean = curWeighted / sharedWindows;
+        var candidateMean = candWeighted / sharedWindows;
         var ratio = candidateMean / currentMean;
 
-        var clientsOk = current.DistinctClients >= MinDistinctClients
-                        && candidate.DistinctClients >= MinDistinctClients;
-        if (!clientsOk) return 1.0;
-
-        if (ratio >= ImpetusRatio && sharedSamples >= MinSamplesForImpetus)
+        if (current.DistinctDays < MinDistinctDays || candidate.DistinctDays < MinDistinctDays)
         {
-            reason = $"clients averaged {candidateMean:F0} Mbps on ch {candidateChannel} vs " +
-                     $"{currentMean:F0} Mbps on ch {currentChannel} at matched signal " +
-                     $"({sharedSamples} samples, {candidate.DistinctClients} clients)";
+            reason = $"evidence spans too few days (current {current.DistinctDays}, " +
+                     $"candidate {candidate.DistinctDays}, need {MinDistinctDays})";
+            return 1.0;
+        }
+
+        var summary = $"clients averaged {candidateMean:F0} Mbps on ch {candidateChannel} vs " +
+                      $"{currentMean:F0} Mbps on ch {currentChannel} at matched signal " +
+                      $"({sharedWindows} shared windows over {candidate.DistinctDays} days)";
+
+        if (ratio >= ImpetusRatio && sharedWindows >= MinWindowsForImpetus)
+        {
+            reason = summary;
             return ImpetusFactor;
         }
 
-        if (ratio <= VetoRatio && sharedSamples >= MinSamplesForVeto)
+        if (ratio <= VetoRatio && sharedWindows >= MinWindowsForVeto)
         {
-            reason = $"clients averaged {candidateMean:F0} Mbps on ch {candidateChannel} vs " +
-                     $"{currentMean:F0} Mbps on ch {currentChannel} at matched signal " +
-                     $"({sharedSamples} samples, {candidate.DistinctClients} clients)";
+            reason = summary;
             return VetoFactor;
         }
 
+        reason = $"inconclusive: ratio {ratio:F2} over {sharedWindows} shared windows";
         return 1.0;
     }
 
     private sealed class ChannelSummary
     {
-        public Dictionary<int, (int Samples, double MeanRateMbps)> ByBand { get; } = new();
-        public int DistinctClients { get; set; }
+        public Dictionary<int, (int Windows, double MeanRateMbps)> ByBand { get; } = new();
+        public int DistinctDays { get; set; }
     }
 
     private static ChannelSummary? Summarize(IReadOnlyList<ClientRateSample> samples, int channel)
     {
-        var rows = samples.Where(s => s.Channel == channel && s.SampleCount > 0).ToList();
+        var rows = samples.Where(s => s.Channel == channel && s.WindowCount > 0).ToList();
         if (rows.Count == 0) return null;
 
         var summary = new ChannelSummary
         {
-            DistinctClients = rows.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+            DistinctDays = rows.Select(r => r.Day.Date).Distinct().Count()
         };
 
         foreach (var group in rows.GroupBy(r => r.SignalBandDbm))
         {
-            var n = group.Sum(r => r.SampleCount);
+            var n = group.Sum(r => r.WindowCount);
             if (n <= 0) continue;
-            var mean = group.Sum(r => r.MeanTxRateMbps * r.SampleCount) / n;
+            var mean = group.Sum(r => r.MeanTxRateMbps * r.WindowCount) / n;
             summary.ByBand[group.Key] = (n, mean);
         }
 

@@ -825,9 +825,11 @@ public class ChannelRecommendationService
                 var moveThreshold = MinApScoreToMove * clientFactor;
                 if (clientReason != null)
                     _logger.LogDebug(
-                        "[ChannelRec] {ApName} client history {Direction} the move to ch{Channel}: {Reason}",
-                        node.Name, clientFactor < 1.0 ? "supports" : "contradicts",
-                        recommendedChannel, clientReason);
+                        "[ChannelRec] {ApName} client history {Direction} the move to ch{Channel} " +
+                        "(threshold x{Factor:F2}): {Reason}",
+                        node.Name,
+                        clientFactor < 1.0 ? "supports" : clientFactor > 1.0 ? "contradicts" : "has no opinion on",
+                        recommendedChannel, clientFactor, clientReason);
 
                 if (currentApScore < moveThreshold)
                 {

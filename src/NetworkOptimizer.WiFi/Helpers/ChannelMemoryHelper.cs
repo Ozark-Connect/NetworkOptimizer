@@ -172,7 +172,8 @@ public static class ChannelMemoryHelper
         DateTimeOffset now,
         int minSampleCount = MinLongTermSamples,
         RadioBand band = RadioBand.Unknown,
-        double historyConfidence = 1.0)
+        double historyConfidence = 1.0,
+        Action<string>? trace = null)
     {
         Dictionary<int, (double, double, double)>? merged = recentStress != null
             ? new Dictionary<int, (double, double, double)>(recentStress)
@@ -196,9 +197,22 @@ public static class ChannelMemoryHelper
             }
 
             if (effectiveWeight <= 0) continue;
+
+            var pooledChannels = group.Select(b => b.Channel).Distinct().Count();
             // Confidence scales the evidence bar, not the averages: on a churning band the same
             // history has to be larger or fresher to speak at all, but what it says is unchanged.
-            if (effectiveWeight * historyConfidence < minSampleCount) continue;
+            if (effectiveWeight * historyConfidence < minSampleCount)
+            {
+                trace?.Invoke(
+                    $"span {group.Key} rejected: {effectiveWeight:F1} effective x {historyConfidence:F2} " +
+                    $"confidence < {minSampleCount} floor ({pooledChannels} control channel(s) pooled)");
+                continue;
+            }
+
+            if (pooledChannels > 1)
+                trace?.Invoke(
+                    $"span {group.Key} pooled {pooledChannels} control channels to {effectiveWeight:F1} " +
+                    $"effective samples (floor {minSampleCount}, confidence {historyConfidence:F2})");
 
             var stats = (
                 utilSum / effectiveWeight,

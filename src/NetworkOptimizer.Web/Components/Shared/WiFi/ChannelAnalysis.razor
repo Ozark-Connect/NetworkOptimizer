@@ -725,7 +725,7 @@
             if (_showRecommendations)
             {
                 var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-                _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+                _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             }
         }
         finally
@@ -1062,7 +1062,7 @@
 
             // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             await LoadScanGapsAsync();
             await LoadStaleScanTargetsAsync();
         }
@@ -1098,7 +1098,7 @@
 
             // Re-run recommendations on the fresh spectrum data, then re-evaluate both banners.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             await LoadScanGapsAsync();
             await LoadStaleScanTargetsAsync();
         }

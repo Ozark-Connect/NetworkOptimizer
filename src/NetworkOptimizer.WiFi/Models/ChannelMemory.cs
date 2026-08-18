@@ -65,19 +65,23 @@ public record RememberedNeighborSighting(
     string? Ssid);
 
 /// <summary>
-/// One aggregate of client PHY-rate telemetry for an AP radio, already bucketed by channel,
-/// client and signal band. Storage-neutral so the engine project stays decoupled from the
-/// telemetry store. Only samples where the client was actually moving traffic belong here:
-/// an idle client's rate decays and describes nothing about the channel.
+/// One aggregate of client PHY-rate telemetry for an AP radio, bucketed by channel, signal band
+/// and day. Storage-neutral so the engine project stays decoupled from the telemetry store.
+///
+/// A "window" is a fixed slice of time (15 minutes) in which the radio carried real traffic; idle
+/// windows are excluded upstream, because an idle client's rate decays and describes nothing about
+/// the channel. Windows rather than raw samples because per-client aggregation is not affordable:
+/// client_mac is a field rather than a tag, so isolating clients requires a pivot over every raw
+/// point, which measured 33s against 1s for the windowed form.
 /// </summary>
-/// <param name="Channel">Control channel the radio was on when these samples were taken</param>
-/// <param name="ClientMac">Client the samples belong to, for the distinct-client floor</param>
+/// <param name="Channel">Control channel the radio was on for these windows</param>
 /// <param name="SignalBandDbm">Signal bucket (dBm, rounded down to a fixed step)</param>
-/// <param name="SampleCount">Active samples in this bucket</param>
-/// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those samples</param>
+/// <param name="Day">UTC day, used for the distinct-day evidence floor</param>
+/// <param name="WindowCount">Active windows in this bucket</param>
+/// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those windows</param>
 public record ClientRateSample(
     int Channel,
-    string ClientMac,
     int SignalBandDbm,
-    int SampleCount,
+    DateTime Day,
+    int WindowCount,
     double MeanTxRateMbps);
