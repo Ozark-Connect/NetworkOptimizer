@@ -197,6 +197,9 @@ public class RolloutConsoleChannelTests
         harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
 
         await harness.TickAsync();
+        // The app restart lands its new build; a console still answering on the old version
+        // would hold wave 1 (and the whole rollout) open.
+        harness.Commands.ConsoleInfo!.NetworkApplication!.Version = "10.7.10";
         await harness.TickAsync(TimeSpan.FromSeconds(20));
         await RunDeviceToLitmusAsync(harness, ApMac);
         await harness.TickAsync(TimeSpan.FromMinutes(5));

@@ -628,6 +628,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await ApplyNetworkAppChannelAsync(plan, document, settings, cancellationToken);
         await TriggerNetworkAppUpdateAsync(document, cancellationToken);
 
+        // The first advance pass is a full tick away and the application can drop inside it, so
+        // the suppression window opens at the trigger rather than on the next pass.
+        if (document.NetworkAppUpdate is { Triggered: true, Settled: false } && settings.SuppressStandardAlerts)
+            _suppression.RefreshConsoleCycle(_siteSlug, Now);
+
         plan.PlanJson = JsonSerializer.Serialize(document);
         plan.Status = FirmwareRolloutStatus.Running;
         plan.StartedAt = Now;
@@ -771,7 +776,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The Running check holds the console's own update while the plan is paused - in-flight
         // devices are watched to the end of their cycle above, but nothing new may start.
-        if (plan.Status != FirmwareRolloutStatus.Running || !steps.All(IsSettled))
+        // The Network app gate covers plans with 0 device steps: without it, steps.All(IsSettled)
+        // is vacuously true and the rollout completes while the app is still mid-restart.
+        if (!networkAppSettled || plan.Status != FirmwareRolloutStatus.Running || !steps.All(IsSettled))
             return;
 
         // The planner forces the gateway's channel group last, so every device step being settled
@@ -782,8 +789,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
             return;
-
-        _suppression.ClearConsoleCycle(_siteSlug);
 
         await CompleteAsync(plan, document, steps, cancellationToken);
     }
@@ -876,21 +881,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (state.Settled) return true;
         if (!state.Triggered) return true;
 
-        var triggeredAt = state.TriggeredAt ?? Now;
-        var elapsed = ElapsedReachable(triggeredAt);
+        // Stamped once and measured from the stamp: re-reading a null as Now every tick keeps
+        // elapsed at zero forever, so neither the judgment nor the budget is ever reached.
+        if (state.TriggeredAt == null)
+        {
+            state.TriggeredAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+        var triggeredAt = state.TriggeredAt.Value;
 
         // The application takes several seconds to shut down, and a console that has not gone dark
         // yet is indistinguishable from one that already came back. Wait before judging.
-        if (elapsed < NetworkAppJudgeDelay)
+        if (ElapsedReachable(triggeredAt) < NetworkAppJudgeDelay)
             return false;
 
         if (!consoleDark)
         {
-            state.Settled = true;
-            state.Outcome = "updated";
-            await PersistDocumentAsync(plan, document, cancellationToken);
-            _logger.LogInformation("The UniFi Network application on site {Site} is answering again", _siteSlug);
-            return true;
+            // Answering is not updated: the app downloads its build and keeps answering on the old
+            // version until the restart, so the reported version decides where it can be read.
+            var installed = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.NetworkApplication?.Version;
+            var verifiable = !string.IsNullOrWhiteSpace(installed) && !string.IsNullOrWhiteSpace(state.TargetVersion);
+            if (!verifiable
+                || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(installed, state.TargetVersion)
+                || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(installed, state.TargetVersion))
+            {
+                state.Settled = true;
+                state.Outcome = "updated";
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogInformation(
+                    "The UniFi Network application on site {Site} is answering again on {Version}",
+                    _siteSlug, installed ?? "an unreported version");
+                return true;
+            }
         }
 
         if (ElapsedReachable(triggeredAt) < NetworkAppUpdateBudget)
@@ -904,11 +926,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.NetworkAppUpdateStuck,
             AlertSeverity.Warning,
             $"UniFi Network Application Not Back{_siteSuffix}",
-            $"The UniFi Network application was updated and has not answered for {NetworkAppUpdateBudget.TotalMinutes:0} minutes. The device upgrades are going ahead anyway.",
+            $"The UniFi Network application update has not finished after {NetworkAppUpdateBudget.TotalMinutes:0} minutes. The device upgrades are going ahead anyway.",
             null, null, cancellationToken);
 
         _logger.LogError(
-            "The UniFi Network application on site {Site} has not returned within {Budget}; upgrading devices anyway",
+            "The UniFi Network application on site {Site} has not finished its update within {Budget}; upgrading devices anyway",
             _siteSlug, NetworkAppUpdateBudget);
         return true;
     }
@@ -944,7 +966,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!state.Triggered)
             return await StartUniFiOsUpdateAsync(plan, document, cancellationToken);
 
-        var triggeredAt = state.TriggeredAt ?? Now;
+        // Stamped once, as on the Network app path: a null read as Now every tick never accrues
+        // elapsed time, so the judge delay and the budget both become unreachable.
+        if (state.TriggeredAt == null)
+        {
+            state.TriggeredAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+        var triggeredAt = state.TriggeredAt.Value;
         var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
 
         if (info == null)

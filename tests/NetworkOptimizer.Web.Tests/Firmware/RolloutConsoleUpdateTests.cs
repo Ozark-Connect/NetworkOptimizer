@@ -69,7 +69,9 @@ public class RolloutConsoleUpdateTests
         await harness.TickAsync(TimeSpan.FromMinutes(2));
         harness.Commands.UpgradeCommands.Should().BeEmpty();
 
+        // Back, and back on the new build: answering on the old version keeps the wait going.
         harness.Observer.ConsoleDark = false;
+        harness.Commands.ConsoleInfo!.NetworkApplication!.Version = "9.1.0";
         await harness.TickAsync(TimeSpan.FromMinutes(1));
 
         var stored = Stored((await harness.PlanAsync(plan.Id))!);
