@@ -678,10 +678,21 @@
                 hiddenAt = null;
                 if (hiddenMs < STALE_HIDDEN_MS || blazorHandlingDrop()) return;
 
-                // Only reload when the circuit is genuinely dead; otherwise pick
-                // up exactly where we left off. Re-check the modal after the probe
-                // in case Blazor surfaced its own reconnect UI meanwhile.
-                if (!(await circuitAlive()) && !blazorHandlingDrop()) {
+                // Only reload when the circuit is genuinely dead; otherwise pick up exactly where
+                // we left off. One probe is not enough to decide that: coming back from the
+                // background, Blazor is often mid-reconnect and the first ping times out on a
+                // circuit that is about to work. Keep asking for a few seconds and stand the
+                // reload down the moment it answers - a refresh that throws away the user's place
+                // costs more than waiting does. Re-check the modal each time too, in case Blazor
+                // surfaced its own reconnect UI meanwhile, since that path owns the reload.
+                const GIVE_UP_AFTER_MS = 12000;
+                const deadline = Date.now() + GIVE_UP_AFTER_MS;
+                while (Date.now() < deadline) {
+                    if (blazorHandlingDrop()) return;
+                    if (await circuitAlive()) return;
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+                if (!blazorHandlingDrop()) {
                     location.reload();
                 }
             });
