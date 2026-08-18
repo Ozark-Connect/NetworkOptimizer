@@ -7,6 +7,13 @@ namespace NetworkOptimizer.WiFi.Helpers;
 /// involved. The airtime score measures the medium; this measures the experience, and the two
 /// can disagree. Pure logic - callers supply already-aggregated samples so the engine keeps no
 /// dependency on the telemetry store.
+///
+/// Link rate is the only metric scored, and deliberately so: rate adaptation has already folded
+/// signal, noise, interference and client capability into it, and it responds to channel choice in
+/// a way none of them do alone. Signal is a matching key rather than an input - within a band it
+/// tracks distance and transmit power, so a difference between two channels is a client-mix
+/// artifact. Noise floor was measured and rejected: it reads as a per-radio constant (0-1 dB across
+/// channels on one radio against 6 dB between radios), so SNR would be signal minus a constant.
 /// </summary>
 public static class ClientOutcomeHelper
 {
