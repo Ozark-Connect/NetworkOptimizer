@@ -9,7 +9,7 @@
 
 <div class="channel-analysis-container wifi-sections">
     <div class="channel-header">
-        <h3>Channel Analysis</h3>
+        <h3>@(_showRecommendations ? "Channel Analysis - Recommended" : "Channel Analysis - Current")</h3>
         <div class="header-actions">
             @if (!_showRecommendations && _accessPoints.Any(ap => ap.IsOnline && ap.Radios.Any(r => r.Channel.HasValue)))
             {
