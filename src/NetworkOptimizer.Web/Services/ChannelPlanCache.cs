@@ -55,19 +55,36 @@ public class ChannelPlanCache
         Func<Task<Dictionary<RadioBand, ChannelPlan>>> build)
     {
         Func<Task<Dictionary<RadioBand, ChannelPlan>?>> nullable = async () => await build();
-        var plan = await GetOrBuildAsync(_plans, key, forceRefresh, PlanTtl, nullable);
-        return plan ?? new Dictionary<RadioBand, ChannelPlan>();
+        // An empty result means the console was unreachable or the build threw, NOT that this site
+        // has no plan. Caching it pinned "channel analysis unavailable" for the full hour even once
+        // the console came back - a six-second window after a restart was enough to do it.
+        var plan = await GetOrBuildAsync(
+            _plans, key, forceRefresh, PlanTtl, nullable, shouldCache: p => p is { Count: > 0 });
+
+        // Hand out a copy, never the cached instance. Callers own what they are given and do mutate
+        // it - Channel Analysis clears the dictionary when switching back to Show Current Channels,
+        // which emptied the shared entry in place and made the next Recommend Best Channels look
+        // like it did nothing. Before caching, every call got a fresh dictionary and that was safe.
+        return plan == null
+            ? new Dictionary<RadioBand, ChannelPlan>()
+            : new Dictionary<RadioBand, ChannelPlan>(plan);
     }
 
     /// <summary>
     /// Client-rate history for a site. A failed lookup caches its null result too, so an
     /// unreachable InfluxDB costs one timeout per TTL instead of one per plan build.
     /// </summary>
-    public Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?> GetOrBuildClientRatesAsync(
+    public async Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?> GetOrBuildClientRatesAsync(
         string siteSlug,
         bool forceRefresh,
         Func<Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?>> build)
-        => GetOrBuildAsync(_clientRates, siteSlug, forceRefresh, ClientRatesTtl, build);
+    {
+        var rates = await GetOrBuildAsync(_clientRates, siteSlug, forceRefresh, ClientRatesTtl, build);
+        // Copied for the same reason as plans; the inner lists are IReadOnlyList and stay shared.
+        return rates == null
+            ? null
+            : new Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>(rates);
+    }
 
     /// <summary>Drops every cached plan for a site (e.g. its console connection changed).</summary>
     public void InvalidateSite(string siteSlug)
@@ -77,12 +94,18 @@ public class ChannelPlanCache
         _clientRates.TryRemove(siteSlug, out _);
     }
 
+    /// <param name="shouldCache">
+    /// Whether a freshly built value is worth keeping. Defaults to caching everything, including
+    /// nulls - deliberate for client-rate history, where a null is a bounded timeout we do not want
+    /// to repeat on every build. Results that represent a transient failure must opt out.
+    /// </param>
     private static async Task<T?> GetOrBuildAsync<T>(
         ConcurrentDictionary<string, Entry<T>> store,
         string key,
         bool forceRefresh,
         TimeSpan ttl,
-        Func<Task<T?>> build)
+        Func<Task<T?>> build,
+        Func<T?, bool>? shouldCache = null)
     {
         var entry = store.GetOrAdd(key, _ => new Entry<T>());
 
@@ -98,7 +121,11 @@ public class ChannelPlanCache
             if (entry.AtUtc > seenAt && entry.Populated) return entry.Value;
             if (!forceRefresh && IsFresh(entry, ttl)) return entry.Value;
 
-            entry.Value = await build();
+            var built = await build();
+            if (shouldCache != null && !shouldCache(built))
+                return built;
+
+            entry.Value = built;
             entry.Populated = true;
             entry.AtUtc = DateTime.UtcNow;
             return entry.Value;
