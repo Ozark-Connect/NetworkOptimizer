@@ -938,6 +938,12 @@ else
                         _driftNewerVersions++;
                 }
 
+                // Console-level updates the plan didn't include
+                if (preview.Plan.IncludesUniFiNetworkUpdate && !_active.Plan.IncludesUniFiNetworkUpdate)
+                    _driftNewDevices++;
+                if (preview.Plan.IncludesUniFiOsUpdate && !_active.Plan.IncludesUniFiOsUpdate)
+                    _driftNewDevices++;
+
                 if (HasDrift)
                 {
                     _driftPreview = preview;
