@@ -23,7 +23,7 @@ For people who don't have a home server or don't want to set up the infrastructu
 
 ## Multi-Site Support
 
-Whether you run an MSP with a book of client networks, a few business locations, or your own place plus a handful you keep an eye on, you can now manage all of them from one Network Optimizer. The recommended way to bring a site online is a [lightweight on-site agent](src/NetworkOptimizer.Agent/README.md) that dials home to your self-hosted server over a single outbound HTTPS tunnel: no inbound access to the site, nothing to port-forward, works fine behind CGNAT, and nothing new to stand up between your locations. It delivers the full feature set - ISP Health scoring and path analysis, security audits, Wi-Fi and channel optimization, Adaptive SQM, performance tweaks, and LAN, WAN, and client speed tests - proxying that site's probing, SNMP, UniFi Console, and device SSH over the tunnel, with each site's data kept its own.
+Whether you run an MSP with a book of client networks, a few business locations, or your own place plus a handful you keep an eye on, you can now manage all of them from one Network Optimizer. The recommended way to bring a site online is a [lightweight on-site agent](src/NetworkOptimizer.Agent/README.md) that dials home to your self-hosted server over a single outbound HTTPS tunnel: no inbound access to the site, nothing to port-forward, works fine behind CGNAT, and nothing new to stand up between your locations. It delivers the full feature set - ISP Health scoring and path analysis, security audits, Wi-Fi and channel optimization, Adaptive SQM, performance tweaks, and LAN, WAN, and client speed tests - proxying that site's probing, SNMP, UniFi Console, and device SSH over the tunnel, with each site's data kept its own. Each site can have its own access controls: grant a client Viewer access to only their site, or give a field tech Operator on the three sites they manage.
 
 Already run a site-to-site VPN to a location? Onboard it with no agent at all and still get a solid floor: security audits, Wi-Fi and channel optimization, performance tweaks, Adaptive SQM, WAN steering, and SNMP device health, straight over the VPN. Deploy the agent when you also want that site's monitoring and performance layer - ISP Health, path discovery, latency and loss, and speed tests - or for any site the VPN doesn't reach. It's light enough (~50 MB in practice) to run directly on the site's UniFi gateway, so a site doesn't even need a separate box. The [agent guide](src/NetworkOptimizer.Agent/README.md) walks through installing one.
 
@@ -276,6 +276,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
    - See the in-app setup guide or [detailed instructions](docker/DEPLOYMENT.md#unifi-account)
 3. Click Connect to authenticate
 4. Navigate to Audit to run your first security scan
+5. Optionally, set up named accounts in **Settings - Identity** with Admin, Operator, or Viewer roles (globally or per site), connect an SSO provider, or require MFA - see the [Deployment Guide](docker/DEPLOYMENT.md#admin-account) for details
 
 ## Project Structure
 
@@ -303,7 +304,7 @@ src/
 
 ## Password Reset
 
-If you forget the admin password, use the reset script for your platform:
+The built-in **admin** account works out of the box for homelabs and single-user installs. If you want named accounts, per-site roles, SSO, or MFA, set those up in **Settings - Identity**. If you forget the built-in admin password, use the reset script for your platform:
 
 **Docker / macOS / Linux:**
 ```bash
