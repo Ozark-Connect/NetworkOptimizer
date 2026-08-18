@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ISystemSettingsService SettingsService
+@implements IDisposable
 
 <div class="channel-analysis-container wifi-sections">
     <div class="channel-header">
@@ -23,6 +24,12 @@
                         <span>Recommend Best Channels</span>
                     }
                 </button>
+            }
+            @if (_showRecommendations && PlanComputedAtUtc is { } computedAt)
+            {
+                <span class="text-muted channel-plan-age">
+                    Last computed: @TimeFormatHelper.FormatRelativeTimeShort(computedAt)
+                </span>
             }
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)
@@ -637,6 +644,34 @@
 
     // Channel recommendation state
     private bool _showRecommendations;
+    private System.Threading.Timer? _ageTimer;
+
+    /// <summary>When the displayed plan was computed - the same for every band in one run.</summary>
+    private DateTime? PlanComputedAtUtc =>
+        _channelPlans.Values.FirstOrDefault(p => p.ComputedAtUtc != default)?.ComputedAtUtc;
+
+    /// <summary>
+    /// Re-render periodically so "Last computed" ages on its own. Without this the label freezes at
+    /// whatever it said when the plan loaded, which is worse than showing nothing - a plan served
+    /// from cache would keep claiming it was just computed.
+    /// </summary>
+    private void StartAgeTicker()
+    {
+        _ageTimer?.Dispose();
+        _ageTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                InvokeAsync(() =>
+                {
+                    if (_showRecommendations && PlanComputedAtUtc != null) StateHasChanged();
+                });
+            }
+            catch { /* a dead circuit must not kill the timer callback */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    public void Dispose() => _ageTimer?.Dispose();
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
     private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
@@ -661,6 +696,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        StartAgeTicker();
         try
         {
             var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed);

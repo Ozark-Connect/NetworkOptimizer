@@ -80,6 +80,12 @@ public class ApChannelRecommendation
 /// </summary>
 public class ChannelPlan
 {
+    /// <summary>
+    /// When this plan was computed (UTC). Stamped at build time rather than read time, so a plan
+    /// served from cache reports its real age instead of looking freshly made.
+    /// </summary>
+    public DateTime ComputedAtUtc { get; set; }
+
     public RadioBand Band { get; set; }
     public List<ApChannelRecommendation> Recommendations { get; set; } = new();
     public double CurrentNetworkScore { get; set; }

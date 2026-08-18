@@ -1391,6 +1391,7 @@ public class WiFiOptimizerService : IWiFiScanService
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, options, hasBuildingData);
 
+                    plan.ComputedAtUtc = DateTime.UtcNow;
                     results[band] = plan;
                 }
                 catch (Exception ex)
