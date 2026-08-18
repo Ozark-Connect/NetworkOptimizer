@@ -963,18 +963,18 @@ else
         get
         {
             var parts = new List<string>();
-            if (_driftNetworkApp) parts.Add("a UniFi Network update");
-            if (_driftOs) parts.Add("a UniFi OS update");
+            if (_driftNetworkApp) parts.Add("A UniFi Network application update is now available.");
+            if (_driftOs) parts.Add("A UniFi OS update is now available.");
             if (_driftNewerVersions > 0)
                 parts.Add(_driftNewerVersions == 1
-                    ? "a newer firmware version for 1 device in this plan"
-                    : $"newer firmware versions for {_driftNewerVersions} devices in this plan");
+                    ? "Newer firmware is available for 1 device in this plan."
+                    : $"Newer firmware is available for {_driftNewerVersions} devices in this plan.");
             if (_driftNewDevices > 0)
                 parts.Add(_driftNewDevices == 1
-                    ? "1 additional device with a firmware update"
-                    : $"{_driftNewDevices} additional devices with firmware updates");
+                    ? "A firmware update is available for 1 additional device."
+                    : $"Firmware updates are available for {_driftNewDevices} additional devices.");
 
-            return $"New firmware has landed since this plan was composed: {string.Join(", ", parts)}.";
+            return string.Join(" ", parts);
         }
     }
 
