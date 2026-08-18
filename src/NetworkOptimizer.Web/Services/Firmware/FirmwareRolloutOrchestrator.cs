@@ -75,6 +75,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public static readonly TimeSpan NetworkAppUpdateBudget = TimeSpan.FromMinutes(15);
 
     /// <summary>
+    /// No Network-app judgment before this much has passed since the trigger: the application
+    /// takes several seconds to shut down, and a console that has not gone dark yet is
+    /// indistinguishable from one that already came back.
+    /// </summary>
+    public static readonly TimeSpan NetworkAppJudgeDelay = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// How long the console gets to come back from a UniFi OS update. The cloud gateway class
     /// budget, because that is exactly what this is: the gateway's own full cycle.
     /// </summary>
@@ -870,10 +877,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!state.Triggered) return true;
 
         var triggeredAt = state.TriggeredAt ?? Now;
+        var elapsed = ElapsedReachable(triggeredAt);
 
-        // Not on the pass that commanded it: the application takes a moment to go down, and an API
-        // that has not stopped answering yet is indistinguishable from one that already came back.
-        if (Now <= triggeredAt)
+        // The application takes several seconds to shut down, and a console that has not gone dark
+        // yet is indistinguishable from one that already came back. Wait before judging.
+        if (elapsed < NetworkAppJudgeDelay)
             return false;
 
         if (!consoleDark)
