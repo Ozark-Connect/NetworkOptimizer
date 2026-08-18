@@ -11,10 +11,11 @@ using NetworkOptimizer.Web.Services.Monitoring;
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
-/// Cable modem provider for Technicolor CGA-series gateways (CGA437A, CGA4322DE,
-/// CGA6444VF and relatives) shipped by cable ISPs including VOO and Vodafone.
-/// These expose a JSON API behind the single-page web UI, guarded by a
-/// double-PBKDF2 login and a CSRF token.
+/// Cable modem provider for Technicolor CGA-series gateways (CGA437A, CGA4233VOO,
+/// CGA4322DE, CGA6444VF and relatives) shipped by cable ISPs including VOO and
+/// Vodafone. Two firmware families exist: one serves DOCSIS data at
+/// /api/v1/sta_docsis_status, the other at /api/v1/modem/...; both share the same
+/// double-PBKDF2 login but differ in CSRF token delivery and field naming.
 /// </summary>
 public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
 {
@@ -25,9 +26,11 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     public string DisplayName => "Technicolor CGA Series (HTTP)";
 
     private const string DefaultDocsisPath = "/api/v1/sta_docsis_status";
+    private const string ModemDocsisPath = "/api/v1/modem/exUSTbl,exDSTbl,USTbl,DSTbl,ErrTbl";
     private const string LoginPath = "/api/v1/session/login";
     private const string MenuPath = "/api/v1/session/menu";
     private const string DeviceInfoPath = "/api/v1/sta_device_info";
+    private const string ModelNamePath = "/api/v1/system/ModelName";
 
     private const string SaltRequestPassword = "seeksalthash";
     private const int PbkdfIterations = 1000;
@@ -200,7 +203,17 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
             return null;
         }
 
+        // CGA437A firmware returns the CSRF token in the JSON body. CGA4233 (VOO) firmware
+        // returns it as a Set-Cookie: auth=<value> instead.
         var token = GetJsonString(loginResponse.RootElement, "token") ?? "";
+        if (string.IsNullOrEmpty(token))
+        {
+            var authCookie = cookies.GetCookies(new Uri(baseUrl))
+                .FirstOrDefault(c => c.Name == "auth");
+            if (authCookie != null)
+                token = authCookie.Value;
+        }
+
         var session = new CgaSession(token, cookies, "Technicolor CGA");
 
         using var authedClient = CreateClient(cookies, baseUrl, token);
@@ -266,11 +279,27 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         CancellationToken cancellationToken)
     {
         var baseUrl = BuildBaseUrl(context);
-        var path = string.IsNullOrWhiteSpace(context.StatusPagePath) ? DefaultDocsisPath : context.StatusPagePath;
+        var customPath = !string.IsNullOrWhiteSpace(context.StatusPagePath);
+        var path = customPath ? context.StatusPagePath! : DefaultDocsisPath;
 
         using var client = CreateClient(session.Cookies, baseUrl, session.Token);
 
-        // The web UI cache-busts every read; without it some firmware serves a stale payload.
+        var doc = await FetchJsonAsync(client, baseUrl, path, context.Name, cancellationToken);
+
+        // CGA4233 firmware uses /api/v1/modem/... instead of sta_docsis_status.
+        if (doc == null && !customPath)
+            doc = await FetchJsonAsync(client, baseUrl, ModemDocsisPath, context.Name, cancellationToken);
+
+        return doc;
+    }
+
+    private async Task<JsonDocument?> FetchJsonAsync(
+        HttpClient client,
+        string baseUrl,
+        string path,
+        string name,
+        CancellationToken cancellationToken)
+    {
         var separator = path.Contains('?') ? '&' : '?';
         var url = $"{baseUrl}{path}{separator}_={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture)}";
 
@@ -280,7 +309,8 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug(
-                    "Technicolor CGA {Name}: DOCSIS request returned {Status}", context.Name, response.StatusCode);
+                    "Technicolor CGA {Name}: DOCSIS request to {Path} returned {Status}",
+                    name, path, response.StatusCode);
                 return null;
             }
 
@@ -292,7 +322,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
             var error = GetJsonString(document.RootElement, "error");
             if (!string.IsNullOrEmpty(error) && !error.Equals("ok", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogDebug("Technicolor CGA {Name}: DOCSIS request returned error {Error}", context.Name, error);
+                _logger.LogDebug("Technicolor CGA {Name}: DOCSIS request returned error {Error}", name, error);
                 document.Dispose();
                 return null;
             }
@@ -301,7 +331,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogDebug(ex, "Technicolor CGA {Name}: DOCSIS request failed", context.Name);
+            _logger.LogDebug(ex, "Technicolor CGA {Name}: DOCSIS request to {Path} failed", name, path);
             return null;
         }
     }
@@ -312,23 +342,32 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         string fallback,
         CancellationToken cancellationToken)
     {
+        var model = await TryReadModelFromPath(client, baseUrl + DeviceInfoPath, cancellationToken)
+                    ?? await TryReadModelFromPath(client, baseUrl + ModelNamePath, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(model))
+            return fallback;
+
+        return model.StartsWith("Technicolor", StringComparison.OrdinalIgnoreCase) ? model : $"Technicolor {model}";
+    }
+
+    private static async Task<string?> TryReadModelFromPath(
+        HttpClient client, string url, CancellationToken cancellationToken)
+    {
         try
         {
-            var body = await client.GetStringAsync(baseUrl + DeviceInfoPath, cancellationToken);
+            var body = await client.GetStringAsync(url, cancellationToken);
             using var document = TryParseJson(body);
             if (document == null)
-                return fallback;
+                return null;
 
             var root = document.RootElement.TryGetProperty("data", out var data) ? data : document.RootElement;
-            var model = GetJsonString(root, "modelName") ?? GetJsonString(root, "model");
-            if (string.IsNullOrWhiteSpace(model))
-                return fallback;
-
-            return model.StartsWith("Technicolor", StringComparison.OrdinalIgnoreCase) ? model : $"Technicolor {model}";
+            return GetJsonString(root, "modelName") ?? GetJsonString(root, "model")
+                ?? GetJsonString(root, "ModelName");
         }
         catch (HttpRequestException)
         {
-            return fallback;
+            return null;
         }
     }
 
@@ -345,43 +384,45 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         // Channel arrays live under "data" on current firmware and at the root on older builds.
         var data = root.TryGetProperty("data", out var wrapped) ? wrapped : root;
 
-        foreach (var channel in EnumerateArray(data, "downstream"))
+        // CGA437A uses downstream/ofdm_downstream/upstream/ofdma_upstream.
+        // CGA4233 (VOO) uses DSTbl/exDSTbl/USTbl/exUSTbl.
+        foreach (var channel in EnumerateFirstArray(data, "downstream", "DSTbl"))
         {
             stats.DownstreamChannels.Add(new DsChannel
             {
-                ChannelId = (int)GetNumber(channel, "channelid"),
+                ChannelId = (int)GetNumber(channel, "channelid", "ChannelID"),
                 LockStatus = NormalizeLockStatus(GetString(channel, "locked", "LockStatus")),
                 Modulation = GetString(channel, "FFT", "Modulation"),
-                Frequency = ParseFrequencyHz(GetString(channel, "CentralFrequency")),
-                Power = ParseLevel(GetString(channel, "power")),
-                Snr = ParseSnr(GetString(channel, "SNR")),
+                Frequency = ParseFrequencyHz(GetString(channel, "CentralFrequency", "Frequency")),
+                Power = ParseLevel(GetString(channel, "power", "PowerLevel")),
+                Snr = ParseSnr(GetString(channel, "SNR", "SNRLevel")),
                 Correctables = (long)GetNumber(channel, "CorrectableCodewords", "Correcteds", "corrError"),
                 Uncorrectables = (long)GetNumber(channel, "UncorrectableCodewords", "Uncorrectables", "nonCorrError"),
             });
         }
 
-        foreach (var channel in EnumerateArray(data, "ofdm_downstream"))
+        foreach (var channel in EnumerateFirstArray(data, "ofdm_downstream", "exDSTbl"))
         {
             var modulation = GetString(channel, "FFT_ofdm", "FFT");
             stats.DownstreamChannels.Add(new DsChannel
             {
-                ChannelId = (int)GetNumber(channel, "channelid_ofdm", "channelid"),
+                ChannelId = (int)GetNumber(channel, "channelid_ofdm", "channelid", "ChannelID"),
                 LockStatus = NormalizeLockStatus(GetString(channel, "locked", "LockStatus")),
                 Modulation = string.IsNullOrWhiteSpace(modulation) ? "OFDM" : modulation,
                 Frequency = ParseFrequencyHz(GetString(channel, "CentralFrequency_ofdm", "CentralFrequency")),
-                Power = ParseLevel(GetString(channel, "power_ofdm", "power")),
-                Snr = ParseSnr(GetString(channel, "SNR_ofdm", "SNR")),
+                Power = ParseLevel(GetString(channel, "power_ofdm", "power", "PowerLevel")),
+                Snr = ParseSnr(GetString(channel, "SNR_ofdm", "SNR", "SNRLevel")),
                 Correctables = (long)GetNumber(channel, "CorrectableCodewords", "Correcteds", "corrError"),
                 Uncorrectables = (long)GetNumber(channel, "UncorrectableCodewords", "Uncorrectables", "nonCorrError"),
             });
         }
 
-        foreach (var channel in EnumerateArray(data, "upstream"))
+        foreach (var channel in EnumerateFirstArray(data, "upstream", "USTbl"))
         {
             stats.UpstreamChannels.Add(BuildUpstream(channel, defaultType: null));
         }
 
-        foreach (var channel in EnumerateArray(data, "ofdma_upstream"))
+        foreach (var channel in EnumerateFirstArray(data, "ofdma_upstream", "exUSTbl"))
         {
             stats.UpstreamChannels.Add(BuildUpstream(channel, defaultType: "OFDMA"));
         }
@@ -397,28 +438,31 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
 
         return new UsChannel
         {
-            ChannelId = (int)GetNumber(channel, "channelidup", "channelid"),
+            ChannelId = (int)GetNumber(channel, "channelidup", "channelid", "ChannelID"),
             LockStatus = NormalizeLockStatus(GetString(channel, "locked", "LockStatus")),
             ChannelType = type,
-            Frequency = ParseFrequencyHz(GetString(channel, "CentralFrequency")),
-            Power = ParseLevel(GetString(channel, "power")),
+            Frequency = ParseFrequencyHz(GetString(channel, "CentralFrequency", "Frequency")),
+            Power = ParseLevel(GetString(channel, "power", "PowerLevel")),
             SymbolRate = (long)GetNumber(channel, "SymbolRate", "symbolrate"),
         };
     }
 
-    private static IEnumerable<JsonElement> EnumerateArray(JsonElement parent, string name)
+    private static IEnumerable<JsonElement> EnumerateFirstArray(JsonElement parent, params string[] names)
     {
-        if (parent.ValueKind != JsonValueKind.Object ||
-            !parent.TryGetProperty(name, out var array) ||
-            array.ValueKind != JsonValueKind.Array)
-        {
+        if (parent.ValueKind != JsonValueKind.Object)
             yield break;
-        }
 
-        foreach (var element in array.EnumerateArray())
+        foreach (var name in names)
         {
-            if (element.ValueKind == JsonValueKind.Object)
-                yield return element;
+            if (parent.TryGetProperty(name, out var array) && array.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var element in array.EnumerateArray())
+                {
+                    if (element.ValueKind == JsonValueKind.Object)
+                        yield return element;
+                }
+                yield break;
+            }
         }
     }
 

@@ -193,4 +193,96 @@ public class TechnicolorCgaProviderTests
         stats.DeviceName.Should().Be("Cable Modem");
         stats.DeviceModel.Should().Be("Technicolor CGA437A");
     }
+
+    // --- CGA4233 VOO firmware shape: /api/v1/modem/exUSTbl,exDSTbl,USTbl,DSTbl,ErrTbl ---
+
+    // Reproduces the actual response from a CGA4233VOO captured in a HAR trace. Uses
+    // DSTbl/exDSTbl/USTbl/exUSTbl array names and ChannelID/Frequency/PowerLevel/SNRLevel
+    // field names with unit suffixes.
+    private const string Cga4233Payload = """
+        {
+          "error": "ok",
+          "data": {
+            "exUSTbl": [],
+            "exDSTbl": [
+              {"__id":"1","ChannelID":"162","CentralFrequency":"190.487503 MHz","PowerLevel":"6.6 dBmV","SNRLevel":"41.3 dB","FFT":"","LockStatus":"Locked","ChannelType":"OFDM"}
+            ],
+            "USTbl": [
+              {"__id":"1","ChannelID":"1","Frequency":"50.7 MHz","PowerLevel":"42.3 dBmV","ChannelType":"SC-QAM","SymbolRate":"5120000","Modulation":"32-qam","LockStatus":"Locked"},
+              {"__id":"2","ChannelID":"2","Frequency":"57.2 MHz","PowerLevel":"42.3 dBmV","ChannelType":"SC-QAM","SymbolRate":"5120000","Modulation":"32-qam","LockStatus":"Locked"}
+            ],
+            "DSTbl": [
+              {"__id":"1","ChannelID":"4","Frequency":"474 MHz","PowerLevel":"2.1 dBmV","SNRLevel":"37.1 dB","Modulation":"256-QAM","Correcteds":"507162","Uncorrectables":"13099","LockStatus":"Locked","ChannelType":"SC-QAM"},
+              {"__id":"2","ChannelID":"1","Frequency":"450 MHz","PowerLevel":"2.5 dBmV","SNRLevel":"36.9 dB","Modulation":"256-QAM","Correcteds":"547780","Uncorrectables":"5943","LockStatus":"Locked","ChannelType":"SC-QAM"}
+            ],
+            "ErrTbl": []
+          }
+        }
+        """;
+
+    [Fact]
+    public void ParseDocsis_Cga4233_ParsesDownstreamFromDSTbl()
+    {
+        var stats = TechnicolorCgaProvider.ParseDocsis(Payload(Cga4233Payload), Context(), "Technicolor CGA4233VOO");
+
+        stats.DownstreamChannels.Should().HaveCount(3);
+
+        var first = stats.DownstreamChannels[0];
+        first.ChannelId.Should().Be(4);
+        first.LockStatus.Should().Be("Locked");
+        first.Modulation.Should().Be("256-QAM");
+        first.Frequency.Should().Be(474_000_000);
+        first.Power.Should().Be(2.1);
+        first.Snr.Should().Be(37.1);
+        first.Correctables.Should().Be(507162);
+        first.Uncorrectables.Should().Be(13099);
+    }
+
+    [Fact]
+    public void ParseDocsis_Cga4233_ParsesOfdmFromExDSTbl()
+    {
+        var stats = TechnicolorCgaProvider.ParseDocsis(Payload(Cga4233Payload), Context(), "Technicolor CGA4233VOO");
+
+        var ofdm = stats.DownstreamChannels[2];
+        ofdm.ChannelId.Should().Be(162);
+        ofdm.Modulation.Should().Be("OFDM");
+        ofdm.Frequency.Should().Be(190_487_503);
+        ofdm.Power.Should().Be(6.6);
+        ofdm.Snr.Should().Be(41.3);
+    }
+
+    [Fact]
+    public void ParseDocsis_Cga4233_ParsesUpstreamFromUSTbl()
+    {
+        var stats = TechnicolorCgaProvider.ParseDocsis(Payload(Cga4233Payload), Context(), "Technicolor CGA4233VOO");
+
+        stats.UpstreamChannels.Should().HaveCount(2);
+
+        var first = stats.UpstreamChannels[0];
+        first.ChannelId.Should().Be(1);
+        first.ChannelType.Should().Be("SC-QAM");
+        first.Frequency.Should().Be(50_700_000);
+        first.Power.Should().Be(42.3);
+        first.SymbolRate.Should().Be(5_120_000);
+    }
+
+    [Fact]
+    public void ParseDocsis_Cga4233_PopulatesAggregates()
+    {
+        var stats = TechnicolorCgaProvider.ParseDocsis(Payload(Cga4233Payload), Context(), "Technicolor CGA4233VOO");
+
+        stats.LockedDsChannels.Should().Be(3);
+        stats.LockedUsChannels.Should().Be(2);
+        stats.DownstreamPowerAvgDbmv.Should().BeApproximately(3.733, 0.001);
+        stats.UpstreamPowerAvgDbmv.Should().Be(42.3);
+    }
+
+    [Theory]
+    [InlineData("474 MHz", 474_000_000)]
+    [InlineData("50.7 MHz", 50_700_000)]
+    [InlineData("190.487503 MHz", 190_487_503)]
+    public void ParseFrequencyHz_HandlesUnitSuffix(string raw, long expected)
+    {
+        TechnicolorCgaProvider.ParseFrequencyHz(raw).Should().Be(expected);
+    }
 }
