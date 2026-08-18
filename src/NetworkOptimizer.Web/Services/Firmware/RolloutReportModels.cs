@@ -58,6 +58,20 @@ public class RolloutReport
     /// <summary>One row per device the plan covered.</summary>
     public List<RolloutReportRow> Rows { get; set; } = [];
 
+    /// <summary>
+    /// Devices upgraded plus the console when it had any update (Network, OS, or both = one).
+    /// The console is one device regardless of how many surfaces were updated on it.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int TotalUpgraded
+    {
+        get
+        {
+            var consoleUpdated = UniFiNetworkUpdateOutcome == "updated" || UniFiOsUpdateOutcome == "updated";
+            return DevicesUpgraded + (consoleUpdated ? 1 : 0);
+        }
+    }
+
     /// <summary>Everything that went wrong, in the order the plan met it.</summary>
     public List<string> Issues { get; set; } = [];
 

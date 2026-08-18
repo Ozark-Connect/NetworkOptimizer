@@ -591,7 +591,7 @@ else
             @if (_reportTyped is { } rep)
             {
                 <div class="firmware-rollout-stats">
-                    <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesUpgraded</span><span class="detail-label">Upgraded</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@rep.TotalUpgraded</span><span class="detail-label">Upgraded</span></div>
                     @if (rep.DevicesFailed > 0)
                     {
                         <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesFailed</span><span class="detail-label">Failed</span></div>

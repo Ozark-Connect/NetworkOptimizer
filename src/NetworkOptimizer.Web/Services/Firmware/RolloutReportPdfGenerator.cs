@@ -121,10 +121,10 @@ public class RolloutReportPdfGenerator
             {
                 row.RelativeItem().AlignMiddle().Column(headline =>
                 {
-                    headline.Item().AlignCenter().Text($"{report.DevicesUpgraded}")
+                    headline.Item().AlignCenter().Text($"{report.TotalUpgraded}")
                         .FontSize(42).Bold().FontColor(_branding.Colors.Success);
                     headline.Item().AlignCenter().PaddingTop(2)
-                        .Text(report.DevicesUpgraded == 1 ? "Device upgraded" : "Devices upgraded")
+                        .Text(report.TotalUpgraded == 1 ? "Device upgraded" : "Devices upgraded")
                         .FontSize(9).FontColor(Colors.Grey.Medium);
                 });
 
