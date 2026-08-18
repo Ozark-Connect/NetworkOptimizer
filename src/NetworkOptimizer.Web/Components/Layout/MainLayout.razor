@@ -261,14 +261,7 @@
         // iOS can restore from background with the window scrolled off (0,0); the body
         // then swallows touch gestures and .main-content can't scroll until a tap resets it
         function unstickViewport() {
-            if (!window.scrollX && !window.scrollY) return;
-            // Put the window back without losing where the user was: the content scrolls inside
-            // .main-content, and resetting the window used to take the reading position with it
-            // every time iOS restored the app from the background.
-            var el = getScrollEl();
-            var top = el ? el.scrollTop : 0;
-            window.scrollTo(0, 0);
-            if (el && top && el.scrollTop !== top) el.scrollTop = top;
+            if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
         }
         window.addEventListener('pageshow', unstickViewport);
         document.addEventListener('visibilitychange', function() {
