@@ -20546,6 +20546,14 @@ body.kiosk-mode .status-indicators {
     flex-wrap: wrap;
 }
 
+.firmware-rollout-deploy-now {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
 .firmware-rollout-note {
     color: var(--text-secondary);
     font-size: 0.9rem;

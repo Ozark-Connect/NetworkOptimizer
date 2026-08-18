@@ -153,6 +153,23 @@ else if (_active != null)
                     </tbody>
                 </table>
             </div>
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            {
+                <SiteAdminOnly>
+                    <div class="firmware-rollout-deploy-now">
+                        @if (_confirmDeployNow)
+                        {
+                            <span class="text-secondary">Start the rollout now?</span>
+                            <button class="btn btn-sm btn-primary" @onclick="DeployNowAsync" disabled="@_busy">Yes, deploy now</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="() => _confirmDeployNow = false" disabled="@_busy">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => _confirmDeployNow = true" disabled="@_busy">Deploy Now</button>
+                        }
+                    </div>
+                </SiteAdminOnly>
+            }
         </div>
     </div>
 }
@@ -660,6 +677,7 @@ else
 @code {
     private bool _loading = true;
     private bool _busy;
+    private bool _confirmDeployNow;
     private bool _wizardOpen;
     private int _step = 1;
     private string? _wizardError;
@@ -1440,6 +1458,12 @@ else
         {
             _busy = false;
         }
+    }
+
+    private async Task DeployNowAsync()
+    {
+        _confirmDeployNow = false;
+        await ControlAsync(RolloutService.DeployNowAsync);
     }
 
     private Task AbortAsync() => ControlAsync(async (id, ct) =>

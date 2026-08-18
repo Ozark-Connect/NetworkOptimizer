@@ -129,6 +129,13 @@ public interface IFirmwareRolloutService
     [AuditAction(AuditActions.FirmwareRolloutAborted, TargetType = "firmware_rollout")]
     Task AbortAsync(int planId, CancellationToken cancellationToken = default);
 
+    /// <summary>Kicks a scheduled rollout off immediately instead of waiting for its window.</summary>
+    /// <param name="planId">The waiting plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutStarted, TargetType = "firmware_rollout")]
+    Task DeployNowAsync(int planId, CancellationToken cancellationToken = default);
+
     /// <summary>Pushes an announced or scheduled rollout out by one window.</summary>
     /// <param name="planId">The waiting plan.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

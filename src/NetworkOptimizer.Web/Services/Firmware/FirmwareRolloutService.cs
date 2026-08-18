@@ -354,6 +354,16 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public async Task DeployNowAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var started = await _orchestrator.StartNowAsync(planId, overrideHealthGate: true, cancellationToken);
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId, started });
+    }
+
+    /// <inheritdoc />
     public async Task PostponeAsync(int planId, CancellationToken cancellationToken = default)
     {
         await RequireActiveAsync(planId, cancellationToken);
