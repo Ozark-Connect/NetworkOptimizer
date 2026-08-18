@@ -85,7 +85,6 @@ public class FloorPlanService : IFloorPlanAdminService
         _logger = logger;
         _floorPlanDirectory = GetFloorPlanDirectory(_siteContext.Slug, _siteContext.IsDefault);
         Directory.CreateDirectory(_floorPlanDirectory);
-        _logger.LogDebug("Floor plan storage directory: {Directory}", _floorPlanDirectory);
     }
 
     /// <summary>
