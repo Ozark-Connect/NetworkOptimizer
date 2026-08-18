@@ -61,6 +61,15 @@ else if (_active != null)
             @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
                 <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>@SiteAside(_active.ScheduledStartAt ?? DateTime.UtcNow). Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
+                @if (HasDrift)
+                {
+                    <div class="alert alert-info firmware-rollout-note firmware-rollout-drift-note">
+                        <span>@DriftMessage</span>
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="ReplanAsync" disabled="@_busy">Re-plan</button>
+                        </SiteAdminOnly>
+                    </div>
+                }
             }
             @if (WaitingApproval)
             {
@@ -323,8 +332,8 @@ else if (_wizardOpen)
                 <p class="section-description">This is the whole plan: leaf devices first, the gateway last, one canary per model, and roam-aware AP pairing. Nothing starts until you say so.</p>
 
                 <div class="firmware-rollout-stats">
-                    <div class="firmware-rollout-stat"><span class="detail-value">@_preview.UpgradableCount</span><span class="detail-label">to upgrade</span></div>
-                    <div class="firmware-rollout-stat"><span class="detail-value">@_preview.Plan.Waves.Count</span><span class="detail-label">waves</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@PreviewTotalScope</span><span class="detail-label">to upgrade</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@PreviewTotalWaves</span><span class="detail-label">waves</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
                     <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : LocalTime(SelectedStartUtc) + SiteAside(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
                     @if (_preview.ExcludedCount > 0)
@@ -795,6 +804,9 @@ else
     private FirmwareRolloutSettings? _settings;
     private RolloutPreviewView? _preview;
     private RolloutPlanView? _active;
+    private RolloutPreviewView? _driftPreview;
+    private int _driftNewDevices;
+    private int _driftNewerVersions;
     private List<RolloutPlanSummaryView> _history = [];
     private RolloutReportView? _report;
     private RolloutReport? _reportTyped;
@@ -863,6 +875,7 @@ else
     {
         try
         {
+            ClearDrift();
             _settings = await RolloutService.GetSettingsAsync();
             AdoptStandingAutopilotConfig();
             LoadWorkingSets();
@@ -874,10 +887,119 @@ else
             // on its own clock, and without a timer nothing re-renders to notice it happened -
             // somebody watching the page through the start time would sit on a stale view.
             if (_active != null) StartPolling();
+            if (_active?.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                _ = CheckDriftAsync(_active.Id);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load firmware rollout state");
+        }
+    }
+
+    // ---- Drift detection ----
+
+    private bool HasDrift => _driftNewDevices > 0 || _driftNewerVersions > 0;
+
+    private void ClearDrift()
+    {
+        _driftPreview = null;
+        _driftNewDevices = 0;
+        _driftNewerVersions = 0;
+    }
+
+    /// <summary>
+    /// Looks for firmware that landed after a waiting plan was composed: a fresh preview is diffed
+    /// against the plan's steps, and any new device or new target version earns the Re-plan notice.
+    /// A failed preview shows nothing - the plan is still valid without the hint.
+    /// </summary>
+    private async Task CheckDriftAsync(int planId)
+    {
+        try
+        {
+            var preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            await InvokeAsync(() =>
+            {
+                if (_active?.Id != planId
+                    || _active.Status is not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced))
+                    return;
+
+                var planned = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var step in _active.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                    planned.TryAdd(step.Mac, step.ToVersion);
+
+                _driftNewDevices = 0;
+                _driftNewerVersions = 0;
+                foreach (var step in preview.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                {
+                    if (!planned.TryGetValue(step.Mac, out var toVersion))
+                        _driftNewDevices++;
+                    else if (step.ToVersion != null && toVersion != null
+                        && !string.Equals(step.ToVersion, toVersion, StringComparison.OrdinalIgnoreCase))
+                        _driftNewerVersions++;
+                }
+
+                if (HasDrift)
+                {
+                    _driftPreview = preview;
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Rollout drift check failed; skipping the notice");
+        }
+    }
+
+    private string DriftMessage
+    {
+        get
+        {
+            static string Devices(int n) => n == 1 ? "1 device" : $"{n} devices";
+            static string Have(int n) => n == 1 ? "has" : "have";
+            if (_driftNewerVersions > 0 && _driftNewDevices > 0)
+                return $"Newer firmware is available for {Devices(_driftNewerVersions)} in this plan, and {Devices(_driftNewDevices)} more {Have(_driftNewDevices)} firmware available since it was composed.";
+            if (_driftNewerVersions > 0)
+                return $"Newer firmware is available for {Devices(_driftNewerVersions)} since this plan was composed.";
+            return $"{Devices(_driftNewDevices)} more {Have(_driftNewDevices)} firmware available since this plan was composed.";
+        }
+    }
+
+    /// <summary>
+    /// Aborts the waiting plan and reopens the wizard on the drift preview, so the fresh scope is
+    /// shown without another catalog refresh and the settings stay as the plan was committed with.
+    /// </summary>
+    private async Task ReplanAsync()
+    {
+        if (_active == null || _driftPreview == null) return;
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.AbortAsync(_active.Id);
+            _preview = _driftPreview;
+            // The preview was built while the plan still existed; the abort just made these wrong.
+            _preview.HasActivePlan = false;
+            // Must match FirmwareRolloutService.cs line 621 exactly.
+            _preview.Warnings.Remove("A rollout is already scheduled or running on this site.");
+            ClearDrift();
+            _active = null;
+            _controlNotice = null;
+            _confirmDeployNow = false;
+            SeedStartFromProposal();
+            _wizardOpen = true;
+            _step = 1;
+            _history = await RolloutService.GetPlanHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Re-planning the rollout failed");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
@@ -1420,6 +1542,16 @@ else
     // ---- Active plan controls ----
 
     private bool WaitingApproval => _active?.Plan.WaitingApprovalWave is > 0;
+
+    private int PreviewTotalScope =>
+        (_preview?.UpgradableCount ?? 0)
+        + (_preview?.Plan.IncludesUniFiNetworkUpdate == true ? 1 : 0)
+        + (_preview?.Plan.IncludesUniFiOsUpdate == true ? 1 : 0);
+
+    private int PreviewTotalWaves =>
+        (_preview?.Plan.Waves.Count ?? 0)
+        + (_preview?.Plan.IncludesUniFiNetworkUpdate == true ? 1 : 0)
+        + (_preview?.Plan.IncludesUniFiOsUpdate == true ? 1 : 0);
 
     private string ActiveTitle => _active?.Status switch
     {
