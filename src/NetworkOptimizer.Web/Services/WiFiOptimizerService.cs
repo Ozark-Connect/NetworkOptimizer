@@ -1273,11 +1273,12 @@ public class WiFiOptimizerService : IWiFiScanService
         var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}";
 
         return _planCache.GetOrBuildPlanAsync(key, forceRefresh,
-            () => BuildAllChannelRecommendationsAsync(options));
+            () => BuildAllChannelRecommendationsAsync(options, forceRefresh));
     }
 
     private async Task<Dictionary<RadioBand, ChannelPlan>> BuildAllChannelRecommendationsAsync(
-        RecommendationOptions? options)
+        RecommendationOptions? options,
+        bool forceRefresh)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var results = new Dictionary<RadioBand, ChannelPlan>();
@@ -1361,7 +1362,8 @@ public class WiFiOptimizerService : IWiFiScanService
 
             // What clients actually achieved per channel. Entirely optional - any failure leaves
             // this null and the recommender scores exactly as it did before it existed.
-            var clientRates = await _planCache.GetOrBuildClientRatesAsync(_siteSlug, GetClientRatesAsync);
+            var clientRates = await _planCache.GetOrBuildClientRatesAsync(
+                _siteSlug, forceRefresh, GetClientRatesAsync);
 
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };

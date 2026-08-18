@@ -22,11 +22,15 @@ public class ChannelPlanCache
     public static readonly TimeSpan PlanTtl = TimeSpan.FromHours(1);
 
     /// <summary>
-    /// Client-rate history TTL, deliberately longer than <see cref="PlanTtl"/> and NOT cleared by
-    /// Refresh. It is a 90-day aggregate that measured ~33s to run and shifts negligibly within a
-    /// few hours, so tying it to Refresh would make the button feel broken for no gain in accuracy.
+    /// Client-rate history TTL. Deliberately the same as <see cref="PlanTtl"/> so there is one rule
+    /// to reason about: everything is an hour old at most, and Refresh rebuilds all of it.
+    ///
+    /// It earns a cache at all for two reasons rather than cost - the query runs in well under a
+    /// second: several option sets building plans inside the same hour share one fetch, and a null
+    /// result is cached too, so an unreachable InfluxDB costs one timeout per hour instead of one
+    /// per plan build.
     /// </summary>
-    public static readonly TimeSpan ClientRatesTtl = TimeSpan.FromHours(6);
+    public static readonly TimeSpan ClientRatesTtl = PlanTtl;
 
     private sealed class Entry<T>
     {
@@ -56,14 +60,14 @@ public class ChannelPlanCache
     }
 
     /// <summary>
-    /// Client-rate history for a site. Never force-refreshed - see <see cref="ClientRatesTtl"/>.
-    /// A failed lookup caches its null result too, so an unreachable InfluxDB costs one timeout
-    /// per TTL instead of one per plan build.
+    /// Client-rate history for a site. A failed lookup caches its null result too, so an
+    /// unreachable InfluxDB costs one timeout per TTL instead of one per plan build.
     /// </summary>
     public Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?> GetOrBuildClientRatesAsync(
         string siteSlug,
+        bool forceRefresh,
         Func<Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?>> build)
-        => GetOrBuildAsync(_clientRates, siteSlug, forceRefresh: false, ClientRatesTtl, build);
+        => GetOrBuildAsync(_clientRates, siteSlug, forceRefresh, ClientRatesTtl, build);
 
     /// <summary>Drops every cached plan for a site (e.g. its console connection changed).</summary>
     public void InvalidateSite(string siteSlug)
