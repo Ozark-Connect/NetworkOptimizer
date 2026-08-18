@@ -807,6 +807,8 @@ else
     private RolloutPreviewView? _driftPreview;
     private int _driftNewDevices;
     private int _driftNewerVersions;
+    private bool _driftNetworkApp;
+    private bool _driftOs;
     private List<RolloutPlanSummaryView> _history = [];
     private RolloutReportView? _report;
     private RolloutReport? _reportTyped;
@@ -898,13 +900,15 @@ else
 
     // ---- Drift detection ----
 
-    private bool HasDrift => _driftNewDevices > 0 || _driftNewerVersions > 0;
+    private bool HasDrift => _driftNewDevices > 0 || _driftNewerVersions > 0 || _driftNetworkApp || _driftOs;
 
     private void ClearDrift()
     {
         _driftPreview = null;
         _driftNewDevices = 0;
         _driftNewerVersions = 0;
+        _driftNetworkApp = false;
+        _driftOs = false;
     }
 
     /// <summary>
@@ -938,11 +942,8 @@ else
                         _driftNewerVersions++;
                 }
 
-                // Console-level updates the plan didn't include
-                if (preview.Plan.IncludesUniFiNetworkUpdate && !_active.Plan.IncludesUniFiNetworkUpdate)
-                    _driftNewDevices++;
-                if (preview.Plan.IncludesUniFiOsUpdate && !_active.Plan.IncludesUniFiOsUpdate)
-                    _driftNewDevices++;
+                _driftNetworkApp = preview.Plan.IncludesUniFiNetworkUpdate && !_active.Plan.IncludesUniFiNetworkUpdate;
+                _driftOs = preview.Plan.IncludesUniFiOsUpdate && !_active.Plan.IncludesUniFiOsUpdate;
 
                 if (HasDrift)
                 {
@@ -961,13 +962,19 @@ else
     {
         get
         {
-            static string Devices(int n) => n == 1 ? "1 device" : $"{n} devices";
-            static string Have(int n) => n == 1 ? "has" : "have";
-            if (_driftNewerVersions > 0 && _driftNewDevices > 0)
-                return $"Newer firmware is available for {Devices(_driftNewerVersions)} in this plan, and {Devices(_driftNewDevices)} more {Have(_driftNewDevices)} firmware available since it was composed.";
+            var parts = new List<string>();
+            if (_driftNetworkApp) parts.Add("a UniFi Network update");
+            if (_driftOs) parts.Add("a UniFi OS update");
             if (_driftNewerVersions > 0)
-                return $"Newer firmware is available for {Devices(_driftNewerVersions)} since this plan was composed.";
-            return $"{Devices(_driftNewDevices)} more {Have(_driftNewDevices)} firmware available since this plan was composed.";
+                parts.Add(_driftNewerVersions == 1
+                    ? "a newer firmware version for 1 device in this plan"
+                    : $"newer firmware versions for {_driftNewerVersions} devices in this plan");
+            if (_driftNewDevices > 0)
+                parts.Add(_driftNewDevices == 1
+                    ? "1 additional device with a firmware update"
+                    : $"{_driftNewDevices} additional devices with firmware updates");
+
+            return $"New firmware has landed since this plan was composed: {string.Join(", ", parts)}.";
         }
     }
 
