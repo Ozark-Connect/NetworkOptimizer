@@ -101,12 +101,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 ScheduledStartAt = plan.ScheduledStartAt,
                 StartedAt = plan.StartedAt,
                 CompletedAt = plan.CompletedAt,
-                DeviceCount = RolloutScopeCopy.DeviceCount(document)
-                    + (document.IncludesUniFiNetworkUpdate ? 1 : 0)
-                    + (document.IncludesUniFiOsUpdate ? 1 : 0),
-                WaveCount = document.Waves.Count
-                    + (document.IncludesUniFiNetworkUpdate ? 1 : 0)
-                    + (document.IncludesUniFiOsUpdate ? 1 : 0),
+                DeviceCount = RolloutScopeCopy.TotalScope(document),
+                WaveCount = RolloutScopeCopy.TotalWaves(document),
                 HasReport = !string.IsNullOrEmpty(plan.ReportJson),
             };
         }).ToList();

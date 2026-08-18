@@ -42,6 +42,33 @@ public static class RolloutScopeCopy
     }
 
     /// <summary>
+    /// Everything the rollout upgrades: devices plus the console as one unit when it has any
+    /// console-level work (Network app, UniFi OS, or both) and is not already in the device count.
+    /// </summary>
+    public static int TotalScope(RolloutPlanDocument document)
+    {
+        var devices = DeviceCount(document);
+        if (!IncludesConsole(document)) return devices;
+        var consoleInWaves = !string.IsNullOrWhiteSpace(document.ConsoleMac)
+            && document.Waves.SelectMany(w => w.Steps)
+                .Any(s => string.Equals(s.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase));
+        var consoleAlreadyCounted = consoleInWaves || ConsoleCountsAsDevice(document);
+        return devices + (consoleAlreadyCounted ? 0 : 1);
+    }
+
+    /// <summary>
+    /// Total waves including console-level phases: wave 0 (Network app) and the final OS wave are
+    /// each one wave when included.
+    /// </summary>
+    public static int TotalWaves(RolloutPlanDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.Waves.Count
+            + (document.IncludesUniFiNetworkUpdate ? 1 : 0)
+            + (document.IncludesUniFiOsUpdate ? 1 : 0);
+    }
+
+    /// <summary>
     /// The console surfaces a plan covers, or null when it covers none.
     /// </summary>
     /// <param name="document">The plan document.</param>

@@ -1543,15 +1543,8 @@ else
 
     private bool WaitingApproval => _active?.Plan.WaitingApprovalWave is > 0;
 
-    private int PreviewTotalScope =>
-        (_preview?.UpgradableCount ?? 0)
-        + (_preview?.Plan.IncludesUniFiNetworkUpdate == true ? 1 : 0)
-        + (_preview?.Plan.IncludesUniFiOsUpdate == true ? 1 : 0);
-
-    private int PreviewTotalWaves =>
-        (_preview?.Plan.Waves.Count ?? 0)
-        + (_preview?.Plan.IncludesUniFiNetworkUpdate == true ? 1 : 0)
-        + (_preview?.Plan.IncludesUniFiOsUpdate == true ? 1 : 0);
+    private int PreviewTotalScope => _preview == null ? 0 : RolloutScopeCopy.TotalScope(_preview.Plan);
+    private int PreviewTotalWaves => _preview == null ? 0 : RolloutScopeCopy.TotalWaves(_preview.Plan);
 
     private string ActiveTitle => _active?.Status switch
     {
