@@ -90,8 +90,6 @@ public class RolloutAutopilot : IRolloutAutopilot
         if (stored.Mode != FirmwareRolloutMode.Autopilot)
             return null;
 
-        _lastCheckedAt = Now;
-
         // Plan from the standing configuration, not from the row, which any one-off rollout since
         // has overwritten with its own scope. A site upgrading into this has no snapshot yet: the
         // row is still faithful there, because a one-off used to turn autopilot off.
@@ -110,11 +108,25 @@ public class RolloutAutopilot : IRolloutAutopilot
         // soaking plan all mean autopilot has nothing to add.
         var active = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
         if (active != null)
+        {
+            _lastCheckedAt = Now;
             return null;
+        }
 
         var timings = await _repositories.UseAsync((r, c) => r.GetModelTimingsAsync(c), cancellationToken);
         var inputs = await _planning.UseAsync(
             (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, c), cancellationToken);
+
+        // Don't burn the check interval when the console wasn't reachable: the catalog and
+        // update availability are unknown, so "nothing to upgrade" is an absence of data, not
+        // an answer. Retry on the next tick once the agent tunnel is up.
+        if (!RolloutPlanComposer.ConsoleReachable(inputs.Console))
+        {
+            _logger.LogDebug("Autopilot deferring on site {Site}: the console is not connected", _siteSlug);
+            return null;
+        }
+
+        _lastCheckedAt = Now;
 
         var ripeness = await EvaluateRipenessAsync(inputs.Context.Devices, settings.MinReleaseAgeDays, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings, ripeness.UnripeMacs);
