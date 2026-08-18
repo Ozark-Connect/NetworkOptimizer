@@ -400,7 +400,7 @@ public class UniFiDiscovery
     /// </summary>
     public async Task<List<DiscoveredClient>> DiscoverClientsAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Starting UniFi client discovery via API");
+        _logger.LogDebug("Starting UniFi client discovery via API");
 
         var clients = await _apiClient.GetClientsAsync(cancellationToken);
         if (clients == null || clients.Count == 0)
@@ -409,7 +409,7 @@ public class UniFiDiscovery
             return new List<DiscoveredClient>();
         }
 
-        _logger.LogInformation("Discovered {Count} connected clients", clients.Count);
+        _logger.LogDebug("Discovered {Count} connected clients", clients.Count);
 
         // Check if any clients are missing IPs after trying BestIp fallback (ip > last_ip > fixed_ip)
         var clientsMissingIps = clients.Where(c => string.IsNullOrEmpty(c.BestIp)).ToList();
@@ -537,7 +537,7 @@ public class UniFiDiscovery
     /// </summary>
     public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        _logger.LogInformation("Starting network topology discovery");
+        _logger.LogDebug("Starting network topology discovery");
 
         var devicesTask = DiscoverDevicesAsync(cancellationToken, useCache);
         var clientsTask = DiscoverClientsAsync(cancellationToken);
@@ -576,7 +576,7 @@ public class UniFiDiscovery
         // Build device hierarchy (uplink relationships)
         BuildDeviceHierarchy(topology);
 
-        _logger.LogInformation("Topology discovered: {DeviceCount} devices, {ClientCount} clients, {NetworkCount} networks",
+        _logger.LogDebug("Topology discovered: {DeviceCount} devices, {ClientCount} clients, {NetworkCount} networks",
             topology.Devices.Count, topology.Clients.Count, topology.Networks.Count);
 
         return topology;

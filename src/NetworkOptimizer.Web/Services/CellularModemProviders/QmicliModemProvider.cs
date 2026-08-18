@@ -86,7 +86,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             {
                 await TryEnrichWithCellTowerInfoAsync(context, stats);
 
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Successfully polled modem {Name} via uiwwand: {Carrier}, Signal Quality: {Quality}%",
                     context.Name, stats.Carrier, stats.SignalQuality);
             }
@@ -255,7 +255,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 stats.IsDcnrRestricted = dcnrRestricted;
             }
 
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);
 

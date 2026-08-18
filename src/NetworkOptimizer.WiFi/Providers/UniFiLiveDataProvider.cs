@@ -194,7 +194,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 reportData.ValueKind == System.Text.Json.JsonValueKind.Array ? reportData.GetArrayLength() : 0);
 
             var metrics = ParseSiteMetrics(reportData);
-            _logger.LogInformation("Parsed {Count} site metrics data points", metrics.Count);
+            _logger.LogDebug("Parsed {Count} site metrics data points", metrics.Count);
             return metrics;
         }
         catch (Exception ex)
@@ -256,7 +256,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
             // Parse using AP-specific prefixes (no 'ap-' prefix)
             var metrics = ParseApMetrics(reportData);
-            _logger.LogInformation("Parsed {Count} AP metrics data points", metrics.Count);
+            _logger.LogDebug("Parsed {Count} AP metrics data points", metrics.Count);
             return metrics;
         }
         catch (Exception ex)
@@ -434,7 +434,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             // We now know the AP MAC(s) and band(s) from the first query
             await EnrichWithChannelInfoAsync(metrics, reportType, clientMac, startMs, endMs, cancellationToken);
 
-            _logger.LogInformation("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
+            _logger.LogDebug("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
             return metrics;
         }
         catch (Exception ex)
@@ -874,7 +874,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // get the correct channel for each BSSID.
         CorrectMeshNeighborChannels(aps, results);
 
-        _logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
+        _logger.LogDebug("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
             aps.Count,
             results.Count,
             results.Sum(r => r.Neighbors.Count));

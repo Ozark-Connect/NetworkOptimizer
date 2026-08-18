@@ -763,7 +763,7 @@ public class UniFiApiClient : IDisposable
             {
                 _isUniFiOs = true;
                 _pathDetected = true;
-                _logger.LogInformation("Detected UniFi OS device (UDM/UCG) - using /proxy/network path");
+                _logger.LogDebug("Detected UniFi OS device (UDM/UCG) - using /proxy/network path");
                 return;
             }
         }
@@ -1103,7 +1103,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} clients", response.Data.Count);
+            _logger.LogDebug("Retrieved {Count} clients", response.Data.Count);
             return response.Data;
         }
 
@@ -1181,7 +1181,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} known users", response.Data.Count);
+            _logger.LogDebug("Retrieved {Count} known users", response.Data.Count);
             return response.Data;
         }
 
@@ -1259,7 +1259,7 @@ public class UniFiApiClient : IDisposable
                 var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientDetailResponse>>(
                     cancellationToken: cancellationToken);
 
-                _logger.LogInformation("Retrieved {Count} historical clients", clients?.Count ?? 0);
+                _logger.LogDebug("Retrieved {Count} historical clients", clients?.Count ?? 0);
                 return clients ?? new List<UniFiClientDetailResponse>();
             }
 
@@ -1473,7 +1473,7 @@ public class UniFiApiClient : IDisposable
             .Where(c => c.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        _logger.LogInformation("Found {Count} WAN configurations", wanConfigs.Count);
+        _logger.LogDebug("Found {Count} WAN configurations", wanConfigs.Count);
         return wanConfigs;
     }
 

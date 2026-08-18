@@ -423,7 +423,7 @@ public class AgentProbeResultSink
             }
 
             connection.TrySend(new ServerMessage { ProbeConfig = config });
-            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
+            _logger.LogDebug("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
                 config.Targets.Count, connection.AgentId, connection.SiteSlug,
                 skippedSelf > 0 ? $" - {skippedSelf} skipped: the agent runs on that target" : "");
         }
@@ -937,7 +937,7 @@ public class AgentProbeResultSink
 
             connection.TrySend(new ServerMessage { SnmpConfig = config });
             if (config.Enabled)
-                _logger.LogInformation("Pushed SNMP config with {Count} device(s) to agent {Id} (site {Slug})",
+                _logger.LogDebug("Pushed SNMP config with {Count} device(s) to agent {Id} (site {Slug})",
                     config.Devices.Count, connection.AgentId, connection.SiteSlug);
             else
                 _logger.LogDebug("Pushed disabled SNMP config to agent {Id} (site {Slug})",
