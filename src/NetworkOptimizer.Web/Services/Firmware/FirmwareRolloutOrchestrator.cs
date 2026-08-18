@@ -758,13 +758,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // Wave 0. The UniFi Network application update aligns the firmware catalog every device
         // step then works from, so no device is commanded until it has been through.
+        // Keep refreshing while in-flight: devices go dark when the app restarts and take minutes
+        // to reconnect after it comes back. Once Settled, the refresh stops and the 5-minute
+        // WindowFreshness expires naturally, giving devices time to check back in.
         if (document.NetworkAppUpdate is { Triggered: true, Settled: false } && settings.SuppressStandardAlerts)
             _suppression.RefreshConsoleCycle(_siteSlug, Now);
 
         var networkAppSettled = await AdvanceNetworkAppUpdateAsync(plan, document, consoleDark, cancellationToken);
-
-        if (networkAppSettled && document.NetworkAppUpdate.Triggered)
-            _suppression.ClearConsoleCycle(_siteSlug);
 
         if (networkAppSettled && plan.Status == FirmwareRolloutStatus.Running)
             await OpenNextWaveAsync(plan, document, settings, steps, byMac, cancellationToken);
