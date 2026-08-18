@@ -2113,11 +2113,12 @@ class LanFlowMap2D {
                     if(n.d.kind===NK.AP){downBps=b.aggregateOutBps||0;upBps=b.aggregateInBps||0;}
                     else{downBps=b.aggregateInBps||0;upBps=b.aggregateOutBps||0;}
                     any=downBps>0||upBps>0;
-                }else{
+                }else if(b?.online!==false){
                     // No figures in the badge: sum this device's own links, which is what the
                     // tooltip and the 3D map do. A UniFi Device Bridge is deliberately left out of
                     // the fabric sum, so without this it showed a rate on hover and nothing at all
-                    // under the device.
+                    // under the device. Skipped for a device reported offline: it has no figures
+                    // either, and its last link rates linger in the live cache.
                     for(const e of this._edges){
                         if(e.lk.fromNodeId!==n.d.id&&e.lk.toNodeId!==n.d.id)continue;
                         const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
