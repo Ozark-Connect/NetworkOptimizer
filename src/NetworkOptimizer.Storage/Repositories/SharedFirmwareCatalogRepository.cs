@@ -238,7 +238,8 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
                         var url = netApp.TryGetProperty("Url", out var tu) ? tu.GetString() : null;
                         if (!string.IsNullOrEmpty(ver))
                         {
-                            var key = $"beta|{ver}";
+                            var channel = FirmwareVersionFormat.IsNewer(ver, "10.5.67") ? "beta" : "release";
+                            var key = $"{channel}|{ver}";
                             if (!appBuilds.ContainsKey(key))
                                 appBuilds[key] = url;
                             else if (!string.IsNullOrEmpty(url))

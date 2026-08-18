@@ -94,8 +94,37 @@ public class RolloutReport
     public static RolloutReport? Parse(string? reportJson)
     {
         if (string.IsNullOrWhiteSpace(reportJson)) return null;
-        try { return JsonSerializer.Deserialize<RolloutReport>(reportJson); }
+        try
+        {
+            var report = JsonSerializer.Deserialize<RolloutReport>(reportJson);
+            if (report != null) BackfillNetworkAppRow(report);
+            return report;
+        }
         catch (JsonException) { return null; }
+    }
+
+    private static void BackfillNetworkAppRow(RolloutReport report)
+    {
+        if (report.UniFiNetworkUpdateOutcome is null or "skipped" or "nothing-to-update") return;
+        if (report.Rows.Any(r => r.Name.Contains("UniFi Network", StringComparison.OrdinalIgnoreCase))) return;
+        if (report.UniFiOsUpdateOutcome is not null and not "skipped"
+            && report.Rows.Any(r => r.Name.Contains("UniFi OS", StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var outcome = report.UniFiNetworkUpdateOutcome switch
+        {
+            "updated" => "Upgraded",
+            "stuck" => "Failed",
+            _ => "Skipped",
+        };
+        report.Rows.Insert(0, new RolloutReportRow
+        {
+            Name = "Console (UniFi Network)",
+            Model = "Console",
+            FromVersion = report.UniFiNetworkFromVersion,
+            ToVersion = report.UniFiNetworkToVersion,
+            Outcome = outcome,
+        });
     }
 }
 
