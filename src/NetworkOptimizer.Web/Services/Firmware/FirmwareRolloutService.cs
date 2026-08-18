@@ -26,6 +26,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private readonly IReleaseMetadataSource _releaseMetadata;
     private readonly IAuditContext _audit;
     private readonly ICallerContext _caller;
+    private readonly ISharedFirmwareCatalogRepository _sharedCatalog;
     private readonly ILogger<FirmwareRolloutService> _logger;
 
     /// <param name="repository">This site's rollout store.</param>
@@ -35,6 +36,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// <param name="releaseMetadata">Publish dates and changelog links from the public feed.</param>
     /// <param name="audit">Audit detail for the gated writes.</param>
     /// <param name="caller">Who is asking, recorded as the plan's author.</param>
+    /// <param name="sharedCatalog">The install-wide firmware build store (main database).</param>
     /// <param name="logger">Logger.</param>
     public FirmwareRolloutService(
         IFirmwareRolloutRepository repository,
@@ -44,6 +46,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         IReleaseMetadataSource releaseMetadata,
         IAuditContext audit,
         ICallerContext caller,
+        ISharedFirmwareCatalogRepository sharedCatalog,
         ILogger<FirmwareRolloutService> logger)
     {
         _repository = repository;
@@ -53,6 +56,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         _releaseMetadata = releaseMetadata;
         _audit = audit;
         _caller = caller;
+        _sharedCatalog = sharedCatalog;
         _logger = logger;
     }
 
@@ -392,7 +396,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         FirmwareRolloutSettings settings, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
-        var inputs = await RolloutPlanComposer.GatherAsync(_planning, timings, _commands, settings, _logger, cancellationToken);
+        var inputs = await RolloutPlanComposer.GatherAsync(
+            _planning, timings, _commands, settings, _logger, _sharedCatalog, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs.Context);

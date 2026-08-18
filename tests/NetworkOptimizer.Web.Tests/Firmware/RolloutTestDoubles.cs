@@ -463,6 +463,7 @@ internal sealed class RolloutHarness : IDisposable
     public RolloutAutopilot Autopilot { get; }
     public FirmwareRolloutOrchestrator Orchestrator { get; }
     public FirmwareRolloutService Service { get; }
+    public SharedFirmwareCatalogRepository SharedCatalog { get; }
 
     /// <summary>Actor name every plan this harness creates is attributed to.</summary>
     public const string Actor = "TestAdmin";
@@ -471,6 +472,8 @@ internal sealed class RolloutHarness : IDisposable
     {
         Db = NewContext();
         Repository = new FirmwareRolloutRepository(Db, NullLogger<FirmwareRolloutRepository>.Instance);
+        SharedCatalog = new SharedFirmwareCatalogRepository(
+            new HarnessDbContextFactory(this), NullLogger<SharedFirmwareCatalogRepository>.Instance);
         Autopilot = new RolloutAutopilot(
             new InMemoryRepositoryAccessor(Repository),
             new DirectPlanningScope(Planning),
@@ -478,7 +481,8 @@ internal sealed class RolloutHarness : IDisposable
             Releases,
             Bus,
             Time,
-            NullLogger<RolloutAutopilot>.Instance);
+            NullLogger<RolloutAutopilot>.Instance,
+            SharedCatalog);
         Orchestrator = NewOrchestrator();
 
         Caller.SetUser(new CallerInfo { ActorName = Actor });
@@ -490,7 +494,18 @@ internal sealed class RolloutHarness : IDisposable
             Releases,
             Audit,
             Caller,
+            SharedCatalog,
             NullLogger<FirmwareRolloutService>.Instance);
+    }
+
+    /// <summary>Hands the shared-catalog repository fresh contexts on the harness's database.</summary>
+    private sealed class HarnessDbContextFactory : IDbContextFactory<NetworkOptimizerDbContext>
+    {
+        private readonly RolloutHarness _harness;
+
+        public HarnessDbContextFactory(RolloutHarness harness) => _harness = harness;
+
+        public NetworkOptimizerDbContext CreateDbContext() => _harness.NewContext();
     }
 
     /// <summary>

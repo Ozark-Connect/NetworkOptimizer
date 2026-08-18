@@ -262,6 +262,9 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, Ne
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IStarlinkRepository, NetworkOptimizer.Storage.Repositories.StarlinkRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IFirmwareRolloutRepository, NetworkOptimizer.Storage.Repositories.FirmwareRolloutRepository>();
+// Singleton on the MAIN database whichever site is planning: the shared firmware catalog pools
+// what every site's console has been offered, so per-site executors and scoped services share it.
+builder.Services.AddSingleton<NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository, NetworkOptimizer.Storage.Repositories.SharedFirmwareCatalogRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();

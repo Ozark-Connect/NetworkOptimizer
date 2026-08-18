@@ -44,6 +44,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     private readonly IAlertEventBus _eventBus;
     private readonly TimeProvider _time;
     private readonly ILogger<RolloutAutopilot> _logger;
+    private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository _sharedCatalog;
     private readonly string _siteSlug;
     private readonly string _siteSuffix;
 
@@ -56,6 +57,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="time">Clock.</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="sharedCatalog">The install-wide firmware build store (main database).</param>
     /// <param name="siteSlug">Site this instance plans for.</param>
     public RolloutAutopilot(
         IFirmwareRolloutRepositoryAccessor repositories,
@@ -65,6 +67,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         IAlertEventBus eventBus,
         TimeProvider time,
         ILogger<RolloutAutopilot> logger,
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository sharedCatalog,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _repositories = repositories;
@@ -74,6 +77,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         _eventBus = eventBus;
         _time = time;
         _logger = logger;
+        _sharedCatalog = sharedCatalog;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _siteSuffix = _siteSlug == SiteManagementService.DefaultSiteSlug ? "" : $" (site {_siteSlug})";
     }
@@ -115,7 +119,7 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         var timings = await _repositories.UseAsync((r, c) => r.GetModelTimingsAsync(c), cancellationToken);
         var inputs = await _planning.UseAsync(
-            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, c), cancellationToken);
+            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, c), cancellationToken);
 
         // Don't burn the check interval when the console wasn't reachable: the catalog and
         // update availability are unknown, so "nothing to upgrade" is an absence of data, not

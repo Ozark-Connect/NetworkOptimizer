@@ -1,3 +1,4 @@
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
@@ -28,6 +29,12 @@ public static class RolloutPlanComposer
     /// <param name="planning">The site's planning source.</param>
     /// <param name="siteTimings">This site's learned model timings.</param>
     /// <param name="commands">Firmware command surface.</param>
+    /// <param name="settings">Settings to stage channels from; null skips staging.</param>
+    /// <param name="logger">Logger.</param>
+    /// <param name="sharedCatalog">
+    /// The install-wide build store, fed from this refresh and consulted for devices the console
+    /// offered nothing. Null skips both sides.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task<RolloutPlanInputs> GatherAsync(
         IRolloutPlanningSource planning,
@@ -35,6 +42,7 @@ public static class RolloutPlanComposer
         IFirmwareCommandClient commands,
         FirmwareRolloutSettings? settings = null,
         ILogger? logger = null,
+        ISharedFirmwareCatalogRepository? sharedCatalog = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
@@ -47,14 +55,25 @@ public static class RolloutPlanComposer
         var currentChannel = await commands.GetDeviceChannelAsync(cancellationToken);
         var console = await commands.GetConsoleSystemInfoAsync(cancellationToken);
 
+        if (sharedCatalog != null && !string.IsNullOrEmpty(currentChannel))
+            await RecordSharedBuildsAsync(sharedCatalog, currentChannel, catalog, cancellationToken);
+
         var images = new List<PlanTargetImage>();
         if (settings != null)
         {
             if (!string.IsNullOrEmpty(currentChannel))
                 CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
             currentChannel = await StageEveryPlannedChannelAsync(
-                planning, commands, context, settings, currentChannel, images, catalog, logger, cancellationToken);
+                planning, commands, context, settings, currentChannel, images, catalog, sharedCatalog, logger, cancellationToken);
             console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
+        }
+
+        if (sharedCatalog != null)
+        {
+            await RecordSharedNetworkAppAsync(sharedCatalog, console, cancellationToken);
+            await AdoptSharedBuildsAsync(
+                sharedCatalog, context, settings, currentChannel, images, logger, cancellationToken);
+            await AdoptSharedNetworkAppAsync(sharedCatalog, console, logger, cancellationToken);
         }
 
         return new RolloutPlanInputs(
@@ -83,6 +102,7 @@ public static class RolloutPlanComposer
         string? currentChannel,
         List<PlanTargetImage> images,
         IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> priorCatalog,
+        ISharedFirmwareCatalogRepository? sharedCatalog,
         ILogger? logger,
         CancellationToken cancellationToken)
     {
@@ -112,6 +132,9 @@ public static class RolloutPlanComposer
 
             var catalog = await WaitForCatalogAsync(commands, priorCatalog, channel, logger, cancellationToken);
             priorCatalog = catalog;
+
+            if (sharedCatalog != null)
+                await RecordSharedBuildsAsync(sharedCatalog, channel, catalog, cancellationToken);
 
             var staged = await planning.GetContextAsync(cancellationToken);
             var byMac = staged.Devices.ToDictionary(d => d.Mac, StringComparer.OrdinalIgnoreCase);
@@ -228,6 +251,119 @@ public static class RolloutPlanComposer
 
             images.Add(new PlanTargetImage { Mac = device.Mac, Version = entry.Version ?? device.ToVersion, Url = entry.Url });
         }
+    }
+
+    /// <summary>Feeds one channel's catalog into the install-wide build store. Best-effort.</summary>
+    private static Task RecordSharedBuildsAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        string channel,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog,
+        CancellationToken cancellationToken)
+    {
+        var builds = catalog
+            .Select(e => new SharedFirmwareBuild
+            {
+                Model = e.BaseModel ?? e.Device ?? string.Empty,
+                Channel = channel,
+                Version = e.Version ?? string.Empty,
+                Url = e.Url ?? string.Empty,
+                Md5Sum = e.Md5Sum,
+            })
+            .Where(b => b.Model.Length > 0 && b.Version.Length > 0 && b.Url.Length > 0)
+            .ToList();
+
+        return builds.Count > 0
+            ? sharedCatalog.UpsertDeviceBuildsAsync(builds, cancellationToken)
+            : Task.CompletedTask;
+    }
+
+    /// <summary>Records the Network application build this console is being offered, when it is one.</summary>
+    private static Task RecordSharedNetworkAppAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        CancellationToken cancellationToken)
+    {
+        var app = console?.NetworkApplication;
+        if (app == null
+            || string.IsNullOrWhiteSpace(app.UpdateAvailable)
+            || string.IsNullOrWhiteSpace(app.ReleaseChannel)
+            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(app.UpdateAvailable, app.Version))
+        {
+            return Task.CompletedTask;
+        }
+
+        return sharedCatalog.UpsertNetworkAppBuildAsync(
+            app.ReleaseChannel, app.UpdateAvailable, NetworkAppDebUrl(console), cancellationToken);
+    }
+
+    /// <summary>
+    /// Offers each device the console had nothing for a build another site was already offered on
+    /// the same model and channel - Ubiquiti ungates builds per console, not per channel. Only
+    /// versions newer than what the device runs; a device whose running version is unknown is
+    /// never offered anything, because newer cannot be established for it.
+    /// </summary>
+    private static async Task AdoptSharedBuildsAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        RolloutPlanningContext context,
+        FirmwareRolloutSettings? settings,
+        string? currentChannel,
+        List<PlanTargetImage> images,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        foreach (var device in context.Devices.Where(d => !d.Upgradable))
+        {
+            if (string.IsNullOrWhiteSpace(device.Model) || string.IsNullOrWhiteSpace(device.FromVersion))
+                continue;
+
+            var channel = settings != null ? RolloutPlanner.ResolveChannel(device, settings) : currentChannel;
+            if (string.IsNullOrEmpty(channel)) continue;
+
+            var build = await sharedCatalog.FindNewerDeviceBuildAsync(
+                device.Model, channel, device.FromVersion, cancellationToken);
+            if (build == null) continue;
+
+            device.ToVersion = build.Version;
+            device.Upgradable = true;
+            if (!images.Any(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase)))
+                images.Add(new PlanTargetImage { Mac = device.Mac, Version = build.Version, Url = build.Url });
+
+            logger?.LogInformation(
+                "Offering {Model} ({Mac}) {Version} on {Channel} from the shared catalog; this console offered nothing",
+                device.Model, device.Mac, build.Version, channel);
+        }
+    }
+
+    /// <summary>
+    /// Fills in a Network application update the console has not noticed yet - its updateAvailable
+    /// is stale until its own background check runs. Only when the console offers nothing itself:
+    /// a version the console has staged always wins over one it has not.
+    /// </summary>
+    private static async Task AdoptSharedNetworkAppAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (!ConsoleReachable(console)) return;
+
+        var app = console!.NetworkApplication;
+        if (app == null
+            || !string.IsNullOrEmpty(app.UpdateAvailable)
+            || string.IsNullOrWhiteSpace(app.ReleaseChannel)
+            || string.IsNullOrWhiteSpace(app.Version))
+        {
+            return;
+        }
+
+        var build = await sharedCatalog.FindNewerNetworkAppBuildAsync(
+            app.ReleaseChannel, app.Version, cancellationToken);
+        if (build == null) return;
+
+        app.UpdateAvailable = build.Version;
+        logger?.LogInformation(
+            "Offering UniFi Network {Version} on {Channel} from the shared catalog; this console has not noticed it yet",
+            build.Version, app.ReleaseChannel);
     }
 
     /// <summary>
