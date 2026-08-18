@@ -1278,21 +1278,32 @@ public class WiFiOptimizerService : IWiFiScanService
             : "none";
         var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}";
 
+        // A run that lost a band is served but never cached: caching it would hide that band for
+        // the rest of the hour behind a plan that looks complete.
+        var partial = false;
         return _planCache.GetOrBuildPlanAsync(key, forceRefresh,
-            () => BuildAllChannelRecommendationsAsync(options, forceRefresh));
+            async () =>
+            {
+                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh);
+                partial = anyBandFailed;
+                return plans;
+            },
+            shouldCache: p => p is { Count: > 0 } && !partial);
     }
 
-    private async Task<Dictionary<RadioBand, ChannelPlan>> BuildAllChannelRecommendationsAsync(
+    private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
+        BuildAllChannelRecommendationsAsync(
         RecommendationOptions? options,
         bool forceRefresh)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var results = new Dictionary<RadioBand, ChannelPlan>();
+        var anyBandFailed = false;
 
         if (!_connectionService.IsConnected)
         {
             _logger.LogDebug("Cannot get channel recommendations - not connected to UniFi");
-            return results;
+            return (results, false);
         }
 
         try
@@ -1316,7 +1327,7 @@ public class WiFiOptimizerService : IWiFiScanService
             if (aps.Count == 0)
             {
                 _logger.LogDebug("No APs available for channel recommendations");
-                return results;
+                return (results, false);
             }
 
             // Load propagation context once (same pattern as BuildOptimizerContextAsync)
@@ -1396,6 +1407,7 @@ public class WiFiOptimizerService : IWiFiScanService
                 }
                 catch (Exception ex)
                 {
+                    anyBandFailed = true;
                     _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
                 }
             }
@@ -1406,9 +1418,10 @@ public class WiFiOptimizerService : IWiFiScanService
         }
 
         _logger.LogDebug(
-            "[ChannelRec] built plans for {Bands} band(s) in {Elapsed} ms (cached for {Ttl})",
-            results.Count, sw.ElapsedMilliseconds, ChannelPlanCache.PlanTtl);
-        return results;
+            "[ChannelRec] built plans for {Bands} band(s) in {Elapsed} ms ({Cacheable})",
+            results.Count, sw.ElapsedMilliseconds,
+            anyBandFailed ? "not cached - a band failed" : $"cached for {ChannelPlanCache.PlanTtl}");
+        return (results, anyBandFailed);
     }
 
     /// <summary>

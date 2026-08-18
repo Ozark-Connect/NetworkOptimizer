@@ -52,14 +52,16 @@ public class ChannelPlanCache
     public async Task<Dictionary<RadioBand, ChannelPlan>> GetOrBuildPlanAsync(
         string key,
         bool forceRefresh,
-        Func<Task<Dictionary<RadioBand, ChannelPlan>>> build)
+        Func<Task<Dictionary<RadioBand, ChannelPlan>>> build,
+        Func<Dictionary<RadioBand, ChannelPlan>?, bool>? shouldCache = null)
     {
         Func<Task<Dictionary<RadioBand, ChannelPlan>?>> nullable = async () => await build();
         // An empty result means the console was unreachable or the build threw, NOT that this site
         // has no plan. Caching it pinned "channel analysis unavailable" for the full hour even once
         // the console came back - a six-second window after a restart was enough to do it.
         var plan = await GetOrBuildAsync(
-            _plans, key, forceRefresh, PlanTtl, nullable, shouldCache: p => p is { Count: > 0 });
+            _plans, key, forceRefresh, PlanTtl, nullable,
+            shouldCache: shouldCache ?? (p => p is { Count: > 0 }));
 
         // Hand out a copy, never the cached instance. Callers own what they are given and do mutate
         // it - Channel Analysis clears the dictionary when switching back to Show Current Channels,

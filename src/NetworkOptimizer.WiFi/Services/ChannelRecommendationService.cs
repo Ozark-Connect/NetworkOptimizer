@@ -2201,6 +2201,10 @@ public class ChannelRecommendationService
             // How well the assigned channel is evidenced, 0 (never measured) to 1 (full strength).
             // Propagated estimates carry no credibility entry and count at full weight, as before.
             double assignedCredibility = 0;
+            // Pooled memory is written to every control channel in a bonding group, and those
+            // entries all carry the identical span - so charging each one would multiply the same
+            // measurement by the group size (4x at 80 MHz, 8x at 160). Count each span once.
+            var countedSpans = new HashSet<(int Low, int High)>();
 
             foreach (var (histChannel, stress) in effectiveStress)
             {
@@ -2209,6 +2213,8 @@ public class ChannelRecommendationService
                 {
                     var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
                     assignedCredibility = Math.Max(assignedCredibility, cred);
+
+                    if (!countedSpans.Add(histSpan)) continue;
 
                     if (stress.TxRetryPct < StressMinThreshold &&
                         stress.Utilization < StressMinThreshold &&
