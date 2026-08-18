@@ -159,7 +159,7 @@ else if (_active != null)
                     <div class="firmware-rollout-deploy-now">
                         @if (_confirmDeployNow)
                         {
-                            <span class="text-secondary">Start the rollout now?</span>
+                            <span class="firmware-rollout-note">Start the rollout now?</span>
                             <button class="btn btn-sm btn-primary" @onclick="DeployNowAsync" disabled="@_busy">Yes, deploy now</button>
                             <button class="btn btn-sm btn-secondary" @onclick="() => _confirmDeployNow = false" disabled="@_busy">Cancel</button>
                         }
