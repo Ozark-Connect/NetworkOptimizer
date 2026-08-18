@@ -60,25 +60,12 @@ public class RolloutReport
 
     /// <summary>
     /// Devices upgraded plus the console when it had any update (Network, OS, or both = one).
-    /// The console is one device regardless of how many surfaces were updated on it.
-    /// </summary>
-    /// <summary>
-    /// Both the Network app and OS updates are Rows entries when they ran. Reports built before
-    /// the Network app row was added lack it, so the fallback adds +1 when the outcome says
-    /// "updated" but no row accounts for it (and the OS row doesn't already cover the console).
+    /// Counted from Rows, not the persisted DevicesUpgraded: reports written before the Network
+    /// app row existed serialized a count that misses the row Parse injects.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public int TotalUpgraded
-    {
-        get
-        {
-            var hasNetworkRow = Rows.Any(r => r.Name.Contains("UniFi Network", StringComparison.OrdinalIgnoreCase));
-            var networkAppNeedsCount = UniFiNetworkUpdateOutcome == "updated"
-                && !hasNetworkRow
-                && UniFiOsUpdateOutcome is null or "skipped";
-            return DevicesUpgraded + (networkAppNeedsCount ? 1 : 0);
-        }
-    }
+    public int TotalUpgraded =>
+        Rows.Count(r => r.Outcome is RolloutOutcomes.Upgraded or RolloutOutcomes.RegressionFlagged);
 
     /// <summary>Everything that went wrong, in the order the plan met it.</summary>
     public List<string> Issues { get; set; } = [];
@@ -117,10 +104,16 @@ public class RolloutReport
             "stuck" => "Failed",
             _ => "Skipped",
         };
+        // The persisted report has no console name or model fields, but a UniFi OS row carries
+        // both; only a Network-only report has to fall back to the generic labels.
+        var osRow = report.Rows.FirstOrDefault(r => r.Name.Contains("(UniFi OS)", StringComparison.OrdinalIgnoreCase));
         report.Rows.Insert(0, new RolloutReportRow
         {
-            Name = "Console (UniFi Network)",
-            Model = "Console",
+            Mac = osRow?.Mac ?? "",
+            Name = osRow != null
+                ? osRow.Name.Replace("(UniFi OS)", "(UniFi Network)", StringComparison.OrdinalIgnoreCase)
+                : "Console (UniFi Network)",
+            Model = osRow?.Model ?? "Console",
             FromVersion = report.UniFiNetworkFromVersion,
             ToVersion = report.UniFiNetworkToVersion,
             Outcome = outcome,

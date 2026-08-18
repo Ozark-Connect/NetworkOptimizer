@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
@@ -128,9 +129,29 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             StartedAt = plan.StartedAt,
             CompletedAt = plan.CompletedAt,
             IsReady = !string.IsNullOrEmpty(plan.ReportJson),
-            ReportJson = plan.ReportJson,
+            ReportJson = EnrichReportJson(plan.ReportJson, document),
             Steps = steps.Select(s => ToView(s, document)).ToList(),
         };
+    }
+
+    /// <summary>
+    /// Old reports never persisted the console's identity, so the row Parse injects for the
+    /// Network app update falls back to generic labels. The plan document carries the real name
+    /// and model, so fill them in at read time and hand consumers the enriched JSON.
+    /// </summary>
+    private static string? EnrichReportJson(string? reportJson, RolloutPlanDocument document)
+    {
+        var report = RolloutReport.Parse(reportJson);
+        var row = report?.Rows.FirstOrDefault(r => r.Name == "Console (UniFi Network)" && r.Model == "Console");
+        if (row == null) return reportJson;
+
+        if (!string.IsNullOrWhiteSpace(document.ConsoleName))
+            row.Name = $"{document.ConsoleName} (UniFi Network)";
+        if (!string.IsNullOrWhiteSpace(document.ConsoleModel))
+            row.Model = UniFiProductDatabase.GetBestProductName(document.ConsoleModel, null);
+        if (string.IsNullOrWhiteSpace(row.Mac) && !string.IsNullOrWhiteSpace(document.ConsoleMac))
+            row.Mac = document.ConsoleMac;
+        return JsonSerializer.Serialize(report);
     }
 
     /// <inheritdoc />
