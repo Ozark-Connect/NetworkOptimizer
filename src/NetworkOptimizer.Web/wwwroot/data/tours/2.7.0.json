@@ -19,7 +19,7 @@
       "id": "channel-recommendations",
       "level": "minor",
       "badge": "improved",
-      "url": "/wifi-optimizer?tab=channels",
+      "url": "/wifi-optimizer?tab=channels&recommend=true",
       "selector": "[data-tour=\"channel-recommendations\"]",
       "title": "Wi-Fi Channel Recommendation",
       "listLabel": "Channel recommendations weigh measured performance, not just airtime",
