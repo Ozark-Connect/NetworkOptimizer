@@ -1853,6 +1853,7 @@ else
 
     private static string PlanChipLabel(FirmwareRolloutStatus status) => status switch
     {
+        FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled",
         FirmwareRolloutStatus.Reported => "Completed",
         FirmwareRolloutStatus.SoakWait => "Soaking",
         FirmwareRolloutStatus.Aborted => "Aborted",
