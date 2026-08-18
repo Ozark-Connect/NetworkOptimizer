@@ -8,8 +8,8 @@
 @inject ISystemSettingsService SettingsService
 @implements IDisposable
 
-<div class="channel-analysis-container wifi-sections">
-    <div class="channel-header" data-tour="channel-recommendations">
+<div class="channel-analysis-container wifi-sections" data-tour="channel-analysis">
+    <div class="channel-header">
         <h3>@(_showRecommendations ? "Channel Analysis - Recommended" : "Channel Analysis - Current")</h3>
         <div class="header-actions">
             @if (!_showRecommendations && _accessPoints.Any(ap => ap.IsOnline && ap.Radios.Any(r => r.Channel.HasValue)))
