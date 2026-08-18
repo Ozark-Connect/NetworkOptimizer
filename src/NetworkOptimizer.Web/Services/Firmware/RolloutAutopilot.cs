@@ -128,6 +128,11 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         _lastCheckedAt = Now;
 
+        var app = inputs.Console?.NetworkApplication;
+        _logger.LogDebug(
+            "Autopilot console state on site {Site}: version={Version}, updateAvailable={Update}, devices={Devices}",
+            _siteSlug, app?.Version ?? "null", app?.UpdateAvailable ?? "null", inputs.Context.Devices.Count);
+
         var ripeness = await EvaluateRipenessAsync(inputs.Context.Devices, settings.MinReleaseAgeDays, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings, ripeness.UnripeMacs);
         result.Document.Notes.AddRange(ripeness.Notes);
