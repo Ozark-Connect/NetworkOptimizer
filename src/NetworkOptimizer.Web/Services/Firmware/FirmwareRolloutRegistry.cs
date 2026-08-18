@@ -224,40 +224,42 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
             var catalog = _serviceProvider.GetService<NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository>();
             if (catalog == null) return;
 
-            var planJsons = new List<string>();
+            var deviceBuilds = new List<SharedFirmwareBuild>();
+            var appBuilds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-            // Main DB
+            // Main DB (also the default site's data)
+            List<string> slugs;
             await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
             {
                 var plans = await db.FirmwareRolloutPlans.AsNoTracking()
                     .Where(p => p.PlanJson != null)
                     .Select(p => p.PlanJson!)
                     .ToListAsync(ct);
-                planJsons.AddRange(plans);
-            }
+                foreach (var json in plans)
+                    ExtractCatalogEntries(json, deviceBuilds, appBuilds);
 
-            // Site DBs
-            List<string> slugs;
-            await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
-            {
                 slugs = await db.Sites.AsNoTracking()
-                    .Where(s => s.Enabled)
+                    .Where(s => s.Enabled && s.Slug != SiteManagementService.DefaultSiteSlug)
                     .Select(s => s.Slug)
                     .ToListAsync(ct);
             }
+
+            // Site DBs, opened by explicit path. The injectable IDbContextFactory is a singleton
+            // bound to the main DB, so resolving it under an OverrideSite scope silently reads
+            // main again - which is how site plans were missed entirely.
+            var siteDbs = _serviceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDbContextFactory>();
             foreach (var slug in slugs)
             {
                 try
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(slug);
-                    var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
-                    await using var siteDb = await factory.CreateDbContextAsync(ct);
+                    if (!siteDbs.SiteDbExists(slug)) continue;
+                    await using var siteDb = siteDbs.CreateForSite(slug);
                     var plans = await siteDb.FirmwareRolloutPlans.AsNoTracking()
                         .Where(p => p.PlanJson != null)
                         .Select(p => p.PlanJson!)
                         .ToListAsync(ct);
-                    planJsons.AddRange(plans);
+                    foreach (var json in plans)
+                        ExtractCatalogEntries(json, deviceBuilds, appBuilds);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -265,11 +267,82 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
                 }
             }
 
-            await catalog.BackfillFromPlansAsync(planJsons, ct);
+            if (deviceBuilds.Count > 0)
+                await catalog.UpsertDeviceBuildsAsync(deviceBuilds, ct);
+
+            foreach (var (key, url) in appBuilds)
+            {
+                var parts = key.Split('|', 2);
+                await catalog.UpsertNetworkAppBuildAsync(parts[0], parts[1], url, ct);
+            }
+
+            _logger.LogInformation(
+                "Shared firmware catalog backfill: {Devices} device builds, {Apps} Network app builds",
+                deviceBuilds.Count, appBuilds.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Shared firmware catalog backfill failed");
+        }
+    }
+
+    /// <summary>
+    /// Pulls catalog entries out of one plan document: device builds from TargetImages (model from
+    /// wave steps, channel from the channel group covering the device's wave) and the Network
+    /// application build from NetworkAppUpdate.
+    /// </summary>
+    private static void ExtractCatalogEntries(
+        string json, List<SharedFirmwareBuild> deviceBuilds, Dictionary<string, string?> appBuilds)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return;
+
+        RolloutPlanDocument? document;
+        try
+        {
+            document = System.Text.Json.JsonSerializer.Deserialize<RolloutPlanDocument>(json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return;
+        }
+        if (document == null) return;
+
+        var modelByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var waveByMac = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var wave in document.Waves)
+            foreach (var step in wave.Steps)
+            {
+                if (string.IsNullOrEmpty(step.Mac)) continue;
+                if (!string.IsNullOrEmpty(step.Model))
+                    modelByMac[step.Mac] = step.Model;
+                waveByMac[step.Mac] = wave.Number;
+            }
+
+        foreach (var img in document.TargetImages)
+        {
+            if (string.IsNullOrEmpty(img.Mac) || string.IsNullOrEmpty(img.Version) || string.IsNullOrEmpty(img.Url))
+                continue;
+            if (!modelByMac.TryGetValue(img.Mac, out var model) || string.IsNullOrEmpty(model))
+                continue;
+            waveByMac.TryGetValue(img.Mac, out var waveNum);
+            var channel = document.ChannelGroups
+                .FirstOrDefault(g => waveNum >= g.FirstWave && waveNum <= g.LastWave)?.Channel;
+            if (string.IsNullOrEmpty(channel)) continue;
+
+            deviceBuilds.Add(new SharedFirmwareBuild
+            {
+                Model = model, Channel = channel, Version = img.Version, Url = img.Url,
+            });
+        }
+
+        if (document.IncludesUniFiNetworkUpdate
+            && document.NetworkAppUpdate.TargetVersion is { Length: > 0 } ver)
+        {
+            var channel = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(ver, "10.5.67") ? "beta" : "release";
+            var key = $"{channel}|{ver}";
+            var url = document.NetworkAppUpdate.Url;
+            if (!appBuilds.ContainsKey(key) || !string.IsNullOrEmpty(url))
+                appBuilds[key] = url;
         }
     }
 

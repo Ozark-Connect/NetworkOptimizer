@@ -45,13 +45,4 @@ public interface ISharedFirmwareCatalogRepository
     /// <param name="thanVersion">The version the application runs now.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<SharedNetworkAppBuild?> FindNewerNetworkAppBuildAsync(string channel, string? thanVersion, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Seeds the catalog from existing plan history. Extracts device builds from TargetImages
-    /// and Network app entries from the plan document. Idempotent: existing rows are refreshed,
-    /// not duplicated.
-    /// </summary>
-    /// <param name="planJsons">PlanJson values from FirmwareRolloutPlans across all site DBs.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    Task BackfillFromPlansAsync(IEnumerable<string> planJsons, CancellationToken cancellationToken = default);
 }
