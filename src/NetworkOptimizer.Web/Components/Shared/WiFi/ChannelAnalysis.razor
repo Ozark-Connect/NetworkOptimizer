@@ -27,9 +27,7 @@
             }
             @if (_showRecommendations && PlanComputedAtUtc is { } computedAt)
             {
-                <span class="text-muted channel-plan-age">
-                    Last computed: @TimeFormatHelper.FormatRelativeTimeShort(computedAt)
-                </span>
+                <span class="channel-plan-age">Last computed: @TimeFormatHelper.FormatRelativeTimeShort(computedAt)</span>
             }
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)

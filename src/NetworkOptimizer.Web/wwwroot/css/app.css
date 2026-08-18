@@ -11385,6 +11385,12 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
+.channel-plan-age {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 .channel-loading,
 .channel-empty {
     display: flex;
