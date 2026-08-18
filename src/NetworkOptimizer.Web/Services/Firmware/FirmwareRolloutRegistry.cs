@@ -96,6 +96,8 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
         if (_licenseState.IsSiteOperational(SiteManagementService.DefaultSiteSlug))
             await StartInstanceAsync(SiteManagementService.DefaultSiteSlug, stoppingToken);
 
+        await BackfillSharedCatalogAsync(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -212,6 +214,62 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
         finally
         {
             _lifecycleLock.Release();
+        }
+    }
+
+    private async Task BackfillSharedCatalogAsync(CancellationToken ct)
+    {
+        try
+        {
+            var catalog = _serviceProvider.GetService<NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository>();
+            if (catalog == null) return;
+
+            var planJsons = new List<string>();
+
+            // Main DB
+            await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
+            {
+                var plans = await db.FirmwareRolloutPlans.AsNoTracking()
+                    .Where(p => p.PlanJson != null)
+                    .Select(p => p.PlanJson!)
+                    .ToListAsync(ct);
+                planJsons.AddRange(plans);
+            }
+
+            // Site DBs
+            List<string> slugs;
+            await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
+            {
+                slugs = await db.Sites.AsNoTracking()
+                    .Where(s => s.Enabled)
+                    .Select(s => s.Slug)
+                    .ToListAsync(ct);
+            }
+            foreach (var slug in slugs)
+            {
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(slug);
+                    var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+                    await using var siteDb = await factory.CreateDbContextAsync(ct);
+                    var plans = await siteDb.FirmwareRolloutPlans.AsNoTracking()
+                        .Where(p => p.PlanJson != null)
+                        .Select(p => p.PlanJson!)
+                        .ToListAsync(ct);
+                    planJsons.AddRange(plans);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogDebug(ex, "Skipping site {Slug} during shared catalog backfill", slug);
+                }
+            }
+
+            await catalog.BackfillFromPlansAsync(planJsons, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Shared firmware catalog backfill failed");
         }
     }
 

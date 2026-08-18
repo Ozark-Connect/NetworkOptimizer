@@ -89,6 +89,7 @@ public static class RolloutReportBuilder
         }
 
         // Add the gateway as a row when the OS step ran and it isn't already a device step.
+        // OS goes first because it carries resource stats; the Network app row below defers to it.
         if (document.IncludesUniFiOsUpdate && !string.IsNullOrWhiteSpace(document.ConsoleMac)
             && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)))
         {
@@ -124,6 +125,35 @@ public static class RolloutReportBuilder
                 CpuAfterMean = osPost?.CpuPercent,
                 MemBeforeMean = osPre?.MemoryUsedPercent,
                 MemAfterMean = osPost?.MemoryUsedPercent,
+            });
+        }
+
+        // Add the Network app as a row when it ran and the console has no other row yet.
+        // On a Cloud Gateway with both Network + OS, the OS row above already represents the
+        // console (with resource stats), so this only fires for Network-only plans or UOS Servers.
+        if (document.IncludesUniFiNetworkUpdate
+            && document.NetworkAppUpdate.Outcome is not null and not "skipped" and not "nothing-to-update"
+            && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)))
+        {
+            var appOutcome = document.NetworkAppUpdate.Outcome switch
+            {
+                "updated" => RolloutOutcomes.Upgraded,
+                "stuck" => RolloutOutcomes.Failed,
+                _ => RolloutOutcomes.Skipped,
+            };
+            report.Rows.Add(new RolloutReportRow
+            {
+                Mac = document.ConsoleMac ?? string.Empty,
+                Name = string.IsNullOrWhiteSpace(document.ConsoleName)
+                    ? "Console (UniFi Network)"
+                    : $"{document.ConsoleName} (UniFi Network)",
+                Model = string.IsNullOrWhiteSpace(document.ConsoleModel)
+                    ? "Console"
+                    : UniFiProductDatabase.GetBestProductName(document.ConsoleModel, null),
+                DeviceType = "ugw",
+                FromVersion = document.NetworkAppUpdate.FromVersion,
+                ToVersion = document.NetworkAppUpdate.TargetVersion,
+                Outcome = appOutcome,
             });
         }
 

@@ -157,6 +157,104 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task BackfillFromPlansAsync(
+        IEnumerable<string> planJsons, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var deviceBuilds = new List<SharedFirmwareBuild>();
+            var appBuilds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var json in planJsons)
+            {
+                if (string.IsNullOrWhiteSpace(json)) continue;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    // Device builds from TargetImages + wave steps (for the channel)
+                    if (root.TryGetProperty("TargetImages", out var images)
+                        && root.TryGetProperty("ChannelGroups", out var groups))
+                    {
+                        var channelByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var group in groups.EnumerateArray())
+                        {
+                            var ch = group.TryGetProperty("Channel", out var chProp) ? chProp.GetString() : null;
+                            if (string.IsNullOrEmpty(ch)) continue;
+                            if (group.TryGetProperty("Macs", out var macs))
+                                foreach (var mac in macs.EnumerateArray())
+                                    channelByMac[mac.GetString() ?? ""] = ch;
+                        }
+
+                        foreach (var img in images.EnumerateArray())
+                        {
+                            var mac = img.TryGetProperty("Mac", out var m) ? m.GetString() : null;
+                            var ver = img.TryGetProperty("Version", out var v) ? v.GetString() : null;
+                            var url = img.TryGetProperty("Url", out var u) ? u.GetString() : null;
+                            if (string.IsNullOrEmpty(mac) || string.IsNullOrEmpty(ver) || string.IsNullOrEmpty(url))
+                                continue;
+
+                            // Resolve model from the wave steps
+                            string? model = null;
+                            if (root.TryGetProperty("Waves", out var waves))
+                                foreach (var wave in waves.EnumerateArray())
+                                    if (wave.TryGetProperty("Steps", out var steps))
+                                        foreach (var step in steps.EnumerateArray())
+                                            if (string.Equals(step.TryGetProperty("Mac", out var sm) ? sm.GetString() : null, mac, StringComparison.OrdinalIgnoreCase))
+                                                model = step.TryGetProperty("Model", out var mm) ? mm.GetString() : null;
+
+                            if (string.IsNullOrEmpty(model)) continue;
+                            channelByMac.TryGetValue(mac, out var channel);
+                            if (string.IsNullOrEmpty(channel)) continue;
+
+                            deviceBuilds.Add(new SharedFirmwareBuild
+                            {
+                                Model = model, Channel = channel, Version = ver, Url = url,
+                            });
+                        }
+                    }
+
+                    // Network app from NetworkAppUpdate
+                    if (root.TryGetProperty("IncludesUniFiNetworkUpdate", out var incNet)
+                        && incNet.ValueKind == System.Text.Json.JsonValueKind.True
+                        && root.TryGetProperty("NetworkAppUpdate", out var netApp))
+                    {
+                        var ver = netApp.TryGetProperty("TargetVersion", out var tv) ? tv.GetString() : null;
+                        var url = netApp.TryGetProperty("Url", out var tu) ? tu.GetString() : null;
+                        if (!string.IsNullOrEmpty(ver))
+                        {
+                            var key = $"beta|{ver}";
+                            if (!appBuilds.ContainsKey(key))
+                                appBuilds[key] = url;
+                            else if (!string.IsNullOrEmpty(url))
+                                appBuilds[key] = url;
+                        }
+                    }
+                }
+                catch (System.Text.Json.JsonException) { }
+            }
+
+            if (deviceBuilds.Count > 0)
+                await UpsertDeviceBuildsAsync(deviceBuilds, cancellationToken);
+
+            foreach (var (key, url) in appBuilds)
+            {
+                var parts = key.Split('|', 2);
+                await UpsertNetworkAppBuildAsync(parts[0], parts[1], url, cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "Shared firmware catalog backfill: {Devices} device builds, {Apps} Network app builds",
+                deviceBuilds.Count, appBuilds.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Shared firmware catalog backfill failed");
+        }
+    }
+
     /// <summary>The newest row strictly newer than <paramref name="thanVersion"/>, or null.</summary>
     private static T? Newest<T>(IEnumerable<T> rows, string? thanVersion, Func<T, string> version) where T : class
     {
