@@ -63,13 +63,22 @@ public class RolloutReport
     /// The console is one device regardless of how many surfaces were updated on it.
     /// </summary>
     /// <summary>
-    /// Both the Network app and OS updates are Rows entries when they ran, so DevicesUpgraded
-    /// already counts everything. This property exists so the Razor and PDF don't break if the
-    /// report predates the Network app row (those reports have no row for it, and the field in
-    /// the JSON is the only trace).
+    /// Both the Network app and OS updates are Rows entries when they ran. Reports built before
+    /// the Network app row was added lack it, so the fallback adds +1 when the outcome says
+    /// "updated" but no row accounts for it (and the OS row doesn't already cover the console).
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public int TotalUpgraded => DevicesUpgraded;
+    public int TotalUpgraded
+    {
+        get
+        {
+            var hasNetworkRow = Rows.Any(r => r.Name.Contains("UniFi Network", StringComparison.OrdinalIgnoreCase));
+            var networkAppNeedsCount = UniFiNetworkUpdateOutcome == "updated"
+                && !hasNetworkRow
+                && UniFiOsUpdateOutcome is null or "skipped";
+            return DevicesUpgraded + (networkAppNeedsCount ? 1 : 0);
+        }
+    }
 
     /// <summary>Everything that went wrong, in the order the plan met it.</summary>
     public List<string> Issues { get; set; } = [];

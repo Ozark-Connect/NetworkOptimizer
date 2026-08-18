@@ -174,18 +174,38 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
                     using var doc = System.Text.Json.JsonDocument.Parse(json);
                     var root = doc.RootElement;
 
-                    // Device builds from TargetImages + wave steps (for the channel)
+                    // Device builds from TargetImages + wave steps (model) + channel groups (channel)
                     if (root.TryGetProperty("TargetImages", out var images)
+                        && root.TryGetProperty("Waves", out var waves)
                         && root.TryGetProperty("ChannelGroups", out var groups))
                     {
-                        var channelByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        // Build MAC → model from wave steps
+                        var modelByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        // Build MAC → wave number for channel group resolution
+                        var waveByMac = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var wave in waves.EnumerateArray())
+                        {
+                            var waveNum = wave.TryGetProperty("Number", out var wn) ? wn.GetInt32() : 0;
+                            if (wave.TryGetProperty("Steps", out var steps))
+                                foreach (var step in steps.EnumerateArray())
+                                {
+                                    var sMac = step.TryGetProperty("Mac", out var sm) ? sm.GetString() : null;
+                                    if (string.IsNullOrEmpty(sMac)) continue;
+                                    if (step.TryGetProperty("Model", out var mm) && mm.GetString() is { Length: > 0 } model)
+                                        modelByMac[sMac] = model;
+                                    waveByMac[sMac] = waveNum;
+                                }
+                        }
+
+                        // Build wave-range → channel from channel groups
+                        var channelRanges = new List<(int First, int Last, string Channel)>();
                         foreach (var group in groups.EnumerateArray())
                         {
                             var ch = group.TryGetProperty("Channel", out var chProp) ? chProp.GetString() : null;
-                            if (string.IsNullOrEmpty(ch)) continue;
-                            if (group.TryGetProperty("Macs", out var macs))
-                                foreach (var mac in macs.EnumerateArray())
-                                    channelByMac[mac.GetString() ?? ""] = ch;
+                            var first = group.TryGetProperty("FirstWave", out var fw) ? fw.GetInt32() : 0;
+                            var last = group.TryGetProperty("LastWave", out var lw) ? lw.GetInt32() : int.MaxValue;
+                            if (!string.IsNullOrEmpty(ch))
+                                channelRanges.Add((first, last, ch));
                         }
 
                         foreach (var img in images.EnumerateArray())
@@ -196,17 +216,10 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
                             if (string.IsNullOrEmpty(mac) || string.IsNullOrEmpty(ver) || string.IsNullOrEmpty(url))
                                 continue;
 
-                            // Resolve model from the wave steps
-                            string? model = null;
-                            if (root.TryGetProperty("Waves", out var waves))
-                                foreach (var wave in waves.EnumerateArray())
-                                    if (wave.TryGetProperty("Steps", out var steps))
-                                        foreach (var step in steps.EnumerateArray())
-                                            if (string.Equals(step.TryGetProperty("Mac", out var sm) ? sm.GetString() : null, mac, StringComparison.OrdinalIgnoreCase))
-                                                model = step.TryGetProperty("Model", out var mm) ? mm.GetString() : null;
-
-                            if (string.IsNullOrEmpty(model)) continue;
-                            channelByMac.TryGetValue(mac, out var channel);
+                            if (!modelByMac.TryGetValue(mac, out var model) || string.IsNullOrEmpty(model))
+                                continue;
+                            waveByMac.TryGetValue(mac, out var waveNum);
+                            var channel = channelRanges.FirstOrDefault(r => waveNum >= r.First && waveNum <= r.Last).Channel;
                             if (string.IsNullOrEmpty(channel)) continue;
 
                             deviceBuilds.Add(new SharedFirmwareBuild
