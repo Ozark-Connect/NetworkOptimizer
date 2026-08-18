@@ -157,13 +157,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
         }
 
-        if (publishFailed)
+        if (publishFailed && !IsInRolloutConsoleCycle())
         {
             PublishConsoleAlert("console.connection_failed", AlertSeverity.Warning,
                 "UniFi Console connection failed",
                 $"Repeated attempts to authenticate with the UniFi Console have failed. Features that read the console API (Wi-Fi Optimizer, Config Optimizer, Security Audit, Threat Intelligence) are unavailable until it recovers. Last error: {error ?? "unknown"}");
         }
-        if (publishRestored)
+        if (publishRestored && !IsInRolloutConsoleCycle())
         {
             PublishConsoleAlert("console.connection_restored", AlertSeverity.Info,
                 "UniFi Console connection restored",
@@ -183,6 +183,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             _consecutiveAuthFailures = 0;
         }
+    }
+
+    private bool IsInRolloutConsoleCycle()
+    {
+        try
+        {
+            var suppression = _serviceProvider.GetService<Firmware.RolloutSuppressionRegistry>();
+            return suppression?.IsInRolloutWindow(SiteSlug, null, DateTime.UtcNow) == true;
+        }
+        catch { return false; }
     }
 
     private void PublishConsoleAlert(string eventType, AlertSeverity severity, string title, string message)

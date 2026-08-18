@@ -1852,7 +1852,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.Status = FirmwareRolloutStatus.SoakWait;
         plan.CompletedAt = Now;
         await PersistPlanAsync(plan, cancellationToken);
-        _suppression.ClearSite(_siteSlug);
+        // Don't ClearSite here: devices may still be reconnecting after the final console
+        // cycle (OS or Network app restart). The WindowFreshness lapse handles it.
 
         var upgraded = steps.Count(IsPassed);
         var failed = steps.Count(s => s.State == FirmwareRolloutStepState.Failed);
