@@ -536,37 +536,6 @@ else
         }
     </div>
 
-    @if (_history.Count > 0)
-    {
-        <div class="card">
-            <div class="card-header"><h2 class="card-title">History</h2></div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="data-table">
-                        <thead><tr><th>Started</th><th>Devices</th><th class="hide-mobile">Waves</th><th>Outcome</th><th></th></tr></thead>
-                        <tbody>
-                            @foreach (var row in _history)
-                            {
-                                <tr>
-                                    <td>@LocalTime(row.StartedAt ?? row.CreatedAt)</td>
-                                    <td>@row.DeviceCount</td>
-                                    <td class="hide-mobile">@row.WaveCount</td>
-                                    <td><span class="firmware-rollout-chip @PlanChipClass(row.Status)">@PlanChipLabel(row.Status)</span></td>
-                                    <td>
-                                        @if (row.HasReport)
-                                        {
-                                            <button class="btn btn-sm btn-secondary" @onclick="() => OpenReportAsync(row.Id)">Report</button>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    }
-
     @if (_report != null)
     {
         <div class="card">
@@ -681,6 +650,37 @@ else
             </div>
         </div>
     }
+}
+
+@if (!_loading && _history.Count > 0)
+{
+    <div class="card">
+        <div class="card-header"><h2 class="card-title">History</h2></div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr><th>Started</th><th>Devices</th><th class="hide-mobile">Waves</th><th>Outcome</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var row in _history)
+                        {
+                            <tr>
+                                <td>@LocalTime(row.StartedAt ?? row.CreatedAt)</td>
+                                <td>@row.DeviceCount</td>
+                                <td class="hide-mobile">@row.WaveCount</td>
+                                <td><span class="firmware-rollout-chip @PlanChipClass(row.Status)">@PlanChipLabel(row.Status)</span></td>
+                                <td>
+                                    @if (row.HasReport)
+                                    {
+                                        <button class="btn btn-sm btn-secondary" @onclick="() => OpenReportAsync(row.Id)">Report</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 }
 
 @code {
