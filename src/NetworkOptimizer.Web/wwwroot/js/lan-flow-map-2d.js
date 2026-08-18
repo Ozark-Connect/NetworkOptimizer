@@ -2123,8 +2123,12 @@ class LanFlowMap2D {
                         const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
                         if(!r)continue;
                         any=true;
-                        downBps+=r.downstreamBps||0;
-                        upBps+=r.upstreamBps||0;
+                        // Same orientation the tooltip uses: a rate is stated from the far end of
+                        // the link, so it swaps on links where this node is the source. Summing
+                        // raw put the bridge's numbers the wrong way round against its own tooltip.
+                        const dl=r.downstreamBps||0,ul=r.upstreamBps||0;
+                        if(e.lk.toNodeId===n.d.id){downBps+=dl;upBps+=ul;}
+                        else{downBps+=ul;upBps+=dl;}
                     }
                 }
 
