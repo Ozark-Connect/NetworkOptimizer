@@ -63,3 +63,30 @@ public record RememberedNeighborSighting(
     int SightingCount,
     DateTimeOffset LastSeenAt,
     string? Ssid);
+
+/// <summary>
+/// One aggregate of client PHY-rate telemetry for an AP radio, bucketed by channel, signal band
+/// and day. Storage-neutral so the engine project stays decoupled from the telemetry store.
+///
+/// A "window" is a fixed slice of time (15 minutes) in which the radio carried real traffic; idle
+/// windows are excluded upstream, because an idle client's rate decays and describes nothing about
+/// the channel. Windows rather than raw samples because per-client aggregation is not affordable:
+/// client_mac is a field rather than a tag, so isolating clients requires a pivot over every raw
+/// point, which measured 33s against 1s for the windowed form.
+/// </summary>
+/// <param name="Channel">Control channel the radio was on for these windows</param>
+/// <param name="WidthMhz">
+/// The client's own channel width, which is commonly narrower than the AP's configuration - so
+/// this buckets clients by capability as well as catching a width change on the radio itself.
+/// </param>
+/// <param name="SignalBandDbm">Signal bucket (dBm, rounded down to a fixed step)</param>
+/// <param name="Day">UTC day, used for the distinct-day evidence floor</param>
+/// <param name="WindowCount">Active windows in this bucket</param>
+/// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those windows</param>
+public record ClientRateSample(
+    int Channel,
+    int WidthMhz,
+    int SignalBandDbm,
+    DateTime Day,
+    int WindowCount,
+    double MeanTxRateMbps);

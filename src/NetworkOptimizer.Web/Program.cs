@@ -766,6 +766,7 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighPowerOverlapRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
+builder.Services.AddSingleton<ChannelPlanCache>();
 builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddMutatingService<IWiFiScanService>(sp => sp.GetRequiredService<WiFiOptimizerService>());
 // Mesh backhaul re-scan (Optimize Mesh button); scoped - forwards to the current

@@ -80,6 +80,12 @@ public class ApChannelRecommendation
 /// </summary>
 public class ChannelPlan
 {
+    /// <summary>
+    /// When this plan was computed (UTC). Stamped at build time rather than read time, so a plan
+    /// served from cache reports its real age instead of looking freshly made.
+    /// </summary>
+    public DateTime ComputedAtUtc { get; set; }
+
     public RadioBand Band { get; set; }
     public List<ApChannelRecommendation> Recommendations { get; set; } = new();
     public double CurrentNetworkScore { get; set; }
@@ -124,6 +130,12 @@ public class ChannelPlan
 public class InterferenceGraph
 {
     public List<ApNode> Nodes { get; set; } = new();
+
+    /// <summary>
+    /// Per-AP client PHY-rate history, keyed by lowercase MAC. Null or absent whenever the
+    /// telemetry store has nothing to say, which the move decision treats as "no opinion".
+    /// </summary>
+    public Dictionary<string, IReadOnlyList<ClientRateSample>>? ClientRates { get; set; }
 
     /// <summary>True when DFS avoidance was requested but at least one AP had to fall back to DFS channels</summary>
     public bool DfsAvoidanceFallback { get; set; }
@@ -207,6 +219,14 @@ public class InterferenceGraph
 /// </summary>
 public class ApNode
 {
+    /// <summary>
+    /// How far each entry in <see cref="HistoricalStress"/> is trusted, 0-1, keyed by channel.
+    /// Absent or 1.0 means full strength. Below 1.0 the measurement stands but its penalty and
+    /// its claim to having "observed" the channel are scaled down together, so thin evidence
+    /// fades toward the unknown-channel treatment instead of falling off a cliff into it.
+    /// </summary>
+    public Dictionary<int, double>? HistoricalStressCredibility { get; set; }
+
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int CurrentChannel { get; set; }

@@ -2698,6 +2698,115 @@ from(bucket: ""{_longtermBucket}"")
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
     /// </summary>
+    /// <summary>
+    /// Client PHY-rate telemetry aggregated for the channel recommender: one row per AP, band,
+    /// channel, signal band and day.
+    /// </summary>
+    public record ClientChannelRatePoint
+    {
+        public string? ApMac { get; init; }
+        public string? Band { get; init; }
+        public int Channel { get; init; }
+        public int WidthMhz { get; init; }
+        public int SignalBandDbm { get; init; }
+        public DateTime Day { get; init; }
+        public int WindowCount { get; init; }
+        public double MeanTxRateMbps { get; init; }
+    }
+
+    /// <summary>
+    /// Throughput (bps, either direction) above which a window counts as carrying real traffic.
+    /// Idle clients are the large majority of samples and their PHY rate decays toward the floor,
+    /// so including them measures how busy the place was rather than what the channel can carry -
+    /// on one radio it reversed which channel looked better.
+    /// </summary>
+    public const double ClientActiveThroughputBps = 50_000;
+
+    /// <summary>Signal bucket width (dB) for matching like-for-like clients across channels.</summary>
+    private const int SignalBandStepDb = 5;
+
+    /// <summary>Aggregation window. See the pushdown notes on the query below before changing it.</summary>
+    private const string ClientRateWindowEvery = "15m";
+
+    /// <summary>
+    /// Per-channel client PHY rates for the channel recommender. Returns an empty list when
+    /// InfluxDB is not configured or the query fails, which the recommender treats as "no opinion".
+    ///
+    /// Two things in this Flux are load-bearing for performance, both measured on ~4.1M points per
+    /// field over 90 days (the naive raw-pivot form of this query took 33s):
+    ///
+    /// 1. Each branch repeats its own full from/range/filter chain. Hoisting the common prefix into
+    ///    a shared variable makes Flux materialize that node and read the entire measurement into
+    ///    memory before windowing - it never finishes inside 45s. Do not "tidy up" the duplication.
+    /// 2. toFloat() comes AFTER aggregateWindow on the channel branch. Ahead of it, the window
+    ///    aggregate stops being pushed down into storage: 0.5s becomes 11.8s.
+    ///
+    /// The channel branch uses last(), never mean() - averaging ch 1 and ch 11 would yield ch 6,
+    /// a real channel that was never in use.
+    /// </summary>
+    public async Task<IReadOnlyList<ClientChannelRatePoint>> QueryClientChannelRatesAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientChannelRatePoint>();
+
+        var flux = $@"import ""date""
+import ""math""
+
+means = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"")
+  |> aggregateWindow(every: {ClientRateWindowEvery}, fn: mean, createEmpty: false)
+
+chan = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""channel"" or r._field == ""channel_width"")
+  |> aggregateWindow(every: {ClientRateWindowEvery}, fn: last, createEmpty: false)
+  |> toFloat()
+
+union(tables: [means, chan])
+  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.tx_rate_kbps and exists r.channel and exists r.channel_width and exists r.signal_dbm)
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > {ClientActiveThroughputBps}) or (exists r.rx_throughput_bps and r.rx_throughput_bps > {ClientActiveThroughputBps}))
+  |> map(fn: (r) => ({{
+      device_mac: r.device_mac,
+      band: r.band,
+      day: string(v: date.truncate(t: r._time, unit: 1d)),
+      channel: int(v: r.channel),
+      width: int(v: r.channel_width),
+      signal_band: {SignalBandStepDb} * int(v: math.floor(x: r.signal_dbm / {SignalBandStepDb}.0)),
+      tx_rate_mbps: r.tx_rate_kbps / 1000.0
+  }}))
+  |> group(columns: [""device_mac"", ""band"", ""channel"", ""width"", ""signal_band"", ""day""])
+  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps}}), identity: {{n: 0, sum: 0.0}})
+  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
+  |> group()";
+
+        var results = new List<ClientChannelRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var windows = (int)(AsDoubleOrNull(record.GetValueByKey("n")) ?? 0);
+            if (windows <= 0) continue;
+            DateTime.TryParse(record.GetValueByKey("day") as string, null,
+                System.Globalization.DateTimeStyles.AdjustToUniversal, out var day);
+            results.Add(new ClientChannelRatePoint
+            {
+                ApMac = record.GetValueByKey("device_mac") as string,
+                Band = record.GetValueByKey("band") as string,
+                Channel = (int)(AsDoubleOrNull(record.GetValueByKey("channel")) ?? 0),
+                WidthMhz = (int)(AsDoubleOrNull(record.GetValueByKey("width")) ?? 0),
+                SignalBandDbm = (int)(AsDoubleOrNull(record.GetValueByKey("signal_band")) ?? 0),
+                Day = day,
+                WindowCount = windows,
+                MeanTxRateMbps = AsDoubleOrNull(record.GetValueByKey("mean_tx_rate_mbps")) ?? 0,
+            });
+        }
+        return results;
+    }
+
     public record ClientThroughputPoint
     {
         public DateTime Time { get; init; }

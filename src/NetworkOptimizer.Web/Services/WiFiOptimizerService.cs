@@ -31,6 +31,20 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
     private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
+    /// <summary>
+    /// The registry rather than a MonitoringInfluxClient directly: the client is IAsyncDisposable,
+    /// and injecting it here put one into scopes this service creates and disposes synchronously,
+    /// which throws and took down propagation loading and the whole channel analysis with it. The
+    /// registry owns its clients, so nothing scope-owned is added.
+    /// </summary>
+    private readonly MonitoringInfluxRegistry _influxRegistry;
+    private readonly ChannelPlanCache _planCache;
+
+    /// <summary>
+    /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
+    /// is never worth making the analysis feel broken.
+    /// </summary>
+    private static readonly TimeSpan ClientRateQueryTimeout = TimeSpan.FromSeconds(10);
     // Captured at construction (when this scope's site is known) so the fresh scopes
     // below can be pinned to the same site - they may run after the original scope's
     // ambient HTTP context is gone, or inside a pinned background scope whose pin a
@@ -62,6 +76,8 @@ public class WiFiOptimizerService : IWiFiScanService
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
+        MonitoringInfluxRegistry influxRegistry,
+        ChannelPlanCache planCache,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
         ILogger<WiFiOptimizerService> logger,
@@ -78,6 +94,8 @@ public class WiFiOptimizerService : IWiFiScanService
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
         _channelMemoryRepository = channelMemoryRepository;
+        _influxRegistry = influxRegistry;
+        _planCache = planCache;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -923,6 +941,70 @@ public class WiFiOptimizerService : IWiFiScanService
     }
 
     /// <summary>
+    /// Per-band, per-AP client PHY-rate history for the channel recommender, from InfluxDB.
+    /// Returns null when Influx is unconfigured, unreachable, or has nothing to say - the
+    /// recommender treats that as "no opinion" and behaves exactly as it does without it.
+    /// </summary>
+    private async Task<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>?>
+        GetClientRatesAsync()
+    {
+        try
+        {
+            var to = DateTime.UtcNow;
+            // Hard bound: this must never be what makes the page slow. On timeout the recommender
+            // simply scores without client evidence, which is its documented fallback.
+            using var timeout = new CancellationTokenSource(ClientRateQueryTimeout);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var rows = await _influxRegistry.GetFor(_siteSlug).QueryClientChannelRatesAsync(
+                to - ClientOutcomeHelper.ClientRateWindow, to, timeout.Token);
+            _logger.LogDebug("[ChannelRec] client rate query returned {Rows} row(s) in {Elapsed} ms",
+                rows.Count, sw.ElapsedMilliseconds);
+            if (rows.Count == 0) return null;
+
+            var byBand = new Dictionary<RadioBand, Dictionary<string, List<ClientRateSample>>>();
+            foreach (var row in rows)
+            {
+                if (string.IsNullOrEmpty(row.ApMac)) continue;
+                var band = row.Band switch
+                {
+                    "2.4ghz" => RadioBand.Band2_4GHz,
+                    "5ghz" => RadioBand.Band5GHz,
+                    "6ghz" => RadioBand.Band6GHz,
+                    _ => RadioBand.Unknown
+                };
+                if (band == RadioBand.Unknown) continue;
+
+                if (!byBand.TryGetValue(band, out var byAp))
+                    byBand[band] = byAp = new Dictionary<string, List<ClientRateSample>>(StringComparer.OrdinalIgnoreCase);
+                var mac = row.ApMac.ToLowerInvariant();
+                if (!byAp.TryGetValue(mac, out var list))
+                    byAp[mac] = list = new List<ClientRateSample>();
+                list.Add(new ClientRateSample(
+                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps));
+            }
+
+            foreach (var (band, byAp) in byBand)
+                _logger.LogDebug(
+                    "[ChannelRec] client rate history {Band}: {Aps} AP(s), channels per AP: {Detail}",
+                    band, byAp.Count,
+                    string.Join("; ", byAp.Select(ap =>
+                        $"{ap.Key}=[{string.Join(",", ap.Value.Select(v => v.Channel).Distinct().OrderBy(c => c))}]")));
+
+            return byBand.ToDictionary(
+                b => b.Key,
+                b => b.Value.ToDictionary(
+                    ap => ap.Key,
+                    ap => (IReadOnlyList<ClientRateSample>)ap.Value,
+                    StringComparer.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Client rate history unavailable; scoring channels without it");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Fold the persisted long-term neighbor memory into the pooled scan results (see
     /// <see cref="ChannelMemoryHelper.MergeRememberedNeighbors"/>). Used by the channel
     /// recommendation only; degrades gracefully to the live-only picture on any failure.
@@ -1184,15 +1266,44 @@ public class WiFiOptimizerService : IWiFiScanService
     /// Get channel recommendations for a specific band.
     /// Coordinates data loading and calls the recommendation engine for all bands.
     /// </summary>
-    public async Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
-        RecommendationOptions? options = null)
+    public Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
+        RecommendationOptions? options = null,
+        bool forceRefresh = false)
     {
+        // Keyed by option set as well as site: pinning an AP or allowing DFS is a different
+        // question, not a stale answer to the same one.
+        var opts = options ?? new RecommendationOptions();
+        var pinned = opts.PinnedApMacs is { Count: > 0 }
+            ? string.Join("+", opts.PinnedApMacs.OrderBy(m => m, StringComparer.Ordinal))
+            : "none";
+        var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}";
+
+        // A run that lost a band is served but never cached: caching it would hide that band for
+        // the rest of the hour behind a plan that looks complete.
+        var partial = false;
+        return _planCache.GetOrBuildPlanAsync(key, forceRefresh,
+            async () =>
+            {
+                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh);
+                partial = anyBandFailed;
+                return plans;
+            },
+            shouldCache: p => p is { Count: > 0 } && !partial);
+    }
+
+    private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
+        BuildAllChannelRecommendationsAsync(
+        RecommendationOptions? options,
+        bool forceRefresh)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var results = new Dictionary<RadioBand, ChannelPlan>();
+        var anyBandFailed = false;
 
         if (!_connectionService.IsConnected)
         {
             _logger.LogDebug("Cannot get channel recommendations - not connected to UniFi");
-            return results;
+            return (results, false);
         }
 
         try
@@ -1216,7 +1327,7 @@ public class WiFiOptimizerService : IWiFiScanService
             if (aps.Count == 0)
             {
                 _logger.LogDebug("No APs available for channel recommendations");
-                return results;
+                return (results, false);
             }
 
             // Load propagation context once (same pattern as BuildOptimizerContextAsync)
@@ -1266,6 +1377,11 @@ public class WiFiOptimizerService : IWiFiScanService
             // window + persisted long-term outcome memory) and soak-period state
             var historicalContext = await GetHistoricalContextAsync(aps);
 
+            // What clients actually achieved per channel. Entirely optional - any failure leaves
+            // this null and the recommender scores exactly as it did before it existed.
+            var clientRates = await _planCache.GetOrBuildClientRatesAsync(
+                _siteSlug, forceRefresh, GetClientRatesAsync);
+
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
             foreach (var band in bands)
@@ -1279,15 +1395,19 @@ public class WiFiOptimizerService : IWiFiScanService
                     var bandStress = historicalContext?.Stress?.GetValueOrDefault(band);
                     var bandSoak = historicalContext?.Soak.GetValueOrDefault(band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
-                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak);
+                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak,
+                        clientRates?.GetValueOrDefault(band),
+                        historicalContext?.Credibility.GetValueOrDefault(band));
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, options, hasBuildingData);
 
+                    plan.ComputedAtUtc = DateTime.UtcNow;
                     results[band] = plan;
                 }
                 catch (Exception ex)
                 {
+                    anyBandFailed = true;
                     _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
                 }
             }
@@ -1297,7 +1417,11 @@ public class WiFiOptimizerService : IWiFiScanService
             _logger.LogError(ex, "Failed to get channel recommendations");
         }
 
-        return results;
+        _logger.LogDebug(
+            "[ChannelRec] built plans for {Bands} band(s) in {Elapsed} ms ({Cacheable})",
+            results.Count, sw.ElapsedMilliseconds,
+            anyBandFailed ? "not cached - a band failed" : $"cached for {ChannelPlanCache.PlanTtl}");
+        return (results, anyBandFailed);
     }
 
     /// <summary>
@@ -1312,6 +1436,9 @@ public class WiFiOptimizerService : IWiFiScanService
         /// <summary>Soak-period state keyed by band → AP MAC (lower). An entry exists only
         /// when the radio changed channels within the soak window.</summary>
         public Dictionary<RadioBand, Dictionary<string, ChannelSoakInfo>> Soak { get; } = new();
+
+        /// <summary>How far each channel's remembered stress is trusted, 0-1, per band and AP.</summary>
+        public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> Credibility { get; } = new();
     }
 
     /// <summary>
@@ -1489,6 +1616,26 @@ public class WiFiOptimizerService : IWiFiScanService
             if (outcomes.Count > 0)
             {
                 var outcomeLookup = outcomes.ToLookup(o => (o.ApMac, o.Band));
+
+                // Band-level neighbor load sets how far remembered outcomes are trusted. Weighted by
+                // the same CCA curve the interference score uses, so a sighting too weak to make a
+                // radio defer contributes nothing. Losing this must not cost us the memory itself.
+                var neighborLoad = new Dictionary<(string Mac, string Band), double>();
+                try
+                {
+                    var sightings = await _channelMemoryRepository.GetNeighborSightingsSinceAsync(
+                        now.UtcDateTime - ChannelMemoryHelper.NeighborMemoryWindow);
+                    foreach (var sighting in sightings)
+                    {
+                        var key = (sighting.ApMac.ToLowerInvariant(), sighting.Band);
+                        neighborLoad[key] = neighborLoad.GetValueOrDefault(key)
+                            + ChannelSpanHelper.SignalToInterferenceWeight(sighting.SignalDbm);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Neighbor load unavailable; trusting outcome memory at full strength");
+                }
                 context.Stress ??= bands.ToDictionary(
                     b => b,
                     _ => new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase));
@@ -1511,16 +1658,32 @@ public class WiFiOptimizerService : IWiFiScanService
                         if (buckets.Count == 0) continue;
 
                         var recent = context.Stress[band].GetValueOrDefault(macLower);
+                        var credibility = new Dictionary<int, double>();
+                        var confidence = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(
+                            neighborLoad.GetValueOrDefault((macLower, bandCode)));
                         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
-                            recent, buckets, radio.ChannelWidth ?? 20, now);
+                            recent, buckets, radio.ChannelWidth ?? 20, now,
+                            ChannelMemoryHelper.MinLongTermSamples, band, confidence,
+                            trace: msg => _logger.LogDebug("[ChannelRec] {ApName} {Band}: {Message}",
+                                ap.Name, band, msg),
+                            credibilityOut: credibility);
                         if (merged == null) continue;
 
-                        if (merged.Count > (recent?.Count ?? 0))
-                            _logger.LogDebug(
-                                "[ChannelRec] {ApName} {Band}: outcome memory added measured stress for " +
-                                "{Added} channel(s) beyond the UniFi metrics window",
-                                ap.Name, band, merged.Count - (recent?.Count ?? 0));
+                        // Logged unconditionally: when confidence suppresses the memory the channel
+                        // count does not move, and that silent case is exactly the one worth seeing.
+                        _logger.LogDebug(
+                            "[ChannelRec] {ApName} {Band}: outcome memory added {Added} channel(s) beyond " +
+                            "the UniFi metrics window (neighbor load {Load:F1}, history confidence {Confidence:F2})",
+                            ap.Name, band, merged.Count - (recent?.Count ?? 0),
+                            neighborLoad.GetValueOrDefault((macLower, bandCode)), confidence);
                         context.Stress[band][macLower] = merged;
+                        if (credibility.Count > 0)
+                        {
+                            if (!context.Credibility.TryGetValue(band, out var bandCred))
+                                context.Credibility[band] = bandCred =
+                                    new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+                            bandCred[macLower] = credibility;
+                        }
                     }
                 }
             }
