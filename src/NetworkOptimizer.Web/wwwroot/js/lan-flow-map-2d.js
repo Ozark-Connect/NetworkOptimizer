@@ -2113,6 +2113,19 @@ class LanFlowMap2D {
                     if(n.d.kind===NK.AP){downBps=b.aggregateOutBps||0;upBps=b.aggregateInBps||0;}
                     else{downBps=b.aggregateInBps||0;upBps=b.aggregateOutBps||0;}
                     any=downBps>0||upBps>0;
+                }else{
+                    // No figures in the badge: sum this device's own links, which is what the
+                    // tooltip and the 3D map do. A UniFi Device Bridge is deliberately left out of
+                    // the fabric sum, so without this it showed a rate on hover and nothing at all
+                    // under the device.
+                    for(const e of this._edges){
+                        if(e.lk.fromNodeId!==n.d.id&&e.lk.toNodeId!==n.d.id)continue;
+                        const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+                        if(!r)continue;
+                        any=true;
+                        downBps+=r.downstreamBps||0;
+                        upBps+=r.upstreamBps||0;
+                    }
                 }
 
                 if(any&&(downBps>100000||upBps>100000)){
