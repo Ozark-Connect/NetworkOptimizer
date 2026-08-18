@@ -87,26 +87,6 @@ public class ChannelPlanCacheTests
     }
 
     [Fact]
-    public async Task InvalidateSiteDropsThatSitesEntries()
-    {
-        var cache = new ChannelPlanCache();
-        var builds = 0;
-        Task<Dictionary<RadioBand, ChannelPlan>> Build()
-        {
-            builds++;
-            return Task.FromResult(Plan());
-        }
-
-        await cache.GetOrBuildPlanAsync("alpha|x", false, Build);
-        await cache.GetOrBuildPlanAsync("beta|x", false, Build);
-        cache.InvalidateSite("alpha");
-        await cache.GetOrBuildPlanAsync("alpha|x", false, Build);
-        await cache.GetOrBuildPlanAsync("beta|x", false, Build);
-
-        builds.Should().Be(3, "only alpha should have been evicted");
-    }
-
-    [Fact]
     public async Task CallerMutationDoesNotPoisonTheCache()
     {
         // Channel Analysis clears this dictionary when the user switches back to Show Current

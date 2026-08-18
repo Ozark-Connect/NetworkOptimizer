@@ -88,19 +88,6 @@ public class ChannelPlanCache
             : new Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>(rates);
     }
 
-    /// <summary>Drops every cached plan for a site (e.g. its console connection changed).</summary>
-    public void InvalidateSite(string siteSlug)
-    {
-        foreach (var key in _plans.Keys.Where(k => k.StartsWith(siteSlug + "|", StringComparison.Ordinal)).ToList())
-            _plans.TryRemove(key, out _);
-        _clientRates.TryRemove(siteSlug, out _);
-    }
-
-    /// <param name="shouldCache">
-    /// Whether a freshly built value is worth keeping. Defaults to caching everything, including
-    /// nulls - deliberate for client-rate history, where a null is a bounded timeout we do not want
-    /// to repeat on every build. Results that represent a transient failure must opt out.
-    /// </param>
     private static async Task<T?> GetOrBuildAsync<T>(
         ConcurrentDictionary<string, Entry<T>> store,
         string key,

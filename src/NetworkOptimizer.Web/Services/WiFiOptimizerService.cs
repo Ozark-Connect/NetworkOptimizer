@@ -980,7 +980,7 @@ public class WiFiOptimizerService : IWiFiScanService
                 if (!byAp.TryGetValue(mac, out var list))
                     byAp[mac] = list = new List<ClientRateSample>();
                 list.Add(new ClientRateSample(
-                    row.Channel, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps));
+                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps));
             }
 
             foreach (var (band, byAp) in byBand)

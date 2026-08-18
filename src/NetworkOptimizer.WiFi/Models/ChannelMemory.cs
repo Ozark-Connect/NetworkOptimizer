@@ -75,12 +75,17 @@ public record RememberedNeighborSighting(
 /// point, which measured 33s against 1s for the windowed form.
 /// </summary>
 /// <param name="Channel">Control channel the radio was on for these windows</param>
+/// <param name="WidthMhz">
+/// The client's own channel width, which is commonly narrower than the AP's configuration - so
+/// this buckets clients by capability as well as catching a width change on the radio itself.
+/// </param>
 /// <param name="SignalBandDbm">Signal bucket (dBm, rounded down to a fixed step)</param>
 /// <param name="Day">UTC day, used for the distinct-day evidence floor</param>
 /// <param name="WindowCount">Active windows in this bucket</param>
 /// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those windows</param>
 public record ClientRateSample(
     int Channel,
+    int WidthMhz,
     int SignalBandDbm,
     DateTime Day,
     int WindowCount,

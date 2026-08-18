@@ -83,12 +83,15 @@ public static class ClientOutcomeHelper
             return 1.0;
         }
 
-        // Compare only where the two channels overlap in signal strength. Rate tracks distance
-        // hard enough that an unmatched band would report the client mix, not the channel.
+        // Compare only where the two channels overlap in BOTH width and signal strength. Rate
+        // tracks distance hard enough that an unmatched signal band would report where the clients
+        // were standing; width matters just as much, and doubling it roughly doubles the rate -
+        // enough on its own to clear the impetus ratio and argue for a move the spectrum does not
+        // justify. Clients often run narrower than the AP, so this buckets by their capability too.
         var sharedBands = current.ByBand.Keys.Intersect(candidate.ByBand.Keys).ToList();
         if (sharedBands.Count == 0)
         {
-            reason = "no overlapping signal bands between the two channels";
+            reason = "no overlapping width/signal buckets between the two channels";
             return 1.0;
         }
 
@@ -108,7 +111,7 @@ public static class ClientOutcomeHelper
 
         if (sharedWindows <= 0 || curWeighted <= 0)
         {
-            reason = "no comparable windows in the shared signal bands";
+            reason = "no comparable windows in the shared width/signal buckets";
             return 1.0;
         }
 
@@ -145,7 +148,7 @@ public static class ClientOutcomeHelper
 
     private sealed class ChannelSummary
     {
-        public Dictionary<int, (int Windows, double MeanRateMbps)> ByBand { get; } = new();
+        public Dictionary<(int WidthMhz, int SignalBandDbm), (int Windows, double MeanRateMbps)> ByBand { get; } = new();
         public int DistinctDays { get; set; }
     }
 
@@ -159,7 +162,7 @@ public static class ClientOutcomeHelper
             DistinctDays = rows.Select(r => r.Day.Date).Distinct().Count()
         };
 
-        foreach (var group in rows.GroupBy(r => r.SignalBandDbm))
+        foreach (var group in rows.GroupBy(r => (r.WidthMhz, r.SignalBandDbm)))
         {
             var n = group.Sum(r => r.WindowCount);
             if (n <= 0) continue;

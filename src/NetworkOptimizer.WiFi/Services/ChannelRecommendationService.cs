@@ -1731,6 +1731,7 @@ public class ChannelRecommendationService
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
+            if (!IsFullyCredible(node, histChannel)) continue;
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference < ComfortableInterferencePct;
@@ -1860,6 +1861,7 @@ public class ChannelRecommendationService
             var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
             if (!ChannelSpanHelper.SpansOverlap(span, siblingSpan)) continue;
             if (!sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress)) continue;
+            if (!IsFullyCredible(sibling, sibling.CurrentChannel)) continue;
             var scaled = stress.Interference * graph.InternalWeights[apIndex, j];
             if (worst is not double w || scaled > w) worst = scaled;
         }
@@ -1881,6 +1883,7 @@ public class ChannelRecommendationService
             foreach (var (ch, stress) in node.HistoricalStress)
                 if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
                 {
+                if (!IsFullyCredible(node, ch)) continue;
                     interferencePct = stress.Interference;
                     return true;
                 }
@@ -1916,6 +1919,7 @@ public class ChannelRecommendationService
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
+            if (!IsFullyCredible(node, histChannel)) continue;
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference >= escapePct;
@@ -2578,6 +2582,16 @@ public class ChannelRecommendationService
     /// AP B gets that channel's stress added, scaled by the proximity weight.
     /// Only propagates between placed APs (where we have real propagation data).
     /// </summary>
+    /// <summary>
+    /// Whether a remembered channel's evidence is at full strength. Scoring blends thin evidence by
+    /// credibility, but the gates below are binary - comfortable or not, suffering or not, escape
+    /// the soak or not - and a yes/no answer cannot carry a confidence. So they only listen to
+    /// evidence that would have existed before the soft floor admitted anything, which keeps their
+    /// behavior identical to what it was rather than letting six samples flip a lock.
+    /// </summary>
+    private static bool IsFullyCredible(ApNode node, int channel) =>
+        (node.HistoricalStressCredibility?.GetValueOrDefault(channel, 1.0) ?? 1.0) >= 1.0;
+
     private static void PropagateHistoricalStress(InterferenceGraph graph, RadioBand band)
     {
         var n = graph.Nodes.Count;
@@ -2604,6 +2618,9 @@ public class ChannelRecommendationService
 
                 foreach (var (histChannel, stress) in source.HistoricalStress)
                 {
+                    // Credibility does not travel with a propagated estimate, so thin evidence
+                    // would arrive at the neighbor as full-strength. Only propagate what is solid.
+                    if (!IsFullyCredible(source, histChannel)) continue;
                     // Scale stress by proximity weight, dampened by 50%.
                     // Even at weight 1.0, only inherit half the neighbor's stress.
                     // Without dampening, 2.4 GHz (where all weights are high) gets

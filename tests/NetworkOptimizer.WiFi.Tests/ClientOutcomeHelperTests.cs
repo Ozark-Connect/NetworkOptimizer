@@ -9,11 +9,11 @@ public class ClientOutcomeHelperTests
 {
     private static readonly DateTime Day0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    /// <summary>Windows in one signal band, spread across the given number of distinct days.</summary>
+    /// <summary>Windows in one width/signal bucket, spread across the given number of days.</summary>
     private static IEnumerable<ClientRateSample> Band(
-        int channel, int signalBand, int days, int windowsPerDay, double meanMbps) =>
+        int channel, int signalBand, int days, int windowsPerDay, double meanMbps, int width = 80) =>
         Enumerable.Range(0, days).Select(d =>
-            new ClientRateSample(channel, signalBand, Day0.AddDays(d), windowsPerDay, meanMbps));
+            new ClientRateSample(channel, width, signalBand, Day0.AddDays(d), windowsPerDay, meanMbps));
 
     [Fact]
     public void NoSamples_LeavesThresholdAlone()
@@ -98,7 +98,7 @@ public class ClientOutcomeHelperTests
             .ToList();
 
         ClientOutcomeHelper.MoveThresholdFactor(samples, 1, 6, out var reason).Should().Be(1.0);
-        reason.Should().Contain("no overlapping signal bands");
+        reason.Should().Contain("no overlapping width/signal buckets");
     }
 
     [Fact]
@@ -109,6 +109,33 @@ public class ClientOutcomeHelperTests
         var samples = Band(1, -50, days: 5, windowsPerDay: 12, meanMbps: 100)
             .Concat(Band(6, -50, days: 5, windowsPerDay: 12, meanMbps: 130))
             .Concat(Band(6, -85, days: 5, windowsPerDay: 40, meanMbps: 10))
+            .ToList();
+
+        ClientOutcomeHelper.MoveThresholdFactor(samples, 1, 6, out _)
+            .Should().Be(ClientOutcomeHelper.ImpetusFactor);
+    }
+
+    [Fact]
+    public void DifferentWidths_AreNotComparedAcross()
+    {
+        // Same signal, but the radio ran 80 MHz on one channel and 40 on the other. Doubling the
+        // width roughly doubles the rate, which would clear the impetus ratio on its own and argue
+        // for a move the spectrum does not justify.
+        var samples = Band(1, -60, days: 5, windowsPerDay: 12, meanMbps: 100, width: 40)
+            .Concat(Band(6, -60, days: 5, windowsPerDay: 12, meanMbps: 200, width: 80))
+            .ToList();
+
+        ClientOutcomeHelper.MoveThresholdFactor(samples, 1, 6, out var reason).Should().Be(1.0);
+        reason.Should().Contain("no overlapping width/signal buckets");
+    }
+
+    [Fact]
+    public void SameWidthStillCompares()
+    {
+        // Clients commonly run narrower than the AP, so a narrow bucket is normal data, not noise -
+        // it just has to be compared against the same width on the other channel.
+        var samples = Band(1, -60, days: 5, windowsPerDay: 12, meanMbps: 100, width: 20)
+            .Concat(Band(6, -60, days: 5, windowsPerDay: 12, meanMbps: 130, width: 20))
             .ToList();
 
         ClientOutcomeHelper.MoveThresholdFactor(samples, 1, 6, out _)

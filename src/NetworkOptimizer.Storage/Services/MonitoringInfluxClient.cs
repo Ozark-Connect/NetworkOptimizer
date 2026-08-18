@@ -2707,6 +2707,7 @@ from(bucket: ""{_longtermBucket}"")
         public string? ApMac { get; init; }
         public string? Band { get; init; }
         public int Channel { get; init; }
+        public int WidthMhz { get; init; }
         public int SignalBandDbm { get; init; }
         public DateTime Day { get; init; }
         public int WindowCount { get; init; }
@@ -2762,25 +2763,26 @@ means = from(bucket: ""{_bucket}"")
 chan = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""channel"")
+  |> filter(fn: (r) => r._field == ""channel"" or r._field == ""channel_width"")
   |> aggregateWindow(every: {ClientRateWindowEvery}, fn: last, createEmpty: false)
   |> toFloat()
 
 union(tables: [means, chan])
   |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.tx_rate_kbps and exists r.channel and exists r.signal_dbm)
+  |> filter(fn: (r) => exists r.tx_rate_kbps and exists r.channel and exists r.channel_width and exists r.signal_dbm)
   |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > {ClientActiveThroughputBps}) or (exists r.rx_throughput_bps and r.rx_throughput_bps > {ClientActiveThroughputBps}))
   |> map(fn: (r) => ({{
       device_mac: r.device_mac,
       band: r.band,
       day: string(v: date.truncate(t: r._time, unit: 1d)),
       channel: int(v: r.channel),
+      width: int(v: r.channel_width),
       signal_band: {SignalBandStepDb} * int(v: math.floor(x: r.signal_dbm / {SignalBandStepDb}.0)),
       tx_rate_mbps: r.tx_rate_kbps / 1000.0
   }}))
-  |> group(columns: [""device_mac"", ""band"", ""channel"", ""signal_band"", ""day""])
+  |> group(columns: [""device_mac"", ""band"", ""channel"", ""width"", ""signal_band"", ""day""])
   |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps}}), identity: {{n: 0, sum: 0.0}})
-  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
+  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
   |> group()";
 
         var results = new List<ClientChannelRatePoint>();
@@ -2795,6 +2797,7 @@ union(tables: [means, chan])
                 ApMac = record.GetValueByKey("device_mac") as string,
                 Band = record.GetValueByKey("band") as string,
                 Channel = (int)(AsDoubleOrNull(record.GetValueByKey("channel")) ?? 0),
+                WidthMhz = (int)(AsDoubleOrNull(record.GetValueByKey("width")) ?? 0),
                 SignalBandDbm = (int)(AsDoubleOrNull(record.GetValueByKey("signal_band")) ?? 0),
                 Day = day,
                 WindowCount = windows,
