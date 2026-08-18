@@ -2698,6 +2698,76 @@ from(bucket: ""{_longtermBucket}"")
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
     /// </summary>
+    /// <summary>
+    /// Client PHY-rate telemetry aggregated for the channel recommender: one row per AP, band,
+    /// channel, client and signal band. Aggregated server-side because the raw sample count runs
+    /// to hundreds of thousands per site.
+    /// </summary>
+    public record ClientChannelRatePoint
+    {
+        public string? ApMac { get; init; }
+        public string? Band { get; init; }
+        public int Channel { get; init; }
+        public string? ClientMac { get; init; }
+        public int SignalBandDbm { get; init; }
+        public int SampleCount { get; init; }
+        public double MeanTxRateMbps { get; init; }
+    }
+
+    /// <summary>
+    /// Throughput (bps, either direction) above which a client counts as actually moving traffic.
+    /// Idle clients are the large majority of samples and their PHY rate decays toward the floor,
+    /// so including them measures how busy the place was rather than what the channel can carry -
+    /// on one radio it reversed which channel looked better.
+    /// </summary>
+    public const double ClientActiveThroughputBps = 50_000;
+
+    /// <summary>Signal bucket width (dB) for matching like-for-like clients across channels.</summary>
+    private const int SignalBandStepDb = 5;
+
+    /// <summary>
+    /// Per-channel client PHY rates for the channel recommender. Returns an empty list when
+    /// InfluxDB is not configured or the query fails, which the recommender treats as "no opinion".
+    /// </summary>
+    public async Task<IReadOnlyList<ClientChannelRatePoint>> QueryClientChannelRatesAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientChannelRatePoint>();
+
+        var flux = $@"import ""math""
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""channel"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.channel and exists r.client_mac and exists r.signal_dbm and exists r.tx_rate_kbps)
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > {ClientActiveThroughputBps}) or (exists r.rx_throughput_bps and r.rx_throughput_bps > {ClientActiveThroughputBps}))
+  |> map(fn: (r) => ({{ ap: r.device_mac, bandTag: r.band, ch: string(v: int(v: r.channel)), cm: r.client_mac, sb: string(v: int(v: math.floor(x: float(v: r.signal_dbm) / {SignalBandStepDb}.0) * {SignalBandStepDb}.0)), tx: float(v: r.tx_rate_kbps) }}))
+  |> group(columns: [""ap"", ""bandTag"", ""ch"", ""cm"", ""sb""])
+  |> reduce(identity: {{n: 0.0, tx: 0.0}}, fn: (r, accumulator) => ({{n: accumulator.n + 1.0, tx: accumulator.tx + r.tx}}))
+  |> map(fn: (r) => ({{ ap: r.ap, bandTag: r.bandTag, ch: r.ch, cm: r.cm, sb: r.sb, n: r.n, meanTx: r.tx / r.n / 1000.0 }}))";
+
+        var results = new List<ClientChannelRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (!int.TryParse(record.GetValueByKey("ch") as string, out var channel)) continue;
+            if (!int.TryParse(record.GetValueByKey("sb") as string, out var signalBand)) continue;
+            results.Add(new ClientChannelRatePoint
+            {
+                ApMac = record.GetValueByKey("ap") as string,
+                Band = record.GetValueByKey("bandTag") as string,
+                Channel = channel,
+                ClientMac = record.GetValueByKey("cm") as string,
+                SignalBandDbm = signalBand,
+                SampleCount = (int)(AsDoubleOrNull(record.GetValueByKey("n")) ?? 0),
+                MeanTxRateMbps = AsDoubleOrNull(record.GetValueByKey("meanTx")) ?? 0,
+            });
+        }
+        return results;
+    }
+
     public record ClientThroughputPoint
     {
         public DateTime Time { get; init; }

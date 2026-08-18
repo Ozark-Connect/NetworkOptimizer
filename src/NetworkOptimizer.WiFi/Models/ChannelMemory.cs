@@ -63,3 +63,21 @@ public record RememberedNeighborSighting(
     int SightingCount,
     DateTimeOffset LastSeenAt,
     string? Ssid);
+
+/// <summary>
+/// One aggregate of client PHY-rate telemetry for an AP radio, already bucketed by channel,
+/// client and signal band. Storage-neutral so the engine project stays decoupled from the
+/// telemetry store. Only samples where the client was actually moving traffic belong here:
+/// an idle client's rate decays and describes nothing about the channel.
+/// </summary>
+/// <param name="Channel">Control channel the radio was on when these samples were taken</param>
+/// <param name="ClientMac">Client the samples belong to, for the distinct-client floor</param>
+/// <param name="SignalBandDbm">Signal bucket (dBm, rounded down to a fixed step)</param>
+/// <param name="SampleCount">Active samples in this bucket</param>
+/// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those samples</param>
+public record ClientRateSample(
+    int Channel,
+    string ClientMac,
+    int SignalBandDbm,
+    int SampleCount,
+    double MeanTxRateMbps);

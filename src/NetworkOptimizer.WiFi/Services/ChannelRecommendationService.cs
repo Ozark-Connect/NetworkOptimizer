@@ -427,7 +427,8 @@ public class ChannelRecommendationService
         RegulatoryChannelData? regulatoryData,
         RecommendationOptions? options = null,
         Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
-        Dictionary<string, ChannelSoakInfo>? soakInfo = null)
+        Dictionary<string, ChannelSoakInfo>? soakInfo = null,
+        Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -448,7 +449,8 @@ public class ChannelRecommendationService
             HistoricallyObservedChannels = new Dictionary<int, double>[n],
             ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
-            DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
+            DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? []),
+            ClientRates = clientRates
         };
 
         // Build nodes
@@ -814,12 +816,25 @@ public class ChannelRecommendationService
                 var absoluteImprovement = currentApScore - recommendedApScore;
                 var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
 
-                if (currentApScore < MinApScoreToMove)
+                // What clients actually got on these two channels moves the bar in both
+                // directions: evidence the candidate is better lowers it, evidence it is worse
+                // raises it. Absent or thin telemetry returns 1.0 and nothing changes.
+                var clientFactor = ClientOutcomeHelper.MoveThresholdFactor(
+                    graph.ClientRates?.GetValueOrDefault(node.Mac.ToLowerInvariant()),
+                    node.CurrentChannel, recommendedChannel, out var clientReason);
+                var moveThreshold = MinApScoreToMove * clientFactor;
+                if (clientReason != null)
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} client history {Direction} the move to ch{Channel}: {Reason}",
+                        node.Name, clientFactor < 1.0 ? "supports" : "contradicts",
+                        recommendedChannel, clientReason);
+
+                if (currentApScore < moveThreshold)
                 {
                     _logger.LogDebug(
                         "[ChannelRec] {ApName} current score {Score:F3} below threshold {Threshold:F3}, " +
                         "keeping current ch{Channel}/{Width} MHz",
-                        node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
+                        node.Name, currentApScore, moveThreshold, node.CurrentChannel, node.CurrentWidth);
                     recommendedChannel = node.CurrentChannel;
                     recommendedWidth = node.CurrentWidth;
                     recommendedApScore = currentApScore;

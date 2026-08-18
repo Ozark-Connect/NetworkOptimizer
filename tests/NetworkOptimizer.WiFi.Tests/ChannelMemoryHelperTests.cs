@@ -407,4 +407,120 @@ public class ChannelMemoryHelperTests
         merged.Should().HaveCount(1);
         merged[0].Neighbors.Should().BeEmpty();
     }
+
+    // --- Span-aware pooling (5/6 GHz bonding groups) ---
+
+    [Fact]
+    public void MergeLongTermOutcomes_5GHz_PoolsSameBondingGroup()
+    {
+        // 149/153/157/161 is one 80 MHz block. Apart, each bucket decays under the floor;
+        // pooled they clear it - which is the whole point of keying on occupied spectrum.
+        var buckets = new[]
+        {
+            Bucket(149, 80, samples: 8, util: 20, interf: 10, txRetry: 5),
+            Bucket(157, 80, samples: 8, util: 20, interf: 10, txRetry: 5)
+        };
+
+        var apart = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 80, Now, band: RadioBand.Unknown);
+        apart.Should().BeNull("neither bucket clears the floor on its own");
+
+        var pooled = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 80, Now, band: RadioBand.Band5GHz);
+        pooled.Should().NotBeNull();
+        pooled!.Keys.Should().Contain(new[] { 149, 153, 157, 161 },
+            "pooled stats must be written back to every control channel the span answers for");
+        pooled[153].Utilization.Should().BeApproximately(20, 0.001);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_5GHz_KeepsDifferentBondingGroupsApart()
+    {
+        var buckets = new[]
+        {
+            Bucket(100, 80, samples: 30, util: 10, interf: 5, txRetry: 2),
+            Bucket(116, 80, samples: 30, util: 60, interf: 40, txRetry: 20)
+        };
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 80, Now, band: RadioBand.Band5GHz);
+
+        merged.Should().NotBeNull();
+        merged![100].Utilization.Should().BeApproximately(10, 0.001);
+        merged[112].Utilization.Should().BeApproximately(10, 0.001);
+        merged[116].Utilization.Should().BeApproximately(60, 0.001);
+        merged[128].Utilization.Should().BeApproximately(60, 0.001);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_2_4GHz_DoesNotPool()
+    {
+        var buckets = new[]
+        {
+            Bucket(1, 20, samples: 8, util: 20, interf: 10, txRetry: 5),
+            Bucket(6, 20, samples: 8, util: 20, interf: 10, txRetry: 5)
+        };
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 20, Now, band: RadioBand.Band2_4GHz);
+
+        merged.Should().BeNull("2.4 GHz keys on control channel, so neither clears the floor");
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_RecentStillWinsPerChannelWithinAPooledSpan()
+    {
+        var recent = new Dictionary<int, (double, double, double)> { [153] = (99, 99, 99) };
+        var buckets = new[]
+        {
+            Bucket(149, 80, samples: 8, util: 20, interf: 10, txRetry: 5),
+            Bucket(157, 80, samples: 8, util: 20, interf: 10, txRetry: 5)
+        };
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null!, buckets, currentWidthMhz: 80, Now, band: RadioBand.Band5GHz);
+        merged.Should().NotBeNull();
+
+        var withRecent = ChannelMemoryHelper.MergeLongTermOutcomes(
+            recent, buckets, currentWidthMhz: 80, Now, band: RadioBand.Band5GHz);
+        withRecent![153].Should().Be((99d, 99d, 99d), "live data outranks memory on the channel it covers");
+        withRecent[149].Utilization.Should().BeApproximately(20, 0.001);
+    }
+
+    // --- Neighbor-weighted history confidence ---
+
+    [Fact]
+    public void HistoryConfidence_QuietBandTrustsHistoryFully()
+    {
+        ChannelMemoryHelper.HistoryConfidenceFromNeighbors(0).Should().Be(1.0);
+    }
+
+    [Fact]
+    public void HistoryConfidence_FallsAsNeighborLoadRises_AndNeverBelowFloor()
+    {
+        var quiet = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(1);
+        var suburban = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(20);
+        var dense = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(130);
+
+        quiet.Should().BeGreaterThan(suburban);
+        suburban.Should().BeGreaterThan(dense);
+        dense.Should().BeGreaterThan(ChannelMemoryHelper.MinHistoryConfidence);
+        ChannelMemoryHelper.HistoryConfidenceFromNeighbors(100000)
+            .Should().BeApproximately(ChannelMemoryHelper.MinHistoryConfidence, 0.01);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_LowConfidenceRaisesTheEvidenceBar()
+    {
+        var buckets = new[] { Bucket(1, 20, samples: 16, util: 50, interf: 40, txRetry: 15) };
+
+        var trusted = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 20, Now, band: RadioBand.Band2_4GHz, historyConfidence: 1.0);
+        trusted.Should().NotBeNull();
+        trusted![1].Utilization.Should().BeApproximately(50, 0.001);
+
+        var discounted = ChannelMemoryHelper.MergeLongTermOutcomes(
+            null, buckets, currentWidthMhz: 20, Now, band: RadioBand.Band2_4GHz, historyConfidence: 0.4);
+        discounted.Should().BeNull("the same evidence must clear a higher bar on a churning band");
+    }
 }

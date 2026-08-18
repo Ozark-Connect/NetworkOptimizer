@@ -125,6 +125,12 @@ public class InterferenceGraph
 {
     public List<ApNode> Nodes { get; set; } = new();
 
+    /// <summary>
+    /// Per-AP client PHY-rate history, keyed by lowercase MAC. Null or absent whenever the
+    /// telemetry store has nothing to say, which the move decision treats as "no opinion".
+    /// </summary>
+    public Dictionary<string, IReadOnlyList<ClientRateSample>>? ClientRates { get; set; }
+
     /// <summary>True when DFS avoidance was requested but at least one AP had to fall back to DFS channels</summary>
     public bool DfsAvoidanceFallback { get; set; }
 
