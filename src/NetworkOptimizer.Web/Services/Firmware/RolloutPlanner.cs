@@ -19,7 +19,7 @@ public class RolloutPlanner
     public const int CommandOverheadSeconds = 30;
 
     /// <summary>UniFi Network application update allowance (console app restart).</summary>
-    public const int UniFiNetworkUpdateSeconds = 300;
+    public const int UniFiNetworkUpdateSeconds = 240;
 
     public RolloutPlanResult Plan(RolloutPlanningInput input)
     {

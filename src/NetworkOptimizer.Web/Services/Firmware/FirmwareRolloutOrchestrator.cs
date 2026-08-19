@@ -1803,12 +1803,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             ? image.Url
             : null;
 
-        var result = string.IsNullOrWhiteSpace(planned)
+        // Cellular modems can't reach the CDN (their management route goes through the LAN, but
+        // the CDN download runs on the device itself). Console-cached first for them, always.
+        var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
+
+        var result = string.IsNullOrWhiteSpace(planned) || preferConsoleCached
             ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
             : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
-        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned))
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached)
             result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
 
         if (!result.IsOk)
