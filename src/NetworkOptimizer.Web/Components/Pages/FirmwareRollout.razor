@@ -431,7 +431,7 @@ else
         <div class="card-body firmware-rollout-landing">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
-                <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. Updates get picked up automatically, scheduled for the site's quietest window, and announced before they run.</p>
+                <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. It picks up updates automatically, schedules them for the site's quietest window, and announces them before they run.</p>
             }
             else if (HasStoredAutopilotConfig)
             {
