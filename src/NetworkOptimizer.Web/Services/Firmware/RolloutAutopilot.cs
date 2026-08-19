@@ -376,11 +376,23 @@ public class RolloutAutopilot : IRolloutAutopilot
         return proposed.Count > 0 && proposed.IsSubsetOf(refused);
     }
 
-    private static HashSet<string> TargetsOf(RolloutPlanDocument document) =>
-        document.Waves
+    private static HashSet<string> TargetsOf(RolloutPlanDocument document)
+    {
+        var targets = document.Waves
             .SelectMany(w => w.Steps)
             .Select(s => $"{s.Mac}|{s.ToVersion}")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Console surfaces count as targets too: a console update the aborted plan did not carry
+        // is new firmware worth asking about. Without these, an admin who Re-planned exactly to
+        // pick one up proposed the same device set and read as a refusal - permanently.
+        if (document.IncludesUniFiNetworkUpdate)
+            targets.Add($"network-app|{document.NetworkAppUpdate.TargetVersion}");
+        if (document.IncludesUniFiOsUpdate)
+            targets.Add($"unifi-os|{document.UniFiOsUpdate.TargetVersion}");
+
+        return targets;
+    }
 
     private static RolloutPlanDocument ParseDocument(FirmwareRolloutPlan plan)
     {

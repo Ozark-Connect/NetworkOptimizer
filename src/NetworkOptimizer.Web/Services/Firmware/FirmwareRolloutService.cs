@@ -163,25 +163,27 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // Every step here is a console round trip, and on an agent-relayed site they are the whole
         // cost of opening the wizard. Timed individually so a slow preview names its own culprit.
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var (result, context) = await PlanAsync(settings, readOnly, cancellationToken);
+        var (result, inputs) = await PlanAsync(settings, readOnly, cancellationToken);
         var planMs = timer.ElapsedMilliseconds;
         var document = result.Document;
+        var context = inputs.Context;
+        // The console as the plan saw it, shared-catalog adoptions included. Re-reading /api/system
+        // here would lose an adopted Network application update the console has not noticed yet.
+        var console = inputs.Console;
 
         var channels = await _commands.GetChannelAvailabilityAsync(cancellationToken);
         var channelsMs = timer.ElapsedMilliseconds - planMs;
-        var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
-        var consoleMs = timer.ElapsedMilliseconds - planMs - channelsMs;
         var autoUpgrade = await _commands.GetAutoUpgradeEnabledAsync(cancellationToken);
-        var autoUpgradeMs = timer.ElapsedMilliseconds - planMs - channelsMs - consoleMs;
+        var autoUpgradeMs = timer.ElapsedMilliseconds - planMs - channelsMs;
         var active = await _repository.GetActivePlanAsync(cancellationToken);
         var window = await _planning.ProposeWindowAsync(
             context, document.TotalEstimatedSeconds, settings, WindowLead(settings), cancellationToken);
-        var windowMs = timer.ElapsedMilliseconds - planMs - channelsMs - consoleMs - autoUpgradeMs;
+        var windowMs = timer.ElapsedMilliseconds - planMs - channelsMs - autoUpgradeMs;
 
         _logger.LogDebug(
             "Firmware Rollout preview built in {Total} ms: plan {Plan} ms, channels {Channels} ms, "
-            + "console {Console} ms, auto-upgrade {Auto} ms, quiet window {Window} ms",
-            timer.ElapsedMilliseconds, planMs, channelsMs, consoleMs, autoUpgradeMs, windowMs);
+            + "auto-upgrade {Auto} ms, quiet window {Window} ms",
+            timer.ElapsedMilliseconds, planMs, channelsMs, autoUpgradeMs, windowMs);
 
         var preview = new RolloutPreviewView
         {
@@ -414,7 +416,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// UniFi's own "Check for Updates", and it stages the builds the plan is about to command.
     /// Read-only withholds the settings from the gather, which is what skips channel staging.
     /// </summary>
-    private async Task<(RolloutPlanResult Result, RolloutPlanningContext Context)> PlanAsync(
+    private async Task<(RolloutPlanResult Result, RolloutPlanInputs Inputs)> PlanAsync(
         FirmwareRolloutSettings settings, bool readOnly, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
@@ -422,7 +424,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
-        return (result, inputs.Context);
+        return (result, inputs);
     }
 
     private async Task<CreatedPlan> CreatePlanAsync(

@@ -108,6 +108,25 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsync_ShowsANetworkAppUpdateAdoptedFromTheSharedCatalog()
+    {
+        using var harness = HarnessWithTwoAps();
+        // Each /api/system read is a fresh snapshot, as with the real client: the adoption lives
+        // only on the plan's own console object, so the preview must read that one, not re-fetch.
+        harness.Commands.SnapshotConsoleInfoPerRead = true;
+        // The console has not noticed the update itself; the shared catalog is offering it.
+        harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
+        await harness.SharedCatalog.UpsertNetworkAppBuildAsync("release", "9.1.0", null);
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(s => s.IncludeUniFiNetwork = true));
+
+        preview.Plan.IncludesUniFiNetworkUpdate.Should().BeTrue();
+        preview.NetworkApplication.Should().NotBeNull();
+        preview.NetworkApplication!.TargetVersion.Should().Be("9.1.0");
+        preview.NetworkApplication.UpdateAvailable.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task BuildPreviewAsync_CountsExcludedDevicesSeparately()
     {
         using var harness = HarnessWithTwoAps();

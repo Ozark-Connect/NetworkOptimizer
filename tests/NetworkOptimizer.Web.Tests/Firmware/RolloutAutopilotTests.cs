@@ -155,6 +155,22 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_TreatsAConsoleUpdateTheAbortedPlanLackedAsNewContent()
+    {
+        using var harness = await AutopilotSiteAsync(s => s.IncludeUniFiNetwork = true);
+        harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+
+        await harness.Orchestrator.AbortAsync("an admin stopped it");
+        // The same device set plus a Network application build the aborted plan never carried -
+        // the exact shape a Re-plan produces. That is new content, not a refusal to honor.
+        harness.Commands.ConsoleInfo.NetworkApplication.UpdateAvailable = "9.1.0";
+        harness.Time.Advance(TimeSpan.FromHours(2));
+
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task RipenessGate_HoldsBackDevicesWhoseBuildIsStillTooNew()
     {
         using var harness = await AutopilotSiteAsync(s => s.MinReleaseAgeDays = 7);

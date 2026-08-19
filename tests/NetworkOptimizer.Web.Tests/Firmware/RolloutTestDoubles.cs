@@ -177,8 +177,17 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(true);
     }
 
+    /// <summary>
+    /// Answer each read with a fresh snapshot, as the real client deserializes one per call. Without
+    /// this, an in-memory mutation of one read (a shared-catalog adoption) is visible through every
+    /// other read, hiding exactly the staleness a re-read introduces.
+    /// </summary>
+    public bool SnapshotConsoleInfoPerRead { get; set; }
+
     public Task<UniFiConsoleSystemInfo?> GetConsoleSystemInfoAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(ConsoleInfo);
+        Task.FromResult(SnapshotConsoleInfoPerRead && ConsoleInfo != null
+            ? JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(JsonSerializer.Serialize(ConsoleInfo))
+            : ConsoleInfo);
 
     public Task<FirmwareCommandResult> TriggerBackupAsync(CancellationToken cancellationToken = default)
     {
