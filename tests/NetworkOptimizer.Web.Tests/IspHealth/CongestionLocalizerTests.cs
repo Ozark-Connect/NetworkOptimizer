@@ -779,4 +779,45 @@ public class CongestionLocalizerTests
 
         events.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Brief_saturation_inside_a_padded_window_reports_excursion_level_load()
+    {
+        // A brief download saturates the line during the access hop's excursion moments, but
+        // the bucket-padded congestion window is much wider. The window-level median load dilutes
+        // below the 10% mention floor; the excursion-moment median must replace it so the event
+        // reports the load the operator actually saw.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.02));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => e.LoadCoincident);
+        var evt = events.First();
+        evt.MedianLoadUtilization.Should().NotBeNull();
+        evt.MedianLoadUtilization!.Value.Should().BeGreaterThan(0.09,
+            "excursion-moment load must replace the diluted window median");
+    }
 }
