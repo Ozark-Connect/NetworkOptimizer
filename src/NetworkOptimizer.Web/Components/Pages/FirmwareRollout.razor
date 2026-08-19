@@ -10,6 +10,7 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject SiteConnectionRegistry ConnectionRegistry
 @inject ILogger<FirmwareRollout> Logger
+@inject UiHintService UiHints
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
@@ -223,6 +224,13 @@ else if (_wizardOpen)
                 {
                     <div class="alert alert-info firmware-rollout-note">@notice</div>
                 }
+                @if (_showBackupNotice && _preview?.ConsoleConnected == true && _preview?.ConsoleApiAvailable == true)
+                {
+                    <div class="alert alert-info firmware-rollout-note" style="display:flex;align-items:flex-start;gap:8px">
+                        <span style="flex:1">A Console backup will be attempted before the rollout starts. If it doesn't run (common with service accounts), UniFi Network and UniFi OS take their own backup before applying each update, so your configuration is covered either way.</span>
+                        <button class="btn btn-sm btn-secondary" style="white-space:nowrap" @onclick="DismissBackupNoticeAsync">Got it</button>
+                    </div>
+                }
 
                 <FirmwareChannelConfig
                     Settings="_settings"
@@ -360,6 +368,13 @@ else if (_wizardOpen)
                 @foreach (var notice in _preview.Notices)
                 {
                     <div class="alert alert-info firmware-rollout-note">@notice</div>
+                }
+                @if (_showBackupNotice && _preview.ConsoleConnected && _preview.ConsoleApiAvailable)
+                {
+                    <div class="alert alert-info firmware-rollout-note" style="display:flex;align-items:flex-start;gap:8px">
+                        <span style="flex:1">A Console backup will be attempted before the rollout starts. If it doesn't run (common with service accounts), UniFi Network and UniFi OS take their own backup before applying each update, so your configuration is covered either way.</span>
+                        <button class="btn btn-sm btn-secondary" style="white-space:nowrap" @onclick="DismissBackupNoticeAsync">Got it</button>
+                    </div>
                 }
 
                 <div class="firmware-rollout-waves">
@@ -693,6 +708,7 @@ else
     private int _step = 1;
     private string? _wizardError;
     private string? _controlNotice;
+    private bool _showBackupNotice = true;
 
     private int SoakHours => _settings?.SoakHours > 0 ? _settings.SoakHours : 2;
 
@@ -1048,6 +1064,7 @@ else
             LoadWorkingSets();
             // First preview: channel options, device models, and console warnings for step 1.
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _showBackupNotice = await UiHints.ShouldShowAsync(UiHintKeys.FirmwareBackupNotice);
             if (_settings.Mode != FirmwareRolloutMode.Autopilot)
                 SeedChannelsFromConsole();
             SeedStartFromProposal();
@@ -1919,5 +1936,11 @@ else
             try { await _viz.DisposeAsync(); }
             catch (JSDisconnectedException) { }
         }
+    }
+
+    private async Task DismissBackupNoticeAsync()
+    {
+        _showBackupNotice = false;
+        await UiHints.DismissAsync(UiHintKeys.FirmwareBackupNotice);
     }
 }

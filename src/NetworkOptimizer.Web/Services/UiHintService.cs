@@ -156,4 +156,7 @@ public static class UiHintKeys
     /// a site with no gateway agent. One message in two placements, so one dismissal retires both.
     /// </summary>
     public const string MultiWanVantageSetup = "multi-wan-vantage-setup";
+
+    /// <summary>Firmware wizard notice that a Console backup is attempted before rollout.</summary>
+    public const string FirmwareBackupNotice = "firmware-backup-notice";
 }
