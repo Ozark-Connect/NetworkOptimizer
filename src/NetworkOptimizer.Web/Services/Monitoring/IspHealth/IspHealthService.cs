@@ -1357,7 +1357,7 @@ public class IspHealthService
         // data-path interface (SqmWanConfigurations rows are per interface).
         var scoredDataPathInterface = await GetScoredWanDataPathInterfaceAsync(ct);
         var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, scoredDataPathInterface, ct);
-        var adaptiveSqmEnabled = await IsAdaptiveSqmEnabledAsync(scoredDataPathInterface, ct);
+        var (adaptiveSqmEnabled, sqmNominalDown, sqmNominalUp) = await GetAdaptiveSqmStateAsync(scoredDataPathInterface, ct);
 
         // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
         // modem, or cellular modem) and aggregate its window metrics for the Physical Link factor.
@@ -1390,6 +1390,8 @@ public class IspHealthService
             Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
             AdaptiveSqmEnabled = adaptiveSqmEnabled,
+            SqmNominalDownloadMbps = sqmNominalDown,
+            SqmNominalUploadMbps = sqmNominalUp,
             HopOrderKnown = hopOrderKnown,
             // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
             // (OLT/CMTS ICMP-deprioritization); only meaningful once we have trace data at all.
@@ -2335,14 +2337,19 @@ public class IspHealthService
     /// recommendation uses this so it never tells a user to "consider Adaptive SQM" when they
     /// already run it.
     /// </summary>
-    private async Task<bool> IsAdaptiveSqmEnabledAsync(string? primaryWanInterface, CancellationToken ct)
+    private async Task<(bool Enabled, int? NominalDownMbps, int? NominalUpMbps)> GetAdaptiveSqmStateAsync(
+        string? primaryWanInterface, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(primaryWanInterface)) return false;
+        if (string.IsNullOrEmpty(primaryWanInterface)) return (false, null, null);
         await using var db = await CreateSiteDbAsync(ct);
         var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
             .Where(c => c.Enabled)
             .ToListAsync(ct);
-        return sqmConfigs.Any(c => string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
+        var config = sqmConfigs.FirstOrDefault(c =>
+            string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
+        return config == null
+            ? (false, null, null)
+            : (true, config.NominalDownloadMbps, config.NominalUploadMbps);
     }
 
     /// <summary>

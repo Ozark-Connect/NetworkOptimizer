@@ -841,6 +841,12 @@ public class IspHealthInputs
     /// recommendation never pitches Adaptive SQM to someone already running it.</summary>
     public bool AdaptiveSqmEnabled { get; init; }
 
+    /// <summary>Adaptive SQM nominal download rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalDownloadMbps { get; init; }
+
+    /// <summary>Adaptive SQM nominal upload rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalUploadMbps { get; init; }
+
     /// <summary>
     /// Time windows to exclude from loaded-line analysis. Adaptive SQM speed probes
     /// briefly crank the HTB rate for an unshaped measurement; the resulting bufferbloat
