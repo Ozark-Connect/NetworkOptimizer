@@ -657,6 +657,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         {
             preview.Warnings.Add("This console does not offer early access builds, so those devices will stay on their current channel.");
         }
+
+        if (preview.ConsoleConnected && preview.ConsoleApiAvailable)
+        {
+            preview.Notices.Add(
+                "A Console backup will be attempted before the rollout starts. If it doesn't run " +
+                "(common with service accounts), UniFi Network and UniFi OS take their own backup " +
+                "before applying each update, so your configuration is covered either way.");
+        }
     }
 
     private static bool UsesChannel(FirmwareRolloutSettings settings, string channel) =>
