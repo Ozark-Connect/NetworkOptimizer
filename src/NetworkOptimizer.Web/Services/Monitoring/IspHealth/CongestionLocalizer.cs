@@ -101,11 +101,16 @@ public static class CongestionLocalizer
             // hops (those spike sporadically across a far wider span and smear the correlation). OR'ing a
             // second arm onto the untouched first can only ADD load-coincidence, never remove it, so
             // sustained events cannot regress.
-            var loadCoincident = LoadCoincident(window.Start, window.End, topology, options)
-                || LoadCoincidentAtNearestHop(elevatedSeries, window.Start, window.End, topology, options);
-            // What the line was carrying while this happened, for the feed to name. Every event this
-            // cluster produces covers the same window, so they all take the same figure.
-            var medianLoad = MedianLoad(window.Start, window.End, topology);
+            var windowLoadCoincident = LoadCoincident(window.Start, window.End, topology, options);
+            var (hopLoadCoincident, excursionMedianLoad) = LoadCoincidentAtNearestHop(elevatedSeries, window.Start, window.End, topology, options);
+            var loadCoincident = windowLoadCoincident || hopLoadCoincident;
+            // When the nearest-hop arm found the correlation, its excursion-moment median is
+            // more precise than the full-window median (the bucket-padded window dilutes a
+            // brief saturation across minutes of quiet). Take whichever is higher.
+            var windowMedianLoad = MedianLoad(window.Start, window.End, topology);
+            var medianLoad = excursionMedianLoad.HasValue && excursionMedianLoad > (windowMedianLoad ?? 0)
+                ? excursionMedianLoad
+                : windowMedianLoad;
             void Emit(CongestionEvent e)
             {
                 e.MedianLoadUtilization = medianLoad;
@@ -553,7 +558,10 @@ public static class CongestionLocalizer
     /// vote each, matched to the WAN utilization in the same bucket; coincident when the high-load share
     /// clears CongestionLoadCoincidenceFraction. Unknown load never claims coincidence.
     /// </summary>
-    private static bool LoadCoincidentAtNearestHop(
+    /// <returns>Whether the event is load-coincident, and the median utilization at the
+    /// excursion moments (more precise than the full-window median when the elevation is
+    /// shorter than the bucket-padded window).</returns>
+    private static (bool Coincident, double? ExcursionMedianLoad) LoadCoincidentAtNearestHop(
         IReadOnlyList<AsnSeries> elevatedSeries, DateTime winStart, DateTime winEnd,
         CongestionTopology topology, IspHealthOptions options)
     {
@@ -562,9 +570,8 @@ public static class CongestionLocalizer
         foreach (var l in topology.Load)
             if (l.Utilization.HasValue)
                 loadByBucket[l.Time.Ticks / bucketTicks] = l.Utilization.Value;
-        if (loadByBucket.Count == 0) return false; // unknown load -> never claim self-inflicted
+        if (loadByBucket.Count == 0) return (false, null);
 
-        // Nearest / cleanest elevated hop = lowest in-window baseline RTT (the access layer).
         AsnSeries? nearest = null;
         var nearestBase = double.MaxValue;
         foreach (var s in elevatedSeries)
@@ -572,11 +579,9 @@ public static class CongestionLocalizer
             var b = Index(s).BaselineRttMedian(Index(s).InWindowRtt(winStart, winEnd));
             if (b.HasValue && b.Value < nearestBase) { nearestBase = b.Value; nearest = s; }
         }
-        if (nearest == null) return false;
+        if (nearest == null) return (false, null);
 
         var ix = Index(nearest);
-        // MAD-scaled RTT bar, matching the detector's own elevation threshold, so a hop with a naturally
-        // wide baseline is judged against its own noise rather than a fixed absolute delta.
         var rtts = nearest.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).OrderBy(v => v).ToList();
         var mad = 0.0;
         if (rtts.Count > 0)
@@ -590,18 +595,22 @@ public static class CongestionLocalizer
 
         int high = 0, total = 0;
         var counted = new HashSet<long>();
+        var excursionLoads = new List<double>();
         foreach (var ticks in ix.ExcursionTicks(winStart, winEnd, rttThreshold, baseJit,
                      options.CongestionPropagationJitterFactor, options.CongestionPropagationJitterFloorMs))
         {
             var bucket = ticks / bucketTicks;
-            if (!counted.Add(bucket)) continue;               // one vote per load-window bucket
+            if (!counted.Add(bucket)) continue;
             if (loadByBucket.TryGetValue(bucket, out var util))
             {
                 total++;
+                excursionLoads.Add(util);
                 if (util >= options.CongestionLoadHighFraction) high++;
             }
         }
-        return total > 0 && (double)high / total >= options.CongestionLoadCoincidenceFraction;
+        var coincident = total > 0 && (double)high / total >= options.CongestionLoadCoincidenceFraction;
+        var excursionMedian = excursionLoads.Count > 0 ? SeriesStats.Median(excursionLoads) : (double?)null;
+        return (coincident, excursionMedian);
     }
 
     /// <summary>
