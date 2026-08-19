@@ -806,9 +806,15 @@ public class IspHealthService
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, rateAggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
+        // The gateway series decides the Local (gateway-dark) outage scope, and darkness cannot
+        // survive a coarse mean: at a long window's 60 s aggregate, a sub-minute 100%-loss span
+        // averages with clean samples to under OutageDarkLossPct, so LAN/Gateway outages read as
+        // whole-WAN. Capped at the detector's own bucket - one target, so fine rows stay cheap.
+        var gatewayAggregate = TimeSpan.FromSeconds(
+            Math.Min(aggregate.TotalSeconds, _options.OutageBucketSeconds));
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
-            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
+            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, gatewayAggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, customSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
         // Split the compute at the point every query has returned. Three rounds of optimizing the rate
         // path moved the total by nothing, which means the cost is not where it was assumed to be -
