@@ -191,7 +191,7 @@ public static class CongestionLocalizer
             if (lineWideUnderLoad && uniform && relElevated.Count > 0)
             {
                 Emit(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
-                    topology, options, loadCoincident, IsElevated));
+                    riseWindow, topology, options, loadCoincident, IsElevated));
                 continue;
             }
 
@@ -235,6 +235,7 @@ public static class CongestionLocalizer
         Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
         List<AsnSeries> anchoredWithData,
         (DateTime Start, DateTime End) window,
+        (DateTime Start, DateTime End) riseWindow,
         CongestionTopology topology,
         IspHealthOptions options,
         bool loadCoincident,
@@ -244,16 +245,18 @@ public static class CongestionLocalizer
             .Where(topology.HopNumberByIp.ContainsKey)
             .Select(ip => topology.HopNumberByIp[ip]).DefaultIfEmpty(int.MaxValue).Min();
 
-        // Decision 3: span only the contiguous sub-window where the breadth still holds, so a single
-        // hop lingering past the rest cannot stretch the incident's reported (and scored) duration.
-        var bucket = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+        // Span trimming: walk the finer line-wide slices first (same granularity that found the
+        // breadth), falling back to detector buckets, then to the rise window. The rise window is
+        // always at least as narrow as the full padded window, so a brief episode detected by the
+        // slice arm is never inflated to the full cluster span.
+        var slice = TimeSpan.FromMinutes(options.CongestionLineWideSliceMinutes);
         var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
         var wide = new List<DateTime>();
-        for (var b = CongestionDetector.FloorTime(window.Start, bucket); b < window.End; b += bucket)
-            if (anchoredWithData.Count(s => isElevated(s, b, b + bucket)) >= need)
+        for (var b = CongestionDetector.FloorTime(window.Start, slice); b < window.End; b += slice)
+            if (anchoredWithData.Count(s => isElevated(s, b, b + slice)) >= need)
                 wide.Add(b);
-        var start = wide.Count > 0 ? wide.Min() : window.Start;
-        var end = wide.Count > 0 ? wide.Max() + bucket : window.End;
+        var start = wide.Count > 0 ? wide.Min() : riseWindow.Start;
+        var end = wide.Count > 0 ? wide.Max() + slice : riseWindow.End;
 
         Func<AsnSeries, IEnumerable<CongestionEvent>> evts = s =>
             (eventsBySeries.TryGetValue(s, out var es) ? es : Enumerable.Empty<CongestionEvent>())
