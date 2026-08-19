@@ -407,6 +407,59 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Brief_line_wide_rise_registers_on_hops_whose_level_wandered_below_the_series_median()
+    {
+        // The real Steam-download shape the flat-baseline test above cannot reproduce: transit-layer
+        // hops wander by a few ms over hours, and at event time (a quiet hour) they sat ~2 ms BELOW
+        // their whole-series median. The uniform +2 ms access floor lifts them back to roughly that
+        // median, so a whole-series baseline reads "no rise" on every wandering hop (+0.2 ms, under
+        // the 0.5 ms shift floor) and the breadth dies at the access layer. The local around-the-window
+        // baseline sees the true ~+2 ms rise and the incident must still collapse to Loaded Latency.
+        var start = TestSeries.Start;
+        var span = TimeSpan.FromHours(48);
+        var drop = start.AddHours(34); // level steps down 2 ms, two hours before the event
+        var eventHour = start.AddHours(36);
+        var burstStart = eventHour.AddMinutes(12);
+        var burstEnd = eventHour.AddMinutes(18);
+        List<LatencySample> Bloat(double rtt) => TestSeries.Flat(start, span, rtt, jitterMs: 0.5)
+            .WithSegment(burstStart, burstEnd, rttMs: rtt + 2.2, jitterMs: 2.5);
+        List<LatencySample> WanderBloat(double rtt) => TestSeries.Flat(start, span, rtt, jitterMs: 0.5)
+            .WithSegment(drop, start + span, rttMs: rtt - 2, jitterMs: 0.5)
+            .WithSegment(burstStart, burstEnd, rttMs: rtt - 2 + 2.2, jitterMs: 2.5);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Bloat(2.6)),
+            Hop(100, Border, Bloat(5), Bng),
+            Hop(100, Backhaul, WanderBloat(12), Bng, Border),
+            Hop(200, Transit, WanderBloat(33), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, WanderBloat(20), Bng, Border),
+            Dest(DestCorridor, WanderBloat(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, WanderBloat(8), Bng, Border)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = eventHour; t < eventHour.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.95 : 0.05));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().ContainSingle();
+        var e = events[0];
+        e.Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        e.BottleneckHopIp.Should().Be(Bng);
+        e.LoadCoincident.Should().BeTrue();
+        e.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
     public void Access_wide_elevation_under_load_is_self_inflicted_and_suppressed()
     {
         var series = new List<AsnSeries>

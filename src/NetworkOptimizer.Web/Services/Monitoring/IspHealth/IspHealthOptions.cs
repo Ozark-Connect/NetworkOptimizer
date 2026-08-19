@@ -515,6 +515,15 @@ public class IspHealthOptions
     /// </summary>
     public int CongestionLineWideSliceMinutes { get; set; } = 5;
 
+    /// <summary>
+    /// Lookaround in minutes on each side of the event window for the line-wide rise test's LOCAL
+    /// baseline (the window itself excluded). Transit hops wander by a few ms over hours, so the
+    /// whole-series median can sit ABOVE the hop's quiet level at event time and a genuine small
+    /// line-wide floor reads as no rise against it; the local level does not. The whole-series
+    /// baseline remains the fallback when too little data sits around the window.
+    /// </summary>
+    public int CongestionLineWideLocalBaselineMinutes { get; set; } = 120;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 

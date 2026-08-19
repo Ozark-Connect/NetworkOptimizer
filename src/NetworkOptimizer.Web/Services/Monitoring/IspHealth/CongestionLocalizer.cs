@@ -127,29 +127,40 @@ public static class CongestionLocalizer
             // breadth holds. All rise statistics below share the narrowed window so a diluted
             // median cannot pass one gate and fail another.
             var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
+            // Rise is measured against each hop's LOCAL level (the hours around the window, window
+            // excluded), not the whole-series median: a transit hop wanders by a few ms over hours,
+            // so at event time it can sit below its whole-series median and a genuine small line-wide
+            // floor only lifts it back there - reading as no rise. Computed once per series per
+            // cluster; whole-series baseline is the fallback when little data sits around the window.
+            var lookaround = TimeSpan.FromMinutes(options.CongestionLineWideLocalBaselineMinutes);
+            var localBase = anchoredWithData.ToDictionary(
+                s => s, s => Index(s).LocalRttMedian(window.Start, window.End, lookaround));
+            bool Rose(AsnSeries s, DateTime from, DateTime to) => RoseInWindow(s, from, to, localBase[s], options);
             var riseWindow = window;
             var lineWideUnderLoad = anchoredWithData.Count > 0
-                && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options)) >= need;
+                && anchoredWithData.Count(s => Rose(s, window.Start, window.End)) >= need;
             if (!lineWideUnderLoad && anchoredWithData.Count > 0)
             {
                 var slice = TimeSpan.FromMinutes(options.CongestionLineWideSliceMinutes);
                 DateTime? wideStart = null;
                 var wideEnd = default(DateTime);
                 for (var b = CongestionDetector.FloorTime(window.Start, slice); b < window.End; b += slice)
-                    if (anchoredWithData.Count(s => RoseInWindow(s, b, b + slice, options)) >= need)
+                    if (anchoredWithData.Count(s => Rose(s, b, b + slice)) >= need)
                     { wideStart ??= b; wideEnd = b + slice; }
                 if (wideStart.HasValue) { riseWindow = (wideStart.Value, wideEnd); lineWideUnderLoad = true; }
             }
 
             // Each anchored path's RTT rise over its OWN baseline, measured over the rise window.
             // Under load every path picks up a shared FLOOR of added delay; localized congestion
-            // is the rise ABOVE that floor.
+            // is the rise ABOVE that floor. Uses the same LOCAL baseline as the breadth test: against
+            // the whole-series median a wandering hop's rise is understated, so a uniform event reads
+            // as non-uniform (the flat access hop's full rise towers over the wanderers' residual).
             double RttRise(AsnSeries s)
             {
                 var ix = Index(s);
                 var inW = ix.InWindowRtt(riseWindow.Start, riseWindow.End);
                 var im = SeriesStats.Median(inW);
-                var bm = ix.BaselineRttMedian(inW);
+                var bm = (localBase.TryGetValue(s, out var lb) ? lb : null) ?? ix.BaselineRttMedian(inW);
                 return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
             }
             var relElevated = anchoredWithData.Where(s => IsElevated(s, riseWindow.Start, riseWindow.End)).ToList();
@@ -677,17 +688,21 @@ public static class CongestionLocalizer
         Index(series).HasRttInWindow(start, end);
 
     /// <summary>
-    /// True when the series' in-window median rose above its out-of-window baseline median by at least
+    /// True when the series' in-window RTT rose above its baseline median by at least
     /// CongestionLineWideMinShiftMs. The robust per-path "drifted up under load" signal: unlike the
     /// absolute elevation bar it isn't fooled by a high-variance path's inflated p90, so a constant
-    /// bufferbloat offset registers even on high-baseline hops. Used only for the line-wide test.
+    /// bufferbloat offset registers even on high-baseline hops. The baseline is the caller-supplied
+    /// LOCAL level around the event window when available (see the Localize comment for why the
+    /// whole-series median under-reads wandering hops), else the whole-series median.
+    /// Used only for the line-wide test.
     /// </summary>
-    private static bool RoseInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
+    private static bool RoseInWindow(AsnSeries series, DateTime start, DateTime end,
+        double? localBaseline, IspHealthOptions options)
     {
         var ix = Index(series);
         var inWindow = ix.InWindowRtt(start, end);
         if (inWindow.Count == 0 || ix.RttCount - inWindow.Count == 0) return false;
-        var bMed = ix.BaselineRttMedian(inWindow);
+        var bMed = localBaseline ?? ix.BaselineRttMedian(inWindow);
         // Use a high in-window percentile, not the median: an event with a strong core and a long
         // mild tail dilutes the median toward baseline, so a path that genuinely rose for a good part
         // of the window flickers in and out of "rose" across recomputes and the line-wide breadth
@@ -796,6 +811,19 @@ public static class CongestionLocalizer
                     && _jit[i]!.Value - baseJitter.Value >= jitterFloorMs;
                 if (rttHot || jitHot) yield return _ticks[i];
             }
+        }
+
+        /// <summary>
+        /// Median RTT in the lookaround span on each side of [exclStart, exclEnd], the window itself
+        /// excluded - the hop's LOCAL quiet level around an event. Null when fewer than a handful of
+        /// samples sit there, so the caller can fall back to the whole-series baseline.
+        /// </summary>
+        public double? LocalRttMedian(DateTime exclStart, DateTime exclEnd, TimeSpan lookaround)
+        {
+            const int minSamples = 12;
+            var vals = Collect(_rtt, exclStart - lookaround, exclStart.AddTicks(-1));
+            vals.AddRange(Collect(_rtt, exclEnd.AddTicks(1), exclEnd + lookaround));
+            return vals.Count >= minSamples ? SeriesStats.Median(vals) : null;
         }
 
         public double? BaselineRttMedian(List<double> inWindow) => PercentileExcluding(_rttAsc, inWindow, 0.5);
