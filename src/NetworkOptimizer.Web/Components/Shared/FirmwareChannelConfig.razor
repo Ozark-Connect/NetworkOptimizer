@@ -149,7 +149,7 @@
                             <span class="firmware-rollout-chip chip-active"
                                   data-tooltip="@UpdateTooltip?.Invoke(device)">@(FirmwareVersionFormat.ShortOrNull(device.TargetVersion) ?? "Update waiting")</span>
                         }
-                        <button type="button" class="btn btn-sm btn-tertiary firmware-rollout-sku-btn" @onclick="() => ToggleSkuAsync(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
+                        <button type="button" class="btn btn-sm btn-contrast firmware-rollout-sku-btn" @onclick="() => ToggleSkuAsync(device)" @onclick:stopPropagation="true">@(SkuExcluded(device) ? "Include model" : "Exclude model")</button>
                     </label>
                 }
             </div>
