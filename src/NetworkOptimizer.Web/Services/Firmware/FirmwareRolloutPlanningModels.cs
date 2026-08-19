@@ -20,7 +20,9 @@ public enum FirmwareDeviceClass
     /// <summary>Network-firmware-only gateway (UXG class): comparable to switches.</summary>
     GatewayNetworkOnly,
     /// <summary>Cloud Gateway running UniFi OS (UDM/UDR/UCG): slowest, console down during the cycle.</summary>
-    CloudGatewayUniFiOs
+    CloudGatewayUniFiOs,
+    /// <summary>Cellular modem (U5G-Max, LTE): download + apply + reconnect to console.</summary>
+    CellularModem
 }
 
 /// <summary>

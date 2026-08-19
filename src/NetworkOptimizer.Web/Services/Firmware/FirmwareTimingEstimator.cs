@@ -34,6 +34,7 @@ public class FirmwareTimingEstimator
         FirmwareDeviceClass.OlderAccessPoint => 420,
         FirmwareDeviceClass.Switch => 480,
         FirmwareDeviceClass.GatewayNetworkOnly => 240,
+        FirmwareDeviceClass.CellularModem => 480,
         // The original 18 minutes was vendor guidance, not a measurement: the 2026-08-14 research
         // could not observe this cycle at all, because the console being down is also what stops
         // us polling it. Five real upgrades since measured 170-283 s, median 230. The console's
@@ -87,6 +88,9 @@ public class FirmwareTimingEstimator
                 ? FirmwareDeviceClass.OlderAccessPoint
                 : FirmwareDeviceClass.AccessPoint;
         }
+
+        if (type == DeviceType.CellularModem)
+            return FirmwareDeviceClass.CellularModem;
 
         return FirmwareDeviceClass.Switch;
     }

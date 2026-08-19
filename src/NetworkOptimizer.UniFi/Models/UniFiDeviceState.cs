@@ -43,7 +43,7 @@ public static class UniFiDeviceStateMap
         UniFiDeviceState.FirmwareMismatch => new(DeviceStatusKind.Online, "Update Available"),
 
         UniFiDeviceState.Pending => new(DeviceStatusKind.Transitional, "Pending"),
-        UniFiDeviceState.Upgrading => new(DeviceStatusKind.Transitional, "Updating"),
+        UniFiDeviceState.Upgrading => new(DeviceStatusKind.Transitional, "Upgrading"),
         UniFiDeviceState.Provisioning => new(DeviceStatusKind.Transitional, "Provisioning"),
         UniFiDeviceState.Adopting => new(DeviceStatusKind.Transitional, "Adopting"),
         UniFiDeviceState.Deleting => new(DeviceStatusKind.Transitional, "Deleting"),
