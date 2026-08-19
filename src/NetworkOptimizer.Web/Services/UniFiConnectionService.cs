@@ -125,12 +125,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     private void HandleAuthProbe(bool success, string? error)
     {
+        // Suppression must gate the LATCH, not just the publish: _consoleAlertActive means "an
+        // alert is published and standing". Latching a suppressed failure left it true with no
+        // alert out, so a console that never recovered was never alerted on at all.
+        var suppressed = IsInRolloutConsoleCycle();
         bool publishFailed = false, publishRestored = false;
         lock (_consoleAlertLock)
         {
             if (success)
             {
-                if (_consoleAlertActive)
+                if (_consoleAlertActive && !suppressed)
                 {
                     _consoleAlertActive = false;
                     publishRestored = true;
@@ -148,6 +152,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _consecutiveAuthFailures++;
 
                 if (!_consoleAlertActive
+                    && !suppressed
                     && _consecutiveAuthFailures >= 2
                     && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow)
                 {
@@ -157,13 +162,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
         }
 
-        if (publishFailed && !IsInRolloutConsoleCycle())
+        if (publishFailed)
         {
             PublishConsoleAlert("console.connection_failed", AlertSeverity.Warning,
                 "UniFi Console connection failed",
                 $"Repeated attempts to authenticate with the UniFi Console have failed. Features that read the console API (Wi-Fi Optimizer, Config Optimizer, Security Audit, Threat Intelligence) are unavailable until it recovers. Last error: {error ?? "unknown"}");
         }
-        if (publishRestored && !IsInRolloutConsoleCycle())
+        if (publishRestored)
         {
             PublishConsoleAlert("console.connection_restored", AlertSeverity.Info,
                 "UniFi Console connection restored",

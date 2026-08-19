@@ -229,14 +229,21 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
 
             // Main DB (also the default site's data)
             List<string> slugs;
+            bool seedNetworkApp;
             await using (var db = await _mainDbFactory.CreateDbContextAsync(ct))
             {
+                // Network app rows only on the very first startup: extraction INFERS the channel
+                // from the version (plans never recorded it), which goes stale as GA advances.
+                // Once the table has rows, the live gather records real channels; re-inferring
+                // here would plant wrong-channel rows on every startup.
+                seedNetworkApp = !await db.SharedNetworkAppBuilds.AsNoTracking().AnyAsync(ct);
+
                 var plans = await db.FirmwareRolloutPlans.AsNoTracking()
                     .Where(p => p.PlanJson != null)
                     .Select(p => p.PlanJson!)
                     .ToListAsync(ct);
                 foreach (var json in plans)
-                    ExtractCatalogEntries(json, deviceBuilds, appBuilds);
+                    ExtractCatalogEntries(json, deviceBuilds, seedNetworkApp ? appBuilds : null);
 
                 slugs = await db.Sites.AsNoTracking()
                     .Where(s => s.Enabled && s.Slug != SiteManagementService.DefaultSiteSlug)
@@ -259,7 +266,7 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
                         .Select(p => p.PlanJson!)
                         .ToListAsync(ct);
                     foreach (var json in plans)
-                        ExtractCatalogEntries(json, deviceBuilds, appBuilds);
+                        ExtractCatalogEntries(json, deviceBuilds, seedNetworkApp ? appBuilds : null);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -288,11 +295,11 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
 
     /// <summary>
     /// Pulls catalog entries out of one plan document: device builds from TargetImages (model from
-    /// wave steps, channel from the channel group covering the device's wave) and the Network
-    /// application build from NetworkAppUpdate.
+    /// wave steps, channel from the channel group covering the device's wave) and, when
+    /// <paramref name="appBuilds"/> is given, the Network application build from NetworkAppUpdate.
     /// </summary>
     private static void ExtractCatalogEntries(
-        string json, List<SharedFirmwareBuild> deviceBuilds, Dictionary<string, string?> appBuilds)
+        string json, List<SharedFirmwareBuild> deviceBuilds, Dictionary<string, string?>? appBuilds)
     {
         if (string.IsNullOrWhiteSpace(json)) return;
 
@@ -335,9 +342,12 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
             });
         }
 
-        if (document.IncludesUniFiNetworkUpdate
+        if (appBuilds != null
+            && document.IncludesUniFiNetworkUpdate
             && document.NetworkAppUpdate.TargetVersion is { Length: > 0 } ver)
         {
+            // First-startup seed only (appBuilds is null after that): the channel is inferred
+            // against a GA version frozen at the time this shipped, so it cannot stay right.
             var channel = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(ver, "10.5.67") ? "beta" : "release";
             var key = $"{channel}|{ver}";
             var url = document.NetworkAppUpdate.Url;

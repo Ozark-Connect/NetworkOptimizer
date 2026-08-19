@@ -121,10 +121,13 @@ public class RolloutAutopilot : IRolloutAutopilot
         var inputs = await _planning.UseAsync(
             (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, c), cancellationToken);
 
-        // Don't burn the check interval when the console wasn't reachable: the catalog and
+        // Don't burn the check interval when the site wasn't reachable: the catalog and
         // update availability are unknown, so "nothing to upgrade" is an absence of data, not
-        // an answer. Retry on the next tick once the agent tunnel is up.
-        if (!RolloutPlanComposer.ConsoleReachable(inputs.Console))
+        // an answer. Retry on the next tick once the agent tunnel is up. But devices in hand
+        // with no /api/system answer is an API-key connection, which NEVER answers /api/system:
+        // plan device-only and stamp the interval, or every reconcile tick re-runs the full
+        // gather - channel writes included - forever.
+        if (!RolloutPlanComposer.ConsoleReachable(inputs.Console) && inputs.Context.Devices.Count == 0)
         {
             _logger.LogDebug("Autopilot deferring on site {Site}: the console is not connected", _siteSlug);
             return null;

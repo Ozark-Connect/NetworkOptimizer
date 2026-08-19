@@ -40,12 +40,17 @@ public interface IFirmwareRolloutService
 
     /// <summary>
     /// The wizard's dry run: refreshes the console's firmware catalog (UniFi's own "Check for
-    /// Updates"), plans against the live topology, and proposes a start window. Changes nothing.
+    /// Updates"), plans against the live topology, and proposes a start window.
     /// </summary>
     /// <param name="settings">Settings to plan against, saved or not.</param>
+    /// <param name="readOnly">
+    /// True skips staging the planned channels on the console, so the preview writes nothing.
+    /// The drift check runs read-only - it may fire for any role, and a hint must not move
+    /// console channels. The wizard and autopilot keep staging: their preview is a commitment.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [RequireRole(Roles.Viewer)]
-    Task<RolloutPreviewView> BuildPreviewAsync(FirmwareRolloutSettings settings, CancellationToken cancellationToken = default);
+    Task<RolloutPreviewView> BuildPreviewAsync(FirmwareRolloutSettings settings, bool readOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>Writes the site's rollout settings.</summary>
     /// <param name="settings">Settings to store.</param>

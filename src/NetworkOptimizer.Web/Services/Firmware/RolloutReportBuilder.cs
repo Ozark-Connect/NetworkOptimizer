@@ -128,12 +128,14 @@ public static class RolloutReportBuilder
             });
         }
 
-        // Add the Network app as a row when it ran and the console has no other row yet.
-        // On a Cloud Gateway with both Network + OS, the OS row above already represents the
-        // console (with resource stats), so this only fires for Network-only plans or UOS Servers.
+        // Add the Network app as a row when it ran, unless the console already has a row telling
+        // an upgrade story (a Cloud Gateway OS row, with resource stats). Deferring to ANY console
+        // row hid a real Network app upgrade behind a skipped OS step - the console read "Skipped"
+        // while the application had genuinely updated.
         if (document.IncludesUniFiNetworkUpdate
             && document.NetworkAppUpdate.Outcome is not null and not "skipped" and not "nothing-to-update"
-            && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)))
+            && !report.Rows.Any(r => string.Equals(r.Mac, document.ConsoleMac, StringComparison.OrdinalIgnoreCase)
+                && r.Outcome is RolloutOutcomes.Upgraded or RolloutOutcomes.RegressionFlagged))
         {
             var appOutcome = document.NetworkAppUpdate.Outcome switch
             {

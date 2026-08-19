@@ -156,14 +156,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<RolloutPreviewView> BuildPreviewAsync(
-        FirmwareRolloutSettings settings, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, bool readOnly = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
         // Every step here is a console round trip, and on an agent-relayed site they are the whole
         // cost of opening the wizard. Timed individually so a slow preview names its own culprit.
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var (result, context) = await PlanAsync(settings, cancellationToken);
+        var (result, context) = await PlanAsync(settings, readOnly, cancellationToken);
         var planMs = timer.ElapsedMilliseconds;
         var document = result.Document;
 
@@ -412,13 +412,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// <summary>
     /// Plans against the live site. The catalog refresh comes first and is not optional: it is
     /// UniFi's own "Check for Updates", and it stages the builds the plan is about to command.
+    /// Read-only withholds the settings from the gather, which is what skips channel staging.
     /// </summary>
     private async Task<(RolloutPlanResult Result, RolloutPlanningContext Context)> PlanAsync(
-        FirmwareRolloutSettings settings, CancellationToken cancellationToken)
+        FirmwareRolloutSettings settings, bool readOnly, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(
-            _planning, timings, _commands, settings, _logger, _sharedCatalog, cancellationToken);
+            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs.Context);
@@ -451,7 +452,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
 
-        var (result, _) = await PlanAsync(settings, cancellationToken);
+        var (result, _) = await PlanAsync(settings, readOnly: false, cancellationToken);
         var upgrading = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded);
         // The console counts too: a Cloud Gateway's UniFi OS build waits while every device
         // reports nothing pending, and that is still a rollout worth running.

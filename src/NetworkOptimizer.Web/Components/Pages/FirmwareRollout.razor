@@ -3,6 +3,8 @@
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IAsyncDisposable
 @inject IFirmwareRolloutService RolloutService
+@inject IServiceScopeFactory ScopeFactory
+@inject NetworkOptimizer.Web.Services.Identity.ICallerContext CallerContext
 @inject SiteContextService SiteContext
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
@@ -914,13 +916,20 @@ else
     /// <summary>
     /// Looks for firmware that landed after a waiting plan was composed: a fresh preview is diffed
     /// against the plan's steps, and any new device or new target version earns the Re-plan notice.
-    /// A failed preview shows nothing - the plan is still valid without the hint.
+    /// A failed preview shows nothing - the plan is still valid without the hint. Read-only (no
+    /// channel staging - any role can trigger this), and on its own DI scope: it is fire-and-forget,
+    /// so sharing the circuit's scoped DbContext with a concurrent button handler would race.
     /// </summary>
     private async Task CheckDriftAsync(int planId)
     {
         try
         {
-            var preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            using var scope = ScopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteContext.Slug);
+            if (CallerContext.Current is { } caller)
+                scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Web.Services.Identity.ICallerContext>().SetUser(caller);
+            var preview = await scope.ServiceProvider.GetRequiredService<IFirmwareRolloutService>()
+                .BuildPreviewAsync(WorkingSettings(), readOnly: true);
             await InvokeAsync(() =>
             {
                 if (_active?.Id != planId
