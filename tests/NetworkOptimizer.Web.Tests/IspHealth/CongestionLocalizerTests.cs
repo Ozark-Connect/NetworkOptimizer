@@ -50,6 +50,14 @@ public class CongestionLocalizerTests
     // but over the 0.5 ms median-shift margin (the line-wide test still sees it rose). Models a high-
     // baseline path whose small bufferbloat offset hides under its own threshold.
     private static List<LatencySample> SmallRise(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 1, jitterMs: 0.6);
+    // A hop that naturally bounces by a few ms (deterministic 0-6 ms cycle, quiet-time p75-median
+    // spread 1.5 ms) with no real event. Under a flat 0.5 ms shift floor its in-window p75 clears
+    // the line-wide rise bar in ANY window; the noise-scaled floor must not count it.
+    private static List<LatencySample> Noisy(double rtt = 30) => Flat(rtt)
+        .Select(s => new LatencySample(s.Time, rtt + s.Time.Minute % 5 * 1.5, rtt + s.Time.Minute % 5 * 1.5 + 0.5, 0.5, s.LossPercent))
+        .ToList();
+    private static List<LatencySample> NoisyElevated(double rtt = 30) =>
+        Noisy(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 28, jitterMs: 6);
 
     private static AsnSeries Hop(int asn, string ip, List<LatencySample> samples, params string[] ancestors) => new()
     {
@@ -583,6 +591,56 @@ public class CongestionLocalizerTests
 
         events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
         events.Single(e => e.BottleneckHopIp == Bng).Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
+    public void Noisy_hops_bouncing_within_their_own_variance_do_not_pad_the_line_wide_vote()
+    {
+        // Only the access corridor rose; the transit, dead-end and destinations just bounced within
+        // their own natural noise (quiet spread 1.5 ms, no event). Under a flat 0.5 ms shift floor
+        // every noisy hop reads "rose" in the window, breadth passes, and the egress event wrongly
+        // collapses to Loaded Latency. The noise-scaled floor requires a shift exceeding each hop's
+        // own variance, so the vote is 3/7, not line-wide, and the egress stays Confirmed (scored).
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Noisy(30), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Noisy(20), Bng, Border),
+            Dest(DestCorridor, Noisy(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Noisy(25), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        events.Single(e => e.BottleneckHopIp == Bng).Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
+    public void A_real_line_wide_rise_still_counts_noisy_hops()
+    {
+        // The flip side of the noise-scaled floor: a genuine line-wide rise under load lifts the
+        // noisy hops well past their own variance, so they still vote "rose" and the incident
+        // collapses to Loaded Latency exactly as with stable hops.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, NoisyElevated(30), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, NoisyElevated(20), Bng, Border),
+            Dest(DestCorridor, NoisyElevated(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, NoisyElevated(25), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().ContainSingle();
+        events[0].Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        events[0].BottleneckHopIp.Should().Be(Bng);
+        events[0].Suppressed.Should().BeTrue();
     }
 
     [Fact]

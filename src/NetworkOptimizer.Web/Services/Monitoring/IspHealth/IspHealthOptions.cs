@@ -499,6 +499,15 @@ public class IspHealthOptions
     public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
 
     /// <summary>
+    /// Multiplier on a path's own quiet-time RTT spread (p75 minus median around the window) that
+    /// scales its line-wide rise threshold: max(CongestionLineWideMinShiftMs, factor * spread).
+    /// A hop that naturally bounces by a few ms otherwise clears the flat floor in ANY window and
+    /// pads the breadth vote; a real line-wide rise exceeds every path's own noise, so noisy hops
+    /// still vote when something actually happened. Stable paths keep the flat floor.
+    /// </summary>
+    public double CongestionLineWideNoiseFactor { get; set; } = 1.5;
+
+    /// <summary>
     /// In-window percentile used by the line-wide rise test. A high percentile (vs the median) keeps a
     /// path that rose strongly for a good part of the window counted as "rose" even when a long mild
     /// tail dilutes its median toward baseline - otherwise the line-wide breadth flickers across
