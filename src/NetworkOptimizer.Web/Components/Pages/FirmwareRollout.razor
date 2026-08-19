@@ -79,7 +79,7 @@ else if (_active != null)
             }
             @if (_active.Status == FirmwareRolloutStatus.SoakWait)
             {
-                <p class="firmware-rollout-note">All devices have upgraded. We're giving them @SoakLabel to settle, then comparing against the @SoakLabel before the upgrade. That's when the report shows up.</p>
+                <p class="firmware-rollout-note">@SoakIntro We're giving them @SoakLabel to settle, then comparing against the @SoakLabel before the upgrade. That's when the report shows up.</p>
             }
             @foreach (var note in _active.Plan.Notes)
             {
@@ -698,6 +698,12 @@ else
 
     private string SoakLabel => $"{SoakHours} hour{(SoakHours == 1 ? "" : "s")}";
 
+    /// <summary>"All devices have upgraded" is only claimed when it is true.</summary>
+    private string SoakIntro => _active != null && _active.Steps.Any(s => s.State
+            is FirmwareRolloutStepState.Failed or FirmwareRolloutStepState.AbortedSku)
+        ? "The rollout has finished, though some devices didn't upgrade."
+        : "All devices have upgraded.";
+
     /// <summary>
     /// The console's phases run on the gateway when the gateway IS the console. Its device step
     /// names the model where it has one; a console with no device step of its own is named from the
@@ -732,7 +738,9 @@ else
 
     private static string ConsoleChipLabel(RolloutConsoleStepState state)
     {
-        if (!state.Triggered) return "Queued";
+        // A step can settle without ever triggering (nothing to install), so Settled is checked
+        // before Triggered - the outcome word, not a "Queued" it never left.
+        if (!state.Triggered && !state.Settled) return "Queued";
         if (!state.Settled) return "Upgrading";
         return state.Outcome switch
         {
@@ -792,7 +800,7 @@ else
 
     private static string ConsoleChipClass(RolloutConsoleStepState state)
     {
-        if (!state.Triggered) return "chip-muted";
+        if (!state.Triggered && !state.Settled) return "chip-muted";
         if (!state.Settled) return "chip-active";
         return state.Outcome switch
         {
@@ -1777,6 +1785,11 @@ else
                     if (_active == null && wasActive)
                     {
                         _history = await RolloutService.GetPlanHistoryAsync();
+                        // The autopilot landing view renders the preview, and nothing else
+                        // rebuilds it once the plan goes terminal - without this the page
+                        // sits on its loading state.
+                        if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+                            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
                         await DisposeVizAsync();
                     }
                     else

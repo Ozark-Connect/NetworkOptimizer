@@ -526,7 +526,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var observations = await _observer.ObserveAsync(cancellationToken);
         var observation = observations.FirstOrDefault(o => o.Mac == step.DeviceMac);
 
-        var result = await _commands.TriggerSshUpgradeAsync(observation?.IpAddress ?? string.Empty, prior.Url, cancellationToken);
+        var result = await _commands.TriggerSshUpgradeAsync(
+            observation?.IpAddress ?? string.Empty, prior.Url, SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
             result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, prior.Url, cancellationToken);
 
@@ -556,7 +557,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.RollbackExecuted,
             AlertSeverity.Info,
             $"Firmware Rolled Back: {step.DeviceName}{_siteSuffix}",
-            $"{step.DeviceName} ({step.Model}) is going back from {upgradedTo ?? "its new firmware"} to {prior.Version ?? "its previous firmware"}.",
+            $"{step.DeviceName} ({step.Model}) is going back from {ShortVersion(upgradedTo) ?? "its new firmware"} to {ShortVersion(prior.Version) ?? "its previous firmware"}.",
             step.DeviceMac,
             step.DeviceName,
             cancellationToken);
@@ -813,7 +814,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The console only knows what its channel offers once it has looked, so the check comes
         // first; updateAvailable is then the answer, and its absence means nothing to install.
         await _commands.CheckForApplicationUpdatesAsync(cancellationToken);
-        var application = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.NetworkApplication;
+        var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+        var application = console?.NetworkApplication;
 
         var apiPathAvailable = application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
@@ -841,10 +843,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         // The console may not see an update because the channel switch failed, but the plan
-        // captured the URL at planning time when the channel was still right.
+        // captured the URL at planning time when the channel was still right. Not on a standalone
+        // console: its Network app runs on the UOS Server host, not the gateway this SSH reaches.
         var installedApp = application?.Version;
         var plannedApp = state.TargetVersion;
-        if (!string.IsNullOrWhiteSpace(state.Url)
+        if (console?.IsStandaloneConsole != true
+            && !string.IsNullOrWhiteSpace(state.Url)
             && !string.IsNullOrWhiteSpace(plannedApp)
             && !string.IsNullOrWhiteSpace(installedApp)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp))
@@ -992,7 +996,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.DeviceStuckOffline,
                 AlertSeverity.Critical,
                 $"Console Stuck Offline After UniFi OS Update{_siteSuffix}",
-                $"The console was updated to UniFi OS {state.TargetVersion ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
+                $"The console was updated to UniFi OS {ShortVersion(state.TargetVersion) ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
                 cancellationToken);
@@ -1048,7 +1052,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.DeviceStuckOffline,
                 AlertSeverity.Critical,
                 $"Console Stuck Updating UniFi OS{_siteSuffix}",
-                $"The UniFi OS {state.TargetVersion ?? "update"} install has been running for {UniFiOsUpdateBudget.TotalMinutes:0} minutes without finishing.",
+                $"The UniFi OS {ShortVersion(state.TargetVersion) ?? "update"} install has been running for {UniFiOsUpdateBudget.TotalMinutes:0} minutes without finishing.",
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
                 cancellationToken);
@@ -1289,7 +1293,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "{Device} on site {Site} did not act on its upgrade command; retrying over SSH",
             step.DeviceName, _siteSlug);
 
-        var result = await _commands.TriggerSshUpgradeAsync(observation.IpAddress, url, cancellationToken);
+        var result = await _commands.TriggerSshUpgradeAsync(
+            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -1471,7 +1476,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.SkuAborted,
             AlertSeverity.Warning,
             $"Firmware Rollout Dropped {failed.Model}{_siteSuffix}",
-            $"{failed.DeviceName} ({failed.Model}{(isCanary ? ", the first of its model" : "")}) did not come through its upgrade to {failed.ToVersion ?? "the target version"}. {peers.Count} remaining {failed.Model} device{(peers.Count == 1 ? " was" : "s were")} dropped; other models keep rolling.",
+            $"{failed.DeviceName} ({failed.Model}{(isCanary ? ", the first of its model" : "")}) did not come through its upgrade to {ShortVersion(failed.ToVersion) ?? "the target version"}. {peers.Count} remaining {failed.Model} device{(peers.Count == 1 ? " was" : "s were")} dropped; other models keep rolling.",
             failed.DeviceMac,
             failed.DeviceName,
             cancellationToken);
@@ -1540,7 +1545,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     RolloutAlerts.ResourceRegression,
                     AlertSeverity.Warning,
                     $"Heavier After Upgrade: {step.DeviceName}{_siteSuffix}",
-                    $"{step.DeviceName} ({step.Model}) went from {step.FromVersion ?? "its previous firmware"} to {step.ToVersion ?? "its new firmware"} and is working harder since. {comparison.Detail} Worth a look, or a roll back.",
+                    $"{step.DeviceName} ({step.Model}) went from {ShortVersion(step.FromVersion) ?? "its previous firmware"} to {ShortVersion(step.ToVersion) ?? "its new firmware"} and is working harder since. {comparison.Detail} Worth a look, or a roll back.",
                     step.DeviceMac, step.DeviceName, cancellationToken);
             }
             else if (comparison.Verdict == ResourceComparisonVerdict.Improvement)
@@ -1549,7 +1554,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     RolloutAlerts.ResourceImprovement,
                     AlertSeverity.Info,
                     $"Lighter After Upgrade: {step.DeviceName}{_siteSuffix}",
-                    $"{step.DeviceName} ({step.Model}) went from {step.FromVersion ?? "its previous firmware"} to {step.ToVersion ?? "its new firmware"} and is working less hard since. {comparison.Detail}",
+                    $"{step.DeviceName} ({step.Model}) went from {ShortVersion(step.FromVersion) ?? "its previous firmware"} to {ShortVersion(step.ToVersion) ?? "its new firmware"} and is working less hard since. {comparison.Detail}",
                     step.DeviceMac, step.DeviceName, cancellationToken);
             }
         }
@@ -1814,7 +1819,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             if (!result.IsOk && url != null && !string.IsNullOrWhiteSpace(observation.IpAddress))
             {
-                result = await _commands.TriggerSshUpgradeAsync(observation.IpAddress, url, cancellationToken);
+                result = await _commands.TriggerSshUpgradeAsync(
+                    observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
                 if (result.IsOk)
                     _escalatedAt[step.Id] = Now;
             }
@@ -1858,6 +1864,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var upgraded = steps.Count(IsPassed);
         var failed = steps.Count(s => s.State == FirmwareRolloutStepState.Failed);
         var dropped = steps.Count(s => s.State == FirmwareRolloutStepState.AbortedSku);
+        var nothingToSoak = upgraded == 0 && !ConsoleSurfaceUpdated(document);
 
         await PublishAsync(
             RolloutAlerts.Completed,
@@ -1869,13 +1876,23 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 ? ConsoleUpdateSummary(document).TrimStart()
                 : $"{upgraded} device{(upgraded == 1 ? "" : "s")} upgraded, {failed} failed, {dropped} dropped."
                   + ConsoleUpdateSummary(document))
-            + " The report follows after the soak.",
+            + (nothingToSoak ? " Nothing changed, so the report is ready now." : " The report follows after the soak."),
             null, null, cancellationToken);
 
         _logger.LogInformation(
             "Firmware rollout {Id} on site {Site} finished: {Upgraded} upgraded, {Failed} failed, {Dropped} dropped",
             plan.Id, _siteSlug, upgraded, failed, dropped);
+
+        // The soak exists to compare before/after resource use. With nothing upgraded - no device
+        // passed, neither console surface changed - there is nothing to compare, so the report is
+        // built now rather than after a wait that measures nothing.
+        if (nothingToSoak)
+            await BuildSoakReportIfDueAsync(plan, steps, cancellationToken);
     }
+
+    /// <summary>Whether either console surface actually installed something this rollout.</summary>
+    private static bool ConsoleSurfaceUpdated(RolloutPlanDocument document) =>
+        document.NetworkAppUpdate.Outcome == "updated" || document.UniFiOsUpdate.Outcome == "updated";
 
     // --- Report --------------------------------------------------------------------------------
 
@@ -1973,14 +1990,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The console's window opens a gateway cool-down after ITS trigger, which is always after
         // the last device wave - so the device comparisons finishing is not enough to report.
-        if (AwaitingGatewayPostStats(ParseDocument(plan), ResourceWindowFor(settings)))
-            return;
-
-        var completedAt = plan.CompletedAt ?? Now;
-        if (measured.Count == 0 && Now - completedAt < ResourceWindowFor(settings))
-            return;
-
         var document = ParseDocument(plan);
+        if (AwaitingGatewayPostStats(document, ResourceWindowFor(settings)))
+            return;
+
+        // With no measured device the wait only serves an updated console surface; a rollout where
+        // nothing changed at all has nothing to compare and reports immediately.
+        var completedAt = plan.CompletedAt ?? Now;
+        if (measured.Count == 0 && ConsoleSurfaceUpdated(document) && Now - completedAt < ResourceWindowFor(settings))
+            return;
+
         if (await NameConsoleFromSiteAsync(document, cancellationToken))
             plan.PlanJson = JsonSerializer.Serialize(document);
         var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
@@ -2006,9 +2025,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             RolloutAlerts.ReportReady,
             AlertSeverity.Info,
             $"Firmware Rollout Report Ready{_siteSuffix}",
-            $"{subject} been running {(consoleOnly || report.DevicesUpgraded == 1 ? "its" : "their")} new firmware "
-            + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
-            + "Open Firmware Rollout for the before-and-after.",
+            measured.Count == 0 && !ConsoleSurfaceUpdated(document)
+                ? "Nothing upgraded in this rollout, so there is no before-and-after to compare. Open Firmware Rollout for the details."
+                : $"{subject} been running {(consoleOnly || report.DevicesUpgraded == 1 ? "its" : "their")} new firmware "
+                  + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
+                  + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
 
         _logger.LogInformation(
@@ -2457,6 +2478,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static bool IsGatewayStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.Gateway;
 
+    /// <summary>
+    /// Whether the SSH path takes the UniFi OS gateway command. Legacy USG models (UGW*) predate
+    /// UniFi OS and upgrade with <c>upgrade</c> like an AP.
+    /// </summary>
+    private static bool SshUpgradesAsGateway(FirmwareRolloutStep step) =>
+        IsGatewayStep(step) && step.Model?.StartsWith("UGW", StringComparison.OrdinalIgnoreCase) != true;
+
     private static TimeSpan CoolDownFor(FirmwareRolloutStep step) =>
         IsGatewayStep(step) ? GatewayCoolDown : CoolDown;
 
@@ -2494,6 +2522,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// What the two console-level updates did, for the completion alert. Only outcomes a reader
     /// would act on or be surprised by earn a sentence.
     /// </summary>
+    /// <summary>Alert copy shows the short version (8.0.1, not 8.0.1.19967).</summary>
+    private static string? ShortVersion(string? version) =>
+        NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(version);
+
     private static string ConsoleUpdateSummary(RolloutPlanDocument document)
     {
         var parts = new List<string>();
@@ -2507,10 +2539,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         switch (document.UniFiOsUpdate.Outcome)
         {
             case "updated":
-                parts.Add($"The console was updated to UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"}.");
+                parts.Add($"The console was updated to UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"}.");
                 break;
             case "unchanged":
-                parts.Add($"The console accepted UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"} but is still offering it.");
+                parts.Add($"The console accepted UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"} but is still offering it.");
                 break;
             case "stuck":
                 parts.Add("The console has not answered since its UniFi OS update.");

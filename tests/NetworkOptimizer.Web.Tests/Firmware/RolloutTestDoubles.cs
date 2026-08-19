@@ -94,7 +94,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public List<string> UpgradeCommands { get; } = [];
     public List<(string Mac, string Url)> ExternalCommands { get; } = [];
-    public List<(string Host, string Url)> SshCommands { get; } = [];
+    public List<(string Host, string Url, bool IsGateway)> SshCommands { get; } = [];
     public List<string> ChannelWrites { get; } = [];
 
     /// <summary>Console channel PATCHes, in order. Null in a slot means that surface was not written.</summary>
@@ -121,9 +121,9 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(ExternalResult);
     }
 
-    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, CancellationToken cancellationToken = default)
+    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
     {
-        SshCommands.Add((host, firmwareUrl));
+        SshCommands.Add((host, firmwareUrl, isGateway));
         return Task.FromResult(SshResult);
     }
 

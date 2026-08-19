@@ -347,7 +347,12 @@ public static class RolloutPlanComposer
     {
         if (!ConsoleReachable(console)) return;
 
-        var app = console!.NetworkApplication;
+        // On a standalone console the Network app runs on a separate UOS Server host: the only
+        // install path is the console's own API trigger against a build it has staged itself, so a
+        // shared-catalog version it has not noticed cannot be acted on there.
+        if (console!.IsStandaloneConsole) return;
+
+        var app = console.NetworkApplication;
         if (app == null
             || !string.IsNullOrEmpty(app.UpdateAvailable)
             || string.IsNullOrWhiteSpace(app.ReleaseChannel)

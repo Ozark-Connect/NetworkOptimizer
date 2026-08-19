@@ -6,8 +6,8 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
 /// The real <see cref="IFirmwareCommandClient"/>: the site's UniFi console for API commands,
-/// the site's device SSH service for the direct <c>upgrade &lt;url&gt;</c> path, and the
-/// gateway SSH service for console-level SSH fallbacks. All are already tunnel-routed, so an
+/// the site's device SSH service for the direct device upgrade path, and the gateway SSH
+/// service for console-level SSH fallbacks. All are already tunnel-routed, so an
 /// agent-connected site needs nothing extra here.
 /// </summary>
 public class FirmwareCommandClient : IFirmwareCommandClient
@@ -115,7 +115,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
-        string host, string firmwareUrl, CancellationToken cancellationToken = default)
+        string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(host))
             return FirmwareCommandResult.Failed("No device address for the SSH upgrade path.");
@@ -124,7 +124,9 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
         try
         {
-            var (success, output) = await _ssh.RunCommandAsync(host, $"upgrade {firmwareUrl}", null, TimeSpan.FromMinutes(5), cancellationToken);
+            // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool.
+            var command = isGateway ? $"ubnt-systool fwupdate {firmwareUrl}" : $"upgrade {firmwareUrl}";
+            var (success, output) = await _ssh.RunCommandAsync(host, command, null, TimeSpan.FromMinutes(5), cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 

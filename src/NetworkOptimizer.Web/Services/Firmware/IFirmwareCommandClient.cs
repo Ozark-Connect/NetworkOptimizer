@@ -70,13 +70,16 @@ public interface IFirmwareCommandClient
     Task<FirmwareCommandResult> TriggerExternalUpgradeAsync(string deviceMac, string firmwareUrl, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Run <c>upgrade &lt;url&gt;</c> on the device over SSH. The escalation path when a console
-    /// command is accepted but nothing happens, and the first path for a rollback.
+    /// Run the device-appropriate upgrade command over SSH: <c>ubnt-systool fwupdate &lt;url&gt;</c>
+    /// on UniFi OS gateways, <c>upgrade &lt;url&gt;</c> on everything else (APs, switches, legacy
+    /// USG). The escalation path when a console command is accepted but nothing happens, and the
+    /// first path for a rollback.
     /// </summary>
     /// <param name="host">Device address.</param>
     /// <param name="firmwareUrl">Direct firmware image URL.</param>
+    /// <param name="isGateway">True for a UniFi OS gateway; legacy USG models count as false.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, CancellationToken cancellationToken = default);
+    Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// UniFi's "Check for Updates": checks and prepares new firmware, refreshing what the console

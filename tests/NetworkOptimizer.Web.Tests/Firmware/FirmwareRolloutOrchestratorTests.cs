@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services;
@@ -776,7 +777,10 @@ public class FirmwareRolloutOrchestratorTests
         step.PostStatsJson.Should().NotBeNull();
         var alert = harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.ResourceRegression);
         alert.Severity.Should().Be(AlertSeverity.Warning);
-        alert.Message.Should().Contain("U6PRO").And.Contain(FromVersion).And.Contain(ToVersion);
+        // Alert copy carries the short versions (6.6.55, not 6.6.55.1234).
+        alert.Message.Should().Contain("U6PRO")
+            .And.Contain(FirmwareVersionFormat.Short(FromVersion))
+            .And.Contain(FirmwareVersionFormat.Short(ToVersion));
     }
 
     [Fact]
