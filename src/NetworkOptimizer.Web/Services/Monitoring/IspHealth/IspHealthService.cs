@@ -1288,7 +1288,9 @@ public class IspHealthService
         }
         var outageHops = BuildHops(outageSources);
         ct.ThrowIfCancellationRequested();
-        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
+        // The aggregate interval rides along so the gateway-dark (Local) scope test can reach back
+        // over the stop-stamp shift the coarse trigger/path series carry on long windows.
+        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options, aggregate.TotalSeconds);
         // Second pass: coincident partial-loss disruptions (the path getting lossy but not dark)
         // across the full set of monitored hops, excluding windows already flagged as blackouts.
         // Unlike the blackout pass - whose trigger is every internet target and whose HOPS are only
@@ -1297,7 +1299,8 @@ public class IspHealthService
         // an identical event trip at one site and not another purely because the first happened to
         // monitor one more transit hop (so its ASN split into one more RTT cluster).
         var partialDisruptions = OutageDetector.DetectPartial(
-            BuildHops(partialSources), outages.Select(o => (o.Start, o.End)).ToList(), _options);
+            BuildHops(partialSources), outages.Select(o => (o.Start, o.End)).ToList(), _options,
+            aggregate.TotalSeconds);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
         // Drop events that ended at or before the window start: the lead-in reach-back only exists to
         // capture an outage that STRADDLES the window start (its recovery is in-window), so an event
