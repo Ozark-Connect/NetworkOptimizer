@@ -20521,6 +20521,7 @@ body.kiosk-mode .status-indicators {
 
 .firmware-rollout-config-save {
     margin-top: 1.5rem;
+    justify-content: flex-end;
 }
 
 @media (max-width: 768px) {
