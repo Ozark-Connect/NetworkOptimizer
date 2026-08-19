@@ -1410,7 +1410,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
             await FailStepAsync(
                 document, steps, step,
-                $"The device cycled but came back on {observation.Firmware ?? "an unknown version"}, not {step.ToVersion}.",
+                $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}.",
                 cancellationToken);
             return;
         }
