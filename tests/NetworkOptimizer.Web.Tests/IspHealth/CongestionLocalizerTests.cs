@@ -360,6 +360,52 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Brief_uniform_line_wide_rise_in_a_padded_window_under_load_is_self_inflicted()
+    {
+        // The Steam-download shape: a ~7-min saturation adds a uniform ~2 ms floor to EVERY path
+        // (2.6 ms BNG and 33 ms transit alike), straddling a bucket boundary so the event reports
+        // over a padded 30-min window. The full-window p75 sits in the quiet majority (7/30 min),
+        // so the single-arm line-wide test read every path as flat and the event escaped the
+        // collapse into a Confirmed per-hop row. The per-bucket arm sees the breadth inside the
+        // burst bucket and must collapse it to Loaded Latency (SelfInflicted, suppressed).
+        var burstStart = HumpStart.AddMinutes(10);
+        var burstEnd = HumpStart.AddMinutes(17);
+        List<LatencySample> Bloat(double rtt) =>
+            Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 2.2, jitterMs: 2.5);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Bloat(2.6)),
+            Hop(100, Border, Bloat(5), Bng),
+            Hop(100, Backhaul, Bloat(12), Bng, Border),
+            Hop(200, Transit, Bloat(33), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Bloat(20), Bng, Border),
+            Dest(DestCorridor, Bloat(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Bloat(8), Bng, Border)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.95 : 0.05)); // high only during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().ContainSingle();
+        var e = events[0];
+        e.Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        e.BottleneckHopIp.Should().Be(Bng);
+        e.LoadCoincident.Should().BeTrue();
+        e.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
     public void Access_wide_elevation_under_load_is_self_inflicted_and_suppressed()
     {
         var series = new List<AsnSeries>

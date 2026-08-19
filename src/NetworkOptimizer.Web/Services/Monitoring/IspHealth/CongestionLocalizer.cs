@@ -118,38 +118,47 @@ public static class CongestionLocalizer
             }
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
 
-            // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
-            // shared FLOOR of added delay; localized congestion is the rise ABOVE that floor.
+            // Two arms for line-wide breadth, same reasoning as the load-coincidence pair:
+            // the full-window p75 misses a brief line-wide rise inside a bucket-PADDED window
+            // (a ~10-min bloat episode in a 30-min window leaves p75 in the quiet majority, so
+            // every path reads flat). When it fails, re-test per detector bucket and narrow the
+            // rise window to the bucket run where breadth holds. All rise statistics below share
+            // the narrowed window so a diluted median cannot pass one gate and fail another.
+            var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
+            var riseWindow = window;
+            var lineWideUnderLoad = anchoredWithData.Count > 0
+                && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options)) >= need;
+            if (!lineWideUnderLoad && anchoredWithData.Count > 0)
+            {
+                var bkt = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+                DateTime? wideStart = null;
+                var wideEnd = default(DateTime);
+                for (var b = CongestionDetector.FloorTime(window.Start, bkt); b < window.End; b += bkt)
+                    if (anchoredWithData.Count(s => RoseInWindow(s, b, b + bkt, options)) >= need)
+                    { wideStart ??= b; wideEnd = b + bkt; }
+                if (wideStart.HasValue) { riseWindow = (wideStart.Value, wideEnd); lineWideUnderLoad = true; }
+            }
+
+            // Each anchored path's RTT rise over its OWN baseline, measured over the rise window.
+            // Under load every path picks up a shared FLOOR of added delay; localized congestion
+            // is the rise ABOVE that floor.
             double RttRise(AsnSeries s)
             {
-                // In-window samples come from a binary-searched slice; the baseline (the series minus
-                // that slice) is read off a precomputed sorted array by value-exclusion, so this is
-                // identical to the prior full-scan + sort but far cheaper. See SeriesIndex.
                 var ix = Index(s);
-                var inW = ix.InWindowRtt(window.Start, window.End);
+                var inW = ix.InWindowRtt(riseWindow.Start, riseWindow.End);
                 var im = SeriesStats.Median(inW);
                 var bm = ix.BaselineRttMedian(inW);
                 return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
             }
-            var relElevated = anchoredWithData.Where(s => IsElevated(s, window.Start, window.End)).ToList();
+            var relElevated = anchoredWithData.Where(s => IsElevated(s, riseWindow.Start, riseWindow.End)).ToList();
             var rises = relElevated.Select(RttRise).Where(r => r > 0).OrderBy(r => r).ToList();
             var floorRise = SeriesStats.Median(rises) ?? 0;
 
-            // A CLEAN control rose no more than the shared floor in RTT - it picked up the load floor
-            // but NOT localized congestion. Using RTT (not the jitter-inclusive IsElevated) is the point:
-            // under load the jitter floor lifts every path, so IsElevated would mark even Cox "elevated"
-            // and erase every clean control - which is exactly what suppressed the "this hop's own
-            // capacity, not your access egress" messaging. A non-zero count of clean parallel paths is
-            // the proof an elevation is a single hop's capacity rather than access-layer bufferbloat.
+            // A CLEAN control rose no more than the shared floor in RTT. Using RTT (not the
+            // jitter-inclusive IsElevated) is the point: under load the jitter floor lifts every
+            // path, so IsElevated would erase every clean control.
             bool IsClean(AsnSeries s) => RttRise(s) <= floorRise * options.CongestionCleanControlFloorFactor;
             var cleanControlExists = anchoredWithData.Any(IsClean);
-
-            // Self-inflicted access bufferbloat lifts (almost) every monitored path crossing the egress
-            // under load. The robust median-shift test keys on "did everything drift up together": the
-            // fraction of anchored paths (with data) whose in-window median rose above baseline.
-            var lineWideUnderLoad = anchoredWithData.Count > 0
-                && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
-                    >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
             // SHARED-INCIDENT COLLAPSE (narrow exception; the per-hop separation below is the default
             // and stays authoritative). Collapse to ONE event only when the rise is genuinely UNIFORM:
