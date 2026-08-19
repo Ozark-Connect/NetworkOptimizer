@@ -506,6 +506,15 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionLineWideRisePercentile { get; set; } = 0.75;
 
+    /// <summary>
+    /// Slice size in minutes for the line-wide rise re-test inside a bucket-padded window. Finer
+    /// than <see cref="CongestionBucketMinutes"/> because a brief (~5-7 min) line-wide bloat episode
+    /// elevates only a minority of a 15-min bucket's samples, leaving p75 at baseline. A 5-min slice
+    /// is covered majority-to-fully by such an episode wherever it lands, yet still holds enough
+    /// samples that a single spiked probe cannot read as a rise.
+    /// </summary>
+    public int CongestionLineWideSliceMinutes { get; set; } = 5;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 

@@ -121,21 +121,23 @@ public static class CongestionLocalizer
             // Two arms for line-wide breadth, same reasoning as the load-coincidence pair:
             // the full-window p75 misses a brief line-wide rise inside a bucket-PADDED window
             // (a ~10-min bloat episode in a 30-min window leaves p75 in the quiet majority, so
-            // every path reads flat). When it fails, re-test per detector bucket and narrow the
-            // rise window to the bucket run where breadth holds. All rise statistics below share
-            // the narrowed window so a diluted median cannot pass one gate and fail another.
+            // every path reads flat). When it fails, re-test in slices FINER than the detector
+            // bucket - a 5-7 min episode is still a minority of a 15-min bucket's samples, so
+            // p75 reads baseline there too - and narrow the rise window to the slice run where
+            // breadth holds. All rise statistics below share the narrowed window so a diluted
+            // median cannot pass one gate and fail another.
             var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
             var riseWindow = window;
             var lineWideUnderLoad = anchoredWithData.Count > 0
                 && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options)) >= need;
             if (!lineWideUnderLoad && anchoredWithData.Count > 0)
             {
-                var bkt = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+                var slice = TimeSpan.FromMinutes(options.CongestionLineWideSliceMinutes);
                 DateTime? wideStart = null;
                 var wideEnd = default(DateTime);
-                for (var b = CongestionDetector.FloorTime(window.Start, bkt); b < window.End; b += bkt)
-                    if (anchoredWithData.Count(s => RoseInWindow(s, b, b + bkt, options)) >= need)
-                    { wideStart ??= b; wideEnd = b + bkt; }
+                for (var b = CongestionDetector.FloorTime(window.Start, slice); b < window.End; b += slice)
+                    if (anchoredWithData.Count(s => RoseInWindow(s, b, b + slice, options)) >= need)
+                    { wideStart ??= b; wideEnd = b + slice; }
                 if (wideStart.HasValue) { riseWindow = (wideStart.Value, wideEnd); lineWideUnderLoad = true; }
             }
 

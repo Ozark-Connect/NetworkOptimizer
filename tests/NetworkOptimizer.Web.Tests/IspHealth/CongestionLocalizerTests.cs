@@ -362,14 +362,15 @@ public class CongestionLocalizerTests
     [Fact]
     public void Brief_uniform_line_wide_rise_in_a_padded_window_under_load_is_self_inflicted()
     {
-        // The Steam-download shape: a ~7-min saturation adds a uniform ~2 ms floor to EVERY path
-        // (2.6 ms BNG and 33 ms transit alike), straddling a bucket boundary so the event reports
-        // over a padded 30-min window. The full-window p75 sits in the quiet majority (7/30 min),
-        // so the single-arm line-wide test read every path as flat and the event escaped the
-        // collapse into a Confirmed per-hop row. The per-bucket arm sees the breadth inside the
-        // burst bucket and must collapse it to Loaded Latency (SelfInflicted, suppressed).
-        var burstStart = HumpStart.AddMinutes(10);
-        var burstEnd = HumpStart.AddMinutes(17);
+        // The Steam-download shape: a ~6-min saturation adds a uniform ~2 ms floor to EVERY path
+        // (2.6 ms BNG and 33 ms transit alike), split across a bucket boundary so it is a minority
+        // (20%) of BOTH 15-min buckets in the padded 30-min window - the full-window p75 AND a
+        // 15-min re-test both read every path as flat (p75 needs >25% of samples elevated), which
+        // is the real event a per-detector-bucket second arm still missed. The 5-min slice arm
+        // sees the breadth inside the burst and must collapse it to Loaded Latency (SelfInflicted,
+        // suppressed).
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
         List<LatencySample> Bloat(double rtt) =>
             Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 2.2, jitterMs: 2.5);
 
