@@ -152,14 +152,17 @@ public static class CongestionLocalizer
 
             // Each anchored path's RTT rise over its OWN baseline, measured over the rise window.
             // Under load every path picks up a shared FLOOR of added delay; localized congestion
-            // is the rise ABOVE that floor. Uses the same LOCAL baseline as the breadth test: against
-            // the whole-series median a wandering hop's rise is understated, so a uniform event reads
-            // as non-uniform (the flat access hop's full rise towers over the wanderers' residual).
+            // is the rise ABOVE that floor. Uses the same LOCAL baseline AND the same in-window
+            // percentile as the breadth test. Both matter for the same reason: against the
+            // whole-series median a wandering hop's rise is understated, and against the in-window
+            // MEDIAN an intermittently-elevated hop's rise is understated (far hops inherit a brief
+            // saturation only at its peaks, and the slice-narrowed window still carries quiet
+            // samples) - either way a uniform event reads as non-uniform.
             double RttRise(AsnSeries s)
             {
                 var ix = Index(s);
                 var inW = ix.InWindowRtt(riseWindow.Start, riseWindow.End);
-                var im = SeriesStats.Median(inW);
+                var im = SeriesStats.Percentile(inW, options.CongestionLineWideRisePercentile);
                 var bm = (localBase.TryGetValue(s, out var lb) ? lb : null) ?? ix.BaselineRttMedian(inW);
                 return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
             }
