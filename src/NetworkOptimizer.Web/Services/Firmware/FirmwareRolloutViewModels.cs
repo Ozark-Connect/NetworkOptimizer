@@ -145,6 +145,12 @@ public class RolloutPlanSummaryView
     public int WaveCount { get; set; }
 
     public bool HasReport { get; set; }
+
+    /// <summary>Whether any step failed or was dropped.</summary>
+    public bool HasFailures { get; set; }
+
+    /// <summary>Whether at least one step upgraded successfully.</summary>
+    public bool HasSuccesses { get; set; }
 }
 
 /// <summary>

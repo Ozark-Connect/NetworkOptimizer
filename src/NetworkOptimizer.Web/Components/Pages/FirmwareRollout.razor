@@ -554,7 +554,7 @@ else
                                 <td>@LocalTime(row.StartedAt ?? row.CreatedAt)</td>
                                 <td>@row.DeviceCount</td>
                                 <td class="hide-mobile">@row.WaveCount</td>
-                                <td><span class="firmware-rollout-chip @PlanChipClass(row.Status)">@PlanChipLabel(row.Status)</span></td>
+                                <td><span class="firmware-rollout-chip @PlanChipClass(row)">@PlanChipLabel(row)</span></td>
                                 <td>
                                     @if (row.HasReport)
                                     {
@@ -1887,18 +1887,22 @@ else
         _ => "chip-muted",
     };
 
-    private static string PlanChipLabel(FirmwareRolloutStatus status) => status switch
+    private static string PlanChipLabel(RolloutPlanSummaryView row) => row.Status switch
     {
         FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled",
-        FirmwareRolloutStatus.Reported => "Completed",
         FirmwareRolloutStatus.SoakWait => "Soaking",
         FirmwareRolloutStatus.Aborted => "Aborted",
         FirmwareRolloutStatus.Failed => "Failed",
-        _ => status.ToString(),
+        FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "Failed",
+        FirmwareRolloutStatus.Reported when row.HasFailures => "Partial",
+        FirmwareRolloutStatus.Reported => "Completed",
+        _ => row.Status.ToString(),
     };
 
-    private static string PlanChipClass(FirmwareRolloutStatus status) => status switch
+    private static string PlanChipClass(RolloutPlanSummaryView row) => row.Status switch
     {
+        FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "chip-danger",
+        FirmwareRolloutStatus.Reported when row.HasFailures => "chip-warning",
         FirmwareRolloutStatus.Reported => "chip-success",
         FirmwareRolloutStatus.Aborted or FirmwareRolloutStatus.Failed => "chip-danger",
         _ => "chip-muted",

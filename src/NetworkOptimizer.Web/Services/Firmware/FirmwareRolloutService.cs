@@ -97,6 +97,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         return plans.Select(plan =>
         {
             var document = ParseDocument(plan);
+            var report = RolloutReport.Parse(plan.ReportJson);
             return new RolloutPlanSummaryView
             {
                 Id = plan.Id,
@@ -108,7 +109,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 CompletedAt = plan.CompletedAt,
                 DeviceCount = RolloutScopeCopy.TotalScope(document),
                 WaveCount = RolloutScopeCopy.TotalWaves(document),
-                HasReport = !string.IsNullOrEmpty(plan.ReportJson),
+                HasReport = report != null,
+                HasSuccesses = report?.TotalUpgraded > 0,
+                HasFailures = report != null && (report.DevicesFailed > 0 || report.DevicesRolledBack > 0),
             };
         }).ToList();
     }
