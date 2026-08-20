@@ -364,7 +364,7 @@ is a ready-to-use Traefik setup (Let's Encrypt certificates via Cloudflare
 DNS-01) that ships the agent tunnel route **enabled by default** - point it at
 your hostname and there is nothing else to configure for agents.
 
-Installed it before that route shipped? `setup.sh` only copies the example config
+**Installed it before the agent gRPC route was added?** `setup.sh` only copies the example config
 on first run, so yours predates it. Add the route in place - no git checkout
 needed:
 
