@@ -27,6 +27,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ProbeExecutors
+@inject SiteTunnelRouting TunnelRouting
 @inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
@@ -1882,6 +1883,7 @@
     // existing legacy Server schedule keeps its option while being edited so the
     // bound selection stays coherent.
     private bool _agentOnGateway;
+    private bool _wanTestViaAgent;
     private string _newWanTestType = "gateway";
     private string _newWanSelection = "0";
     private bool _newWanMaxMode;
@@ -2376,6 +2378,7 @@
         try
         {
             _agentOnGateway = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+            _wanTestViaAgent = !_agentOnGateway && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
         }
         catch
         {
@@ -3577,12 +3580,11 @@
     };
 
     /// <summary>
-    /// What runs a "server" WAN speed test on THIS site: the server itself, or the on-site agent
-    /// where one owns path measurement. The stored task name says Server either way, because that
-    /// is the vantage's name in configuration - but on an agent-covered site the server never
-    /// touches the WAN, so reading "Server" beside a result the agent produced named the wrong box.
+    /// What runs a "server" WAN speed test on THIS site: the server itself, or the on-site agent.
+    /// Matches the WAN speed test execution path (IsViaAgentAsync), not the probe vantage
+    /// (AgentOwnsPathMeasurement) - covers alone does not route WAN tests through the agent.
     /// </summary>
-    private string ServerVantageLabel => ProbeExecutors.ServerVantageIsAgent ? "Agent" : "Server";
+    private string ServerVantageLabel => _wanTestViaAgent ? "Agent" : "Server";
 
     /// <summary>
     /// Renames the stored "Server" detail for display. Applied at render rather than to the task
