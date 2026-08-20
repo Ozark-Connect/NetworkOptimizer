@@ -8,6 +8,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -99,6 +100,7 @@ public class AgentProbeResultSink
     // UniFi reaches the agent within a couple of minutes instead of never. Keyed by slug.
     private readonly ConcurrentDictionary<string, DateTime> _lastAgentSnmpRedetectAt = new();
     private static readonly TimeSpan AgentSnmpRedetectInterval = TimeSpan.FromMinutes(2);
+    private readonly ConcurrentDictionary<string, bool> _fanOidMigratedBySite = new();
 
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
@@ -889,6 +891,12 @@ public class AgentProbeResultSink
                 // values it relays back.
                 if (config.Devices.Count > 0)
                 {
+                    if (!_fanOidMigratedBySite.ContainsKey(connection.SiteSlug))
+                    {
+                        await CustomOidMigration.RemoveSupersededAsync(db, _logger, ct);
+                        _fanOidMigratedBySite[connection.SiteSlug] = true;
+                    }
+
                     var configuredMacs = new HashSet<string>(
                         config.Devices.Select(d => NormalizeMac(d.Mac)), StringComparer.OrdinalIgnoreCase);
                     var customOids = await db.CustomOidConfigurations.AsNoTracking()

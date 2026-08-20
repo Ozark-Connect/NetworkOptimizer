@@ -11,6 +11,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.OntProviders;
 
 namespace NetworkOptimizer.Web.Services;
@@ -2813,15 +2814,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (!_standardFanOidsMigrated)
             {
-                var superseded = await db.CustomOidConfigurations
-                    .Where(c => c.Oid == UniFiOids.LmFanSensorsCpuRpm && c.FieldName == InfluxFieldNames.FanSpeedRpm)
-                    .ToListAsync(ct);
-                if (superseded.Count > 0)
-                {
-                    db.CustomOidConfigurations.RemoveRange(superseded);
-                    await db.SaveChangesAsync(ct);
-                    _logger.LogInformation("Removed {Count} custom OID(s) superseded by standard fan speed polling", superseded.Count);
-                }
+                await CustomOidMigration.RemoveSupersededAsync(db, _logger, ct);
                 _standardFanOidsMigrated = true;
             }
 
