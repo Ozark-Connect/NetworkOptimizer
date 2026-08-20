@@ -1419,6 +1419,7 @@ public class AgentProbeResultSink
             double? mem = health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null;
             double? temp = health.HasTemperatureC ? health.TemperatureC : null;
             long? uptime = health.HasUptimeSeconds ? health.UptimeSeconds : null;
+            int? fanRpm = health.HasFanSpeedRpm ? health.FanSpeedRpm : null;
 
             // Fill health fields SNMP didn't return from the console's cached UniFi device
             // data, mirroring the directly-monitored medium tier's CollectApiHealthFallbackAsync:
@@ -1452,7 +1453,8 @@ public class AgentProbeResultSink
                 memoryUsedPercent: mem,
                 temperatureC: temp,
                 uptimeSeconds: uptime,
-                timestamp: timestamp);
+                timestamp: timestamp,
+                fanSpeedRpm: fanRpm);
 
             liveStats.RecordHealth(
                 health.DeviceMac,

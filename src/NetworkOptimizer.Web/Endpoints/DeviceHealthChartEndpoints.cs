@@ -92,7 +92,8 @@ public static class DeviceHealthChartEndpoints
                         time = p.Time.ToString("o"),
                         cpu = p.CpuPercent,
                         mem = p.MemoryUsedPercent,
-                        temp = p.TemperatureC
+                        temp = p.TemperatureC,
+                        fan = p.FanSpeedRpm
                     }),
                     custom = customData?.ToDictionary(
                         kvp => kvp.Key,

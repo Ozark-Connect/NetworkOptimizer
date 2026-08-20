@@ -434,7 +434,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? memoryUsedPercent,
         double? temperatureC,
         long? uptimeSeconds,
-        DateTime timestamp)
+        DateTime timestamp,
+        int? fanSpeedRpm = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("device_health")
@@ -448,6 +449,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (memoryUsedPercent.HasValue) point = point.Field("memory_used_percent", memoryUsedPercent.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (uptimeSeconds.HasValue) point = point.Field("uptime_seconds", uptimeSeconds.Value);
+        if (fanSpeedRpm.HasValue) point = point.Field(InfluxFieldNames.FanSpeedRpm, (long)fanSpeedRpm.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -1774,7 +1776,7 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -1787,7 +1789,8 @@ from(bucket: ""{_bucket}"")
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
                 TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
-                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds"))
+                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds")),
+                FanSpeedRpm = (int?)AsDoubleOrNull(record.GetValueByKey("fan_speed_rpm"))
             });
         }
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
@@ -1853,12 +1856,13 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
 ";
         var cpu = new Dictionary<long, double>();
         var mem = new Dictionary<long, double>();
         var temp = new Dictionary<long, double>();
         var uptime = new Dictionary<long, double>();
+        var fan = new Dictionary<long, double>();
         var times = new Dictionary<long, DateTime>();
 
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -1873,6 +1877,7 @@ from(bucket: ""{_bucket}"")
             else if (field == "memory_used_percent") mem[key] = value.Value;
             else if (field == "temperature_c") temp[key] = value.Value;
             else if (field == "uptime_seconds") uptime[key] = value.Value;
+            else if (field == InfluxFieldNames.FanSpeedRpm) fan[key] = value.Value;
         }
 
         return times.Select(kv => new DeviceHealthPoint
@@ -1882,6 +1887,7 @@ from(bucket: ""{_bucket}"")
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
             TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
             UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
+            FanSpeedRpm = fan.TryGetValue(kv.Key, out var f) ? (int?)f : null,
         }).OrderBy(p => p.Time).ToList();
     }
 
@@ -3733,6 +3739,7 @@ from(bucket: ""{_longtermBucket}"")
         public double? MemoryUsedPercent { get; init; }
         public double? TemperatureC { get; init; }
         public long? UptimeSeconds { get; init; }
+        public int? FanSpeedRpm { get; init; }
     }
 
     public record LatencyPoint

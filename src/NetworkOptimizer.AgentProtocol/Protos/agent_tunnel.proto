@@ -295,6 +295,7 @@ message SnmpDeviceHealthSample {
   optional double temperature_c = 7;
   optional int64 uptime_seconds = 8;
   int64 timestamp_unix_ms = 9;
+  optional int32 fan_speed_rpm = 10;
 }
 
 message ProbeResult {

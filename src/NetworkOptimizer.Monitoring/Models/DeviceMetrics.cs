@@ -86,6 +86,11 @@ public class DeviceMetrics
     public double? Temperature { get; set; }
 
     /// <summary>
+    /// CPU fan speed in RPM (if available). Null when device has no fan sensor.
+    /// </summary>
+    public int? FanSpeedRpm { get; set; }
+
+    /// <summary>
     /// Number of network interfaces
     /// </summary>
     public int InterfaceCount { get; set; }
