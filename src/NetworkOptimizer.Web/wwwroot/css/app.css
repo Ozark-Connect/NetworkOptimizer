@@ -3036,6 +3036,14 @@ select.form-control {
     height: 0.95rem;
 }
 
+/* Capped on a phone: the block sits inside containers that size to their content, and without a
+   cap it grows past the viewport, taking the copy button off-screen with it. */
+@media (max-width: 768px) {
+    .code-copy-block {
+        max-width: 78vw;
+    }
+}
+
 .account-copy-btn {
     display: inline-flex;
     align-items: center;
