@@ -1003,8 +1003,8 @@ public class RolloutPlannerTests
 
         doc.IncludesUniFiNetworkUpdate.Should().BeTrue();
         doc.UniFiNetworkUpdateSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds);
-        doc.Waves[0].StartOffsetSeconds.Should().Be(300);
-        doc.TotalEstimatedSeconds.Should().Be(300 + 240 + (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds + RolloutPlanner.CommandOverheadSeconds);
+        doc.Waves[0].StartOffsetSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds + 240 + (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]

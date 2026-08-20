@@ -155,7 +155,7 @@ public class FirmwareRolloutOrchestratorTests
 
         var step = await harness.StepAsync(plan.Id, ApMac);
         step.State.Should().Be(FirmwareRolloutStepState.Failed);
-        step.Error.Should().Contain(FromVersion).And.Contain(ToVersion);
+        step.Error.Should().Contain("6.6.55").And.Contain("7.0.11");
     }
 
     [Fact]
