@@ -20,7 +20,6 @@
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
-@inject IHttpContextAccessor HttpContextAccessor
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject ILogger<ClientDashboard> Logger
@@ -100,7 +99,7 @@
         </div>
     }
 
-    @if (_loading || _awaitingSiteIdentity)
+    @if (_loading || _awaitingSiteIdentity || _awaitingLocalIp)
     {
         <div class="skeleton-hero card">
             <div class="skeleton-row">
@@ -1132,13 +1131,42 @@
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
         _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
-        // VPN clients have no GPS walk-test flow (no live polling), so never warn them.
-        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client?.IsVpn != true;
+
+        // Default-site own-device identity: the viewer's address comes from a browser request,
+        // which needs JS, so it lands here rather than in OnInitializedAsync.
+        if (_awaitingLocalIp)
+        {
+            try
+            {
+                var address = await JS.InvokeAsync<string?>("eval",
+                    "fetch('/api/client-dashboard/address').then(r => r.json()).then(j => j.address)");
+                if (!string.IsNullOrEmpty(address) && address != "unknown")
+                {
+                    _clientIp = NetworkUtilities.NormalizeToIPv4String(address);
+                    await IdentifyAndLoadAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Client address lookup failed; the device picker is the way in");
+            }
+            finally
+            {
+                // Cleared only now, so the skeleton covers the lookup instead of the page flashing
+                // "Device Not Found" on the first pass that had no address yet.
+                _awaitingLocalIp = false;
+                StateHasChanged();
+            }
+        }
 
         // Managed-site own-device identity needs JS (agent whoami probe / localStorage),
         // so it runs here rather than in OnInitializedAsync.
         if (_awaitingSiteIdentity)
             await ResolveSiteIdentityAsync();
+
+        // After identity: VPN clients have no GPS walk-test flow, so never warn them, and _client
+        // is only known once the resolves above have run.
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client?.IsVpn != true;
 
         if (_showGpsWarning)
             StateHasChanged();
@@ -1179,6 +1207,7 @@
 
     private string? _clientIp;
     private bool _awaitingSiteIdentity;
+    private bool _awaitingLocalIp;
     private System.Threading.Timer? _identityRetryTimer;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
@@ -1203,23 +1232,12 @@
             return null;
         }
 
-        // In Blazor Server, HttpContext is only available during the initial HTTP request.
-        // OnInitializedAsync runs during that first request, so we capture the IP here.
+        // The app does not prerender, so this only ever runs in the circuit, where there is no
+        // HttpContext to read the address from. The browser fetches it after first render instead.
         if (string.IsNullOrEmpty(_clientIp))
         {
-            var httpContext = HttpContextAccessor.HttpContext;
-            if (httpContext != null)
-            {
-                var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-                if (!string.IsNullOrEmpty(forwardedFor))
-                {
-                    clientIp = forwardedFor.Split(',')[0].Trim();
-                }
-                // An IPv4 client on a dual-stack socket arrives as ::ffff:a.b.c.d; unwrap it
-                // so it matches the UniFi client list and shows as a real IP.
-                _clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp);
-            }
+            _awaitingLocalIp = true;
+            return null;
         }
 
         if (string.IsNullOrEmpty(_clientIp) || _clientIp == "unknown")

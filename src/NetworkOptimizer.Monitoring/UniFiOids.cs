@@ -396,6 +396,12 @@ public static class UniFiOids
     /// </summary>
     public const string LmSensorsCpuTemp = "1.3.6.1.4.1.2021.13.16.2.1.3.4";
 
+    /// <summary>
+    /// LM-SENSORS-MIB: CPU fan speed in RPM.
+    /// Index 1 = "fan-CPU". Works on gateways; switches/APs return noSuchObject.
+    /// </summary>
+    public const string LmFanSensorsCpuRpm = "1.3.6.1.4.1.2021.13.16.3.1.3.1";
+
     #endregion
 
     #region Entity MIB (Physical sensors)

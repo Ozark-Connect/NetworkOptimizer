@@ -2453,37 +2453,43 @@ public class IspHealthScorer
         var (latencyTriggered, lossTriggered) = SqmTriggers(inputs, profile, loadWindows, loadedDeltas);
         if (latencyTriggered || lossTriggered)
         {
-            // Adaptive SQM (our feature) overrides the UniFi Smart Queues messaging: we can see
-            // it's already shaping this WAN, so don't pitch it or tell the user to enable Smart
-            // Queues. Loss under load while it shapes means the rate it holds isn't backing off
-            // enough for the real-time capacity drop, so point at its own tuning knobs (Severity
-            // deepens the time-of-day dips; nominal speeds set the ceiling everything scales from).
-            // One recommendation used to serve both findings below, worded for loss - so a
-            // bufferbloat finding was answered with advice about drops the user was not seeing.
-            // The Adaptive SQM branch now says which symptom it is talking about; the other two
-            // are symptom-neutral and stay one string.
             string recommendation;
             string latencyRecommendation;
             if (inputs.AdaptiveSqmEnabled)
             {
-                recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
-                latencyRecommendation = "Adaptive SQM is already shaping this WAN, so latency under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If the loaded latency persists once the rate is pulled down, the queue is upstream and only your ISP can drain it.";
+                // When the nominal rates are within 5% of the best measured speed, SQM is
+                // already tuned as tight as it can go and the residual is access-network behavior.
+                bool ratesTunedClose = report.MeasuredDownloadMbps is double bestDl
+                    && report.MeasuredUploadMbps is double bestUl
+                    && inputs.SqmNominalDownloadMbps is int nomDl
+                    && inputs.SqmNominalUploadMbps is int nomUp
+                    && nomDl <= bestDl * 1.05
+                    && nomUp <= bestUl * 1.05;
+                if (ratesTunedClose)
+                {
+                    recommendation = "Adaptive SQM nominal rates are already close to what the line delivers. Shaping below the line rate may help, but the remaining loaded loss is likely inherent to the access network - tail drops at the ONT/modem, a congested shared segment, or a policer that drops instead of queues. Only your ISP can address it.";
+                    latencyRecommendation = "Adaptive SQM nominal rates are already close to what the line delivers. Shaping below the line rate may help, but the remaining loaded latency is likely inherent to the access network - ONT/modem buffering, a congested shared segment, or an upstream policer. Only your ISP can address it.";
+                }
+                else
+                {
+                    recommendation = "Adaptive SQM is shaping this WAN. Lower the nominal download/upload or raise Severity so peak-hour dips go deeper. If loss persists once the rate is pulled down, the drops are upstream of your network.";
+                    latencyRecommendation = "Adaptive SQM is shaping this WAN. Lower the nominal download/upload or raise Severity so peak-hour dips go deeper. If latency persists once the rate is pulled down, the queue is upstream of your network.";
+                }
             }
             else if (inputs.SmartQueuesEnabled)
             {
-                recommendation = "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers.";
+                recommendation = "Smart Queues is enabled but the line still degrades under load. Verify the configured rates match what the line actually delivers. Shaping may not solve all of it if the loss or latency is inherent to the access network.";
                 latencyRecommendation = recommendation;
             }
             else
             {
-                recommendation = "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
+                recommendation = "Enable Smart Queues in UniFi Network (Settings, Internet, your WAN). Shaping helps with bufferbloat but may not eliminate loaded loss or latency inherent to the access network.";
                 latencyRecommendation = recommendation;
             }
-            // Only pitch Adaptive SQM when the WAN isn't already running it.
             if (!inputs.AdaptiveSqmEnabled
                 && inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
-                const string alsoConsider = " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
+                const string alsoConsider = " This connection also shows recurring congestion; consider Adaptive SQM, which tracks capacity changes across time of day.";
                 recommendation += alsoConsider;
                 latencyRecommendation += alsoConsider;
             }
@@ -2493,7 +2499,7 @@ public class IspHealthScorer
                 {
                     Severity = IspIssueSeverity.Warning,
                     Title = "Bufferbloat under load",
-                    Description = "Latency rises well beyond the excellent range for this connection type when the line is loaded.",
+                    Description = "Latency rises beyond the excellent range for this access type under load.",
                     Recommendation = latencyRecommendation,
                     LinkUrl = "/sqm",
                     LinkText = "Adaptive SQM"
@@ -2505,7 +2511,7 @@ public class IspHealthScorer
                 {
                     Severity = IspIssueSeverity.Warning,
                     Title = "Packet loss under load",
-                    Description = "Packet loss exceeds the acceptable band for this connection type when the line is loaded.",
+                    Description = "Packet loss exceeds the acceptable band for this access type under load.",
                     Recommendation = recommendation,
                     LinkUrl = "/sqm",
                     LinkText = "Adaptive SQM",

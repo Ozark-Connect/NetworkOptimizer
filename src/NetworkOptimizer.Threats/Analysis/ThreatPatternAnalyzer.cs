@@ -41,7 +41,7 @@ public class ThreatPatternAnalyzer
         catch (Exception ex) { _logger.LogWarning(ex, "DDoS detection failed"); }
 
         if (patterns.Count > 0)
-            _logger.LogInformation("Detected {Count} attack patterns from {Events} events",
+            _logger.LogDebug("Detected {Count} attack patterns from {Events} events",
                 patterns.Count, events.Count);
 
         return patterns;

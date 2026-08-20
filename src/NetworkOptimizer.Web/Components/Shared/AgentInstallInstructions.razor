@@ -94,11 +94,11 @@
     private string ProxmoxOneLiner()
     {
         var sb = new StringBuilder();
-        sb.Append("bash -c \"$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)\" -- \\n");
-        sb.Append($"  --server \"{ServerValue}\" \\n");
+        sb.Append("bash -c \"$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)\" -- \\\n");
+        sb.Append($"  --server \"{ServerValue}\" \\\n");
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)
-            sb.Append(" \\n  --lan-speed-test");
+            sb.Append(" \\\n  --lan-speed-test");
         return sb.ToString();
     }
 

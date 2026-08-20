@@ -200,6 +200,12 @@ public class UniFiSshService : IUniFiSshService
         return await RunCommandAsync(host, command, portOverride, null, null, null, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        return await RunCommandCoreAsync(host, command, portOverride, null, null, null, timeout, cancellationToken);
+    }
+
     /// <summary>
     /// Run an SSH command on a device with optional per-device credential overrides.
     /// If override values are null/empty, falls back to global settings.
@@ -212,6 +218,19 @@ public class UniFiSshService : IUniFiSshService
         string? passwordOverride,
         string? privateKeyPathOverride,
         CancellationToken cancellationToken = default)
+    {
+        return await RunCommandCoreAsync(host, command, portOverride, usernameOverride, passwordOverride, privateKeyPathOverride, null, cancellationToken);
+    }
+
+    private async Task<(bool success, string output)> RunCommandCoreAsync(
+        string host,
+        string command,
+        int? portOverride,
+        string? usernameOverride,
+        string? passwordOverride,
+        string? privateKeyPathOverride,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
     {
         if (await IsAwaitingAgentAsync())
         {
@@ -257,7 +276,7 @@ public class UniFiSshService : IUniFiSshService
             Timeout = TimeSpan.FromSeconds(5)
         });
 
-        var result = await _sshClient.ExecuteCommandAsync(connection, command, TimeSpan.FromSeconds(30), cancellationToken);
+        var result = await _sshClient.ExecuteCommandAsync(connection, command, timeout ?? TimeSpan.FromSeconds(30), cancellationToken);
 
         return (result.Success, result.Success ? result.Output : result.CombinedOutput);
     }
@@ -317,7 +336,7 @@ public class UniFiSshService : IUniFiSshService
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
                 return (true, firstLine?.Trim() ?? result.output.Trim());
             }
-            return (false, $"{toolName} not found on device");
+            return (false, ToolCheckFailure(toolName, result.success, result.output));
         }
         catch (Exception ex)
         {
@@ -344,13 +363,30 @@ public class UniFiSshService : IUniFiSshService
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
                 return (true, firstLine?.Trim() ?? result.output.Trim());
             }
-            return (false, $"{toolName} not found on device");
+            return (false, ToolCheckFailure(toolName, result.success, result.output));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CheckToolAvailable({Host}, {Tool}) with device creds exception", device.Host, toolName);
             return (false, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Why the tool check came back negative. "Not found" is only true when the command actually
+    /// ran: an SSH failure - refused, bad credentials, timeout - answers the same way otherwise,
+    /// and reporting it as a missing binary sends people installing something already installed.
+    /// </summary>
+    /// <param name="toolName">Tool the check was for.</param>
+    /// <param name="commandSucceeded">Whether the SSH command itself completed.</param>
+    /// <param name="output">Command output, which carries the SSH error when it did not.</param>
+    private static string ToolCheckFailure(string toolName, bool commandSucceeded, string output)
+    {
+        if (commandSucceeded) return $"{toolName} not found on device";
+        var detail = output?.Trim();
+        return string.IsNullOrEmpty(detail)
+            ? $"Could not check for {toolName}: the SSH command failed with no output"
+            : $"Could not check for {toolName} over SSH: {detail}";
     }
 
     #region Device Management

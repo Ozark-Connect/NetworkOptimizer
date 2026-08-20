@@ -17,7 +17,17 @@ public static class AlertEndpoints
         // authenticated user; changes go through IAlertConfigService, which is gated and audited at
         // the service layer as well, so a live Blazor circuit cannot reach them either.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        // IAlertConfigService gates every one of these on the site in context (Site Admin to
+        // configure, Site Operator to acknowledge), so the group carries the metadata and the
+        // service carries the boundary. Requiring install-wide Admin here locked a site's own
+        // admin out of their own alerting.
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
+
+        // Two routes here act without passing through IAlertConfigService: sending a test
+        // notification and running a schedule on demand. Until each has a gated service method they
+        // keep the stricter gate rather than riding the group's metadata-only one - a Viewer must
+        // not be able to page whoever is on a delivery channel or start a site's tasks.
+        var ungatedAdmin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
 
         // --- Alert Rules ---
         read.MapGet("/api/alerts/rules", async (IAlertRepository repo) =>
@@ -63,7 +73,7 @@ public static class AlertEndpoints
             return Results.NoContent();
         });
 
-        admin.MapPost("/api/alerts/channels/{id:int}/test", async (int id, IAlertRepository repo, IEnumerable<IAlertDeliveryChannel> deliveryChannels) =>
+        ungatedAdmin.MapPost("/api/alerts/channels/{id:int}/test", async (int id, IAlertRepository repo, IEnumerable<IAlertDeliveryChannel> deliveryChannels) =>
         {
             var channel = await repo.GetChannelAsync(id);
             if (channel == null) return Results.NotFound();
@@ -113,7 +123,7 @@ public static class AlertEndpoints
             return saved == null ? Results.NotFound() : Results.Ok(saved);
         });
 
-        admin.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService, SiteContextService siteContext) =>
+        ungatedAdmin.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService, SiteContextService siteContext) =>
         {
             var started = await scheduleService.RunNowAsync(id, siteContext.Slug);
             return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });

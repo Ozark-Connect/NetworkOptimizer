@@ -312,6 +312,15 @@ public class CongestionEvent
     /// provider (e.g. AS7018), and a transit-side event must not credit the ISP card.
     /// </summary>
     public List<string> TargetIds { get; init; } = new();
+
+    /// <summary>
+    /// Targets downstream of the bottleneck that carried this elevation - the witnesses that
+    /// confirmed it forwarded, including CDN/anycast destinations. Deliberately NOT in
+    /// <see cref="TargetIds"/>: these are victims, and crediting the event to them would move the
+    /// score onto the wrong card. Display only, so a reader who filters the chart to a witness
+    /// still sees the event it witnessed.
+    /// </summary>
+    public List<string> WitnessTargetIds { get; set; } = new();
     public double BaselineRttMs { get; init; }
     public double PeakRttMs { get; init; }
     public double BaselineJitterMs { get; init; }
@@ -326,11 +335,24 @@ public class CongestionEvent
     /// <summary>IP of the attributed bottleneck hop, when <see cref="Scope"/> is <see cref="CongestionScope.Hop"/>.</summary>
     public string? BottleneckHopIp { get; set; }
 
+    /// <summary>Where discovery placed that hop on the path, or null when it placed it nowhere -
+    /// unlocalized, or a hop that answers pings but never landed in a trace (HopNumber 0). Lower is
+    /// nearer; 0 is only ever the L2 neighbor, which no trace can place but is first by construction.
+    /// This is what orders one incident's hops; RTT is only a fallback for events with no
+    /// position at all.</summary>
+    public int? BottleneckHopNumber { get; set; }
+
     /// <summary>Human-readable bottleneck label (hop name, segment, ASN, or corridor) for the report.</summary>
     public string? BottleneckLabel { get; set; }
 
     /// <summary>True when the event overlapped heavy local WAN load (input to the self-inflicted gate).</summary>
     public bool LoadCoincident { get; set; }
+
+    /// <summary>Median WAN utilization during the event (worst direction, as a fraction of the plan),
+    /// or null when expected speeds are unknown. When the nearest-hop arm found load correlation, this
+    /// is the median at excursion moments rather than the full bucket-padded window. Display only -
+    /// <see cref="LoadCoincident"/> is what the score keys on.</summary>
+    public double? MedianLoadUtilization { get; set; }
 
     /// <summary>
     /// How many other monitored paths (different routes/networks, and the access hops ahead of
@@ -376,6 +398,16 @@ public class PathShiftEvent
     /// <summary>Number of targets showing a correlated step at the same boundary.</summary>
     public int CorrelatedTargetCount { get; init; } = 1;
 
+    /// <summary>Every target behind this event, so a reader can filter it against a chart line.</summary>
+    public List<string> TargetIds { get; init; } = new();
+
+    /// <summary>
+    /// The correlated series behind this event, representative first, or empty when it stands
+    /// alone. Correlation reports one series' levels for the whole group, so without these the
+    /// other paths' own steps are unrecoverable. Display only.
+    /// </summary>
+    public List<PathShiftMember> Members { get; init; } = new();
+
     /// <summary>True when this shift came from an internet/CDN destination (by DB TargetType),
     /// not an on-path ISP/transit hop. Correlation prefers a non-destination as the label.</summary>
     public bool IsDestination { get; init; }
@@ -392,6 +424,9 @@ public class PathShiftEvent
     /// <summary>End of the unreachable window (last dark sample); null for RTT-step shifts.</summary>
     public DateTime? UnreachableEnd { get; init; }
 }
+
+/// <summary>One series inside a correlated path shift, with its own before/after levels.</summary>
+public record PathShiftMember(string Name, double BeforeMedianMs, double AfterMedianMs, IReadOnlyList<string> TargetIds);
 
 /// <summary>Whether the access/first hop itself went dark, or only everything beyond it.</summary>
 public enum OutageScope
@@ -806,6 +841,12 @@ public class IspHealthInputs
     /// from <see cref="SmartQueuesEnabled"/> (UniFi's base feature); used so the loaded-loss
     /// recommendation never pitches Adaptive SQM to someone already running it.</summary>
     public bool AdaptiveSqmEnabled { get; init; }
+
+    /// <summary>Adaptive SQM nominal download rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalDownloadMbps { get; init; }
+
+    /// <summary>Adaptive SQM nominal upload rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalUploadMbps { get; init; }
 
     /// <summary>
     /// Time windows to exclude from loaded-line analysis. Adaptive SQM speed probes

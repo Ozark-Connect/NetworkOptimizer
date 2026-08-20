@@ -372,7 +372,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             steps.Add("Verifying IFB device exists...");
             var ifbDevice = $"ifb{config.Interface}";
             var ifbCheckResult = await RunCommandAsync($"ip link show {ifbDevice}");
-            if (!ifbCheckResult.success)
+            var ifbExists = ifbCheckResult.success || ifbCheckResult.output.Contains($"{ifbDevice}: ");
+            if (!ifbExists)
             {
                 steps.Add("IFB device not found, cleaning up...");
                 await CleanupFailedDeploymentAsync(config.ConnectionName, config.Interface);

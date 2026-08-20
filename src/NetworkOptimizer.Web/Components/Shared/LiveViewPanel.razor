@@ -19,7 +19,20 @@
 @inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
-@if (!_ready)
+@* Beats the tiles: a live snapshot with no live source is worth less than saying so. *@
+@if (!_notConfigured && ShowConsoleDownBanner)
+{
+    <div class="sqm-unavailable">
+        <div class="sqm-status">
+            <span class="status-indicator status-disconnected"></span>
+            <span class="status-label">Console unavailable</span>
+        </div>
+        <p class="status-message">
+            Live stats are paused until this site's UniFi Console reconnects. Recorded history is still available in <strong>Monitoring - Live View</strong>.
+        </p>
+    </div>
+}
+else if (!_ready)
 {
     <div class="sqm-unavailable">
         <div class="sqm-status">
@@ -288,6 +301,12 @@ else
 
     private bool _ready;
     private bool _consoleUnreachable;
+
+    /// <summary>Monitoring is genuinely not set up, as opposed to set up but unable to load.</summary>
+    private bool _notConfigured;
+
+    /// <summary>Mirrors the markup: true only when the tiles and map are actually on the page.</summary>
+    private bool ShowingPanelBody => _ready && (_notConfigured || !ShowConsoleDownBanner);
     private string? _gatewayMac;
     private List<string> _gatewayWanIfNames = new();
 
@@ -329,7 +348,20 @@ else
             await LiveWan.RestoreAsync();
 
         await EnsureWanCompareHintAsync();
-        if (!_ready) return;
+
+        // Mounting into markup that isn't rendered leaves the flag set and the map never comes
+        // back when it is. Unmount instead, so recovery remounts.
+        if (!ShowingPanelBody)
+        {
+            if (_mapMounted) await UnmountMap();
+            if (_chartMounted)
+            {
+                _chartMounted = false;
+                try { await JS.InvokeVoidAsync("eval", "window.__dashWanLiveChart?.unmount();"); }
+                catch { }
+            }
+            return;
+        }
 
         if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
         {
@@ -526,6 +558,7 @@ else
 
     private async Task LoadDataAsync()
     {
+        _notConfigured = false;
         try
         {
             // Per-site: read this site's own MonitoringSettings/targets, and gate on the
@@ -538,6 +571,7 @@ else
             if (settings == null || !settings.Enabled)
             {
                 _ready = false;
+                _notConfigured = true;
                 return;
             }
 
@@ -546,6 +580,7 @@ else
             if (!InfluxClient.IsConfigured)
             {
                 _ready = false;
+                _notConfigured = true;
                 return;
             }
 

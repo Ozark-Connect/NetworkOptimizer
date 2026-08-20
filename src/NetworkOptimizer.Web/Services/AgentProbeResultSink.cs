@@ -8,6 +8,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -99,6 +100,7 @@ public class AgentProbeResultSink
     // UniFi reaches the agent within a couple of minutes instead of never. Keyed by slug.
     private readonly ConcurrentDictionary<string, DateTime> _lastAgentSnmpRedetectAt = new();
     private static readonly TimeSpan AgentSnmpRedetectInterval = TimeSpan.FromMinutes(2);
+    private readonly ConcurrentDictionary<string, bool> _fanOidMigratedBySite = new();
 
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
@@ -142,9 +144,8 @@ public class AgentProbeResultSink
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
-    /// <paramref name="initialConnect"/> separates the two: the console reconnect below belongs to a
-    /// genuine connect and must not run on every refresh, or each cycle re-pushes a config that is
-    /// already current.
+    /// <paramref name="initialConnect"/> separates the two: it forces the post-connect SNMP re-push,
+    /// which a steady-state refresh skips because the config is already current.
     /// </summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct, bool initialConnect = false)
     {
@@ -157,8 +158,10 @@ public class AgentProbeResultSink
         // before the tunnel is up, exhaust its short retry window, and stay
         // disconnected until a manual reconnect. Now that the tunnel is up,
         // reconnect it - fire-and-forget so we never block the tunnel read loop.
-        if (initialConnect)
-            _ = ReconnectConsoleIfViaAgentAsync(connection);
+        // Never gate this on initialConnect: a tunnel that goes stale and recovers before the 90s
+        // watchdog reaps it never reconnects, so the refresh is the only thing left that can clear
+        // the awaiting-agent state the stale flip set.
+        _ = ReconnectConsoleIfViaAgentAsync(connection, initialConnect);
     }
 
     /// <summary>
@@ -212,7 +215,7 @@ public class AgentProbeResultSink
         });
     }
 
-    private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection)
+    private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection, bool initialConnect)
     {
         try
         {
@@ -220,18 +223,24 @@ public class AgentProbeResultSink
             // still registered (the 90s watchdog hasn't reaped it). Reconnecting the
             // console through a tunnel that's silent past the stale threshold just
             // dials the dead loopback proxy and clobbers the awaiting-agent state the
-            // proxy's unreachable signal set. Skip; a real agent reconnect arrives
-            // with a fresh LastMessageAt and proceeds normally.
+            // proxy's unreachable signal set. Skip; the first refresh after traffic
+            // resumes sees a fresh LastMessageAt and proceeds normally.
             if (connection.IsStale)
                 return;
 
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
+            var reconnected = false;
             if (!siteConnection.IsConnected && await siteConnection.IsConsoleViaAgentAsync())
             {
                 _logger.LogInformation(
                     "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
                 await siteConnection.ReconnectAsync();
+                reconnected = true;
             }
+
+            // A refresh that found the console already up has nothing below to do.
+            if (!initialConnect && !reconnected)
+                return;
 
             // The initial SNMP push in OnAgentConnectedAsync was deferred because the console
             // wasn't connected yet (it reaches the console through this same tunnel). Now that it
@@ -416,7 +425,7 @@ public class AgentProbeResultSink
             }
 
             connection.TrySend(new ServerMessage { ProbeConfig = config });
-            _logger.LogInformation("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
+            _logger.LogDebug("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
                 config.Targets.Count, connection.AgentId, connection.SiteSlug,
                 skippedSelf > 0 ? $" - {skippedSelf} skipped: the agent runs on that target" : "");
         }
@@ -865,7 +874,11 @@ public class AgentProbeResultSink
                         Mac = device.Mac,
                         Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
                         Name = device.Name ?? "",
-                        DeviceType = device.DeviceType.ToString().ToLowerInvariant(),
+                        // The agent echoes this string straight back into the device_health tag, so
+                        // it has to be the same label the server's own writes use. ToString() is not:
+                        // it spells an AP "accesspoint" where the server writes "ap", which forks the
+                        // device into a second series the moment collection changes hands.
+                        DeviceType = MonitoringCollectionAgent.DescribeDeviceType(device.DeviceType),
                     });
                     if (!string.IsNullOrEmpty(device.Name))
                         names[NormalizeMac(device.Mac)] = device.Name;
@@ -878,6 +891,12 @@ public class AgentProbeResultSink
                 // values it relays back.
                 if (config.Devices.Count > 0)
                 {
+                    if (!_fanOidMigratedBySite.ContainsKey(connection.SiteSlug))
+                    {
+                        await CustomOidMigration.RemoveSupersededAsync(db, connection.SiteSlug, _logger, ct);
+                        _fanOidMigratedBySite[connection.SiteSlug] = true;
+                    }
+
                     var configuredMacs = new HashSet<string>(
                         config.Devices.Select(d => NormalizeMac(d.Mac)), StringComparer.OrdinalIgnoreCase);
                     var customOids = await db.CustomOidConfigurations.AsNoTracking()
@@ -926,7 +945,7 @@ public class AgentProbeResultSink
 
             connection.TrySend(new ServerMessage { SnmpConfig = config });
             if (config.Enabled)
-                _logger.LogInformation("Pushed SNMP config with {Count} device(s) to agent {Id} (site {Slug})",
+                _logger.LogDebug("Pushed SNMP config with {Count} device(s) to agent {Id} (site {Slug})",
                     config.Devices.Count, connection.AgentId, connection.SiteSlug);
             else
                 _logger.LogDebug("Pushed disabled SNMP config to agent {Id} (site {Slug})",
@@ -1408,6 +1427,7 @@ public class AgentProbeResultSink
             double? mem = health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null;
             double? temp = health.HasTemperatureC ? health.TemperatureC : null;
             long? uptime = health.HasUptimeSeconds ? health.UptimeSeconds : null;
+            int? fanRpm = health.HasFanSpeedRpm ? health.FanSpeedRpm : null;
 
             // Fill health fields SNMP didn't return from the console's cached UniFi device
             // data, mirroring the directly-monitored medium tier's CollectApiHealthFallbackAsync:
@@ -1441,7 +1461,8 @@ public class AgentProbeResultSink
                 memoryUsedPercent: mem,
                 temperatureC: temp,
                 uptimeSeconds: uptime,
-                timestamp: timestamp);
+                timestamp: timestamp,
+                fanSpeedRpm: fanRpm);
 
             liveStats.RecordHealth(
                 health.DeviceMac,
@@ -1590,8 +1611,11 @@ public class AgentProbeResultSink
                 if (!deviceFields.TryGetValue((r.DeviceMac, ts), out var fields))
                 {
                     deviceFields[(r.DeviceMac, ts)] = fields = new Dictionary<string, object>();
+                    // Custom fields ride the device's existing device_health series, which means
+                    // the canonical label - a different spelling here writes them to a series of
+                    // their own where nothing reading health will find them.
                     deviceTypes[r.DeviceMac] = deviceByMac.TryGetValue(mac, out var d)
-                        ? d.DeviceType.ToString() : "unknown";
+                        ? MonitoringCollectionAgent.DescribeDeviceType(d.DeviceType) : "unknown";
                 }
                 fields[r.FieldName] = CustomOidValueParser.Parse(r.Value, valueType);
             }

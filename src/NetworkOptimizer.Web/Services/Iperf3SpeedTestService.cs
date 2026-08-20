@@ -192,14 +192,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
-    /// Get the full path to iperf3 on Windows (needed for WMI when path contains spaces)
+    /// Get the full path to iperf3 on Windows (needed for WMI when path contains spaces).
     /// </summary>
-    private async Task<string?> GetWindowsIperf3PathAsync(DeviceSshConfiguration device)
+    /// <param name="device">Device to look on.</param>
+    /// <returns>The path, or null with the SSH error when the lookup could not run at all.</returns>
+    private async Task<(string? Path, string? SshError)> GetWindowsIperf3PathAsync(DeviceSshConfiguration device)
     {
         lock (_lock)
         {
             if (_iperf3PathCache.TryGetValue(device.Host, out var cached))
-                return cached;
+                return (cached, null);
         }
 
         var result = await _sshService.RunCommandWithDeviceAsync(device, "where.exe iperf3");
@@ -210,10 +212,13 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             if (!string.IsNullOrEmpty(path))
             {
                 lock (_lock) { _iperf3PathCache[device.Host] = path; }
-                return path;
+                return (path, null);
             }
         }
-        return null;
+
+        // A lookup that never ran is not a missing binary. Carry the SSH error back so the caller
+        // reports what actually stopped it instead of telling somebody to install what they have.
+        return (null, result.success ? null : result.output?.Trim());
     }
 
     /// <summary>
@@ -224,13 +229,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         if (isWindows)
         {
             // Use configured path if set, otherwise find iperf3 in PATH
-            var iperf3Path = !string.IsNullOrWhiteSpace(device.Iperf3BinaryPath)
-                ? device.Iperf3BinaryPath
-                : await GetWindowsIperf3PathAsync(device);
+            string? iperf3Path = device.Iperf3BinaryPath;
+            string? sshError = null;
+            if (string.IsNullOrWhiteSpace(iperf3Path))
+                (iperf3Path, sshError) = await GetWindowsIperf3PathAsync(device);
 
             if (string.IsNullOrEmpty(iperf3Path))
             {
-                return (false, "iperf3 not found. Install iperf3 and ensure it's in the system PATH, or configure a custom path.");
+                return (false, sshError is { Length: > 0 }
+                    ? $"Could not reach the device over SSH to look for iperf3: {sshError}"
+                    : "iperf3 not found. Install iperf3 and ensure it's in the system PATH, or configure a custom path.");
             }
 
             // Use WMI to create a detached process that survives SSH session end.

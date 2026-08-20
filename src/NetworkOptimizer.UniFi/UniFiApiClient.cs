@@ -4,10 +4,10 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Polly;
-using Polly.Retry;
 
 namespace NetworkOptimizer.UniFi;
 
@@ -41,7 +41,7 @@ public class UniFiApiClient : IDisposable
     private HttpClient? _httpClient;
     private CookieContainer? _cookieContainer;
     private string? _csrfToken;
-    private readonly AsyncRetryPolicy _retryPolicy;
+    private readonly IAsyncPolicy _retryPolicy;
     private readonly SemaphoreSlim _authLock = new(1, 1);
     // Set in Dispose() before the HttpClient is torn down. A concurrent reconnect
     // can dispose this client while a data call is in flight; the flag and the
@@ -90,6 +90,27 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public event Action<bool, string?>? AuthProbeCompleted;
 
+    /// <summary>
+    /// Raised when consecutive timeouts show the console has stopped answering. Carries the client
+    /// that saw them so a subscriber can ignore one that is no longer its live client.
+    /// </summary>
+    public event Action<UniFiApiClient>? ConsoleWentSilent;
+
+    /// <summary>
+    /// True for an HttpClient timeout, false for a caller cancelling. Both arrive as
+    /// TaskCanceledException; only the timeout says anything about the console.
+    /// </summary>
+    private static bool IsRequestTimeout(Exception ex) => ex.InnerException is TimeoutException;
+
+    /// <summary>Consecutive request timeouts before the console counts as silent.</summary>
+    private const int SilentTimeoutStreak = 2;
+
+    /// <summary>How long requests fail instantly once it is silent, before one probes for its return.</summary>
+    private static readonly TimeSpan SilentCooldown = TimeSpan.FromSeconds(30);
+
+    private int _consecutiveTimeouts;
+    private long _silentUntilTicks;
+
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
         string controllerHost,
@@ -120,19 +141,26 @@ public class UniFiApiClient : IDisposable
         // consoles keep the full backoff - a real transient blip there is worth
         // riding out.
         var viaAgentProxy = _agentProxyPort is not null;
-        _retryPolicy = Policy
+
+        void OnRetry(Exception exception, TimeSpan timespan, int retryCount, Context context) =>
+            _logger.LogWarning("Retry {RetryCount} after {Timespan}s due to {Exception}",
+                retryCount, timespan.TotalSeconds, exception.Message);
+
+        // Split by meaning: a refused or reset connection returns in milliseconds and is often a
+        // real blip, so it keeps the full backoff. A timeout means the console went silent after
+        // the handshake, which no backoff can clear, and each retry costs another full 15s.
+        var timeoutRetry = Policy
+            .Handle<TaskCanceledException>(IsRequestTimeout)
+            .WaitAndRetryAsync(1, _ => TimeSpan.FromMilliseconds(500), OnRetry);
+        var transientRetry = Policy
             .Handle<HttpRequestException>()
-            .Or<TaskCanceledException>()
             .WaitAndRetryAsync(
                 retryCount: viaAgentProxy ? 1 : 3,
                 sleepDurationProvider: retryAttempt => viaAgentProxy
                     ? TimeSpan.FromMilliseconds(500)
                     : TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                onRetry: (exception, timespan, retryCount, context) =>
-                {
-                    _logger.LogWarning("Retry {RetryCount} after {Timespan}s due to {Exception}",
-                        retryCount, timespan.TotalSeconds, exception.Message);
-                });
+                onRetry: OnRetry);
+        _retryPolicy = Policy.WrapAsync(transientRetry, timeoutRetry);
 
         InitializeHttpClient();
     }
@@ -150,14 +178,37 @@ public class UniFiApiClient : IDisposable
     internal async Task<T> ExecuteRequestAsync<T>(Func<Task<T>> action)
     {
         if (_disposed) return default!;
+
+        // A console that answers TCP and then goes quiet costs a full timeout on every call, and a
+        // page makes many - that is what reads as a frozen UI. Once it has proven silent, fail them
+        // instantly and let one through per cooldown to notice it came back, so this cannot latch.
+        if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _silentUntilTicks)) return default!;
+
         try
         {
-            return await _retryPolicy.ExecuteAsync(action);
+            var result = await _retryPolicy.ExecuteAsync(action);
+            Interlocked.Exchange(ref _consecutiveTimeouts, 0);
+            Interlocked.Exchange(ref _silentUntilTicks, 0);
+            return result;
         }
         catch (ObjectDisposedException)
         {
             _logger.LogDebug("UniFi API request skipped: client was disposed by a concurrent reconnect");
             return default!;
+        }
+        catch (TaskCanceledException ex)
+        {
+            // Rethrown, not swallowed: callers already turn this into their own failure result and
+            // their error reporting should not change just because we counted it. A caller
+            // cancelling (page navigation, site switch, shutdown) throws the same type and says
+            // nothing about the console, so it must never count toward silence.
+            if (IsRequestTimeout(ex)
+                && Interlocked.Increment(ref _consecutiveTimeouts) >= SilentTimeoutStreak)
+            {
+                Interlocked.Exchange(ref _silentUntilTicks, (DateTime.UtcNow + SilentCooldown).Ticks);
+                ConsoleWentSilent?.Invoke(this);
+            }
+            throw;
         }
     }
 
@@ -712,7 +763,7 @@ public class UniFiApiClient : IDisposable
             {
                 _isUniFiOs = true;
                 _pathDetected = true;
-                _logger.LogInformation("Detected UniFi OS device (UDM/UCG) - using /proxy/network path");
+                _logger.LogDebug("Detected UniFi OS device (UDM/UCG) - using /proxy/network path");
                 return;
             }
         }
@@ -1052,7 +1103,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} clients", response.Data.Count);
+            _logger.LogDebug("Retrieved {Count} clients", response.Data.Count);
             return response.Data;
         }
 
@@ -1130,7 +1181,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} known users", response.Data.Count);
+            _logger.LogDebug("Retrieved {Count} known users", response.Data.Count);
             return response.Data;
         }
 
@@ -1208,7 +1259,7 @@ public class UniFiApiClient : IDisposable
                 var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientDetailResponse>>(
                     cancellationToken: cancellationToken);
 
-                _logger.LogInformation("Retrieved {Count} historical clients", clients?.Count ?? 0);
+                _logger.LogDebug("Retrieved {Count} historical clients", clients?.Count ?? 0);
                 return clients ?? new List<UniFiClientDetailResponse>();
             }
 
@@ -1422,7 +1473,7 @@ public class UniFiApiClient : IDisposable
             .Where(c => c.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        _logger.LogInformation("Found {Count} WAN configurations", wanConfigs.Count);
+        _logger.LogDebug("Found {Count} WAN configurations", wanConfigs.Count);
         return wanConfigs;
     }
 
@@ -2711,6 +2762,629 @@ public class UniFiApiClient : IDisposable
 
     #endregion
 
+    #region Firmware APIs
+
+    /// <summary>
+    /// GET rest/setting - the site's `super_fwupdate` section: the release channel UniFi devices
+    /// follow and the channel options this console offers. Returns null when the section is missing
+    /// or the settings call fails.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/setting super_fwupdate section")]
+    public async Task<UniFiFirmwareUpdateSettings?> GetFirmwareUpdateSettingsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var settings = await GetSettingsRawAsync(cancellationToken);
+        if (settings == null)
+        {
+            _logger.LogWarning("Could not read settings, so no firmware channel is available for site {Site}", _site);
+            return null;
+        }
+
+        var section = UniFiFirmwareUpdateSettings.FromSettingsResponse(settings);
+        if (section == null)
+        {
+            _logger.LogWarning("Settings for site {Site} carry no {Key} section", _site, UniFiFirmwareUpdateSettings.SettingKey);
+            return null;
+        }
+
+        _logger.LogDebug("Device firmware channel for site {Site} is {Channel}", _site, section.FirmwareChannel);
+        return section;
+    }
+
+    /// <summary>
+    /// GET rest/setting - whether UniFi's own nightly device auto-upgrade is on. Null when it
+    /// cannot be read. Read only: the `mgmt` section carries SSH credentials and is never written.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/setting mgmt section")]
+    public async Task<bool?> GetDeviceAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        using var settings = await GetSettingsRawAsync(cancellationToken);
+        if (settings == null)
+        {
+            _logger.LogDebug("Could not read settings, so the auto-upgrade flag is unknown for site {Site}", _site);
+            return null;
+        }
+
+        return UniFiMgmtSettings.FromSettingsResponse(settings)?.AutoUpgrade;
+    }
+
+    /// <summary>
+    /// POST set/setting/super_fwupdate - change the release channel UniFi devices follow. A
+    /// read-modify-write: the existing `_id` and `sso_enabled` are carried back unchanged.
+    /// <para>
+    /// Writes the `super_fwupdate` section and nothing else. The UniFi UI also re-POSTs `mgmt` when
+    /// saving that page, which re-sends SSH credentials - never do that here.
+    /// </para>
+    /// </summary>
+    /// <param name="channel">"release" (GA), "release-candidate", or "beta" (EA).</param>
+    [VendorSpecific("UniFi", "set/setting/super_fwupdate read-modify-write")]
+    public async Task<bool> SetDeviceFirmwareChannelAsync(
+        string channel,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(channel);
+
+        var current = await GetFirmwareUpdateSettingsAsync(cancellationToken);
+        if (current == null)
+        {
+            _logger.LogError("Cannot set the device firmware channel: the current {Key} setting could not be read",
+                UniFiFirmwareUpdateSettings.SettingKey);
+            return false;
+        }
+
+        var body = UniFiFirmwareUpdateSettings.BuildChannelWriteBody(current, channel);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(
+                    BuildApiPath($"set/setting/{UniFiFirmwareUpdateSettings.SettingKey}"),
+                    content,
+                    cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Set the device firmware channel for site {Site} to {Channel}", _site, channel);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to set the device firmware channel for site {Site} to {Channel}", _site, channel);
+        return false;
+    }
+
+    /// <summary>
+    /// POST cmd/firmware {"cmd":"list-available"} - the newest build per model on the console's
+    /// CURRENT channel, each with a direct image URL and md5. Also the hook for confirming a channel
+    /// change took effect: change the channel, re-run this, and the URLs follow.
+    /// </summary>
+    [VendorSpecific("UniFi", "cmd/firmware list-available")]
+    public async Task<List<UniFiFirmwareCatalogEntry>> ListAvailableFirmwareAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object> { ["cmd"] = "list-available" };
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirmwareCatalogEntry>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/firmware"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Firmware catalog for site {Site} carries {Count} entries", _site, response.Data.Count);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to read the firmware catalog for site {Site}", _site);
+        return new List<UniFiFirmwareCatalogEntry>();
+    }
+
+    /// <summary>
+    /// POST cmd/devmgr {"cmd":"upgrade"} - upgrade a device to the console's pending target for it
+    /// (the catalog build at the console's current channel). This is the executor's primary command.
+    /// <para>
+    /// The console answers rc:ok the moment it ACCEPTS the command, and the flash is asynchronous.
+    /// Acceptance is not success and neither is an observed reboot: a live revert produced rc:ok and
+    /// a full down/up cycle on the SAME version. Callers must verify by observed state plus a
+    /// version comparison after the device is back, and escalate to the SSH path when the device
+    /// never enters Upgrading/Down within a grace window.
+    /// </para>
+    /// </summary>
+    /// <param name="mac">Device MAC in any separator form; sent lowercase-colonized.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr upgrade")]
+    public async Task<bool> TriggerDeviceUpgradeAsync(
+        string mac,
+        CancellationToken cancellationToken = default)
+    {
+        var body = UniFiDeviceUpgradeCommand.BuildUpgradeBody(mac);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (UniFiDeviceUpgradeCommand.IsAccepted(response))
+        {
+            _logger.LogInformation("Console accepted an upgrade command for device {Mac}", body["mac"]);
+            return true;
+        }
+
+        _logger.LogWarning("Console refused the upgrade command for device {Mac}", body["mac"]);
+        return false;
+    }
+
+    /// <summary>
+    /// POST cmd/devmgr {"cmd":"upgrade-external"} - upgrade or revert a device to an arbitrary
+    /// firmware image URL.
+    /// <para>
+    /// Known to be unreliable: a live revert commanded while the device was mid-provision returned
+    /// rc:ok, cycled the device, and brought it back on the SAME version - the scheduled flash was
+    /// lost in the inform cycle. Treat this as a first attempt only; SSH (`upgrade &lt;url&gt;`) is
+    /// the reliability path, and rollback is SSH-first. Command only a steadily Connected device,
+    /// and verify the version after it returns.
+    /// </para>
+    /// </summary>
+    /// <param name="mac">Device MAC in any separator form; sent lowercase-colonized.</param>
+    /// <param name="url">Direct firmware image URL, from the console catalog or the release feed.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr upgrade-external")]
+    public async Task<bool> TriggerDeviceExternalUpgradeAsync(
+        string mac,
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        var body = UniFiDeviceUpgradeCommand.BuildExternalUpgradeBody(mac, url);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (UniFiDeviceUpgradeCommand.IsAccepted(response))
+        {
+            _logger.LogInformation("Console accepted an external upgrade command for device {Mac}", body["mac"]);
+            return true;
+        }
+
+        _logger.LogWarning("Console refused the external upgrade command for device {Mac}", body["mac"]);
+        return false;
+    }
+
+    /// <summary>
+    /// PATCH /api/system/updates/channels - set the UniFi Network application channel, the UniFi OS
+    /// channel, or both. Console-level, so it does NOT go through /proxy/network. The console
+    /// answers 204 No Content on success.
+    /// </summary>
+    /// <param name="networkAppChannel">UniFi Network application channel, or null to leave it alone.</param>
+    /// <param name="unifiOsChannel">UniFi OS (console firmware) channel, or null to leave it alone.</param>
+    [VendorSpecific("UniFi", "console-level PATCH /api/system/updates/channels")]
+    public async Task<bool> SetConsoleUpdateChannelsAsync(
+        string? networkAppChannel,
+        string? unifiOsChannel,
+        CancellationToken cancellationToken = default)
+    {
+        var request = UniFiConsoleUpdateChannelsRequest.Build(networkAppChannel, unifiOsChannel);
+        if (request == null)
+        {
+            _logger.LogWarning("SetConsoleUpdateChannelsAsync called with no channel to set");
+            return false;
+        }
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/system/updates/channels";
+        var payload = JsonSerializer.Serialize(request);
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PatchAsync(
+                url,
+                new StringContent(payload, Encoding.UTF8, "application/json"),
+                cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} setting console update channels, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while setting console update channels");
+                    return false;
+                }
+
+                response = await _httpClient!.PatchAsync(
+                    url,
+                    new StringContent(payload, Encoding.UTF8, "application/json"),
+                    cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation(
+                    "Set console update channels (Network application: {NetworkChannel}, UniFi OS: {OsChannel})",
+                    networkAppChannel ?? "unchanged", unifiOsChannel ?? "unchanged");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to set console update channels: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// GET /api/system - the console-level UniFi OS view: current channel, the builds it knows
+    /// about (with publish dates, download URLs and changelog links), and any update in flight.
+    /// Console-level, so it does NOT go through /proxy/network. Only the fields this feature needs
+    /// are mapped.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level GET /api/system")]
+    public async Task<UniFiConsoleSystemInfo?> GetConsoleSystemInfoAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/system";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} fetching console system info, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching console system info");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(url, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to fetch console system info: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            try
+            {
+                var info = JsonSerializer.Deserialize<UniFiConsoleSystemInfo>(json);
+                if (info != null)
+                {
+                    _logger.LogDebug(
+                        "Console {Name}: UniFi OS channel {Channel}, standalone={Standalone}",
+                        info.Name, info.Firmware?.ReleaseChannel, info.IsStandaloneConsole);
+                }
+                return info;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse console system info");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// POST /api/controllers/network/update - start the UniFi Network application update to the
+    /// latest build on the console's application channel. Console-level, so it does NOT go through
+    /// /proxy/network; the console answers 204 No Content on accept, and the application restarts
+    /// while it installs. Watch progress via <see cref="GetConsoleSystemInfoAsync"/>.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/controllers/network/update")]
+    public async Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/controllers/network/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering the Network application update, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering the Network application update");
+                    return false;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Console accepted the UniFi Network application update");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to trigger the Network application update: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// POST /api/firmware/update - start the UniFi OS (console firmware) update to the latest
+    /// build on the console's firmware channel. Console-level, empty body, 204-style accept.
+    /// <para>
+    /// Cloud Gateway consoles ONLY: callers must never issue this against a standalone
+    /// unifi-os-server console (check <see cref="UniFiConsoleSystemInfo.IsStandaloneConsole"/>) -
+    /// those are custom deploys the app must not update. The console (and for remote sites the
+    /// tunnel) goes dark during the cycle; watch <see cref="GetConsoleSystemInfoAsync"/> after.
+    /// </para>
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/firmware/update")]
+    public async Task<bool> TriggerUniFiOsUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/firmware/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering the UniFi OS update, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering the UniFi OS update");
+                    return false;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Console accepted the UniFi OS update");
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to trigger the UniFi OS update: {StatusCode} - {Error}",
+                response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// POST /api/controllers/checkUpdates - ask the console to refresh its application-update
+    /// availability now (the console-level analog of the device catalog's "Check for Updates").
+    /// Console-level, 204 accept; read the result back via <see cref="GetConsoleSystemInfoAsync"/>.
+    /// </summary>
+    /// <param name="controllers">Application names to check, e.g. "network".</param>
+    [VendorSpecific("UniFi", "console-level POST /api/controllers/checkUpdates")]
+    public async Task<bool> TriggerConsoleAppUpdateCheckAsync(
+        IEnumerable<string> controllers,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(controllers);
+        var list = controllers.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        if (list.Count == 0) return false;
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/controllers/checkUpdates";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object> { ["controllersToCheck"] = list });
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(
+                url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _isAuthenticated = false;
+                if (!await LoginAsync(cancellationToken)) return false;
+                response = await _httpClient!.PostAsync(
+                    url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode) return true;
+            _logger.LogWarning("Console application update check failed: {StatusCode}", response.StatusCode);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// GET /api/firmware/update - the pending UniFi OS build for this console (same entry shape
+    /// as the /api/system firmware entries: version, publish date, download and changelog links).
+    /// POST on the same path triggers it. Returns null when unreadable.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level GET /api/firmware/update")]
+    public async Task<UniFiConsoleFirmwareRelease?> GetUniFiOsPendingUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/firmware/update";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _isAuthenticated = false;
+                if (!await LoginAsync(cancellationToken)) return null;
+                response = await _httpClient!.GetAsync(url, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Pending UniFi OS update read returned {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                return JsonSerializer.Deserialize<UniFiConsoleFirmwareRelease>(json);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse the pending UniFi OS update");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// POST /api/cloud/backup - run a console backup. Console-level, empty body; the response
+    /// carries an overall flag plus per-application/service outcomes. Same shape on Cloud Gateway
+    /// and standalone consoles. Returns null when the call itself failed.
+    /// </summary>
+    [VendorSpecific("UniFi", "console-level POST /api/cloud/backup")]
+    public async Task<UniFiConsoleBackupResult?> TriggerConsoleBackupAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/api/cloud/backup";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} triggering a console backup, re-authenticating...",
+                    response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while triggering a console backup");
+                    return null;
+                }
+
+                response = await _httpClient!.PostAsync(url, content: null, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to trigger a console backup: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                var result = JsonSerializer.Deserialize<UniFiConsoleBackupResult>(json);
+                if (result != null)
+                {
+                    _logger.LogInformation("Console backup finished (success={Success}, components={Count})",
+                        result.Success, result.Controllers.Count + result.Services.Count);
+                }
+                return result;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not parse the console backup response");
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// GET stat/widget/warnings - the console's own pre-flight signals (upgradable devices, EOL/LTS
+    /// counts, low disk space). Optional: the shape varies across UniFi Network versions, so this
+    /// returns null on anything unexpected rather than failing a rollout.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/widget/warnings; shape varies by Network version")]
+    public async Task<UniFiFirmwareWarnings?> GetFirmwareWarningsWidgetAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await ExecuteRequestAsync<UniFiFirmwareWarnings?>(async () =>
+        {
+            try
+            {
+                var response = await _httpClient!.GetAsync(
+                    BuildApiPath("stat/widget/warnings"), cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Warnings widget returned {StatusCode} for site {Site}",
+                        response.StatusCode, _site);
+                    return null;
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                var warnings = UniFiFirmwareWarnings.TryParse(json);
+
+                if (warnings == null)
+                    _logger.LogDebug("Warnings widget for site {Site} did not match a shape we read", _site);
+
+                return warnings;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Warnings widget unavailable for site {Site}", _site);
+                return null;
+            }
+        });
+    }
+
+    #endregion
+
     #region Threat Management APIs
 
     /// <summary>
@@ -2899,6 +3573,75 @@ public class UniFiApiClient : IDisposable
 
             return default;
         });
+    }
+
+    #endregion
+
+    #region Support File (UniFi OS endpoint, username/password only)
+
+    /// <summary>
+    /// Kicks off support file generation on the UniFi OS console. Returns immediately;
+    /// poll with <see cref="IsSupportFileReadyAsync"/> until the file is ready.
+    /// Requires a username/password session - API key connections will get 403.
+    /// </summary>
+    public async Task<bool> GenerateSupportFileAsync(bool recreate, bool networkOnly = true, CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return false;
+        var url = $"{_controllerUrl}/api/support/file/generate";
+        _logger.LogDebug("Support file generate: POST {Url} (networkOnly={NetworkOnly})", url, networkOnly);
+        var json = networkOnly
+            ? (recreate ? """{"recreate":true,"requiredDevices":{},"targets":["network","uos"]}"""
+                        : """{"recreate":false,"requiredDevices":{},"targets":["network","uos"]}""")
+            : (recreate ? """{"recreate":true}"""
+                        : """{"recreate":false}""");
+        var body = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        var response = await _httpClient!.PostAsync(url, body, ct);
+        _logger.LogDebug("Support file generate response: {StatusCode}", response.StatusCode);
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NoContent)
+        {
+            var error = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Support file generate failed: {StatusCode} {Error}", response.StatusCode, error);
+        }
+        return response.StatusCode == System.Net.HttpStatusCode.NoContent ||
+               response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// Checks whether a support file is ready for download. Returns true when the file is
+    /// available, false when generation is still in progress (HTTP 423 Locked).
+    /// </summary>
+    public async Task<bool> IsSupportFileReadyAsync(CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return false;
+        var request = new HttpRequestMessage(HttpMethod.Head,
+            $"{_controllerUrl}/api/support/file/download");
+        var response = await _httpClient!.SendAsync(request, ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// Downloads the support file. Returns the response stream and the filename from the
+    /// custom Filename header. Caller must dispose the stream. Returns null if the download
+    /// fails or the file isn't ready.
+    /// </summary>
+    public async Task<(Stream stream, string filename)?> DownloadSupportFileAsync(CancellationToken ct = default)
+    {
+        if (!await EnsureAuthenticatedAsync(ct)) return null;
+        var response = await _httpClient!.GetAsync(
+            $"{_controllerUrl}/api/support/file/download",
+            HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var filename = "support-file.tgz";
+        if (response.Headers.TryGetValues("Filename", out var filenames))
+        {
+            var fn = filenames.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(fn)) filename = fn;
+        }
+
+        return (await response.Content.ReadAsStreamAsync(ct), filename);
     }
 
     #endregion

@@ -51,7 +51,8 @@ public static class IspHealthEndpoints
                 siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
             }
 
-            var pdfBytes = new IspHealthPdfGenerator().GenerateReportBytes(report, siteName);
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
+                .GenerateReportBytes(report, siteName);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
             var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
@@ -86,6 +87,9 @@ public static class IspHealthEndpoints
             {
                 asn = s.AsnNumber,
                 name = string.IsNullOrEmpty(s.AsnName) ? $"AS{s.AsnNumber}" : s.AsnName,
+                // The targets this line is drawn from, so hiding it can also hide the events that
+                // only happened on it. Names alone can't do that: several lines share an ASN.
+                targets = s.TargetIds,
                 buckets = s.Samples
                     .Where(p => p.RttAvgMs.HasValue)
                     .GroupBy(p => new DateTime(p.Time.Ticks - p.Time.Ticks % bucketTicks, DateTimeKind.Utc))
@@ -102,6 +106,7 @@ public static class IspHealthEndpoints
             {
                 a.asn,
                 a.name,
+                a.targets,
                 points = allTimes.Select(t => new
                 {
                     time = t.ToString("o"),
@@ -117,8 +122,13 @@ public static class IspHealthEndpoints
                     type = "congestion",
                     start = e.Start.ToString("o"),
                     end = e.End.ToString("o"),
-                    label = e.IsShared ? "Shared congestion" : "Congestion",
-                    shared = e.IsShared
+                    label = e.IsShared ? "Shared congestion"
+                        : e.Disposition == CongestionDisposition.SelfInflicted ? "Loaded Latency"
+                        : "Congestion",
+                    shared = e.IsShared,
+                    // Witnesses too: the elevation is on their line as well, so isolating one must
+                    // keep the shading that explains it.
+                    targets = e.TargetIds.Concat(e.WitnessTargetIds).Distinct(StringComparer.OrdinalIgnoreCase)
                 }));
                 events.AddRange(report.PathShifts.Select(e => (object)(e.IsUnreachable
                     ? new
@@ -127,7 +137,8 @@ public static class IspHealthEndpoints
                         start = e.Time.ToString("o"),
                         end = e.UnreachableEnd?.ToString("o"),
                         label = $"{(string.IsNullOrEmpty(e.AsnName) ? "Transit" : e.AsnName)} unreachable",
-                        shared = false
+                        shared = false,
+                        targets = e.TargetIds
                     }
                     : new
                     {
@@ -135,7 +146,8 @@ public static class IspHealthEndpoints
                         start = e.Time.ToString("o"),
                         end = (string?)null,
                         label = $"Path shift {(e.DeltaMs >= 0 ? "+" : "")}{e.DeltaMs:0.#} ms",
-                        shared = false
+                        shared = false,
+                        targets = e.TargetIds
                     })));
             }
 

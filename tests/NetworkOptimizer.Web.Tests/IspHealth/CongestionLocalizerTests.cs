@@ -50,6 +50,14 @@ public class CongestionLocalizerTests
     // but over the 0.5 ms median-shift margin (the line-wide test still sees it rose). Models a high-
     // baseline path whose small bufferbloat offset hides under its own threshold.
     private static List<LatencySample> SmallRise(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 1, jitterMs: 0.6);
+    // A hop that naturally bounces by a few ms (deterministic 0-6 ms cycle, quiet-time p75-median
+    // spread 1.5 ms) with no real event. Under a flat 0.5 ms shift floor its in-window p75 clears
+    // the line-wide rise bar in ANY window; the noise-scaled floor must not count it.
+    private static List<LatencySample> Noisy(double rtt = 30) => Flat(rtt)
+        .Select(s => new LatencySample(s.Time, rtt + s.Time.Minute % 5 * 1.5, rtt + s.Time.Minute % 5 * 1.5 + 0.5, 0.5, s.LossPercent))
+        .ToList();
+    private static List<LatencySample> NoisyElevated(double rtt = 30) =>
+        Noisy(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 28, jitterMs: 6);
 
     private static AsnSeries Hop(int asn, string ip, List<LatencySample> samples, params string[] ancestors) => new()
     {
@@ -172,6 +180,31 @@ public class CongestionLocalizerTests
         e.LoadCoincident.Should().BeTrue();
         e.Suppressed.Should().BeFalse();
         e.CleanParallelPaths.Should().BeGreaterThan(0);   // off-path hops stayed clean -> hop-isolated, not access-wide
+    }
+
+    [Fact]
+    public void Downstream_witnesses_are_recorded_without_being_blamed()
+    {
+        // The destination and the transit hop behind the bottleneck carried the elevation. They are
+        // victims, so they must stay out of TargetIds (which attributes the score) - but the chart
+        // draws their lines, and filtering to one has to keep this event.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestCorridor, Elevated(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var e = CongestionLocalizer.Localize(series, Topo(load: true), Options).Single();
+
+        e.TargetIds.Should().Equal(Backhaul);
+        e.WitnessTargetIds.Should().BeEquivalentTo(new[] { Transit, DestCorridor });
+        // The clean off-corridor control never witnessed it.
+        e.WitnessTargetIds.Should().NotContain(DestControl);
     }
 
     [Fact]
@@ -335,6 +368,161 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Brief_uniform_line_wide_rise_in_a_padded_window_under_load_is_self_inflicted()
+    {
+        // The Steam-download shape: a ~6-min saturation adds a uniform ~2 ms floor to EVERY path
+        // (2.6 ms BNG and 33 ms transit alike), split across a bucket boundary so it is a minority
+        // (20%) of BOTH 15-min buckets in the padded 30-min window - the full-window p75 AND a
+        // 15-min re-test both read every path as flat (p75 needs >25% of samples elevated), which
+        // is the real event a per-detector-bucket second arm still missed. The 5-min slice arm
+        // sees the breadth inside the burst and must collapse it to Loaded Latency (SelfInflicted,
+        // suppressed).
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> Bloat(double rtt) =>
+            Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 2.2, jitterMs: 2.5);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Bloat(2.6)),
+            Hop(100, Border, Bloat(5), Bng),
+            Hop(100, Backhaul, Bloat(12), Bng, Border),
+            Hop(200, Transit, Bloat(33), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Bloat(20), Bng, Border),
+            Dest(DestCorridor, Bloat(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Bloat(8), Bng, Border)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.95 : 0.05)); // high only during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().ContainSingle();
+        var e = events[0];
+        e.Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        e.BottleneckHopIp.Should().Be(Bng);
+        e.LoadCoincident.Should().BeTrue();
+        e.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Brief_line_wide_rise_registers_on_hops_whose_level_wandered_below_the_series_median()
+    {
+        // The real Steam-download shape the flat-baseline test above cannot reproduce: transit-layer
+        // hops wander by a few ms over hours, and at event time (a quiet hour) they sat ~2 ms BELOW
+        // their whole-series median. The uniform +2 ms access floor lifts them back to roughly that
+        // median, so a whole-series baseline reads "no rise" on every wandering hop (+0.2 ms, under
+        // the 0.5 ms shift floor) and the breadth dies at the access layer. The local around-the-window
+        // baseline sees the true ~+2 ms rise and the incident must still collapse to Loaded Latency.
+        var start = TestSeries.Start;
+        var span = TimeSpan.FromHours(48);
+        var drop = start.AddHours(34); // level steps down 2 ms, two hours before the event
+        var eventHour = start.AddHours(36);
+        var burstStart = eventHour.AddMinutes(12);
+        var burstEnd = eventHour.AddMinutes(18);
+        List<LatencySample> Bloat(double rtt) => TestSeries.Flat(start, span, rtt, jitterMs: 0.5)
+            .WithSegment(burstStart, burstEnd, rttMs: rtt + 2.2, jitterMs: 2.5);
+        List<LatencySample> WanderBloat(double rtt) => TestSeries.Flat(start, span, rtt, jitterMs: 0.5)
+            .WithSegment(drop, start + span, rttMs: rtt - 2, jitterMs: 0.5)
+            .WithSegment(burstStart, burstEnd, rttMs: rtt - 2 + 2.2, jitterMs: 2.5);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Bloat(2.6)),
+            Hop(100, Border, Bloat(5), Bng),
+            Hop(100, Backhaul, WanderBloat(12), Bng, Border),
+            Hop(200, Transit, WanderBloat(33), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, WanderBloat(20), Bng, Border),
+            Dest(DestCorridor, WanderBloat(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, WanderBloat(8), Bng, Border)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = eventHour; t < eventHour.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.95 : 0.05));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().ContainSingle();
+        var e = events[0];
+        e.Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        e.BottleneckHopIp.Should().Be(Bng);
+        e.LoadCoincident.Should().BeTrue();
+        e.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Brief_uniform_rise_where_far_hops_elevate_only_at_saturation_peaks_still_collapses()
+    {
+        // The third real Steam-download shape: the access hops ride the queue for the whole burst,
+        // but the far hops inherit it only at the saturation PEAKS - roughly every other sample
+        // elevated, the rest barely above baseline. Their rise-window MEDIAN then sits near baseline
+        // (< half the access hops' rise) while their p75 shows the same ~2.5 ms floor as everyone
+        // else, so a median-based uniformity/floor read splinters a genuinely uniform event into
+        // "one hop far above the floor" and the incident escapes the collapse as Confirmed at the
+        // BNG. The rise statistics must use the breadth test's percentile: then the event is
+        // uniform and collapses to Loaded Latency (SelfInflicted, suppressed).
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(19);
+        List<LatencySample> Sustained(double rtt) =>
+            Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 2.5, jitterMs: 2.5);
+        List<LatencySample> PeaksOnly(double rtt) => Flat(rtt)
+            .Select(s => s.Time >= burstStart && s.Time < burstEnd
+                ? new LatencySample(s.Time,
+                    rtt + (s.Time.Minute % 2 == 0 ? 2.5 : 0.8),
+                    rtt + (s.Time.Minute % 2 == 0 ? 2.5 : 0.8) + 2.5, 2.5, s.LossPercent)
+                : s)
+            .ToList();
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Sustained(2.6)),
+            Hop(100, Border, Sustained(5), Bng),
+            Hop(100, Backhaul, PeaksOnly(12), Bng, Border),
+            Hop(200, Transit, PeaksOnly(33), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, PeaksOnly(20), Bng, Border),
+            Dest(DestCorridor, PeaksOnly(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, PeaksOnly(8), Bng, Border)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.95 : 0.05));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().ContainSingle();
+        var e = events[0];
+        e.Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        e.BottleneckHopIp.Should().Be(Bng);
+        e.LoadCoincident.Should().BeTrue();
+        e.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
     public void Access_wide_elevation_under_load_is_self_inflicted_and_suppressed()
     {
         var series = new List<AsnSeries>
@@ -403,6 +591,56 @@ public class CongestionLocalizerTests
 
         events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
         events.Single(e => e.BottleneckHopIp == Bng).Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
+    public void Noisy_hops_bouncing_within_their_own_variance_do_not_pad_the_line_wide_vote()
+    {
+        // Only the access corridor rose; the transit, dead-end and destinations just bounced within
+        // their own natural noise (quiet spread 1.5 ms, no event). Under a flat 0.5 ms shift floor
+        // every noisy hop reads "rose" in the window, breadth passes, and the egress event wrongly
+        // collapses to Loaded Latency. The noise-scaled floor requires a shift exceeding each hop's
+        // own variance, so the vote is 3/7, not line-wide, and the egress stays Confirmed (scored).
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Noisy(30), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Noisy(20), Bng, Border),
+            Dest(DestCorridor, Noisy(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Noisy(25), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        events.Single(e => e.BottleneckHopIp == Bng).Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
+    public void A_real_line_wide_rise_still_counts_noisy_hops()
+    {
+        // The flip side of the noise-scaled floor: a genuine line-wide rise under load lifts the
+        // noisy hops well past their own variance, so they still vote "rose" and the incident
+        // collapses to Loaded Latency exactly as with stable hops.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, NoisyElevated(30), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, NoisyElevated(20), Bng, Border),
+            Dest(DestCorridor, NoisyElevated(40), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, NoisyElevated(25), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().ContainSingle();
+        events[0].Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        events[0].BottleneckHopIp.Should().Be(Bng);
+        events[0].Suppressed.Should().BeTrue();
     }
 
     [Fact]
@@ -711,6 +949,38 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void L2_neighbor_is_placed_at_hop_zero_and_other_zeros_stay_unplaced()
+    {
+        // Hop 0 otherwise means "answered pings but never landed in a trace"; only a target
+        // discovered as the WAN L2 neighbor is genuinely first on the path.
+        const string L2 = "10.0.0.9";
+        var hopNumbers = new Dictionary<string, int>(HopNumbers, StringComparer.OrdinalIgnoreCase) { [L2] = 0 };
+
+        List<CongestionEvent> Run(bool isL2Neighbor)
+        {
+            var series = new List<AsnSeries>
+            {
+                Hop(100, L2, Elevated()),
+                Hop(100, Backhaul, Elevated(), L2),
+                Dest(DestControl, Flat(), Bng, Border),
+            };
+            var topo = new CongestionTopology
+            {
+                AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+                HopNumberByIp = hopNumbers,
+                L2NeighborIps = isL2Neighbor
+                    ? new HashSet<string>(new[] { L2 }, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                HasTraceMap = true
+            };
+            return CongestionLocalizer.Localize(series, topo, Options);
+        }
+
+        Run(isL2Neighbor: true).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().Be(0);
+        Run(isL2Neighbor: false).Single(e => e.BottleneckHopIp == L2).BottleneckHopNumber.Should().BeNull();
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise
@@ -721,5 +991,46 @@ public class CongestionLocalizerTests
         var events = CongestionDetector.DetectForSeries(TestSeries.Asn(64500, "FarHop", samples), Options);
 
         events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Brief_saturation_inside_a_padded_window_reports_excursion_level_load()
+    {
+        // A brief download saturates the line during the access hop's excursion moments, but
+        // the bucket-padded congestion window is much wider. The window-level median load dilutes
+        // below the 10% mention floor; the excursion-moment median must replace it so the event
+        // reports the load the operator actually saw.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.02));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => e.LoadCoincident);
+        var evt = events.First();
+        evt.MedianLoadUtilization.Should().NotBeNull();
+        evt.MedianLoadUtilization!.Value.Should().BeGreaterThan(0.09,
+            "excursion-moment load must replace the diluted window median");
     }
 }

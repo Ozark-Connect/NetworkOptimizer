@@ -994,6 +994,248 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ExternalSpeedTestServers", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareModelTiming", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MedianDowntimeSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("P90DowntimeSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RecentSamplesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Model")
+                        .IsUnique();
+
+                    b.ToTable("FirmwareModelTimings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareRolloutPlan", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OriginalChannelSettingsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlanJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReportJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ScheduledStartAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ScheduledStartAt");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("FirmwareRolloutPlans", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareRolloutSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AdvancedSpacingJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutopilotSettingsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AutopilotWindowMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExclusionsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("FixedDayOfWeek")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("FixedHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("GlobalChannel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IncludeUniFiNetwork")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IncludeUniFiOs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MinReleaseAgeDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NetworkAppChannel")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NotifyHoursAhead")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PerDeviceTypeChannelsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PerSkuChannelsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PerWaveApproval")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SoakHours")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SpacingProfile")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("SuppressStandardAlerts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UniFiOsChannel")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FirmwareRolloutSettings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareRolloutStep", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("BackAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CommandedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DowntimeSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PlanId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PostStatsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreStatsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ToVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Wave")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("WentDownAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac");
+
+                    b.HasIndex("PlanId", "Wave");
+
+                    b.ToTable("FirmwareRolloutSteps", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.FloorPlan", b =>
                 {
                     b.Property<int>("Id")
@@ -2173,6 +2415,63 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("PlannedAps", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SharedFirmwareBuild", b =>
+                {
+                    b.Property<string>("Model")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Md5Sum")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Model", "Channel", "Version");
+
+                    b.ToTable("SharedFirmwareBuilds", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SharedNetworkAppBuild", b =>
+                {
+                    b.Property<string>("Channel")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Channel", "Version");
+
+                    b.ToTable("SharedNetworkAppBuilds", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.Site", b =>
@@ -3359,6 +3658,15 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("PatternType", "DetectedAt");
 
                     b.ToTable("ThreatPatterns", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareRolloutStep", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Storage.Models.FirmwareRolloutPlan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.FloorPlan", b =>

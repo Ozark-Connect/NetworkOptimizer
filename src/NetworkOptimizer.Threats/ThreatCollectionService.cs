@@ -245,7 +245,7 @@ public class ThreatCollectionService : BackgroundService
         await settings.SaveSettingAsync(lastSyncKey, now.ToString("O"));
 
         if (totalRecentEvents > 0)
-            _logger.LogInformation("Collected {Count} threat events", totalRecentEvents);
+            _logger.LogDebug("Collected {Count} threat events", totalRecentEvents);
 
         // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
         // Backfill 30 days (data retention is separate at _retentionDays)
@@ -309,7 +309,7 @@ public class ThreatCollectionService : BackgroundService
             }
             else
             {
-                _logger.LogInformation("Geo backfill: enriched {Count} events with geo data", enriched);
+                _logger.LogDebug("Geo backfill: enriched {Count} events with geo data", enriched);
             }
         }
 

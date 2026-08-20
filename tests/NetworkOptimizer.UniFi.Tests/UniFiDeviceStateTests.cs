@@ -13,7 +13,7 @@ public class UniFiDeviceStateTests
     [InlineData(3, DeviceStatusKind.Online, "Update Available")]
     // Transitional bucket - yellow, not a fault but not actionable yet.
     [InlineData(2, DeviceStatusKind.Transitional, "Pending")]
-    [InlineData(4, DeviceStatusKind.Transitional, "Updating")]
+    [InlineData(4, DeviceStatusKind.Transitional, "Upgrading")]
     [InlineData(5, DeviceStatusKind.Transitional, "Provisioning")]
     [InlineData(7, DeviceStatusKind.Transitional, "Adopting")]
     [InlineData(8, DeviceStatusKind.Transitional, "Deleting")]

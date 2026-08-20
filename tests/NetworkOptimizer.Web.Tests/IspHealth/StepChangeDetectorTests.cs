@@ -232,4 +232,47 @@ public class StepChangeDetectorTests
         events[0].CorrelatedTargetCount.Should().Be(2);
         events[0].AsnName.Should().Be("Level 3");
     }
+
+    [Fact]
+    public void Correlated_shift_carries_every_path_with_its_own_levels()
+    {
+        // The event reports the representative's levels; the other path stepped by a different
+        // amount and is only recoverable from the members.
+        var stepAt = TestSeries.Start.AddHours(12);
+        var near = TestSeries.Flat(TestSeries.Start, Day, rttMs: 10, jitterMs: 0.5)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: 20, jitterMs: 0.5);
+        var far = TestSeries.Flat(TestSeries.Start, Day, rttMs: 30, jitterMs: 0.5)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: 45, jitterMs: 0.5);
+
+        var events = StepChangeDetector.Detect(new[]
+        {
+            new AsnSeries { AsnNumber = 64500, AsnName = "TransitOne", TargetIds = { "t-near" }, Samples = near },
+            new AsnSeries { AsnNumber = 64501, AsnName = "TransitTwo", TargetIds = { "t-far" }, Samples = far }
+        }, Options);
+
+        var evt = events.Should().ContainSingle().Subject;
+        evt.Members.Should().HaveCount(2);
+        evt.Members[0].Name.Should().Be("TransitOne");
+        evt.Members[1].Name.Should().Be("TransitTwo");
+        evt.Members[1].BeforeMedianMs.Should().BeApproximately(30, 0.5);
+        evt.Members[1].AfterMedianMs.Should().BeApproximately(45, 0.5);
+        evt.TargetIds.Should().BeEquivalentTo(new[] { "t-near", "t-far" });
+    }
+
+    [Fact]
+    public void Uncorrelated_shift_has_no_members_but_still_names_its_target()
+    {
+        var stepAt = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 10, jitterMs: 0.5)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: 20, jitterMs: 0.5);
+
+        var events = StepChangeDetector.Detect(new[]
+        {
+            new AsnSeries { AsnNumber = 64500, AsnName = "TransitOne", TargetIds = { "t-near" }, Samples = samples }
+        }, Options);
+
+        var evt = events.Should().ContainSingle().Subject;
+        evt.Members.Should().BeEmpty();
+        evt.TargetIds.Should().BeEquivalentTo(new[] { "t-near" });
+    }
 }

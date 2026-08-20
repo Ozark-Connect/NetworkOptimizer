@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -46,7 +46,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Build a set of AP MACs for mesh parent detection
         var apMacs = new HashSet<string>(aps.Select(ap => ap.Mac.ToLowerInvariant()));
 
-        var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
+        // One absent half must not hide the pair from both APs, and with it the re-pair action.
+        var parentByChild = UniFiDiscovery.BuildMeshParentByChild(aps);
+
+        var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs, parentByChild)).ToList();
 
         // Post-process: resolve mesh parent names and populate mesh children lists
         // Use the parent's downlink_table for signal/rates (parent's perspective),
@@ -191,7 +194,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 reportData.ValueKind == System.Text.Json.JsonValueKind.Array ? reportData.GetArrayLength() : 0);
 
             var metrics = ParseSiteMetrics(reportData);
-            _logger.LogInformation("Parsed {Count} site metrics data points", metrics.Count);
+            _logger.LogDebug("Parsed {Count} site metrics data points", metrics.Count);
             return metrics;
         }
         catch (Exception ex)
@@ -253,7 +256,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
             // Parse using AP-specific prefixes (no 'ap-' prefix)
             var metrics = ParseApMetrics(reportData);
-            _logger.LogInformation("Parsed {Count} AP metrics data points", metrics.Count);
+            _logger.LogDebug("Parsed {Count} AP metrics data points", metrics.Count);
             return metrics;
         }
         catch (Exception ex)
@@ -431,7 +434,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             // We now know the AP MAC(s) and band(s) from the first query
             await EnrichWithChannelInfoAsync(metrics, reportType, clientMac, startMs, endMs, cancellationToken);
 
-            _logger.LogInformation("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
+            _logger.LogDebug("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
             return metrics;
         }
         catch (Exception ex)
@@ -871,7 +874,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // get the correct channel for each BSSID.
         CorrectMeshNeighborChannels(aps, results);
 
-        _logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
+        _logger.LogDebug("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
             aps.Count,
             results.Count,
             results.Sum(r => r.Neighbors.Count));
@@ -945,10 +948,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     #region Mapping Helpers
 
-    private AccessPointSnapshot MapToAccessPointSnapshot(DiscoveredDevice ap, DateTimeOffset timestamp, HashSet<string> apMacs)
+    private AccessPointSnapshot MapToAccessPointSnapshot(
+        DiscoveredDevice ap,
+        DateTimeOffset timestamp,
+        HashSet<string> apMacs,
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> parentByChild)
     {
         // Check if this AP has a wireless uplink to another AP (mesh child)
         var isMeshChild = false;
+        // True only when the child described the uplink itself. The claim branch below leaves it
+        // false so the snapshot never carries ap.Uplink* values that describe a different link.
+        var selfReportedUplink = false;
         string? meshParentMac = null;
         RadioBand? meshUplinkBand = null;
         int? meshUplinkChannel = null;
@@ -961,6 +971,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             if (apMacs.Contains(uplinkMacLower))
             {
                 isMeshChild = true;
+                selfReportedUplink = true;
                 meshParentMac = uplinkMacLower;
                 meshUplinkBand = RadioBandExtensions.FromUniFiCode(ap.UplinkRadioBand);
                 meshUplinkChannel = ap.UplinkChannel;
@@ -969,6 +980,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 if (ap.UplinkInterface?.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase) == true)
                     meshUplinkInterface = ap.UplinkInterface;
             }
+        }
+        else if (parentByChild.TryGetValue(ap.Mac.ToLowerInvariant(), out var claim))
+        {
+            // The parent claims it and the child says nothing. Band, channel and the STA interface
+            // all live on the missing half, so they stay unknown - the re-pair reads the interface
+            // off the device itself when it is not reported.
+            isMeshChild = true;
+            meshParentMac = claim.ParentMac;
+            _logger.LogDebug(
+                "[Mesh] {Ap} ({Mac}) has no uplink of its own; taking {Parent} as its mesh parent from the parent's downlink table",
+                ap.Name, ap.Mac, claim.ParentMac);
         }
 
         var snapshot = new AccessPointSnapshot
@@ -989,9 +1011,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             MeshUplinkBand = meshUplinkBand,
             MeshUplinkChannel = meshUplinkChannel,
             MeshUplinkInterface = meshUplinkInterface,
-            MeshUplinkSignalDbm = isMeshChild ? ap.UplinkSignalDbm : null,
-            MeshUplinkTxRateMbps = isMeshChild && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
-            MeshUplinkRxRateMbps = isMeshChild && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null,
+            // Self-reported only: a claim-derived parent means ap.Uplink* describes a different
+            // link, and the parent's signal is its view of the child, never the child's own.
+            MeshUplinkSignalDbm = selfReportedUplink ? ap.UplinkSignalDbm : null,
+            MeshUplinkTxRateMbps = selfReportedUplink && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
+            MeshUplinkRxRateMbps = selfReportedUplink && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null,
             IsAfcEnabled = ap.AfcEnabled ?? false,
             AfcState = ap.AfcState
         };

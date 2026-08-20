@@ -2495,4 +2495,30 @@ public class ChannelRecommendationServiceTests
         plan.Recommendations[0].IsSoaking.Should().BeFalse();
         plan.Recommendations[0].SoakEndsAt.Should().BeNull();
     }
+
+    [Fact]
+    public void ScoreAssignment_PooledSpanChargedOnce()
+    {
+        // Span pooling writes one measurement to every control channel in the bonding group, and
+        // they all carry the identical span. The stress penalty sums over overlapping spans, so
+        // without de-duplication the same 80 MHz measurement would be charged four times.
+        var graph = BuildSubjectGraph();
+        var assignment = new[] { (149, 80), (100, 80) };
+        var stress = (40.0, 30.0, 20.0);
+
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, stress }
+        };
+        var single = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, stress }, { 153, stress }, { 157, stress }, { 161, stress }
+        };
+        var pooled = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        pooled.Should().BeApproximately(single, 0.0001,
+            "pooled entries describe one measurement of one span, not four measurements");
+    }
 }

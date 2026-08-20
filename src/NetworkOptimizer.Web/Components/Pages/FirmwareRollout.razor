@@ -1,0 +1,1948 @@
+@page "/firmware-rollout"
+@using NetworkOptimizer.UniFi
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@implements IAsyncDisposable
+@inject IFirmwareRolloutService RolloutService
+@inject IServiceScopeFactory ScopeFactory
+@inject NetworkOptimizer.Web.Services.Identity.ICallerContext CallerContext
+@inject SiteContextService SiteContext
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject SiteConnectionRegistry ConnectionRegistry
+@inject ILogger<FirmwareRollout> Logger
+@inject UiHintService UiHints
+@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Firmware
+
+<PageTitle>Firmware Rollout - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Firmware Rollout</h1>
+    <p class="page-description">Upgrade the whole site the way you would by hand, without the evening lost to it: ordered by topology, canaried per model, scheduled from the site's own LAN and WAN activity, and verified device by device.</p>
+</div>
+
+<RestrictedSiteNotice />
+
+@if (_loading)
+{
+    <div class="loading-container"><span class="spinner"></span> <span>Loading rollout state...</span></div>
+}
+else if (_active != null)
+{
+    @* ---- Live / scheduled rollout view ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-header">
+            <h2 class="card-title">@ActiveTitle</h2>
+            <div class="firmware-rollout-controls">
+                <SiteAdminOnly>
+                    @if (_active.Status == FirmwareRolloutStatus.Running)
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="() => ControlAsync(RolloutService.PauseAsync)" disabled="@_busy">Pause</button>
+                    }
+                    @if (_active.Status == FirmwareRolloutStatus.Paused)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="() => ControlAsync(RolloutService.ResumeAsync)" disabled="@_busy">@(WaitingApproval ? "Approve Next Wave" : "Resume")</button>
+                    }
+                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="PostponeAsync" disabled="@_busy">Postpone 24h</button>
+                    }
+                    @if (_active.Status is not FirmwareRolloutStatus.SoakWait)
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="AbortAsync" disabled="@_busy">Abort</button>
+                    }
+                </SiteAdminOnly>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (_controlNotice != null)
+            {
+                <div class="alert alert-info firmware-rollout-note">@_controlNotice</div>
+            }
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            {
+                <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>@SiteAside(_active.ScheduledStartAt ?? DateTime.UtcNow). Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
+                @if (HasDrift)
+                {
+                    <div class="alert alert-info firmware-rollout-note firmware-rollout-drift-note">
+                        <span>@DriftMessage</span>
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-primary" @onclick="ReplanAsync" disabled="@_busy">Re-plan</button>
+                        </SiteAdminOnly>
+                    </div>
+                }
+            }
+            @if (WaitingApproval)
+            {
+                <div class="alert alert-info firmware-rollout-note">Paused at a wave boundary, waiting for approval to continue.</div>
+            }
+            @if (_active.Status == FirmwareRolloutStatus.SoakWait)
+            {
+                <p class="firmware-rollout-note">@SoakIntro We're giving them @SoakLabel to settle, then comparing against the @SoakLabel before the upgrade. That's when the report shows up.</p>
+            }
+            @foreach (var note in _active.Plan.Notes)
+            {
+                <p class="firmware-rollout-plan-note">@note</p>
+            }
+
+            @if (ActivePlanHasMap)
+            {
+                <div id="firmware-rollout-map-fs" class="firmware-rollout-map-fs">
+                    <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                    <div id="firmware-rollout-timeline"></div>
+                </div>
+            }
+            else
+            {
+                <div class="firmware-rollout-map-stage firmware-rollout-map-waiting">
+                    <div class="empty-state">
+                        <h3>Waiting for the scheduled start</h3>
+                        <p>Devices light up here as each one upgrades.</p>
+                    </div>
+                </div>
+            }
+
+            <div class="table-responsive firmware-rollout-steps">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Wave</th><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>State</th><th class="hide-mobile">Downtime</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @* The console's own phases are not device steps, but they are part of the
+                           run and bracket it: the application first, UniFi OS after every device. *@
+                        @if (_active.Plan.IncludesUniFiNetworkUpdate)
+                        {
+                            <tr>
+                                <td>@_active.Plan.NetworkAppUpdate.Wave</td>
+                                <td>UniFi Network application</td>
+                                <td>@ConsoleRowModel</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.FromVersion) ?? "-")</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.NetworkAppUpdate.TargetVersion) ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.NetworkAppUpdate)">@ConsoleChipLabel(_active.Plan.NetworkAppUpdate)</span></td>
+                                <td class="hide-mobile">@ConsoleDowntime(_active.Plan.NetworkAppUpdate)</td>
+                                <td></td>
+                            </tr>
+                        }
+                        @foreach (var step in _active.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                        {
+                            <tr>
+                                <td>@(step.Wave > 0 ? step.Wave.ToString() : "-")</td>
+                                <td>@step.Name</td>
+                                <td>@step.DisplayModel</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                <td class="hide-mobile">@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                <td>
+                                    <SiteAdminOnly>
+                                        @if (step.CanRollBack)
+                                        {
+                                            <button class="btn btn-sm btn-secondary" @onclick="() => RollbackAsync(step)" disabled="@_busy">Roll back</button>
+                                        }
+                                        else if (step.RollbackUnavailableReason != null && step.State == FirmwareRolloutStepState.RegressionFlagged)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@step.RollbackUnavailableReason">?</span>
+                                        }
+                                    </SiteAdminOnly>
+                                </td>
+                            </tr>
+                        }
+                        @if (_active.Plan.IncludesUniFiOsUpdate)
+                        {
+                            <tr>
+                                <td>@_active.Plan.UniFiOsUpdate.Wave</td>
+                                <td>UniFi OS</td>
+                                <td>@ConsoleRowModel</td>
+                                <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.FromVersion) ?? "-")</td>
+                                <td>@(FirmwareVersionFormat.ShortOrNull(_active.Plan.UniFiOsUpdate.TargetVersion) ?? "-")</td>
+                                <td><span class="firmware-rollout-chip @ConsoleChipClass(_active.Plan.UniFiOsUpdate)">@ConsoleChipLabel(_active.Plan.UniFiOsUpdate)</span></td>
+                                <td class="hide-mobile">@ConsoleDowntime(_active.Plan.UniFiOsUpdate)</td>
+                                <td></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            {
+                <SiteAdminOnly>
+                    <div class="firmware-rollout-deploy-now">
+                        @if (_confirmDeployNow)
+                        {
+                            <span class="firmware-rollout-note">Start the rollout now?</span>
+                            <button class="btn btn-sm btn-primary" @onclick="DeployNowAsync" disabled="@_busy">Yes, deploy now</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="() => _confirmDeployNow = false" disabled="@_busy">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => _confirmDeployNow = true" disabled="@_busy">Deploy Now</button>
+                        }
+                    </div>
+                </SiteAdminOnly>
+            }
+        </div>
+    </div>
+}
+else if (_wizardOpen)
+{
+    @* ---- Wizard ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-header">
+            <h2 class="card-title">Plan a Rollout</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="CloseWizard" disabled="@_busy">Cancel</button>
+        </div>
+        <div class="card-body">
+            <div class="site-wizard-steps">
+                @{ var stepNames = new[] { "Scope & Channels", "Schedule", "Preview" }; }
+                @for (var i = 0; i < stepNames.Length; i++)
+                {
+                    var n = i + 1;
+                    var stepClass = n < _step ? "done" : n == _step ? "current" : "upcoming";
+                    <div class="site-wizard-step @stepClass">
+                        <span class="site-wizard-step-node">@if (n < _step) { <text>&#x2713;</text> } else { @n }</span>
+                        <span class="site-wizard-step-label">@stepNames[i]</span>
+                    </div>
+                }
+            </div>
+
+            @if (_wizardError != null)
+            {
+                <div class="alert alert-danger firmware-rollout-note">@_wizardError</div>
+            }
+
+            @if (_step == 1 && _settings != null)
+            {
+                <p class="section-description">Pick the release channel for @ChannelScopeLabel. Everything upgradable is included by default; fine tune what gets which release channel, or leave devices out, in the sections below.</p>
+
+                @foreach (var warning in _preview?.Warnings ?? [])
+                {
+                    <div class="alert alert-warning firmware-rollout-note">@warning</div>
+                }
+                @foreach (var notice in _preview?.Notices ?? [])
+                {
+                    <div class="alert alert-info firmware-rollout-note">@notice</div>
+                }
+                @if (_showBackupNotice && _preview?.ConsoleConnected == true && _preview?.ConsoleApiAvailable == true)
+                {
+                    <div class="alert alert-info firmware-rollout-note" style="display:flex;align-items:flex-start;gap:8px">
+                        <span style="flex:1">A Console backup will be attempted before the rollout starts. If it doesn't run (common with service accounts), UniFi Network and UniFi OS take their own backup before applying each update, so your configuration is covered either way.</span>
+                        <button class="btn btn-sm btn-contrast" style="white-space:nowrap" @onclick="DismissBackupNoticeAsync">Got it</button>
+                    </div>
+                }
+
+                <FirmwareChannelConfig
+                    Settings="_settings"
+                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
+                    ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
+                    HasCloudGateway="_preview?.HasCloudGateway == true"
+                    ShowSequenceHint="true"
+                    TypeChannelRows="TypeChannelRows"
+                    SiteModels="SiteModels"
+                    AllDevices="_preview?.Devices ?? []"
+                    ExcludedMacs="_exMacs"
+                    ExcludedSkus="_exSkus"
+                    ExcludedTypes="_exTypes"
+                                        TypeChannel="TypeChannel"
+                    SetTypeChannel="SetTypeChannel"
+                    SkuChannel="SkuChannel"
+                    SetSkuChannel="SetSkuChannel"
+                    IsExcluded="IsExcluded"
+                    SkuExcluded="SkuExcluded"
+                    DerivedExclusion="DerivedExclusion"
+                    UpdateTooltip="UpdateTooltip"
+                    ToggleSku="ToggleSku">
+                    <ChannelHelpText>
+                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.EarlyAccessAvailable
+                            ? " Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it."
+                            : "")
+                    </ChannelHelpText>
+                </FirmwareChannelConfig>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-primary" @onclick="() => _step = 2" disabled="@(_busy || _preview?.ConsoleConnected == false)">Next</button>
+                </div>
+            }
+            else if (_step == 2 && _settings != null)
+            {
+                <p class="section-description">Run it now, book a one-time window, or let autopilot take it from here: updates get planned during quiet hours, are announced ahead of time, and can be postponed with one click.</p>
+
+                <div class="form-group firmware-rollout-mode-row">
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "now")" @onchange="@(() => _scheduleMode = "now")" /><span>Start now</span></label>
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "once")" @onchange="@(() => _scheduleMode = "once")" /><span>Schedule once</span></label>
+                    <label class="radio-label"><input type="radio" name="fr-mode" checked="@(_scheduleMode == "autopilot")" @onchange="@(() => _scheduleMode = "autopilot")" /><span>Autopilot</span></label>
+                </div>
+
+                @if (_scheduleMode == "once")
+                {
+                    <div class="form-group">
+                        <label class="form-label">Start</label>
+                        <input type="range" class="firmware-rollout-slider" min="0" max="167" step="1" value="@_startOffsetHours" @oninput="e => SetStartOffset(e.Value?.ToString())" />
+                        <div class="firmware-rollout-slider-labels">
+                            <span><strong>@LocalTime(SelectedStartUtc)</strong>@SiteAside(SelectedStartUtc)</span>
+                            <span>done by ~@LocalTime(SelectedStartUtc.AddSeconds(_preview?.Plan.TotalEstimatedSeconds ?? 0))</span>
+                        </div>
+                        @if (_preview?.ProposedWindow is { } window)
+                        {
+                            <small class="form-help">Suggested: @LocalTime(window.StartUtc) - based on @window.Basis.@(window.UsedFallback ? " Collecting a week of usage history will refine this." : "")</small>
+                        }
+                    </div>
+                }
+                @if (_scheduleMode == "autopilot")
+                {
+                    <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
+                    @if (AutoUpdaterList() is string autoUpdaters)
+                    {
+                        <div class="alert alert-warning firmware-rollout-note">UniFi still updates @autoUpdaters on its own schedule. Turn that off first so two updaters never run at once.</div>
+                    }
+                    <div class="form-group firmware-rollout-inline">
+                        <label class="form-label">Heads-up hours</label>
+                        <input type="number" class="form-control firmware-rollout-num" min="1" max="168" @bind="_settings.NotifyHoursAhead" />
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">Pace</label>
+                    <div class="firmware-rollout-mode-row">
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Conservative)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Conservative)" /><span>Conservative</span></label>
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Balanced)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Balanced)" /><span>Balanced</span></label>
+                        <label class="radio-label"><input type="radio" name="fr-pace" checked="@(_settings.SpacingProfile == FirmwareSpacingProfile.Fast)" @onchange="@(() => _settings.SpacingProfile = FirmwareSpacingProfile.Fast)" /><span>Fast</span></label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.SuppressStandardAlerts" /><span>Skip the usual offline and restart alerts for devices rebooted during the rollout</span></label>
+                    <label class="checkbox-label"><input type="checkbox" @bind="_settings.PerWaveApproval" /><span>Pause for approval at every wave</span></label>
+                </div>
+
+                <details class="setup-guide firmware-rollout-guide">
+                    <summary>Advanced</summary>
+                    <div class="setup-guide-content">
+                        @if (_scheduleMode == "autopilot")
+                        {
+                            <div class="form-group firmware-rollout-inline">
+                                <label class="form-label">Minimum release age (days)</label>
+                                <input type="number" class="form-control firmware-rollout-num" min="0" max="90" @bind="_settings.MinReleaseAgeDays" />
+                                <small class="form-help">0 rolls out releases as they arrive; a few days lets the earliest adopters find the surprises.</small>
+                            </div>
+                        }
+                    </div>
+                </details>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-secondary" @onclick="() => _step = 1" disabled="@_busy">Back</button>
+                    <button class="btn btn-primary" @onclick="GoToPreviewAsync" disabled="@_busy">
+                        @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Preview</span> }
+                    </button>
+                </div>
+            }
+            else if (_step == 3 && _preview != null)
+            {
+                <p class="section-description">This is the whole plan: leaf devices first, the gateway last, one canary per model, and roam-aware AP pairing. Nothing starts until you say so.</p>
+
+                <div class="firmware-rollout-stats">
+                    <div class="firmware-rollout-stat"><span class="detail-value">@PreviewTotalScope</span><span class="detail-label">to upgrade</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@PreviewTotalWaves</span><span class="detail-label">waves</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@Duration(_preview.Plan.TotalEstimatedSeconds)</span><span class="detail-label">estimated</span></div>
+                    <div class="firmware-rollout-stat"><span class="detail-value">@(_scheduleMode == "autopilot" ? "Autopilot" : _scheduleMode == "now" ? "Now" : LocalTime(SelectedStartUtc) + SiteAside(SelectedStartUtc))</span><span class="detail-label">starts</span></div>
+                    @if (_preview.ExcludedCount > 0)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@_preview.ExcludedCount</span><span class="detail-label">excluded</span></div>
+                    }
+                </div>
+
+                <div id="firmware-rollout-map-fs" class="firmware-rollout-map-fs">
+                    <div id="firmware-rollout-map-stage" class="firmware-rollout-map-stage"></div>
+                    <div id="firmware-rollout-timeline"></div>
+                </div>
+
+                @foreach (var note in _preview.Plan.Notes)
+                {
+                    <p class="firmware-rollout-plan-note">@note</p>
+                }
+                @foreach (var warning in _preview.Warnings)
+                {
+                    <div class="alert alert-warning firmware-rollout-note">@warning</div>
+                }
+                @foreach (var notice in _preview.Notices)
+                {
+                    <div class="alert alert-info firmware-rollout-note">@notice</div>
+                }
+                @if (_showBackupNotice && _preview.ConsoleConnected && _preview.ConsoleApiAvailable)
+                {
+                    <div class="alert alert-info firmware-rollout-note" style="display:flex;align-items:flex-start;gap:8px">
+                        <span style="flex:1">A Console backup will be attempted before the rollout starts. If it doesn't run (common with service accounts), UniFi Network and UniFi OS take their own backup before applying each update, so your configuration is covered either way.</span>
+                        <button class="btn btn-sm btn-contrast" style="white-space:nowrap" @onclick="DismissBackupNoticeAsync">Got it</button>
+                    </div>
+                }
+
+                <div class="firmware-rollout-waves">
+                    @if (_preview.Plan.IncludesUniFiNetworkUpdate && _preview.NetworkApplication is { UpdateAvailable: true } app)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">0</span>
+                            <span class="firmware-rollout-wave-eta">T+0m</span>
+                            <span class="firmware-rollout-wave-devices">
+                                <span class="firmware-rollout-wave-device">
+                                    UniFi Network application
+                                    <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@(FirmwareVersionFormat.ShortOrNull(app.CurrentVersion)) &#8594; @(FirmwareVersionFormat.ShortOrNull(app.TargetVersion))</span>
+                                </span>
+                            </span>
+                        </div>
+                    }
+
+                    @foreach (var wave in _preview.Plan.Waves)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">@wave.Number</span>
+                            <span class="firmware-rollout-wave-eta">T+@Duration(wave.StartOffsetSeconds)</span>
+                            <span class="firmware-rollout-wave-devices">
+                                @foreach (var step in wave.Steps)
+                                {
+                                    <span class="firmware-rollout-wave-device">
+                                        @step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")
+                                        @if (step.ToVersion != null)
+                                        {
+                                            <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
+                                        }
+                                    </span>
+                                }
+                            </span>
+                        </div>
+                    }
+                    @if (_preview.Plan.IncludesUniFiOsUpdate && _preview.UniFiOs is { UpdateAvailable: true } os)
+                    {
+                        <div class="firmware-rollout-wave">
+                            <span class="firmware-rollout-wave-no">@(_preview.Plan.Waves.Count + 1)</span>
+                            <span class="firmware-rollout-wave-eta">T+@Duration(_preview.Plan.UniFiOsStartOffsetSeconds)</span>
+                            <span class="firmware-rollout-wave-devices">
+                                <span class="firmware-rollout-wave-device">
+                                    UniFi OS on @(os.Host ?? "the console")
+                                    <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@(FirmwareVersionFormat.ShortOrNull(os.CurrentVersion)) &#8594; @(FirmwareVersionFormat.ShortOrNull(os.TargetVersion))</span>
+                                </span>
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                <div class="firmware-rollout-wizard-nav">
+                    <button class="btn btn-secondary" @onclick="BackFromPreview" disabled="@_busy">Back</button>
+                    <SiteAdminOnly>
+                        <button class="btn btn-primary btn-lg" @onclick="CommitAsync" disabled="@(_busy || (!HasSomethingToDo && _scheduleMode != "autopilot"))">
+                            @if (_busy) { <span class="spinner spinner-sm"></span> }
+                            else { <span>@CommitLabel</span> }
+                        </button>
+                    </SiteAdminOnly>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    @* ---- Landing ---- *@
+    <div class="card" data-tour="firmware-rollout">
+        <div class="card-body firmware-rollout-landing">
+            @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+            {
+                <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. It picks up updates automatically, schedules them for the site's quietest window, and announces them before they run.</p>
+            }
+            else if (HasStoredAutopilotConfig)
+            {
+                <SiteAdminOnly>
+                    <ChildContent>
+                        <p class="firmware-rollout-note"><strong>Autopilot is off.</strong> Your channels and exclusions are still saved.</p>
+                    </ChildContent>
+                    <NotAuthorized>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. When an admin plans one, its progress and report show up here.</p>
+                    </NotAuthorized>
+                </SiteAdminOnly>
+            }
+            else
+            {
+                <SiteAdminOnly>
+                    <ChildContent>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. Plan one in three steps, or turn on autopilot and let the site keep itself current on an intelligent schedule.</p>
+                    </ChildContent>
+                    <NotAuthorized>
+                        <p class="firmware-rollout-note">No rollout is scheduled or running. When an admin plans one, its progress and report show up here.</p>
+                    </NotAuthorized>
+                </SiteAdminOnly>
+            }
+            <SiteAdminOnly>
+                @{
+                    var autopilotOn = _settings?.Mode == FirmwareRolloutMode.Autopilot;
+                    var offWithConfig = !autopilotOn && HasStoredAutopilotConfig;
+                }
+                <div class="firmware-rollout-controls">
+                    @if (offWithConfig)
+                    {
+                        <button class="btn btn-primary" @onclick="ReEnableAutopilotAsync" disabled="@_busy">
+                            @if (_busy)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                            }
+                            else
+                            {
+                                <span>Re-enable Autopilot</span>
+                            }
+                        </button>
+                    }
+                    <button class="btn @(autopilotOn || offWithConfig ? "btn-secondary" : "btn-primary")" @onclick="OpenWizardAsync" disabled="@_busy">
+                        @if (_busy)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>@(autopilotOn ? "Plan Rollout Now" : "Plan a Rollout")</span>
+                        }
+                    </button>
+                </div>
+            </SiteAdminOnly>
+        </div>
+        @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+        {
+            <SiteAdminOnly>
+            <div class="card-body firmware-rollout-autopilot-config">
+                <h4 class="card-title firmware-rollout-config-title">Autopilot Configuration</h4>
+                <small class="form-help firmware-rollout-config-intro">Changes here apply to the next autopilot-initiated rollout.</small>
+                @if (_preview == null)
+                {
+                    <div class="loading-container">
+                        <span class="spinner spinner-sm"></span>
+                        <span>Loading your settings...</span>
+                    </div>
+                }
+                else
+                {
+                <FirmwareChannelConfig
+                    Settings="_settings"
+                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
+                    ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
+                    HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true"
+                    ShowConsolePermissionNote="false"
+                    TypeChannelRows="TypeChannelRows"
+                    SiteModels="SiteModels"
+                    AllDevices="_preview?.Devices ?? []"
+                    ExcludedMacs="_exMacs"
+                    ExcludedSkus="_exSkus"
+                    ExcludedTypes="_exTypes"
+                    TypeChannel="TypeChannel"
+                    SetTypeChannel="SetTypeChannel"
+                    SkuChannel="SkuChannel"
+                    SetSkuChannel="SetSkuChannel"
+                    IsExcluded="IsExcluded"
+                    SkuExcluded="SkuExcluded"
+                    DerivedExclusion="DerivedExclusion"
+                    UpdateTooltip="UpdateTooltip"
+                    ToggleSku="ToggleSku"
+                    OnChanged="StateHasChanged" />
+
+                <div class="firmware-rollout-controls firmware-rollout-config-save">
+                    <button class="btn btn-primary" @onclick="SaveAutopilotSettingsAsync" disabled="@(_busy || !ConfigDirty)">
+                        @if (_busy) { <span class="spinner spinner-sm"></span> }
+                        else { <span>Save</span> }
+                    </button>
+                    <button class="btn btn-secondary" @onclick="DisableAutopilotAsync" disabled="@_busy">Turn off Autopilot</button>
+                </div>
+                }
+            </div>
+            </SiteAdminOnly>
+        }
+    </div>
+}
+
+@if (!_loading && _history.Count > 0)
+{
+    <div class="card">
+        <div class="card-header"><h2 class="card-title">History</h2></div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr><th>Started</th><th>Devices</th><th class="hide-mobile">Waves</th><th>Outcome</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var row in _history)
+                        {
+                            <tr>
+                                <td>@LocalTime(row.StartedAt ?? row.CreatedAt)</td>
+                                <td>@row.DeviceCount</td>
+                                <td class="hide-mobile">@row.WaveCount</td>
+                                <td><span class="firmware-rollout-chip @PlanChipClass(row)">@PlanChipLabel(row)</span></td>
+                                <td>
+                                    @if (row.HasReport)
+                                    {
+                                        <button class="btn btn-sm btn-secondary" @onclick="() => OpenReportAsync(row.Id)">Report</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_report != null)
+{
+    <div id="firmware-rollout-report" class="card">
+        <div class="card-header">
+            <h2 class="card-title">Rollout Report</h2>
+            <div class="firmware-rollout-controls">
+                @if (_report.IsReady)
+                {
+                    <button class="btn btn-sm btn-primary" @onclick="ExportReportPdfAsync" disabled="@_exportingPdf">
+                        @if (_exportingPdf) { <span class="spinner spinner-sm"></span> } else { <span class="btn-label-wide">Export PDF</span> }
+                    </button>
+                }
+                <button class="btn btn-sm btn-secondary" @onclick="() => { _report = null; _reportTyped = null; }">Close</button>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (!_report.IsReady)
+            {
+                <p class="firmware-rollout-note">This rollout is still soaking - the report compares resource use well after each device settled, so it is worth the wait.</p>
+            }
+            @if (_reportTyped is { } rep)
+            {
+                <div class="firmware-rollout-stats">
+                    <div class="firmware-rollout-stat"><span class="detail-value">@rep.TotalUpgraded</span><span class="detail-label">Upgraded</span></div>
+                    @if (rep.DevicesFailed > 0)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesFailed</span><span class="detail-label">Failed</span></div>
+                    }
+                    @if (rep.DevicesRolledBack > 0)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesRolledBack</span><span class="detail-label">Rolled back</span></div>
+                    }
+                    @if (rep.DevicesSkipped > 0)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@rep.DevicesSkipped</span><span class="detail-label">Skipped</span></div>
+                    }
+                    <div class="firmware-rollout-stat"><span class="detail-value">@Duration(rep.TotalSeconds)</span><span class="detail-label">Duration</span></div>
+                    @if (rep.SiteCpuBeforeMean is { } cb && rep.SiteCpuAfterMean is { } ca)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@($"{cb:0}% → {ca:0}%")</span><span class="detail-label">Mean device CPU</span></div>
+                    }
+                    @if (rep.SiteMemBeforeMean is { } mb && rep.SiteMemAfterMean is { } ma)
+                    {
+                        <div class="firmware-rollout-stat"><span class="detail-value">@($"{mb:0}% → {ma:0}%")</span><span class="detail-label">Mean device memory</span></div>
+                    }
+                    @if (rep.UniFiNetworkUpdateOutcome != null)
+                    {
+                        <div class="firmware-rollout-stat">
+                            <span class="detail-value">@ConsoleStepMarkup(rep.UniFiNetworkUpdateOutcome, rep.UniFiNetworkFromVersion, rep.UniFiNetworkToVersion)</span>
+                            <span class="detail-label">UniFi Network</span>
+                        </div>
+                    }
+                    @if (rep.UniFiOsUpdateOutcome != null)
+                    {
+                        <div class="firmware-rollout-stat">
+                            <span class="detail-value">@ConsoleStepMarkup(rep.UniFiOsUpdateOutcome, rep.UniFiOsFromVersion, rep.UniFiOsToVersion)</span>
+                            <span class="detail-label">UniFi OS</span>
+                        </div>
+                    }
+                </div>
+                @foreach (var issue in rep.Issues)
+                {
+                    <div class="alert alert-warning firmware-rollout-note">@issue</div>
+                }
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th class="hide-mobile">CPU</th><th>Outcome</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in rep.Rows)
+                            {
+                                <tr>
+                                    <td>@row.Name</td>
+                                    <td>@row.Model</td>
+                                    <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(row.FromVersion) ?? "-")</td>
+                                    <td>@(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")</td>
+                                    <td>@(row.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                    <td class="hide-mobile">@(row.CpuBeforeMean is { } rcb && row.CpuAfterMean is { } rca ? $"{rcb:0}% → {rca:0}%" : "-")</td>
+                                    <td>
+                                        <span class="firmware-rollout-chip @OutcomeChipClass(row.Outcome)">@row.Outcome</span>
+                                        @if (row.Issue != null)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@row.Issue">?</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th>Outcome</th></tr></thead>
+                        <tbody>
+                            @foreach (var step in _report.Steps)
+                            {
+                                <tr>
+                                    <td>@step.Name</td>
+                                    <td>@step.DisplayModel</td>
+                                    <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
+                                    <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
+                                    <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
+                                    <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _confirmDeployNow;
+    private bool _wizardOpen;
+    private int _step = 1;
+    private string? _wizardError;
+    private string? _controlNotice;
+    private bool _showBackupNotice = true;
+
+    private int SoakHours => _settings?.SoakHours > 0 ? _settings.SoakHours : 2;
+
+    private string SoakLabel => $"{SoakHours} hour{(SoakHours == 1 ? "" : "s")}";
+
+    /// <summary>"All devices have upgraded" is only claimed when it is true.</summary>
+    private string SoakIntro => _active != null && _active.Steps.Any(s => s.State
+            is FirmwareRolloutStepState.Failed or FirmwareRolloutStepState.AbortedSku)
+        ? "The rollout has finished, though some devices didn't upgrade."
+        : "All devices have upgraded.";
+
+    /// <summary>
+    /// The console's phases run on the gateway when the gateway IS the console. Its device step
+    /// names the model where it has one; a console with no device step of its own is named from the
+    /// plan.
+    /// </summary>
+    private string ConsoleRowModel
+    {
+        get
+        {
+            var step = _active?.Steps
+                .FirstOrDefault(s => string.Equals(s.Mac, _active.Plan.ConsoleMac, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(step?.DisplayModel))
+                return step.DisplayModel;
+
+            var model = _active?.Plan.ConsoleModel;
+            return string.IsNullOrWhiteSpace(model) ? "Console" : UniFiProductDatabase.GetBestProductName(model, null);
+        }
+    }
+
+    /// <summary>
+    /// A console phase reports progress as triggered/settled plus an outcome word, not as a step
+    /// state, so it needs its own reading of the same three questions the chips answer.
+    /// </summary>
+    /// <summary>
+    /// How long the console was away, as soon as it is back - the same moment a device row gets
+    /// its downtime. Waiting for the report would leave this blank for the length of the soak.
+    /// </summary>
+    private static string ConsoleDowntime(RolloutConsoleStepState state) =>
+        state is { WentDownAt: DateTime down, BackAt: DateTime back }
+            ? Duration((int)Math.Max(0, (back - down).TotalSeconds))
+            : "-";
+
+    private static string ConsoleChipLabel(RolloutConsoleStepState state)
+    {
+        // A step can settle without ever triggering (nothing to install), so Settled is checked
+        // before Triggered - the outcome word, not a "Queued" it never left.
+        if (!state.Triggered && !state.Settled) return "Queued";
+        if (!state.Settled) return "Upgrading";
+        return state.Outcome switch
+        {
+            "updated" => "Upgraded",
+            "nothing-to-update" => "Already current",
+            "unchanged" => "No change",
+            "refused" => "Refused",
+            "stuck" => "Stuck",
+            "skipped" => "Skipped",
+            _ => "Done",
+        };
+    }
+
+    /// <summary>Verb plus versions, with the verb dropped on mobile where the versions carry it.</summary>
+    private static RenderFragment ConsoleStepMarkup(string? outcome, string? from, string? to) => builder =>
+    {
+        var word = ConsoleStepWord(outcome);
+        var versions = ConsoleStepVersions(outcome, from, to);
+
+        if (versions == null)
+        {
+            builder.AddContent(0, word);
+            return;
+        }
+
+        builder.OpenElement(1, "span");
+        builder.AddAttribute(2, "class", "firmware-rollout-console-verb");
+        builder.AddContent(3, word + " ");
+        builder.CloseElement();
+        builder.AddContent(4, versions);
+    };
+
+    private static string ConsoleStepWord(string? outcome) => outcome switch
+    {
+        "updated" => "Updated",
+        "nothing-to-update" => "Already current",
+        "unchanged" => "No change",
+        "refused" => "Refused",
+        "stuck" => "Did not come back",
+        "skipped" => "Skipped",
+        _ => outcome ?? "Done",
+    };
+
+    private static string? ConsoleStepVersions(string? outcome, string? from, string? to)
+    {
+        var fromShort = FirmwareVersionFormat.ShortOrNull(from);
+        var toShort = FirmwareVersionFormat.ShortOrNull(to);
+
+        return outcome switch
+        {
+            "updated" => fromShort != null && toShort != null ? $"{fromShort} → {toShort}" : toShort ?? fromShort,
+            "nothing-to-update" or "unchanged" => fromShort,
+            "stuck" => toShort != null ? $"targeting {toShort}" : null,
+            _ => null,
+        };
+    }
+
+    private static string ConsoleChipClass(RolloutConsoleStepState state)
+    {
+        if (!state.Triggered && !state.Settled) return "chip-muted";
+        if (!state.Settled) return "chip-active";
+        return state.Outcome switch
+        {
+            "updated" => "chip-success",
+            "refused" or "stuck" => "chip-danger",
+            _ => "chip-muted",
+        };
+    }
+    private bool _exportingPdf;
+
+    private FirmwareRolloutSettings? _settings;
+    private RolloutPreviewView? _preview;
+    private RolloutPlanView? _active;
+    private RolloutPreviewView? _driftPreview;
+    private int _driftNewDevices;
+    private int _driftNewerVersions;
+    private bool _driftNetworkApp;
+    private bool _driftOs;
+    private List<RolloutPlanSummaryView> _history = [];
+    private RolloutReportView? _report;
+    private RolloutReport? _reportTyped;
+
+    private string _scheduleMode = "once";
+    private int _startOffsetHours;
+    private bool _startMoved;
+    private string _exclusionSearch = string.Empty;
+    private readonly HashSet<string> _exMacs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _exSkus = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _exTypes = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _typeChannels = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _skuChannels = new(StringComparer.OrdinalIgnoreCase);
+    private string? _savedConfig;
+
+    private IJSObjectReference? _viz;
+    private bool _vizMounted;
+    private string? _vizMode;
+    private System.Threading.Timer? _pollTimer;
+
+    private static readonly (string Code, string Label)[] AllTypeRows =
+    [
+        ("uap", "Access Points"),
+        ("usw", "Switches"),
+        ("ugw", "Gateways"),
+    ];
+
+    /// <summary>
+    /// Device-type rows worth offering. On a Cloud Gateway site the gateway is the console and its
+    /// firmware is the UniFi OS update, so a separate Gateways row would set a channel that never
+    /// applies to anything.
+    /// </summary>
+    private IEnumerable<(string Code, string Label)> TypeChannelRows =>
+        _preview?.HasCloudGateway == true ? AllTypeRows.Where(r => r.Code != "ugw") : AllTypeRows;
+
+    private UniFiConnectionService? _connection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _connection = ConnectionRegistry.GetFor(SiteContext.Slug);
+        _connection.OnConnectionChanged += OnConnectionChanged;
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async void OnConnectionChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
+                {
+                    _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not refresh the rollout preview after a console connection change");
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            ClearDrift();
+            _settings = await RolloutService.GetSettingsAsync();
+            AdoptStandingAutopilotConfig();
+            LoadWorkingSets();
+            _active = await RolloutService.GetActivePlanAsync();
+            _history = await RolloutService.GetPlanHistoryAsync();
+            if (_active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot)
+                _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            // Any live plan polls, not just a running one. A scheduled or announced plan starts
+            // on its own clock, and without a timer nothing re-renders to notice it happened -
+            // somebody watching the page through the start time would sit on a stale view.
+            if (_active != null) StartPolling();
+            if (_active?.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                _ = CheckDriftAsync(_active.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load firmware rollout state");
+        }
+    }
+
+    // ---- Drift detection ----
+
+    private bool HasDrift => _driftNewDevices > 0 || _driftNewerVersions > 0 || _driftNetworkApp || _driftOs;
+
+    private void ClearDrift()
+    {
+        _driftPreview = null;
+        _driftNewDevices = 0;
+        _driftNewerVersions = 0;
+        _driftNetworkApp = false;
+        _driftOs = false;
+    }
+
+    /// <summary>
+    /// Looks for firmware that landed after a waiting plan was composed: a fresh preview is diffed
+    /// against the plan's steps, and any new device or new target version earns the Re-plan notice.
+    /// A failed preview shows nothing - the plan is still valid without the hint. Read-only (no
+    /// channel staging - any role can trigger this), and on its own DI scope: it is fire-and-forget,
+    /// so sharing the circuit's scoped DbContext with a concurrent button handler would race.
+    /// </summary>
+    private async Task CheckDriftAsync(int planId)
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteContext.Slug);
+            if (CallerContext.Current is { } caller)
+                scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Web.Services.Identity.ICallerContext>().SetUser(caller);
+            var preview = await scope.ServiceProvider.GetRequiredService<IFirmwareRolloutService>()
+                .BuildPreviewAsync(WorkingSettings(), readOnly: true);
+            await InvokeAsync(() =>
+            {
+                if (_active?.Id != planId
+                    || _active.Status is not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced))
+                    return;
+
+                var planned = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var step in _active.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                    planned.TryAdd(step.Mac, step.ToVersion);
+
+                _driftNewDevices = 0;
+                _driftNewerVersions = 0;
+                foreach (var step in preview.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+                {
+                    if (!planned.TryGetValue(step.Mac, out var toVersion))
+                        _driftNewDevices++;
+                    else if (step.ToVersion != null && toVersion != null
+                        && !string.Equals(step.ToVersion, toVersion, StringComparison.OrdinalIgnoreCase))
+                        _driftNewerVersions++;
+                }
+
+                _driftNetworkApp = preview.Plan.IncludesUniFiNetworkUpdate && !_active.Plan.IncludesUniFiNetworkUpdate;
+                _driftOs = preview.Plan.IncludesUniFiOsUpdate && !_active.Plan.IncludesUniFiOsUpdate;
+
+                if (HasDrift)
+                {
+                    _driftPreview = preview;
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Rollout drift check failed; skipping the notice");
+        }
+    }
+
+    private string DriftMessage
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_driftNetworkApp) parts.Add("a UniFi Network application update is now available");
+            if (_driftOs) parts.Add("a UniFi OS update is now available");
+            if (_driftNewerVersions > 0)
+                parts.Add(_driftNewerVersions == 1
+                    ? "newer firmware is available for 1 device in this plan"
+                    : $"newer firmware is available for {_driftNewerVersions} devices in this plan");
+            if (_driftNewDevices > 0)
+                parts.Add(_driftNewDevices == 1
+                    ? "1 additional device has a firmware update"
+                    : $"{_driftNewDevices} additional devices have firmware updates");
+
+            return $"Since this plan was scheduled: {string.Join(", ", parts)}.";
+        }
+    }
+
+    /// <summary>
+    /// Aborts the waiting plan and reopens the wizard on the drift preview, so the fresh scope is
+    /// shown without another catalog refresh and the settings stay as the plan was committed with.
+    /// </summary>
+    private async Task ReplanAsync()
+    {
+        if (_active == null || _driftPreview == null) return;
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.AbortAsync(_active.Id);
+            _preview = _driftPreview;
+            // The preview was built while the plan still existed; the abort just made these wrong.
+            _preview.HasActivePlan = false;
+            // Must match FirmwareRolloutService.cs line 621 exactly.
+            _preview.Warnings.Remove("A rollout is already scheduled or running on this site.");
+            ClearDrift();
+            _active = null;
+            _controlNotice = null;
+            _confirmDeployNow = false;
+            _scheduleMode = "once";
+            SeedStartFromProposal();
+            _wizardOpen = true;
+            _step = 3;
+            _history = await RolloutService.GetPlanHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Re-planning the rollout failed");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Wizard flow ----
+
+    private async Task OpenWizardAsync()
+    {
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            _settings = await RolloutService.GetSettingsAsync();
+            AdoptStandingAutopilotConfig();
+            LoadWorkingSets();
+            // First preview: channel options, device models, and console warnings for step 1.
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _showBackupNotice = await UiHints.ShouldShowAsync(UiHintKeys.FirmwareBackupNotice);
+            if (_settings.Mode != FirmwareRolloutMode.Autopilot)
+                SeedChannelsFromConsole();
+            SeedStartFromProposal();
+            _wizardOpen = true;
+            _step = 1;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout wizard failed to open");
+            _wizardError = "Could not read the console. Check the UniFi Console Connection in Settings and try again.";
+            _wizardOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CloseWizard()
+    {
+        _wizardOpen = false;
+        _preview = null;
+        _wizardError = null;
+        _ = DisposeVizAsync();
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task GoToPreviewAsync()
+    {
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            SeedStartFromProposal();
+            _step = 3;
+            _vizMode = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout preview failed");
+            _wizardError = "The preview could not be built. The console may be briefly unreachable - try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BackFromPreview()
+    {
+        _step = 2;
+        _ = DisposeVizAsync();
+    }
+
+    /// <summary>The UniFi auto-updaters that are on, or null when none are.</summary>
+    private string? AutoUpdaterList()
+    {
+        var on = new List<string>();
+        if (_preview?.ConsoleAutoUpgradeEnabled == true) on.Add("devices");
+        if (_preview?.ConsoleAppsAutoUpdateEnabled == true) on.Add("the UniFi Network application");
+        if (_preview?.ConsoleOsAutoUpdateEnabled == true) on.Add("UniFi OS");
+
+        return on.Count switch
+        {
+            0 => null,
+            1 => on[0],
+            2 => $"{on[0]} and {on[1]}",
+            _ => $"{string.Join(", ", on.Take(on.Count - 1))}, and {on[^1]}",
+        };
+    }
+
+    private string CommitLabel => _scheduleMode switch
+    {
+        "now" => "Start Now",
+        "autopilot" => "Turn On Autopilot",
+        _ => "Schedule",
+    };
+
+    private async Task CommitAsync()
+    {
+        if (_settings == null) return;
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            var settings = WorkingSettings();
+            switch (_scheduleMode)
+            {
+                case "now":
+                    settings.Mode = FirmwareRolloutMode.ManualOnly;
+                    await RolloutService.StartNowAsync(settings, overrideHealthGate: true);
+                    break;
+                case "autopilot":
+                    settings.Mode = FirmwareRolloutMode.Autopilot;
+                    await RolloutService.SaveSettingsAsync(settings);
+                    break;
+                default:
+                    settings.Mode = FirmwareRolloutMode.ManualOnly;
+                    await RolloutService.SchedulePlanAsync(settings, SelectedStartUtc);
+                    break;
+            }
+            _wizardOpen = false;
+            await DisposeVizAsync();
+            await ReloadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _wizardError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Committing the rollout failed");
+            _wizardError = "Starting the rollout failed. See the logs for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAutopilotSettingsAsync()
+    {
+        if (_settings == null) return;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            // The capturing save: this is the standing configuration, not one rollout's scope.
+            await RolloutService.SaveAutopilotSettingsAsync(WorkingSettings());
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Saving autopilot settings failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DisableAutopilotAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.DisableAutopilotAsync();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Turning autopilot off failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReEnableAutopilotAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await RolloutService.ReEnableAutopilotAsync();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Re-enabling autopilot failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Whether Autopilot has a captured configuration to come back to.</summary>
+    private bool HasStoredAutopilotConfig => !string.IsNullOrWhiteSpace(_settings?.AutopilotSettingsJson);
+
+    /// <summary>
+    /// On an Autopilot site the page edits the standing configuration, not the row, which any
+    /// one-off rollout since has overwritten with its own scope. Without this the panel shows that
+    /// leftover scope, and the wizard - which preselects Autopilot on such a site - would capture
+    /// it on a click-through commit.
+    /// </summary>
+    private void AdoptStandingAutopilotConfig()
+    {
+        if (_settings?.Mode != FirmwareRolloutMode.Autopilot) return;
+
+        var standing = AutopilotSettingsSnapshot.Deserialize(_settings.AutopilotSettingsJson);
+        if (standing == null) return;
+
+        standing.Id = _settings.Id;
+        standing.Mode = _settings.Mode;
+        standing.AutopilotSettingsJson = _settings.AutopilotSettingsJson;
+        _settings = standing;
+    }
+
+    // ---- Settings working copies ----
+
+    private void LoadWorkingSets()
+    {
+        var ex = RolloutExclusions.Parse(_settings?.ExclusionsJson);
+        _exMacs.Clear(); foreach (var m in ex.Macs) _exMacs.Add(m);
+        _exSkus.Clear(); foreach (var s in ex.Skus) _exSkus.Add(s);
+        _exTypes.Clear(); foreach (var t in ex.DeviceTypes) _exTypes.Add(t);
+        _typeChannels = ParseMap(_settings?.PerDeviceTypeChannelsJson);
+        _skuChannels = ParseMap(_settings?.PerSkuChannelsJson);
+        _scheduleMode = _settings?.Mode == FirmwareRolloutMode.Autopilot ? "autopilot" : "once";
+        _savedConfig = ConfigSignature();
+    }
+
+    /// <summary>
+    /// What the inline editor can change, flattened. The component edits the settings object in
+    /// place, so there is nothing left to compare against once it has - this is taken at load.
+    /// </summary>
+    private string ConfigSignature() => string.Join("|",
+        _settings?.GlobalChannel,
+        _settings?.IncludeUniFiNetwork,
+        _settings?.IncludeUniFiOs,
+        _settings?.NetworkAppChannel,
+        _settings?.UniFiOsChannel,
+        string.Join(",", _exMacs.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _exSkus.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _exTypes.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+        string.Join(",", _typeChannels.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}")),
+        string.Join(",", _skuChannels.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}")));
+
+    private bool ConfigDirty => _savedConfig != null && ConfigSignature() != _savedConfig;
+
+    private FirmwareRolloutSettings WorkingSettings()
+    {
+        var s = _settings!;
+        // The preview answers for what the wizard currently shows, not for what is saved: the mode
+        // is only written on commit, and every save path sets it again before it writes.
+        s.Mode = _scheduleMode == "autopilot" ? FirmwareRolloutMode.Autopilot : FirmwareRolloutMode.ManualOnly;
+        s.ExclusionsJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            macs = _exMacs.ToList(),
+            skus = _exSkus.ToList(),
+            deviceTypes = _exTypes.ToList(),
+        });
+        s.PerDeviceTypeChannelsJson = System.Text.Json.JsonSerializer.Serialize(_typeChannels);
+        s.PerSkuChannelsJson = System.Text.Json.JsonSerializer.Serialize(_skuChannels);
+        return s;
+    }
+
+    private static Dictionary<string, string> ParseMap(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return map == null ? new(StringComparer.OrdinalIgnoreCase) : new(map, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// What the single channel select covers on THIS site. UniFi OS is only named where one is
+    /// ours to update, so a UXG site is never told about a surface it does not have.
+    /// </summary>
+    private string ChannelScopeLabel
+    {
+        get
+        {
+            var surfaces = new List<string> { "UniFi Devices" };
+            if (_preview?.HasCloudGateway == true) surfaces.Add("UniFi OS");
+            surfaces.Add("the UniFi Network application");
+            return surfaces.Count == 2
+                ? $"{surfaces[0]} and {surfaces[1]}"
+                : $"{surfaces[0]}, {surfaces[1]} and {surfaces[2]}";
+        }
+    }
+
+    /// <summary>What else the single channel select covers, named so the lockstep is not a surprise.</summary>
+    private string ConsoleSurfacesLabel
+    {
+        get
+        {
+            var surfaces = new List<string>();
+            if (_settings?.IncludeUniFiNetwork == true) surfaces.Add("the UniFi Network application");
+            if (_settings?.IncludeUniFiOs == true && _preview?.HasCloudGateway == true) surfaces.Add("UniFi OS");
+            return surfaces.Count == 0 ? "" : ", including " + string.Join(" and ", surfaces);
+        }
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrEmpty(value) ? null : value;
+
+    private string TypeChannel(string code) => _typeChannels.GetValueOrDefault(code, "");
+    private void SetTypeChannel(string code, string? channel)
+    {
+        if (string.IsNullOrEmpty(channel)) _typeChannels.Remove(code);
+        else _typeChannels[code] = channel;
+    }
+
+    private string SkuChannel(string model) => _skuChannels.GetValueOrDefault(model, "");
+    private void SetSkuChannel(string model, string? channel)
+    {
+        if (string.IsNullOrEmpty(channel)) _skuChannels.Remove(model);
+        else _skuChannels[model] = channel;
+    }
+
+    private void ToggleSet(HashSet<string> set, string value, ChangeEventArgs e)
+    {
+        if (e.Value is true) set.Add(value);
+        else set.Remove(value);
+    }
+
+    /// <summary>Excluded by its own rule or by one covering its model or type.</summary>
+    private bool IsExcluded(RolloutDeviceView device) =>
+        _exMacs.Contains(device.Mac) || SkuExcluded(device) || _exTypes.Contains(device.DeviceType);
+
+    /// <summary>
+    /// Whether a stored model rule covers this device, matched on the family so a rule written on
+    /// one color covers the same hardware in another. The planner already matches this way, and a
+    /// checkbox that disagreed with it would be showing something the rollout will not do.
+    /// </summary>
+    private bool SkuExcluded(RolloutDeviceView device)
+    {
+        if (_exSkus.Contains(device.Model)) return true;
+        var family = ModelFamilyOf(device);
+        return _exSkus.Any(s => string.Equals(
+            UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ModelFamilyOf(RolloutDeviceView device) =>
+        UniFiProductDatabase.GetModelFamily(device.Model, device.DisplayModel);
+
+    /// <summary>
+    /// Why a device is excluded when the rule is not its own MAC, else null. Doubles as the test
+    /// for whether this row's checkbox can clear it, which it cannot.
+    /// </summary>
+    private string? DerivedExclusion(RolloutDeviceView device)
+    {
+        // A wider rule wins even when the device also has its own. Checking the MAC first left the
+        // checkbox enabled on a device a model rule already covered, so it could be unticked with
+        // no effect - the row simply re-checked itself from the rule that was still there.
+        if (SkuExcluded(device)) return $"Excluded by the rule for every {ModelFamilyOf(device)}.";
+        if (_exTypes.Contains(device.DeviceType)) return "Excluded by the rule for this device type.";
+        return null;
+    }
+
+    /// <summary>
+    /// Adds or clears a model rule for the device's whole family. Removing has to sweep the family
+    /// too: the stored rule may name the other color's code, and Include would otherwise appear to
+    /// do nothing.
+    /// </summary>
+    private void ToggleSku(RolloutDeviceView device)
+    {
+        var family = ModelFamilyOf(device);
+        var existing = _exSkus.Where(s => string.Equals(
+            UniFiProductDatabase.GetModelFamily(s), family, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (existing.Count > 0)
+        {
+            foreach (var s in existing) _exSkus.Remove(s);
+            return;
+        }
+
+        _exSkus.Add(device.Model);
+
+        // The model rule absorbs the individual ticks it now covers. Left behind, they would keep
+        // every one of those devices excluded after Include model, which reads as the button not
+        // working - and they are unreachable while the model rule disables their checkboxes.
+        foreach (var mac in FamilyMacs(family)) _exMacs.Remove(mac);
+    }
+
+    /// <summary>MACs of every device on the site in this model family.</summary>
+    private IEnumerable<string> FamilyMacs(string family) =>
+        (_preview?.Devices ?? [])
+            .Where(d => string.Equals(ModelFamilyOf(d), family, StringComparison.OrdinalIgnoreCase))
+            .Select(d => d.Mac)
+            .ToList();
+
+    /// <summary>
+    /// Every model on the site, one row per family and labeled by product name. A site running the
+    /// same AP in two colors gets one control rather than two that quietly govern each other, since
+    /// the planner resolves both to one key.
+    /// </summary>
+    private List<(string Code, string Label)> SiteModels =>
+        (_preview?.Devices ?? [])
+            .Where(d => !string.IsNullOrEmpty(d.Model))
+            .GroupBy(d => UniFiProductDatabase.GetModelFamily(d.Model, d.DisplayModel), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Code: g.First().Model, Label: g.Key))
+            .OrderBy(m => m.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IEnumerable<RolloutDeviceView> FilteredExclusionCandidates =>
+        (_preview?.Devices ?? [])
+            .Where(d => string.IsNullOrEmpty(_exclusionSearch)
+                || d.Name.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase)
+                || d.DisplayModel.Contains(_exclusionSearch, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(d => d.Upgradable)
+            .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase);
+
+    // ---- Schedule ----
+
+    private int ProposalOffsetHours()
+    {
+        if (_preview?.ProposedWindow?.StartUtc is not { } start || start == default) return 24;
+        var hours = (int)Math.Round((start - DateTime.UtcNow).TotalHours);
+        return Math.Clamp(hours, 1, 167);
+    }
+
+    private void SetStartOffset(string? raw)
+    {
+        if (!int.TryParse(raw, out var v)) return;
+        _startOffsetHours = Math.Clamp(v, 0, 167);
+        _startMoved = true;
+    }
+
+    /// <summary>
+    /// Open on what the console is set to today. The single select takes the least aggressive of
+    /// the three channels in use, so opening the wizard never proposes moving a surface onto a
+    /// riskier channel than it is on; a surface that sits somewhere else is pinned as an override.
+    /// Only channels that could actually be read count - a surface whose channel is unknown must
+    /// not vote, or an unreadable one drags the whole site back to Official.
+    /// </summary>
+    private void SeedChannelsFromConsole()
+    {
+        if (_settings == null || _preview == null) return;
+
+        var device = _preview.Channels.CurrentDeviceChannel;
+        var app = _preview.Channels.CurrentNetworkAppChannel;
+        var os = _preview.Channels.CurrentUniFiOsChannel;
+
+        var inUse = new[] { device, app, os }.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        if (inUse.Count == 0)
+        {
+            Logger.LogInformation("Firmware Rollout: the console reported no channels, so the wizard opens on {Channel}", _settings.GlobalChannel);
+            return;
+        }
+
+        _settings.GlobalChannel = inUse.OrderBy(ChannelRisk).First()!;
+        _settings.NetworkAppChannel = PinIfDifferent(app);
+        _settings.UniFiOsChannel = PinIfDifferent(os);
+
+        Logger.LogInformation(
+            "Firmware Rollout: console channels are devices={Device}, network={App}, os={Os}; wizard opens on {Global} with network override {AppPin} and OS override {OsPin}",
+            device ?? "unknown", app ?? "unknown", os ?? "unknown",
+            _settings.GlobalChannel, _settings.NetworkAppChannel ?? "none", _settings.UniFiOsChannel ?? "none");
+
+        string? PinIfDifferent(string? channel) =>
+            !string.IsNullOrWhiteSpace(channel) && !SameChannel(channel, _settings.GlobalChannel) ? channel : null;
+    }
+
+    /// <summary>Stable first, then release candidate, then early access.</summary>
+    private static int ChannelRisk(string? channel) => channel?.ToLowerInvariant() switch
+    {
+        FirmwareChannels.Release => 0,
+        FirmwareChannels.ReleaseCandidate => 1,
+        FirmwareChannels.Beta => 2,
+        _ => 3,
+    };
+
+    private static bool SameChannel(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Park the slider on the proposed window until the user drags it somewhere else.</summary>
+    private void SeedStartFromProposal()
+    {
+        if (!_startMoved) _startOffsetHours = ProposalOffsetHours();
+    }
+
+    /// <summary>
+    /// Hours from now, snapped to the hour. Computed in UTC so a site in another timezone is not
+    /// scheduled against this server's clock; the labels convert back to the site's own hours.
+    /// </summary>
+    private DateTime SelectedStartUtc
+    {
+        get
+        {
+            // Start now means now, not the window that would have been proposed instead.
+            if (_scheduleMode == "now") return DateTime.UtcNow;
+
+            // Until the slider is dragged, the answer is the proposed instant itself - rounding it
+            // back out of an hour offset is what made the label disagree with the suggestion.
+            if (!_startMoved && _preview?.ProposedWindow?.StartUtc is { } proposed && proposed != default)
+                return proposed;
+
+            var utc = DateTime.UtcNow.AddHours(_startOffsetHours);
+            return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc);
+        }
+    }
+
+    /// <summary>
+    /// The site's own reading of an instant, for the two places the decision is site-local: picking
+    /// the start and watching a schedule. Times are shown in the server's zone everywhere, because
+    /// an operator reads any timestamp in their own clock whether it is labelled or not, and one
+    /// clock is the only way rollouts across sites can be compared. Empty when the site keeps the
+    /// same hours, which is every single-site install.
+    /// </summary>
+    private string SiteAside(DateTime utc)
+    {
+        var zone = _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId;
+        if (string.IsNullOrWhiteSpace(zone)) return string.Empty;
+
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(zone);
+            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
+
+            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
+            return $" ({at:h:mm tt} at-site)";
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            Logger.LogDebug(ex, "Unknown site timezone {Zone}", zone);
+            return string.Empty;
+        }
+    }
+
+    // ---- Active plan controls ----
+
+    private bool WaitingApproval => _active?.Plan.WaitingApprovalWave is > 0;
+
+    private int PreviewTotalScope => _preview == null ? 0 : RolloutScopeCopy.TotalScope(_preview.Plan);
+    private int PreviewTotalWaves => _preview == null ? 0 : RolloutScopeCopy.TotalWaves(_preview.Plan);
+
+    private string ActiveTitle => _active?.Status switch
+    {
+        FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled Rollout",
+        FirmwareRolloutStatus.Paused => "Rollout Paused",
+        FirmwareRolloutStatus.SoakWait => "Rollout Complete - Soaking",
+        _ => "Rollout in Progress",
+    };
+
+    /// <summary>
+    /// Postpone moves a start time by a fixed step and says nothing on its own, so a click that
+    /// worked and a click that did nothing look identical - which is how one turns into several.
+    /// </summary>
+    private async Task PostponeAsync()
+    {
+        await ControlAsync(RolloutService.PostponeAsync);
+        if (_active?.ScheduledStartAt is { } at)
+            _controlNotice = $"Postponed. The rollout now starts {LocalTime(at)}.";
+    }
+
+    private async Task ControlAsync(Func<int, CancellationToken, Task> action)
+    {
+        if (_active == null) return;
+        _controlNotice = null;
+        _busy = true;
+        try
+        {
+            await action(_active.Id, CancellationToken.None);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout control action failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeployNowAsync()
+    {
+        _confirmDeployNow = false;
+        await ControlAsync(RolloutService.DeployNowAsync);
+    }
+
+    private Task AbortAsync() => ControlAsync(async (id, ct) =>
+    {
+        await RolloutService.AbortAsync(id, ct);
+        await DisposeVizAsync();
+    });
+
+    private async Task RollbackAsync(RolloutStepView step)
+    {
+        _busy = true;
+        try
+        {
+            await RolloutService.RollbackStepAsync(step.Id);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollback failed for {Mac}", step.Mac);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenReportAsync(int planId)
+    {
+        try
+        {
+            _report = await RolloutService.GetReportAsync(planId);
+            _reportTyped = RolloutReport.Parse(_report?.ReportJson);
+            StateHasChanged();
+            await Task.Delay(100);
+            await JS.InvokeVoidAsync("eval", "document.getElementById('firmware-rollout-report')?.scrollIntoView({behavior:'smooth',block:'start'})");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load rollout report {PlanId}", planId);
+        }
+    }
+
+    private async Task ExportReportPdfAsync()
+    {
+        if (_report == null) return;
+        _exportingPdf = true;
+        StateHasChanged();
+        try
+        {
+            var url = $"/api/firmware-rollout/reports/{_report.PlanId}/pdf";
+            if (!SiteContext.IsDefault) url = SiteContextService.WithSiteParam(url, SiteContext.Slug);
+            // Blob fetch instead of a plain link: a Safari PWA opens a linked PDF inline instead of
+            // saving it (same reason the ISP Health export does this).
+            await JS.InvokeVoidAsync("eval", $@"(async () => {{
+                const r = await fetch('{url}');
+                if (!r.ok) return;
+                const blob = await r.blob();
+                const cd = r.headers.get('content-disposition') || '';
+                const m = /filename=""?([^"";]+)""?/.exec(cd);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = m ? m[1] : 'FirmwareRollout.pdf';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();");
+        }
+        catch
+        {
+            // A failed download is visible to the user in the browser; nothing to recover here.
+        }
+        finally
+        {
+            _exportingPdf = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>The map only has something to draw once steps are moving.</summary>
+    private bool ActivePlanHasMap => _active != null && _active.Status
+        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait;
+
+    // ---- Visualization interop ----
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
+        if (!wantsViz)
+        {
+            if (_vizMounted) await DisposeVizAsync();
+            return;
+        }
+
+        try
+        {
+            _viz ??= await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/firmware-rollout-viz.js"));
+            if (!_vizMounted)
+            {
+                await _viz.InvokeVoidAsync("mount", "firmware-rollout-map-stage", "firmware-rollout-timeline",
+                    new
+                    {
+                        storagePrefix = SiteContext.ScopeStorageKey("firmwareRollout"),
+                        fullscreenEl = "firmware-rollout-map-fs",
+                    });
+                _vizMounted = true;
+                _vizMode = null;
+            }
+
+            if (_wizardOpen && _step == 3 && _preview != null && _vizMode != "planned")
+            {
+                var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
+                var startMs = new DateTimeOffset(DateTime.SpecifyKind(SelectedStartUtc, DateTimeKind.Utc))
+                    .ToUnixTimeMilliseconds();
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, TimeZoneInfo.Local.Id);
+                _vizMode = "planned";
+            }
+            else if (_active != null && _vizMode != "live")
+            {
+                await PushLiveStateAsync();
+                _vizMode = "live";
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Rollout visualization unavailable");
+        }
+    }
+
+    private async Task PushLiveStateAsync()
+    {
+        if (_viz == null || _active == null) return;
+        var steps = _active.Steps.Select(s => new { deviceMac = s.Mac, state = (int)s.State }).ToList();
+        var startedMs = _active.StartedAt is { } started
+            ? new DateTimeOffset(DateTime.SpecifyKind(started, DateTimeKind.Utc)).ToUnixTimeMilliseconds()
+            : (long?)null;
+        await _viz.InvokeVoidAsync("setLiveSteps", _active.Plan, steps, startedMs);
+    }
+
+    private async Task DisposeVizAsync()
+    {
+        if (_viz != null && _vizMounted)
+        {
+            try { await _viz.InvokeVoidAsync("dispose"); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Rollout visualization dispose failed"); }
+        }
+        _vizMounted = false;
+        _vizMode = null;
+    }
+
+    // ---- Live polling ----
+
+    private int _pollTicks;
+
+    private void StartPolling()
+    {
+        _pollTimer ??= new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    var wasActive = _active != null;
+                    _active = await RolloutService.GetActivePlanAsync();
+                    if (_active == null && wasActive)
+                    {
+                        _history = await RolloutService.GetPlanHistoryAsync();
+                        // The autopilot landing view renders the preview, and nothing else
+                        // rebuilds it once the plan goes terminal - without this the page
+                        // sits on its loading state.
+                        if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
+                            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+                        await DisposeVizAsync();
+                    }
+                    else
+                    {
+                        if (_active != null && _vizMounted)
+                            await PushLiveStateAsync();
+                        if (++_pollTicks % 6 == 0)
+                            _history = await RolloutService.GetPlanHistoryAsync();
+                    }
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    // ---- Display helpers ----
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
+    private static string LocalTime(DateTime? utc) =>
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime().ToString("ddd MMM d, h:mm tt") : "-";
+
+    private static string Duration(int seconds)
+    {
+        // Round to whole minutes first so 59m 55s reads 1h 0m, not 1h 60m.
+        var totalMinutes = (int)Math.Round(seconds / 60.0);
+        var h = totalMinutes / 60; var m = totalMinutes % 60;
+        return h > 0 ? $"{h}h {m}m" : $"{m}m";
+    }
+
+    private static string ChipLabel(FirmwareRolloutStepState state) => state switch
+    {
+        FirmwareRolloutStepState.Pending => "Queued",
+        FirmwareRolloutStepState.Held => "Held for canary",
+        FirmwareRolloutStepState.Commanded => "Starting",
+        FirmwareRolloutStepState.Down => "Upgrading",
+        FirmwareRolloutStepState.BackOnline => "Back online",
+        FirmwareRolloutStepState.CoolDown => "Cooling down",
+        FirmwareRolloutStepState.LitmusPassed => "Upgraded",
+        FirmwareRolloutStepState.RegressionFlagged => "Check resources",
+        FirmwareRolloutStepState.Failed => "Failed",
+        FirmwareRolloutStepState.SkippedExcluded => "Excluded",
+        FirmwareRolloutStepState.AbortedSku => "Skipped (model aborted)",
+        _ => state.ToString(),
+    };
+
+    private static string ChipClass(FirmwareRolloutStepState state) => state switch
+    {
+        FirmwareRolloutStepState.LitmusPassed => "chip-success",
+        FirmwareRolloutStepState.Failed or FirmwareRolloutStepState.AbortedSku => "chip-danger",
+        FirmwareRolloutStepState.RegressionFlagged => "chip-warning",
+        FirmwareRolloutStepState.Commanded or FirmwareRolloutStepState.Down
+            or FirmwareRolloutStepState.BackOnline or FirmwareRolloutStepState.CoolDown => "chip-active",
+        _ => "chip-muted",
+    };
+
+    /// <summary>Full version and current firmware behind the update badge.</summary>
+    private static string UpdateTooltip(RolloutDeviceView device)
+    {
+        var current = FirmwareVersionFormat.ShortOrNull(device.CurrentVersion) ?? "unknown";
+        var target = FirmwareVersionFormat.ShortOrNull(device.TargetVersion);
+        return target == null
+            ? $"An update is waiting. Running {current}."
+            : $"Update waiting: {target}. Running {current}.";
+    }
+
+    /// <summary>"5.1.28 -> 5.1.30", or just the target when the current version is unknown.</summary>
+    private static string VersionChange(string? from, string? to)
+    {
+        var target = FirmwareVersionFormat.ShortOrNull(to);
+        var current = FirmwareVersionFormat.ShortOrNull(from);
+        if (target == null) return current ?? "";
+        return current == null || current == target ? target : $"{current} → {target}";
+    }
+
+    /// <summary>
+    /// Whether this plan would do anything. A console update counts: on a Cloud Gateway the
+    /// UniFi OS build waits while every device reports nothing pending.
+    /// </summary>
+    private bool HasSomethingToDo =>
+        _preview != null
+        && (_preview.UpgradableCount > 0
+            || _preview.Plan.IncludesUniFiNetworkUpdate
+            || _preview.Plan.IncludesUniFiOsUpdate);
+
+    private string? ChangelogFor(string mac) =>
+        _preview?.Steps.FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase))?.ChangelogUrl;
+
+    private static string OutcomeChipClass(string outcome) => outcome switch
+    {
+        "Upgraded" => "chip-success",
+        "Failed" => "chip-danger",
+        "Regression flagged" or "Rolled back" => "chip-warning",
+        _ => "chip-muted",
+    };
+
+    private static string PlanChipLabel(RolloutPlanSummaryView row) => row.Status switch
+    {
+        FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled",
+        FirmwareRolloutStatus.SoakWait => "Soaking",
+        FirmwareRolloutStatus.Aborted => "Aborted",
+        FirmwareRolloutStatus.Failed => "Failed",
+        FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "Failed",
+        FirmwareRolloutStatus.Reported when row.HasFailures => "Partial",
+        FirmwareRolloutStatus.Reported => "Completed",
+        _ => row.Status.ToString(),
+    };
+
+    private static string PlanChipClass(RolloutPlanSummaryView row) => row.Status switch
+    {
+        FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "chip-danger",
+        FirmwareRolloutStatus.Reported when row.HasFailures => "chip-warning",
+        FirmwareRolloutStatus.Reported => "chip-success",
+        FirmwareRolloutStatus.Aborted or FirmwareRolloutStatus.Failed => "chip-danger",
+        _ => "chip-muted",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_connection != null)
+            _connection.OnConnectionChanged -= OnConnectionChanged;
+        _pollTimer?.Dispose();
+        await DisposeVizAsync();
+        if (_viz != null)
+        {
+            try { await _viz.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    private async Task DismissBackupNoticeAsync()
+    {
+        _showBackupNotice = false;
+        await UiHints.DismissAsync(UiHintKeys.FirmwareBackupNotice);
+    }
+}

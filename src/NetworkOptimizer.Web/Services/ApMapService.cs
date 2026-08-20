@@ -42,6 +42,11 @@ public interface IApMapAdminService
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
     Task SaveApMountTypeAsync(string mac, string mountType);
+
+    /// <summary>Forgets a placement, returning the device to the layout engine.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "ap_location")]
+    Task<bool> DeleteApLocationAsync(string mac);
 }
 
 /// <summary>
@@ -172,6 +177,20 @@ public class ApMapService : IApMapAdminService
             });
         }
         await db.SaveChangesAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> DeleteApLocationAsync(string mac)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = CreateSiteDb();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing == null) return false;
+
+        db.ApLocations.Remove(existing);
+        await db.SaveChangesAsync();
+        return true;
     }
 
     /// <summary>

@@ -24,7 +24,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
-    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -66,7 +65,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
         _tunnelRouting = tunnelRouting;
-        _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
         _agentEnrollment = agentEnrollment;
     }
@@ -132,7 +130,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         if (!success)
             throw new InvalidOperationException($"Agent WAN speed test failed: {output}");
 
-        return await BuildResultFromJsonAsync(output, wanIp: null, isp: null, serverInfo: null, report, cancellationToken);
+        return await BuildResultFromJsonAsync(output, wanIp: null, isp: null, serverInfo: null, viaAgent: true, report, cancellationToken);
     }
 
     /// <summary>Runs the uwnspeedtest binary locally on this host (default site).</summary>
@@ -257,7 +255,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             throw new InvalidOperationException(
                 $"UWN speed test binary produced no output (exit code: {process.ExitCode})");
 
-        return await BuildResultFromJsonAsync(stdout, wanIp, isp, serverInfo, report, cancellationToken);
+        return await BuildResultFromJsonAsync(stdout, wanIp, isp, serverInfo, viaAgent: false, report, cancellationToken);
     }
 
     /// <summary>
@@ -272,6 +270,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         string? wanIp,
         string? isp,
         string? serverInfo,
+        bool viaAgent,
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
@@ -303,11 +302,10 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
 
         // Local endpoint the test ran from, for path analysis. An agent run measures
         // from the on-site agent, so the trace source is the agent's LAN IP on that
-        // site's topology (this server's HOST_IP is off-network there) - same
-        // resolution the Client Speed Test uses for agent-relayed results.
-        var serverIp = IsDefaultSite && !await _agentCoverage.CoversAsync(SiteSlug)
-            ? _configuration["HOST_IP"]
-            : await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug);
+        // site's topology; a local run uses this server's HOST_IP.
+        var serverIp = viaAgent
+            ? await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug)
+            : _configuration["HOST_IP"];
 
         var result = new Iperf3Result
         {

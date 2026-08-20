@@ -499,12 +499,39 @@ public class IspHealthOptions
     public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
 
     /// <summary>
+    /// Multiplier on a path's own quiet-time RTT spread (p75 minus median around the window) that
+    /// scales its line-wide rise threshold: max(CongestionLineWideMinShiftMs, factor * spread).
+    /// A hop that naturally bounces by a few ms otherwise clears the flat floor in ANY window and
+    /// pads the breadth vote; a real line-wide rise exceeds every path's own noise, so noisy hops
+    /// still vote when something actually happened. Stable paths keep the flat floor.
+    /// </summary>
+    public double CongestionLineWideNoiseFactor { get; set; } = 1.5;
+
+    /// <summary>
     /// In-window percentile used by the line-wide rise test. A high percentile (vs the median) keeps a
     /// path that rose strongly for a good part of the window counted as "rose" even when a long mild
     /// tail dilutes its median toward baseline - otherwise the line-wide breadth flickers across
     /// recomputes for an event with a strong core and a long tail. A flat path still sits at baseline.
     /// </summary>
     public double CongestionLineWideRisePercentile { get; set; } = 0.75;
+
+    /// <summary>
+    /// Slice size in minutes for the line-wide rise re-test inside a bucket-padded window. Finer
+    /// than <see cref="CongestionBucketMinutes"/> because a brief (~5-7 min) line-wide bloat episode
+    /// elevates only a minority of a 15-min bucket's samples, leaving p75 at baseline. A 5-min slice
+    /// is covered majority-to-fully by such an episode wherever it lands, yet still holds enough
+    /// samples that a single spiked probe cannot read as a rise.
+    /// </summary>
+    public int CongestionLineWideSliceMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Lookaround in minutes on each side of the event window for the line-wide rise test's LOCAL
+    /// baseline (the window itself excluded). Transit hops wander by a few ms over hours, so the
+    /// whole-series median can sit ABOVE the hop's quiet level at event time and a genuine small
+    /// line-wide floor reads as no rise against it; the local level does not. The whole-series
+    /// baseline remains the fallback when too little data sits around the window.
+    /// </summary>
+    public int CongestionLineWideLocalBaselineMinutes { get; set; } = 120;
 
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;

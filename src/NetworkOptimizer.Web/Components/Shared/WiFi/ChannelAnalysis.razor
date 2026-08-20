@@ -6,10 +6,11 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ISystemSettingsService SettingsService
+@implements IDisposable
 
-<div class="channel-analysis-container wifi-sections">
+<div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
     <div class="channel-header">
-        <h3>Channel Analysis</h3>
+        <h3>@(_showRecommendations ? "Channel Analysis - Recommended" : "Channel Analysis - Current")</h3>
         <div class="header-actions">
             @if (!_showRecommendations && _accessPoints.Any(ap => ap.IsOnline && ap.Radios.Any(r => r.Channel.HasValue)))
             {
@@ -24,6 +25,10 @@
                     }
                 </button>
             }
+            @if (_showRecommendations && PlanComputedAtUtc is { } computedAt)
+            {
+                <span class="channel-plan-age">Last computed: @TimeFormatHelper.FormatRelativeTimeShort(computedAt)</span>
+            }
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)
                 {
@@ -31,7 +36,7 @@
                 }
                 else
                 {
-                    <span>Refresh</span>
+                    <span>@(_showRecommendations ? "Recompute" : "Refresh")</span>
                 }
             </button>
         </div>
@@ -106,7 +111,7 @@
             <div class="recommendation-view">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
-                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans = new(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
                 </div>
 
                 @* Auto-hide once every scannable radio has a measurement (no gaps): the rec is then
@@ -637,6 +642,34 @@
 
     // Channel recommendation state
     private bool _showRecommendations;
+    private System.Threading.Timer? _ageTimer;
+
+    /// <summary>When the displayed plan was computed - the same for every band in one run.</summary>
+    private DateTime? PlanComputedAtUtc =>
+        _channelPlans.Values.FirstOrDefault(p => p.ComputedAtUtc != default)?.ComputedAtUtc;
+
+    /// <summary>
+    /// Re-render periodically so "Last computed" ages on its own. Without this the label freezes at
+    /// whatever it said when the plan loaded, which is worse than showing nothing - a plan served
+    /// from cache would keep claiming it was just computed.
+    /// </summary>
+    private void StartAgeTicker()
+    {
+        _ageTimer?.Dispose();
+        _ageTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                InvokeAsync(() =>
+                {
+                    if (_showRecommendations && PlanComputedAtUtc != null) StateHasChanged();
+                });
+            }
+            catch { /* a dead circuit must not kill the timer callback */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    public void Dispose() => _ageTimer?.Dispose();
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
     private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
@@ -661,6 +694,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        StartAgeTicker();
         try
         {
             var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
@@ -725,7 +759,7 @@
             if (_showRecommendations)
             {
                 var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-                _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+                _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             }
         }
         finally
@@ -1062,7 +1096,7 @@
 
             // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             await LoadScanGapsAsync();
             await LoadStaleScanTargetsAsync();
         }
@@ -1098,7 +1132,7 @@
 
             // Re-run recommendations on the fresh spectrum data, then re-evaluate both banners.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
             await LoadScanGapsAsync();
             await LoadStaleScanTargetsAsync();
         }

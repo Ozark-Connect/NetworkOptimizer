@@ -59,9 +59,16 @@ public class PortInfo
     public bool IsMirrorDestination => string.Equals(OpMode, "mirror", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Whether this port is a LAG (Link Aggregation Group) parent/aggregate port.
+    /// Used to propagate uplink/fabric metadata from child ports to the parent
+    /// so that trunk audit rules evaluate the aggregate with complete context.
+    /// </summary>
+    public bool IsLagParent => string.Equals(OpMode, "aggregate", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether this is an uplink port
     /// </summary>
-    public bool IsUplink { get; init; }
+    public bool IsUplink { get; set; }
 
     /// <summary>
     /// Whether this is a WAN port
@@ -145,8 +152,9 @@ public class PortInfo
     /// <summary>
     /// Type of UniFi device connected to this port (e.g., "uap" for AP, "usw" for switch).
     /// Determined by matching device uplink info to this port. Null for regular clients.
+    /// May be propagated from a LAG child to the LAG parent during post-parse.
     /// </summary>
-    public string? ConnectedDeviceType { get; init; }
+    public string? ConnectedDeviceType { get; set; }
 
     /// <summary>
     /// 802.1X control mode from the assigned port profile.

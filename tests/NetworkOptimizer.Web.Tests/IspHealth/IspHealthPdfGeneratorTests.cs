@@ -64,7 +64,20 @@ public class IspHealthPdfGeneratorTests
                 Name = "Transit",
                 Score = 80,
                 Weight = 0.25,
-                Factors = { new IspScoreFactor { Name = "Transit Latency", Score = 80, Weight = 1.0, ValueText = "18.20 ms" } }
+                Factors =
+                {
+                    new IspScoreFactor
+                    {
+                        Name = "Example Transit", Score = 80, Weight = 1.0, ValueText = "18.20 ms",
+                        InvolvementTooltip = "Carries 6 of 8 internet targets (forward path), 100% weight"
+                    },
+                    new IspScoreFactor
+                    {
+                        Name = "Example Side Path", Score = 58, Weight = 0.25, ValueText = "31.40 ms",
+                        InvolvementTooltip = "Off the forward path; held at 25% (likely the return path from popular services)",
+                        LowReachScoreCaveat = "Lightly weighted - nothing we are monitoring routes through this network; a low score is likely just ICMP deprioritization."
+                    }
+                }
             },
             IspAsnDimension = new IspScoreDimension { Name = "ISP Network", Score = 77, Weight = 0.25 },
             HasExpectedSpeeds = true,
@@ -81,24 +94,39 @@ public class IspHealthPdfGeneratorTests
 
         report.IspTargets.Add(new IspTargetHealth
         {
-            TargetId = "isp-1", Name = "ISP hop 1", RttMs = 1.8, ScoredJitterMs = 0.2,
-            LossPct = 0, OverallScore = 94, IsGradedHop = true
+            TargetId = "isp-1", Name = "ISP hop 1", Address = "198.51.100.1 - core1.example.net",
+            RttMs = 1.8, ScoredJitterMs = 0.2, LossPct = 0, OverallScore = 94, IsGradedHop = true,
+            LatencyStabilityScore = 96, CongestionScore = 100
         });
         report.IspTargets.Add(new IspTargetHealth
         {
             TargetId = "isp-2", Name = "ISP hop 2", RttMs = 4.1, ScoredJitterMs = 1.4,
-            LossPct = 0.02, OverallScore = 81
+            RawJitterMs = 3.2, JitterAssimilated = true, LossPct = 0.02, OverallScore = 81,
+            LatencyStabilityScore = 88, CongestionScore = 74, CongestionEventCount = 1,
+            NotOnTracedPath = true
         });
 
         report.IspAsns.Add(new IspAsnHealth
         {
             AsnNumber = 64500, AsnName = "Example Access", MeanRttMs = 2.9,
-            ScoredJitterMs = 0.4, LossPct = 0, OverallScore = 88
+            ScoredJitterMs = 0.4, RawJitterMs = 1.9, JitterAssimilated = true,
+            LossPct = 0, OverallScore = 88, LatencyStabilityScore = 92, CongestionScore = 100
         });
         report.TransitAsns.Add(new IspAsnHealth
         {
             AsnNumber = 64501, AsnName = "Example Transit", MeanRttMs = 18.2,
-            ScoredJitterMs = 1.1, LossPct = 0.05, OverallScore = 79, CongestionEventCount = 1
+            ScoredJitterMs = 1.1, LossPct = 0.05, OverallScore = 79, CongestionEventCount = 1,
+            LatencyStabilityScore = 90, CongestionScore = 68,
+            ShowInvolvement = true, InvolvementReach = 6, InvolvementHostTotal = 8, InvolvementWeight = 1.0
+        });
+        // Off the forward path: the reach-0 case, which carries both the involvement note and
+        // the ICMP-deprioritization caveat.
+        report.TransitAsns.Add(new IspAsnHealth
+        {
+            AsnNumber = 64502, AsnName = "Example Side Path", MeanRttMs = 31.4,
+            ScoredJitterMs = 2.6, LossPct = 0.4, OverallScore = 58,
+            LatencyStabilityScore = 61, CongestionScore = 55,
+            ShowInvolvement = true, InvolvementReach = 0, InvolvementHostTotal = 8, InvolvementWeight = 0.25
         });
         // A direct-peering entry: negative ASN, which the role label special-cases.
         report.TransitAsns.Add(new IspAsnHealth
@@ -324,6 +352,211 @@ public class IspHealthPdfGeneratorTests
         pdf.Length.Should().BeGreaterThan(1000);
     }
 
+    private static CongestionEvent Congestion(DateTime start, double hours, string hop, double baselineRtt,
+        CongestionDisposition disposition = CongestionDisposition.Confirmed) => new()
+        {
+            Start = start,
+            End = start.AddHours(hours),
+            AsnNumbers = { 64501 },
+            AsnNames = { "Example Transit" },
+            BottleneckLabel = hop,
+            BaselineRttMs = baselineRtt,
+            PeakRttMs = baselineRtt + 4,
+            BaselineJitterMs = 0.2,
+            PeakJitterMs = 19.4,
+            Disposition = disposition,
+            Scope = CongestionScope.Hop
+        };
+
+    [Fact]
+    public void EventTimeline_GroupsOverlappingCongestionOntoOneLine()
+    {
+        // One incident seen on four hops: a bottleneck's elevation shows on every hop behind it,
+        // and four rows reporting the same two hours hide that they are the same thing.
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "OLT", 1.6));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 1", 2.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 2", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        // The nearest hop leads and every member keeps its own readings.
+        entries[0].Text.Should().Contain("Access hop").And.Contain("and 3 more hops");
+        entries[0].Members.Should().HaveCount(4);
+        entries[0].Members![0].Should().Contain("Access hop");
+        entries[0].Members!.Should().Contain(m => m.Contains("Transit hop 2"));
+    }
+
+    [Fact]
+    public void EventTimeline_ConfirmedAbsorbsOverlappingUnverifiable()
+    {
+        // Unverifiable means "no probe past this hop to cross-check"; the overlapping confirmed
+        // event is that cross-check. One line, written as Confirmed, both hops kept as members.
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Dead-end hop", 2.5,
+            CongestionDisposition.Unverifiable));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].BadgeClass.Should().Be("isp-event-badge-congestion");
+        entries[0].BadgeTooltip.Should().BeNull();
+        entries[0].Members.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void EventTimeline_UnverifiableOnlyGroupsStayDimmed()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Dead-end hop 1", 1.5,
+            CongestionDisposition.Unverifiable));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Dead-end hop 2", 2.5,
+            CongestionDisposition.Unverifiable));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].BadgeClass.Should().Be("isp-event-badge-congestion-soft");
+    }
+
+    [Fact]
+    public void EventTimeline_ReadsSingularForAGroupOfTwo()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.9), 2, "Transit hop 1", 2.5));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("and 1 more hop (");
+    }
+
+    [Fact]
+    public void EventTimeline_LeadsWithTheNearestHopOnTheTracedPath()
+    {
+        // RTT would pick the 1.5 ms hop; discovery placed it nowhere, so the hop it DID place
+        // leads even though it reads slower.
+        var report = MinimalReport();
+        var placed = Congestion(WindowEnd.AddHours(-4), 2, "Traced hop", 2.4);
+        placed.BottleneckHopNumber = 3;
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Untraced hop", 1.5));
+        report.CongestionEvents.Add(placed);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("Traced hop");
+        entries[0].Members![0].Should().Contain("Traced hop");
+    }
+
+    [Fact]
+    public void EventTimeline_FallsBackToTheSoleAccessIspHop()
+    {
+        // The ISP surfaces no traceroute-reachable hop (Deutsche Telekom and friends), so the site
+        // has exactly one, added by hand. Nothing is on a traced path, and it leads even though two
+        // transit hops read nearer.
+        var report = MinimalReport();
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-1", Name = "ISP hop 1", NotOnTracedPath = true });
+        var access = Congestion(WindowEnd.AddHours(-4), 2, "ISP hop 1", 3.2);
+        access.TargetIds.Add("isp-1");
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 1", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 2", 2.0));
+        report.CongestionEvents.Add(access);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("ISP hop 1");
+    }
+
+    [Fact]
+    public void EventTimeline_WillNotGuessAnIspHopWhenTheSiteHasSeveral()
+    {
+        // With several ISP hops, an untraced one is a guess - the shortest baseline RTT is the
+        // honest lead.
+        var report = MinimalReport();
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-1", Name = "ISP hop 1" });
+        report.IspTargets.Add(new IspTargetHealth { TargetId = "isp-2", Name = "ISP hop 2" });
+        var access = Congestion(WindowEnd.AddHours(-4), 2, "ISP hop 1", 3.2);
+        access.TargetIds.Add("isp-1");
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop 1", 1.5));
+        report.CongestionEvents.Add(access);
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        entries[0].Text.Should().Contain("Transit hop 1");
+    }
+
+    [Fact]
+    public void EventTimeline_ReportsTheNamedHopsOwnReadingOverTheUnionSpan()
+    {
+        var report = MinimalReport();
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 1, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-3.5), 2, "Transit hop", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().ContainSingle();
+        // The leading hop's own rise. A group-wide envelope would read "1.5 to 6.9 ms" - one hop's
+        // baseline against another's peak, a rise nothing measured.
+        entries[0].Text.Should().Contain("latency 1.5 to 5.5 ms");
+        // The duration still spans the group: 4 h ago to 1.5 h ago.
+        entries[0].Text.Should().Contain("2.5 h of elevated");
+        entries[0].Members.Should().HaveCount(2);
+    }
+
+    [Theory]
+    [InlineData(0.34, "under 34% WAN load")]
+    [InlineData(0.61, "under 61% WAN load")]
+    // At and above the floor it is named; below it the line was idle enough that saying so would
+    // only invite the reader to blame their own traffic.
+    [InlineData(0.10, "under 10% WAN load")]
+    public void EventTimeline_NamesTheLoadTheLineWasCarrying(double utilization, string expected)
+    {
+        var report = MinimalReport();
+        var evt = Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5);
+        evt.MedianLoadUtilization = utilization;
+        report.CongestionEvents.Add(evt);
+
+        IspHealthPresentation.EventTimeline(report).Single().Text.Should().Contain(expected);
+    }
+
+    [Theory]
+    [InlineData(0.09)]
+    [InlineData(0.0)]
+    [InlineData(null)]
+    public void EventTimeline_SaysNothingAboutLoadOnAnIdleLine(double? utilization)
+    {
+        var report = MinimalReport();
+        var evt = Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5);
+        evt.MedianLoadUtilization = utilization;
+        report.CongestionEvents.Add(evt);
+
+        IspHealthPresentation.EventTimeline(report).Single().Text.Should().NotContain("WAN load");
+    }
+
+    [Fact]
+    public void EventTimeline_NeverGroupsAcrossDispositionsOrSeparateSpans()
+    {
+        var report = MinimalReport();
+        // Same two hours, but a different claim about what happened.
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Access hop", 1.5));
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-4), 2, "Transit hop", 2.9,
+            CongestionDisposition.SelfInflicted));
+        // Same disposition as the first, but hours later - a separate incident.
+        report.CongestionEvents.Add(Congestion(WindowEnd.AddHours(-1), 0.5, "Transit hop", 2.9));
+
+        var entries = IspHealthPresentation.EventTimeline(report).ToList();
+
+        entries.Should().HaveCount(3);
+        entries.Should().OnlyContain(e => e.Members == null);
+    }
+
     [Fact]
     public void EventTimeline_DescribesEveryEventTheReportCarries()
     {
@@ -336,5 +569,51 @@ public class IspHealthPdfGeneratorTests
         entries.Should().ContainSingle(e => e.Badge == "Path shift");
         entries.Should().ContainSingle(e => e.Badge == "Path change");
         entries.Should().BeInAscendingOrder(e => e.Time);
+    }
+
+    [Fact]
+    public void EventTimeline_CorrelatedShiftListsEachPathsOwnStep()
+    {
+        // The sentence quotes the named path only, so without the members the other path's step
+        // is visible as nothing but a count.
+        var report = MinimalReport();
+        report.PathShifts.Add(new PathShiftEvent
+        {
+            Time = WindowEnd.AddHours(-6),
+            AsnName = "Near hop",
+            BeforeMedianMs = 11.4,
+            AfterMedianMs = 8.5,
+            CorrelatedTargetCount = 2,
+            TargetIds = { "t-near", "t-far" },
+            Members =
+            {
+                new PathShiftMember("Near hop", 11.4, 8.5, new[] { "t-near" }),
+                new PathShiftMember("Far hop", 17.8, 14.8, new[] { "t-far" })
+            }
+        });
+
+        var entry = IspHealthPresentation.EventTimeline(report).Single();
+
+        entry.Text.Should().Contain("seen on 2 paths");
+        entry.MemberNoun.Should().Be("path");
+        entry.Members.Should().HaveCount(2);
+        entry.Members![1].Should().Contain("Far hop").And.Contain("17.8 to 14.8 ms");
+        entry.TargetIds.Should().BeEquivalentTo(new[] { "t-near", "t-far" });
+    }
+
+    [Fact]
+    public void EventTimeline_LonePathShiftHasNoMembers()
+    {
+        var report = MinimalReport();
+        report.PathShifts.Add(new PathShiftEvent
+        {
+            Time = WindowEnd.AddHours(-6),
+            AsnName = "Near hop",
+            BeforeMedianMs = 11.4,
+            AfterMedianMs = 8.5,
+            TargetIds = { "t-near" }
+        });
+
+        IspHealthPresentation.EventTimeline(report).Single().Members.Should().BeNull();
     }
 }

@@ -27,6 +27,8 @@
 @inject SiteContextService SiteContext
 @inject SiteTunnelRouting TunnelRouting
 @inject GatewayDiagnosticsService GatewayDiagnostics
+@inject DmesgDiagnosticsService DmesgDiagnostics
+@inject ISupportFileService SupportFile
 @inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
@@ -606,6 +608,230 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     </div>
 }
 
+@if (_hasGateway)
+{
+    <div class="card dmesg-card" data-tour="gateway-diagnostics">
+        <div class="card-header dmesg-card-header">
+            <h2 class="card-title">Gateway Diagnostics</h2>
+            <button class="btn btn-primary btn-sm"
+                    disabled="@(!_gatewaySshConfigured || _siteAgentOffline || _dmesgRunning)"
+                    @onclick="RunDmesgAsync">
+                @if (_dmesgRunning)
+                {
+                    <span class="spinner spinner-sm"></span>
+                    <span>Running...</span>
+                }
+                else
+                {
+                    <span>Run Diagnostics</span>
+                }
+            </button>
+        </div>
+        <div class="card-body">
+            <p class="page-description dmesg-description">
+                Kernel message log from the gateway, parsed into categories. Noise like
+                connection tracking churn is counted rather than listed, so the findings
+                that matter stand out.
+            </p>
+
+            @if (!_gatewaySshConfigured && !_siteAgentOffline)
+            {
+                <p class="text-muted">
+                    Gateway SSH credentials haven't been configured.
+                    @if (_canConfigure)
+                    {
+                        <a href="/settings#gateway-ssh">Set them up in Settings - Connection.</a>
+                    }
+                </p>
+            }
+
+            @if (_dmesgError != null)
+            {
+                <div class="alert alert-danger">@_dmesgError</div>
+            }
+
+            @if (_dmesgReport != null)
+            {
+                @if (_dmesgReport.RunError != null)
+                {
+                    <div class="alert alert-danger">@_dmesgReport.RunError</div>
+                }
+                else
+                {
+                    <div class="dmesg-stats">
+                        @_dmesgReport.TotalLines.ToString("N0") lines
+                        @if (_dmesgReport.ApproximateUptime.HasValue)
+                        {
+                            var up = _dmesgReport.ApproximateUptime.Value;
+                            <span> · uptime ~@(up.Days > 0 ? $"{up.Days}d {up.Hours}h" : $"{up.Hours}h {up.Minutes}m")</span>
+                        }
+                        @if (_dmesgReport.RingBufferDominatedByNoise)
+                        {
+                            <span> · ring buffer dominated by noise (boot events may be missing)</span>
+                        }
+                    </div>
+
+                    @if (_dmesgReport.Categories.Count == 0)
+                    {
+                        <p class="text-muted">No notable events found.</p>
+                    }
+                    else
+                    {
+                        @foreach (var cat in _dmesgReport.Categories)
+                        {
+                            <details class="dmesg-category">
+                                <summary class="dmesg-category-header">
+                                    <span class="status-dot @SeverityDotClass(cat.Severity)"></span>
+                                    <strong class="dmesg-category-title">@cat.Title</strong>
+                                    <span class="dmesg-category-summary">@cat.Summary</span>
+                                </summary>
+                                @if (cat.Lines.Count > 0)
+                                {
+                                    <pre class="dmesg-category-output">@string.Join("\n", cat.Lines)</pre>
+                                }
+                            </details>
+                        }
+                    }
+
+                    <details class="dmesg-raw">
+                        <summary class="dmesg-raw-toggle">
+                            Show raw dmesg output
+                        </summary>
+                        <pre class="dmesg-raw-output">@_dmesgReport.RawOutput.Trim()</pre>
+                    </details>
+                }
+            }
+        </div>
+    </div>
+}
+
+<SiteAdminOnly>
+    <div class="card dmesg-card" data-tour="console-support-file">
+        <div class="card-header dmesg-card-header">
+            <h2 class="card-title">Console Support File</h2>
+            @if (ConnectionService.IsConnected && !ConnectionService.IsApiKeyAuth)
+            {
+                <div class="support-file-actions">
+                    <label class="checkbox-label"><input type="checkbox" @bind="_supportFileIncludeAll" /><span>Include all applications</span></label>
+                    <button class="btn btn-primary btn-sm"
+                            disabled="@_supportFileRunning"
+                            @onclick="GenerateSupportFileAsync">
+                        @if (_supportFileRunning)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                            <span>Generating...</span>
+                        }
+                        else
+                        {
+                            <span>Generate &amp; Download</span>
+                        }
+                    </button>
+                </div>
+            }
+        </div>
+        <div class="card-body">
+            @if (ConnectionService.IsApiKeyAuth)
+            {
+                <p class="text-muted dmesg-stats">
+                    Support file generation requires a username and password connection to the
+                    UniFi Console, with the Super Admin role or the Control Plane - Full Admin
+                    permission. API key connections don't have the UniFi OS session this needs.
+                    @if (_canConfigure)
+                    {
+                        <a href="/settings#console-connection">Switch to username/password in Settings - Connection.</a>
+                    }
+                </p>
+            }
+            else if (!ConnectionService.IsConnected)
+            {
+                <p class="text-muted dmesg-stats">Not connected to a UniFi Console.</p>
+            }
+            else
+            {
+                <p class="page-description dmesg-description">
+                    Generate a full UniFi Support File from the console and download it.
+                    This is the same bundle the UniFi Console UI produces under
+                    Settings - Control Plane - Console - the format Ubiquiti Support
+                    expects when filing a ticket.
+                </p>
+            }
+
+            @if (_supportFileError != null)
+            {
+                <div class="alert alert-danger">@_supportFileError</div>
+            }
+
+            @if (_supportFileRunning)
+            {
+                <p class="dmesg-stats">
+                    The console is bundling diagnostics from all installed applications.
+                    This can take a few minutes on consoles running Protect or other apps.
+                </p>
+            }
+        </div>
+    </div>
+</SiteAdminOnly>
+
+<style>
+    .dmesg-card { margin-top: 1.5rem; }
+
+    .dmesg-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .dmesg-description { margin-bottom: 0.75rem; }
+
+    .dmesg-stats {
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-category { margin-bottom: 0.75rem; }
+
+    .dmesg-category-header {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .dmesg-category-title { font-size: 0.9rem; }
+
+    .dmesg-category-summary {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-category-output {
+        margin-top: 0.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .dmesg-raw { margin-top: 1rem; }
+
+    .dmesg-raw-toggle {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .dmesg-raw-output {
+        margin-top: 0.5rem;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .support-file-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+</style>
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -656,6 +882,16 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private bool _diagRunning;
     private string? _diagError;
 
+    // Gateway dmesg diagnostics
+    private DmesgDiagnosticsReport? _dmesgReport;
+    private bool _dmesgRunning;
+    private string? _dmesgError;
+
+    // Console support file
+    private bool _supportFileRunning;
+    private string? _supportFileError;
+    private bool _supportFileIncludeAll;
+
     private bool CanRunDiagnostics =>
         _gatewaySshConfigured && !_siteAgentOffline && !string.IsNullOrWhiteSpace(_diagInterface);
 
@@ -686,10 +922,30 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _localCapabilities = capTask.Result.Describe();
         _consoleDataLoaded = ConnectionService.IsConnected;
 
+        if (!_consoleDataLoaded)
+            _ = WaitForConnectionThenReloadAsync();
+
         await LoadProbeVantagesAsync();
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
+    }
+
+    private async Task WaitForConnectionThenReloadAsync()
+    {
+        if (!await ConnectionService.WaitForConnectionAsync()) return;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadDevicesAsync();
+                await LoadWanInterfacesAsync();
+                await LoadGatewaySshStateAsync();
+                _consoleDataLoaded = true;
+                StateHasChanged();
+            });
+        }
+        catch { }
     }
 
     /// <summary>
@@ -1004,6 +1260,63 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             StateHasChanged();
         }
     }
+
+    private async Task RunDmesgAsync()
+    {
+        _dmesgRunning = true;
+        _dmesgError = null;
+        _dmesgReport = null;
+        StateHasChanged();
+        try
+        {
+            _dmesgReport = await DmesgDiagnostics.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            _dmesgError = $"Couldn't run dmesg: {ex.Message}";
+        }
+        finally
+        {
+            _dmesgRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateSupportFileAsync()
+    {
+        _supportFileRunning = true;
+        _supportFileError = null;
+        StateHasChanged();
+        try
+        {
+            var result = await SupportFile.GenerateAndDownloadAsync(networkOnly: !_supportFileIncludeAll);
+            if (!result.Success)
+            {
+                _supportFileError = result.Error;
+                return;
+            }
+
+            var token = NetworkOptimizer.Web.Endpoints.SupportFileEndpoints.Stage(
+                result.TempFilePath!, result.Filename ?? "support-file.tgz");
+            await JS.InvokeVoidAsync("open", $"/api/support-file/download/{token}", "_self");
+        }
+        catch (Exception ex)
+        {
+            _supportFileError = $"Couldn't generate the support file: {ex.Message}";
+        }
+        finally
+        {
+            _supportFileRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string SeverityDotClass(DmesgSeverity severity) => severity switch
+    {
+        DmesgSeverity.Error => "error",
+        DmesgSeverity.Warning => "provisioning",
+        _ => "online"
+    };
 
     /// <summary>How the address got there: a DHCP lease, or configured by hand.</summary>
     private static string AssignmentLabel(GatewayInterfaceAddress addr) =>

@@ -38,7 +38,10 @@ public static class FloorPlanEndpoints
         // authorization policy, which is what architecture test A1 checks. Reads are any
         // authenticated user, running a test is Operator, and changes are Admin.
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
-        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireAdmin);
+        // IFloorPlanAdminService gates every mutation on the site in context (Site Operator,
+        // matching the editor's own gate), so the group carries the metadata and the service
+        // carries the boundary. Install-wide Admin here blocked the very people the service admits.
+        var admin = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         // --- Building & Floor Plan API ---
 
@@ -72,27 +75,27 @@ public static class FloorPlanEndpoints
             }));
         });
 
-        admin.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapPost("/api/floor-plan/buildings", async (HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
             var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
             if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-            var building = await svc.CreateBuildingAsync(request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
+            var building = await floorAdmin.CreateBuildingAsync(request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
         });
 
-        admin.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
             var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
             if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-            var building = await svc.UpdateBuildingAsync(id, request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
+            var building = await floorAdmin.UpdateBuildingAsync(id, request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
         });
 
-        admin.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
-            await svc.DeleteBuildingAsync(id);
+            await floorAdmin.DeleteBuildingAsync(id);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return Results.NoContent();
         });
@@ -119,30 +122,30 @@ public static class FloorPlanEndpoints
             }));
         });
 
-        admin.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
             var request = await context.Request.ReadFromJsonAsync<FloorRequest>();
             if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-            var floor = await svc.CreateFloorAsync(id, request.FloorNumber, request.Label,
+            var floor = await floorAdmin.CreateFloorAsync(id, request.FloorNumber, request.Label,
                 request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return Results.Ok(new { floor.Id, floor.BuildingId, floor.FloorNumber, floor.Label });
         });
 
-        admin.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
             var request = await context.Request.ReadFromJsonAsync<FloorUpdateRequest>();
             if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-            var floor = await svc.UpdateFloorAsync(id,
+            var floor = await floorAdmin.UpdateFloorAsync(id,
                 request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude,
                 request.Opacity, request.WallsJson, request.Label, floorMaterial: request.FloorMaterial);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
         });
 
-        admin.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
+        admin.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, IFloorPlanAdminService floorAdmin, FloorPlanService svc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
         {
-            await svc.DeleteFloorAsync(id);
+            await floorAdmin.DeleteFloorAsync(id);
             await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
             return Results.NoContent();
         });
@@ -157,7 +160,7 @@ public static class FloorPlanEndpoints
             return Results.File(imagePath, mimeType);
         });
 
-        admin.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
+        admin.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc) =>
         {
             var form = await context.Request.ReadFormAsync();
             var file = form.Files.GetFile("image");
@@ -165,7 +168,7 @@ public static class FloorPlanEndpoints
                 return Results.BadRequest(new { error = "No image file provided" });
 
             using var stream = file.OpenReadStream();
-            await svc.SaveFloorImageAsync(id, stream);
+            await floorAdmin.SaveFloorImageAsync(id, stream);
             return Results.Ok(new { success = true });
         });
 
@@ -191,7 +194,7 @@ public static class FloorPlanEndpoints
             }));
         });
 
-        admin.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, FloorPlanService svc) =>
+        admin.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, IFloorPlanAdminService floorAdmin, FloorPlanService svc) =>
         {
             const long maxFileSize = 50 * 1024 * 1024; // 50 MB
             var form = await context.Request.ReadFormAsync();
@@ -208,7 +211,7 @@ public static class FloorPlanEndpoints
             var label = form["label"].FirstOrDefault() ?? "";
 
             using var stream = file.OpenReadStream();
-            var image = await svc.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
+            var image = await floorAdmin.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
             return Results.Ok(new
             {
                 image.Id,
@@ -236,9 +239,9 @@ public static class FloorPlanEndpoints
             return Results.File(filePath, mimeType);
         });
 
-        admin.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, FloorPlanService svc) =>
+        admin.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, IFloorPlanAdminService floorAdmin, FloorPlanService svc) =>
         {
-            var image = await svc.UpdateFloorImageAsync(imageId, req.SwLatitude, req.SwLongitude,
+            var image = await floorAdmin.UpdateFloorImageAsync(imageId, req.SwLatitude, req.SwLongitude,
                 req.NeLatitude, req.NeLongitude, req.Opacity, req.RotationDeg, req.CropJson, req.Label);
             if (image == null) return Results.NotFound();
             return Results.Ok(new
@@ -257,9 +260,9 @@ public static class FloorPlanEndpoints
             });
         });
 
-        admin.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorPlanService svc) =>
+        admin.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, IFloorPlanAdminService floorAdmin, FloorPlanService svc) =>
         {
-            return await svc.DeleteFloorImageAsync(imageId) ? Results.NoContent() : Results.NotFound();
+            return await floorAdmin.DeleteFloorImageAsync(imageId) ? Results.NoContent() : Results.NotFound();
         });
 
         read.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
@@ -390,42 +393,42 @@ public static class FloorPlanEndpoints
             return Results.Ok(aps);
         });
 
-        admin.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
+        admin.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService svc, HeatmapDataCache heatmapCache) =>
         {
             var ap = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Storage.Models.PlannedAp>();
             if (ap == null) return Results.BadRequest(new { error = "Request body is required" });
-            var created = await svc.CreateAsync(ap);
+            var created = await plannedAdmin.CreateAsync(ap);
             await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
             return Results.Ok(created);
         });
 
-        admin.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
+        admin.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService svc, HeatmapDataCache heatmapCache) =>
         {
             var body = await context.Request.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
             if (body == null) return Results.BadRequest(new { error = "Request body is required" });
 
             if (body.TryGetValue("latitude", out var lat) && body.TryGetValue("longitude", out var lng))
-                await svc.UpdateLocationAsync(id, lat.GetDouble(), lng.GetDouble());
+                await plannedAdmin.UpdateLocationAsync(id, lat.GetDouble(), lng.GetDouble());
             if (body.TryGetValue("floor", out var floor))
-                await svc.UpdateFloorAsync(id, floor.GetInt32());
+                await plannedAdmin.UpdateFloorAsync(id, floor.GetInt32());
             if (body.TryGetValue("orientationDeg", out var deg))
-                await svc.UpdateOrientationAsync(id, deg.GetInt32());
+                await plannedAdmin.UpdateOrientationAsync(id, deg.GetInt32());
             if (body.TryGetValue("mountType", out var mt))
-                await svc.UpdateMountTypeAsync(id, mt.GetString() ?? "ceiling");
+                await plannedAdmin.UpdateMountTypeAsync(id, mt.GetString() ?? "ceiling");
             if (body.TryGetValue("txPowerDbm", out var tx) && body.TryGetValue("band", out var band))
-                await svc.UpdateTxPowerAsync(id, band.GetString() ?? "5", tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
+                await plannedAdmin.UpdateTxPowerAsync(id, band.GetString() ?? "5", tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
             if (body.TryGetValue("antennaMode", out var am))
-                await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
+                await plannedAdmin.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
             if (body.TryGetValue("name", out var name))
-                await svc.UpdateNameAsync(id, (name.GetString() ?? "").Trim());
+                await plannedAdmin.UpdateNameAsync(id, (name.GetString() ?? "").Trim());
 
             await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
             return Results.Ok(new { success = true });
         });
 
-        admin.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
+        admin.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, FloorPlanService floorSvc, ApMapService apMapSvc, IPlannedApAdminService plannedAdmin, PlannedApService svc, HeatmapDataCache heatmapCache) =>
         {
-            var deleted = await svc.DeleteAsync(id);
+            var deleted = await plannedAdmin.DeleteAsync(id);
             await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
             return deleted ? Results.Ok(new { success = true }) : Results.NotFound();
         });

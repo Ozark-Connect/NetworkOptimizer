@@ -33,6 +33,15 @@ public class LanFlowMapSnapshot
     /// Server-side only; used by the historic endpoint to query InfluxDB.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<string> WanIfNames { get; set; } = new();
+
+    /// <summary>
+    /// Saved placements by MAC, already projected into scene coordinates. Server-side only: the
+    /// historic pass rebuilds clients that are not connected now, and without this they would be
+    /// laid out by the force engine even when the user has placed them - the projection depends on
+    /// a centre and scale computed during this build, so it cannot be redone later.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<string, LanPlacement> AnchorsByMac { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public enum LanNodeKind
@@ -395,6 +404,22 @@ public class LanFlowMapHistoricUpdate
 
     /// <summary>Leaf links for <see cref="AddedClientNodes"/>, same shape as the snapshot's.</summary>
     public List<LanLink> AddedClientLinks { get; set; } = new();
+
+    /// <summary>
+    /// Client node ids carrying telemetry at the scrub instant - who was connected then, including
+    /// the ones still connected now. The snapshot only knows who is connected NOW, so without this
+    /// a client that is up today is drawn at every past instant, whether it was there or not.
+    /// Empty in live mode, where the snapshot is the truth.
+    /// </summary>
+    public List<string> PresentClientIds { get; set; } = new();
+
+    /// <summary>
+    /// Client node ids with telemetry anywhere in the fetched window - the clients playback can say
+    /// anything about at all. A client that never appears (one behind a device bridge writes no
+    /// point, having no switch port to be tagged with) is unknowable rather than absent, and is left
+    /// on the map as it was before presence was filtered.
+    /// </summary>
+    public List<string> MeasuredClientIds { get; set; } = new();
 }
 
 public class LanBuilding

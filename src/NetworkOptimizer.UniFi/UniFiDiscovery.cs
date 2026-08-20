@@ -133,25 +133,78 @@ public class UniFiDiscovery
     }
 
     /// <summary>
-    /// Resolves the interface name whose SNMP counters feed the WAN Live View and
-    /// Monitoring overview stats. For now this is the PRIMARY WAN interface only,
-    /// by design: the ISP / transit latency and loss cards shown alongside WAN
-    /// throughput are measured for a single WAN connection, so mixing failover or
-    /// cellular WAN traffic into the throughput numbers would disagree with them.
-    /// The primary WAN can be any connection type, including a GRE-tunneled
-    /// cellular WAN with no physical port.
-    /// Selection order, each translated to the counter-bearing interface via
-    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp*/gre*
-    /// tunnel when the uplink is one, physical port otherwise):
-    /// 1. The gateway's uplink object, which names the active WAN's logical
-    ///    interface (field varies by firmware: uplink_ifname, ifname, or name),
-    ///    matched to its wan1..wan6 object. Tracks failover and covers virtual
-    ///    WANs that have no port_table entry.
-    /// 2. The port_table entry flagged is_uplink (the pre-#669 selector),
-    ///    matched to its wan object. Also covers non-gateway devices.
-    /// 3. The first wan object, preferring ones reported up (seen on PPPoE
-    ///    gateways where neither of the above is populated).
+    /// Mesh parent for each child that does not report one itself, read from the other end.
+    ///
+    /// A mesh pair is described from both sides and either side can go missing: after a parent
+    /// reboots, UniFi has been seen listing the child in the parent's <c>downlink_table</c> while
+    /// the child's own uplink block stays empty. Consumers that key off the child's uplink alone
+    /// then lose the device entirely - it disappears from the topology, draws isolated on the maps,
+    /// and its mesh actions become unreachable. Only entries naming a known device are returned.
+    ///
+    /// Band, channel and the child's STA interface live on the missing half and are not
+    /// recoverable here; ask the device for the interface.
     /// </summary>
+    /// <param name="devices">Every device in the site.</param>
+    public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
+    {
+        var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+    }
+
+    /// <summary>Raw-device overload for callers that hold <see cref="UniFiDeviceResponse"/>
+    /// (e.g. the fabric aggregate writer). Same derivation, same claims.</summary>
+    public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<UniFiDeviceResponse> devices)
+    {
+        var all = devices as IList<UniFiDeviceResponse> ?? devices.ToList();
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+    }
+
+    private static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(
+        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> devices)
+    {
+        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> ?? devices.ToList();
+        var known = new HashSet<string>(all.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()));
+        var parentByChild = new Dictionary<string, MeshParentClaim>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parent in all)
+        {
+            if (string.IsNullOrEmpty(parent.Mac)) continue;
+            foreach (var link in parent.DownlinkTable ?? [])
+            {
+                // serialno is the child's base MAC; mac is its vwire BSSID, which matches nothing.
+                if (string.IsNullOrEmpty(link.SerialNo)) continue;
+                var childMac = link.SerialNo.ToLowerInvariant();
+                if (known.Contains(childMac))
+                    parentByChild[childMac] = new MeshParentClaim(parent.Mac.ToLowerInvariant(), link.TxRate, link.RxRate);
+            }
+        }
+
+        return parentByChild;
+    }
+
+    /// <summary>
+    /// A parent's account of one mesh child. Rates are the PARENT's perspective and are therefore
+    /// the inverse of the child's own uplink fields: the parent transmitting is the child receiving
+    /// (downstream), and the parent receiving is the child sending (upstream). Reading them the way
+    /// round the child's fields are read reports the link backwards.
+    /// </summary>
+    /// <param name="ParentMac">The parent's MAC, lower case.</param>
+    /// <param name="TxRateKbps">Parent to child, i.e. downstream.</param>
+    /// <param name="RxRateKbps">Child to parent, i.e. upstream.</param>
+    public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps)
+    {
+        /// <summary>
+        /// True when the child's own uplink field does NOT name this parent - empty, or a
+        /// different device. Only then may a consumer absorb the claim; an agreeing child's own
+        /// report stays authoritative, keeping the derived path inert on healthy mesh pairs.
+        /// </summary>
+        public bool Contradicts(string? reportedUplinkMac) =>
+            !string.Equals(
+                string.IsNullOrEmpty(reportedUplinkMac) ? null : reportedUplinkMac.ToLowerInvariant().Replace('-', ':'),
+                ParentMac,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN
     /// uplink - the WAN currently carrying the default route. Selection order matches
@@ -194,6 +247,26 @@ public class UniFiDiscovery
         return (null, null);
     }
 
+    /// <summary>
+    /// Resolves the interface name whose SNMP counters feed the WAN Live View and
+    /// Monitoring overview stats. For now this is the PRIMARY WAN interface only,
+    /// by design: the ISP / transit latency and loss cards shown alongside WAN
+    /// throughput are measured for a single WAN connection, so mixing failover or
+    /// cellular WAN traffic into the throughput numbers would disagree with them.
+    /// The primary WAN can be any connection type, including a GRE-tunneled
+    /// cellular WAN with no physical port.
+    /// Selection order, each translated to the counter-bearing interface via
+    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp*/gre*
+    /// tunnel when the uplink is one, physical port otherwise):
+    /// 1. The gateway's uplink object, which names the active WAN's logical
+    ///    interface (field varies by firmware: uplink_ifname, ifname, or name),
+    ///    matched to its wan1..wan6 object. Tracks failover and covers virtual
+    ///    WANs that have no port_table entry.
+    /// 2. The port_table entry flagged is_uplink (the pre-#669 selector),
+    ///    matched to its wan object. Also covers non-gateway devices.
+    /// 3. The first wan object, preferring ones reported up (seen on PPPoE
+    ///    gateways where neither of the above is populated).
+    /// </summary>
     internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
     {
         var (phys, uplink) = ResolveActiveWanInterface(d);
@@ -327,7 +400,7 @@ public class UniFiDiscovery
     /// </summary>
     public async Task<List<DiscoveredClient>> DiscoverClientsAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Starting UniFi client discovery via API");
+        _logger.LogDebug("Starting UniFi client discovery via API");
 
         var clients = await _apiClient.GetClientsAsync(cancellationToken);
         if (clients == null || clients.Count == 0)
@@ -336,7 +409,7 @@ public class UniFiDiscovery
             return new List<DiscoveredClient>();
         }
 
-        _logger.LogInformation("Discovered {Count} connected clients", clients.Count);
+        _logger.LogDebug("Discovered {Count} connected clients", clients.Count);
 
         // Check if any clients are missing IPs after trying BestIp fallback (ip > last_ip > fixed_ip)
         var clientsMissingIps = clients.Where(c => string.IsNullOrEmpty(c.BestIp)).ToList();
@@ -464,7 +537,7 @@ public class UniFiDiscovery
     /// </summary>
     public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        _logger.LogInformation("Starting network topology discovery");
+        _logger.LogDebug("Starting network topology discovery");
 
         var devicesTask = DiscoverDevicesAsync(cancellationToken, useCache);
         var clientsTask = DiscoverClientsAsync(cancellationToken);
@@ -503,7 +576,7 @@ public class UniFiDiscovery
         // Build device hierarchy (uplink relationships)
         BuildDeviceHierarchy(topology);
 
-        _logger.LogInformation("Topology discovered: {DeviceCount} devices, {ClientCount} clients, {NetworkCount} networks",
+        _logger.LogDebug("Topology discovered: {DeviceCount} devices, {ClientCount} clients, {NetworkCount} networks",
             topology.Devices.Count, topology.Clients.Count, topology.Networks.Count);
 
         return topology;

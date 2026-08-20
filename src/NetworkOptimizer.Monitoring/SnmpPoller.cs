@@ -566,12 +566,14 @@ public class SnmpPoller : ISnmpPoller
             UniFiOids.UniFiFirmwareVersion,
             UniFiOids.UniFiMacAddress,
             UniFiOids.LmSensorsCpuTemp,
-            UniFiOids.UniFiTemperature
+            UniFiOids.UniFiTemperature,
+            UniFiOids.LmFanSensorsCpuRpm
         };
 
         var results = await GetMultipleAsync(ip, oids);
 
         double lmTemp = 0, unifiTemp = 0;
+        long? fanRpm = null;
 
         foreach (var v in results)
         {
@@ -582,6 +584,7 @@ public class SnmpPoller : ISnmpPoller
             else if (oid == UniFiOids.UniFiMacAddress) metrics.MacAddress = v.Data.ToString();
             else if (oid == UniFiOids.LmSensorsCpuTemp) lmTemp = ConvertSnmpValue<double>(v.Data);
             else if (oid == UniFiOids.UniFiTemperature) unifiTemp = ConvertSnmpValue<double>(v.Data);
+            else if (oid == UniFiOids.LmFanSensorsCpuRpm) fanRpm = ConvertSnmpValue<long>(v.Data);
         }
 
         if (lmTemp > 0)
@@ -592,6 +595,9 @@ public class SnmpPoller : ISnmpPoller
         {
             metrics.Temperature = unifiTemp;
         }
+
+        if (fanRpm.HasValue)
+            metrics.FanSpeedRpm = (int)fanRpm.Value;
 
         metrics.DeviceType = DetermineDeviceType(metrics.Model, metrics.Description);
     }

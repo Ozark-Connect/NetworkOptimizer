@@ -57,8 +57,9 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(3);
+        issues.Should().HaveCount(4);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
@@ -83,7 +84,8 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(2);
+        issues.Should().HaveCount(3);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
@@ -108,8 +110,9 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(2);
+        issues.Should().HaveCount(3);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
 
@@ -133,7 +136,10 @@ public class FirewallRuleAnalyzerTests
             CreateFirewallRule("Allow NTP", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 destinationPort: "123",
-                protocol: "udp")
+                protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -162,7 +168,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
             CreateFirewallRule("Allow NTP Port", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123")
+                destinationPort: "123"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -191,7 +200,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
             CreateFirewallRule("NTP Rule", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123")
+                destinationPort: "123"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -218,7 +230,10 @@ public class FirewallRuleAnalyzerTests
             CreateFirewallRule("Allow NTP", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 destinationPort: "123",
-                protocol: "udp")
+                protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -247,14 +262,17 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
             CreateFirewallRule("Allow NTP", action: "allow", enabled: false,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123")
+                destinationPort: "123"),
+            CreateFirewallRule("Allow FW Download", action: "allow", enabled: false,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert - All 3 disabled rules don't count
-        issues.Should().HaveCount(3);
+        // Assert - All 4 disabled rules don't count
+        issues.Should().HaveCount(4);
     }
 
     [Fact]
@@ -277,7 +295,7 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert - Block rule doesn't satisfy, so all 3 issues present
-        issues.Should().HaveCount(3);
+        issues.Should().HaveCount(4);
     }
 
     [Fact]
@@ -310,8 +328,8 @@ public class FirewallRuleAnalyzerTests
         // Act - has5GDevice = false (default)
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: false);
 
-        // Assert - Should have UniFi, AFC, and NTP issues, but not 5G
-        issues.Should().HaveCount(3);
+        // Assert - Should have UniFi, FW Download, AFC, and NTP issues, but not 5G
+        issues.Should().HaveCount(4);
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
@@ -329,7 +347,7 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
 
         // Assert - Should have UniFi, AFC, NTP, and 5G issues
-        issues.Should().HaveCount(4);
+        issues.Should().HaveCount(5);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
@@ -355,7 +373,10 @@ public class FirewallRuleAnalyzerTests
                 destinationPort: "123"),
             CreateFirewallRule("Modem Registration", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" })
+                webDomains: new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" }),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -388,7 +409,10 @@ public class FirewallRuleAnalyzerTests
                 protocol: "udp"),
             CreateFirewallRule("TMobile Only", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "t-mobile.com" })
+                webDomains: new List<string> { "t-mobile.com" }),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -430,7 +454,10 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "IP",
                 SourceIps = new List<string> { "192.168.99.5" },
                 WebDomains = new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" }
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -472,7 +499,10 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "CLIENT",
                 SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
                 WebDomains = new List<string> { "t-mobile.com" }
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -513,7 +543,10 @@ public class FirewallRuleAnalyzerTests
                 Protocol = "tcp",
                 SourceMatchingTarget = "ANY",
                 WebDomains = new List<string> { "gsma.com" }
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -576,8 +609,9 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
 
         // Assert - Should detect that internet is blocked and fire all 3 Info checks
-        issues.Should().HaveCount(3);
+        issues.Should().HaveCount(4);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
@@ -631,7 +665,10 @@ public class FirewallRuleAnalyzerTests
                 DestinationMatchingTarget = "ANY",
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -738,8 +775,9 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
 
         // Assert - Internet IS blocked (block rule takes effect), so issues SHOULD be raised
-        issues.Should().HaveCount(3);
+        issues.Should().HaveCount(4);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
@@ -799,7 +837,10 @@ public class FirewallRuleAnalyzerTests
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
             // NTP via port group
-            parsedRule
+            parsedRule,
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -855,7 +896,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
             CreateFirewallRule("Allow NTP", action: "allow", index: 202,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123", protocol: "udp")
+                destinationPort: "123", protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -911,7 +955,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
             CreateFirewallRule("Allow NTP", action: "allow", index: 102,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123", protocol: "udp")
+                destinationPort: "123", protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -966,7 +1013,10 @@ public class FirewallRuleAnalyzerTests
             },
             CreateFirewallRule("Allow NTP", action: "allow", index: 202,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123", protocol: "udp")
+                destinationPort: "123", protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -1021,7 +1071,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ui.com" }),
             CreateFirewallRule("Allow NTP", action: "allow", index: 102,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                destinationPort: "123", protocol: "udp")
+                destinationPort: "123", protocol: "udp"),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -1099,7 +1152,10 @@ public class FirewallRuleAnalyzerTests
                 DestinationZoneId = externalZoneId,
                 DestinationPort = "123",
                 Protocol = "udp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -1174,7 +1230,10 @@ public class FirewallRuleAnalyzerTests
                 DestinationZoneId = externalZoneId,
                 DestinationPort = "123",
                 Protocol = "udp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         // Act
@@ -1232,7 +1291,10 @@ public class FirewallRuleAnalyzerTests
                 SourceIps = new List<string> { "192.168.99.5" },
                 WebDomains = new List<string> { "t-mobile.com" },
                 Protocol = "tcp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
@@ -1288,7 +1350,10 @@ public class FirewallRuleAnalyzerTests
                 SourceIps = new List<string> { "192.168.99.5" },
                 WebDomains = new List<string> { "t-mobile.com" },
                 Protocol = "tcp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
@@ -1347,7 +1412,10 @@ public class FirewallRuleAnalyzerTests
                 SourceZoneId = "internal-zone",
                 WebDomains = new List<string> { "t-mobile.com" },
                 Protocol = "tcp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
@@ -1497,7 +1565,10 @@ public class FirewallRuleAnalyzerTests
                 SourceIps = new List<string> { "192.168.99.5" },
                 WebDomains = new List<string> { "t-mobile.com" },
                 Protocol = "tcp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> {mgmtNetworkId},
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
@@ -1552,7 +1623,10 @@ public class FirewallRuleAnalyzerTests
                 SourceIps = ["192.168.99.5"],
                 WebDomains = ["t-mobile.com"],
                 Protocol = "tcp"
-            }
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ubnt.com" })
         };
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
@@ -1561,7 +1635,37 @@ public class FirewallRuleAnalyzerTests
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
-    #endregion
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_FwDownloadSubdomain_SatisfiesFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow UniFi Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("Allow FW Download", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "fw-download.ubnt.com" }),
+            CreateFirewallRule("Allow AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123",
+                protocol: "udp")
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+#endregion
 
     #region DetectShadowedRules Tests
 
@@ -7813,6 +7917,18 @@ public class FirewallRuleAnalyzerTests
                 SourceNetworkIds = new List<string> { otherNetworkId },
                 SourceMatchOppositeNetworks = true,
                 DestinationPort = "123"
+            },
+            new FirewallRule
+            {
+                Id = "rule-4",
+                Name = "Allow FW Download (Match Opposite)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { otherNetworkId },
+                SourceMatchOppositeNetworks = true,
+                WebDomains = new List<string> { "ubnt.com" }
             }
         };
 
@@ -7853,9 +7969,10 @@ public class FirewallRuleAnalyzerTests
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert - Rule excludes mgmt network, so all 3 issues should be present
-        issues.Should().HaveCount(3);
+        // Assert - Rule excludes mgmt network, so all 4 issues should be present
+        issues.Should().HaveCount(4);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_FIRMWARE_DOWNLOAD");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
@@ -7892,8 +8009,8 @@ public class FirewallRuleAnalyzerTests
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert - Rule doesn't apply to mgmt, so all 3 issues should be present
-        issues.Should().HaveCount(3);
+        // Assert - Rule doesn't apply to mgmt, so all 4 issues should be present
+        issues.Should().HaveCount(4);
     }
 
     [Fact]
@@ -8099,6 +8216,16 @@ public class FirewallRuleAnalyzerTests
                 Protocol = "udp",
                 SourceMatchingTarget = "ANY",
                 DestinationPort = "123"
+            },
+            new FirewallRule
+            {
+                Id = "rule-4",
+                Name = "Allow FW Download (Any Source)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "ANY",
+                WebDomains = new List<string> { "ubnt.com" }
             }
         };
 
@@ -8138,7 +8265,7 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert - IP source type should not match by network ID
-        issues.Should().HaveCount(3);
+        issues.Should().HaveCount(4);
     }
 
     #endregion

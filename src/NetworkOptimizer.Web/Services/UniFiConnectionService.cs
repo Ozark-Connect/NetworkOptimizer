@@ -125,12 +125,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     private void HandleAuthProbe(bool success, string? error)
     {
+        // Suppression must gate the LATCH, not just the publish: _consoleAlertActive means "an
+        // alert is published and standing". Latching a suppressed failure left it true with no
+        // alert out, so a console that never recovered was never alerted on at all.
+        var suppressed = IsInRolloutConsoleCycle();
         bool publishFailed = false, publishRestored = false;
         lock (_consoleAlertLock)
         {
             if (success)
             {
-                if (_consoleAlertActive)
+                if (_consoleAlertActive && !suppressed)
                 {
                     _consoleAlertActive = false;
                     publishRestored = true;
@@ -148,6 +152,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _consecutiveAuthFailures++;
 
                 if (!_consoleAlertActive
+                    && !suppressed
                     && _consecutiveAuthFailures >= 2
                     && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow)
                 {
@@ -183,6 +188,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             _consecutiveAuthFailures = 0;
         }
+    }
+
+    private bool IsInRolloutConsoleCycle()
+    {
+        try
+        {
+            var suppression = _serviceProvider.GetService<Firmware.RolloutSuppressionRegistry>();
+            return suppression?.IsInRolloutWindow(SiteSlug, null, DateTime.UtcNow) == true;
+        }
+        catch { return false; }
     }
 
     private void PublishConsoleAlert(string eventType, AlertSeverity severity, string title, string message)
@@ -221,6 +236,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     // down, and the client sat "connected" against a loopback proxy whose tunnel had died, with no
     // path back (every automatic reconnect is gated on !IsConnected).
     private bool _clientViaAgent;
+
+    /// <summary>Shown while a directly-connected console answers the handshake but never replies.</summary>
+    private const string ConsoleUnresponsiveMessage =
+        "Your UniFi Console accepted the connection but stopped responding. It may be restarting or upgrading. Network Optimizer keeps trying and will reconnect on its own.";
 
     /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
     private const string AwaitingAgentMessage =
@@ -327,6 +346,50 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         var registry = _serviceProvider.GetService<AgentTunnelRegistry>();
         return registry != null && registry.GetForSite(SiteSlug).Any(a => !a.IsStale);
+    }
+
+    /// <summary>
+    /// Called when this site's agent tunnel drops. When the console is reached
+    /// through that tunnel, flip straight to the awaiting-agent state: the client
+    /// stays "connected" otherwise, and every console call dials the dead loopback
+    /// proxy and burns through the transient-failure retry backoff (~14 s per
+    /// call), which reads as a frozen UI on any page of this site while the agent
+    /// is down. The agent-connected hook re-establishes the console when the
+    /// tunnel returns.
+    /// </summary>
+    /// <summary>
+    /// The site's agent is up but cannot open a connection to the console, so awaiting-agent would
+    /// be the wrong answer. Marks it down instead; the next successful connect clears it.
+    /// </summary>
+    public Task NoteConsoleUnreachableAsync()
+    {
+        if (_consoleUnresponsive || _settings is not { IsConfigured: true, HasCredentials: true })
+            return Task.CompletedTask;
+
+        _isConnected = false;
+        _consoleUnresponsive = true;
+        _lastError = ConsoleUnresponsiveMessage;
+        _logger.LogInformation("Site {Slug}'s agent cannot reach its console; marking it unresponsive", SiteSlug);
+        OnConnectionChanged?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The client proved the console stopped answering mid-session. Marks it down so pages render
+    /// the banner instead of paying a timeout per call; the background reconnect clears it.
+    /// </summary>
+    private void HandleConsoleWentSilent(UniFiApiClient client)
+    {
+        // Only the live client may report this. A disposed one's request can fault seconds after a
+        // reconnect already succeeded, and acting on it would flip a good connection straight back
+        // down - the subscription outlives the client it was made on.
+        if (!ReferenceEquals(client, _client)) return;
+        if (!_isConnected) return;
+        _isConnected = false;
+        _consoleUnresponsive = true;
+        _lastError = ConsoleUnresponsiveMessage;
+        _logger.LogWarning("Console for site {Slug} stopped answering; marking it unresponsive", SiteSlug);
+        OnConnectionChanged?.Invoke();
     }
 
     /// <summary>
@@ -451,7 +514,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         if (proxy == null || !Uri.TryCreate(controllerUrl, UriKind.Absolute, out var uri))
             return (controllerUrl, null);
         var port = uri.IsDefaultPort ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80) : uri.Port;
-        var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port);
+        var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port, isConsole: true);
         _logger.LogInformation("Console for site {Slug} routed via agent tunnel (127.0.0.1:{LocalPort} -> {Host}:{Port})",
             SiteSlug, localPort, uri.Host, port);
         return (controllerUrl, localPort);
@@ -575,6 +638,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public bool IsAwaitingAgent =>
         _awaitingAgent && !_isConnected && _settings is { IsConfigured: true, HasCredentials: true };
+
+    private bool _consoleUnresponsive;
+
+    /// <summary>
+    /// True once a connect has timed out against a console that answers TCP but never replies.
+    /// Lets reads fail fast. Never gate the background reconnect on it, and any successful connect
+    /// clears it - this must not be able to latch a site off.
+    /// </summary>
+    public bool IsConsoleUnresponsive =>
+        _consoleUnresponsive && !_isConnected && _settings is { IsConfigured: true, HasCredentials: true };
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
@@ -702,7 +775,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client?.Dispose();
             _client = null;
             _isConnected = false;
-            _lastError = null;
+            // Cleared on success, not here: a connect takes up to the full timeout to resolve, and
+            // wiping them on entry left the banner showing a generic "not connected" for that whole
+            // window instead of the reason it already knew.
             _awaitingAgent = false;
 
             // Create new client
@@ -731,6 +806,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
+            _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
             // Attempt to authenticate
             var success = await _client.LoginAsync();
@@ -749,6 +825,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 }
 
                 _isConnected = true;
+                _lastError = null;
+                _consoleUnresponsive = false;
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Save configuration to database
@@ -844,7 +922,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client?.Dispose();
             _client = null;
             _isConnected = false;
-            _lastError = null;
+            // Cleared on success, not here: a connect takes up to the full timeout to resolve, and
+            // wiping them on entry left the banner showing a generic "not connected" for that whole
+            // window instead of the reason it already knew.
             _awaitingAgent = false;
 
             // Create new client
@@ -873,6 +953,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 consoleEndpoint.ProxyPort
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
+            _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
             var success = await _client.LoginAsync(cts.Token);
 
@@ -890,6 +971,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 }
 
                 _isConnected = true;
+                _lastError = null;
+                _consoleUnresponsive = false;
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Cache the console's display name on auto-reconnect too, so the
@@ -938,8 +1021,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            _lastError = "UniFi Console is unreachable. Check that it's powered on and the URL is correct.";
-            _logger.LogWarning("Startup auto-connect timed out - console unreachable");
+            // Nothing answered inside the budget, so every later call would pay the same wait.
+            // Mark it so reads short-circuit; the background reconnect keeps dialing regardless.
+            _consoleUnresponsive = true;
+            _lastError = ConsoleUnresponsiveMessage;
+            _logger.LogWarning("Console connect timed out for site {Slug}; treating it as unresponsive until a connect succeeds", SiteSlug);
             _client?.Dispose();
             _client = null;
             await PreferAwaitingAgentOnDeadTunnelAsync();
@@ -1266,6 +1352,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // OnConnectionChanged when it does. Waiting here would stall every page
         // render of the site for the full timeout.
         if (IsAwaitingAgent) return false;
+
+        // Same reasoning for a console that answers TCP and then goes quiet: polling it here only
+        // stalls the render, and the background reconnect brings it back via OnConnectionChanged.
+        if (IsConsoleUnresponsive) return false;
 
         // Check if we have saved credentials to connect with
         var settings = await GetSettingsAsync();

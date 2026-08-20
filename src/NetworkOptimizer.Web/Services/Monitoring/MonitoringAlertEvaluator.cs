@@ -38,6 +38,7 @@ public class MonitoringAlertEvaluator
     private readonly ILogger<MonitoringAlertEvaluator> _logger;
     private readonly DeviceTransitionTracker _transitions;
     private readonly WanOutageEvaluator _wanOutages;
+    private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     private readonly string _siteSuffix;
     private readonly string _siteSlug;
@@ -50,12 +51,14 @@ public class MonitoringAlertEvaluator
     /// </param>
     public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger,
         DeviceTransitionTracker transitions, WanOutageEvaluator wanOutages,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
     {
         _eventBus = eventBus;
         _logger = logger;
         _transitions = transitions;
         _wanOutages = wanOutages;
+        _rolloutWindows = rolloutWindows;
         _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
             ? "" : $" (site {siteSlug})";
@@ -132,6 +135,14 @@ public class MonitoringAlertEvaluator
                             "Not declaring {Target} offline: UniFi reports its device ({Mac}) mid-transition (upgrade or provisioning)",
                             target.Name, target.DeviceMac);
                     }
+                    return;
+                }
+
+                if (_rolloutWindows?.IsSiteActiveRollout(_siteSlug, DateTime.UtcNow) == true)
+                {
+                    _logger.LogDebug(
+                        "Not declaring {Target} offline: a firmware rollout is in progress on site {Site}",
+                        target.Name, _siteSlug);
                     return;
                 }
 

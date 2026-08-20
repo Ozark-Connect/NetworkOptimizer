@@ -46,6 +46,11 @@ public interface IUniFiSshService
     Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Run an SSH command on a device with a custom timeout.
+    /// </summary>
+    Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride, TimeSpan timeout, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Run an SSH command on a device with optional per-device credential overrides.
     /// If override values are null/empty, falls back to global settings.
     /// </summary>

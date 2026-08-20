@@ -176,9 +176,10 @@ public sealed class SnmpRunner
                     if (metrics.UsedMemory > 0) sample.MemoryUsedKb = metrics.UsedMemory / 1024;
                     if (metrics.Temperature > 0) sample.TemperatureC = metrics.Temperature!.Value;
                     if (metrics.Uptime > 0) sample.UptimeSeconds = metrics.Uptime / 100;
+                    if (metrics.FanSpeedRpm.HasValue) sample.FanSpeedRpm = metrics.FanSpeedRpm.Value;
 
                     var batch = new SnmpResultBatch();
-                    if (sample.HasCpuPercent || sample.HasMemoryUsedPercent || sample.HasTemperatureC || sample.HasUptimeSeconds)
+                    if (sample.HasCpuPercent || sample.HasMemoryUsedPercent || sample.HasTemperatureC || sample.HasUptimeSeconds || sample.HasFanSpeedRpm)
                         batch.Health.Add(sample);
 
                     await PollCustomOidsAsync(poller, ip, device, config, batch);

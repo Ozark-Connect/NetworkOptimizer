@@ -1,0 +1,53 @@
+{
+  "id": "2.7.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.7.0",
+  "summary": "Upgrade a whole site's firmware based on your network activity and schedule, read the gateway's kernel diagnostics, and generate a UniFi Support File - all from Network Optimizer. Channel recommendations now weigh measured performance too.",
+  "steps": [
+    {
+      "id": "firmware-rollout",
+      "level": "major",
+      "url": "/firmware-rollout",
+      "selector": "[data-tour=\"firmware-rollout\"]",
+      "title": "Firmware Rollout",
+      "listLabel": "Upgrade your whole site without babysitting it",
+      "body": "Upgrade every device on a site while intelligently maximizing network availability, at the most optimal time according to the site's traffic history. One device per model goes first and the rest wait on how it went: actually running the new firmware, and steady on its own CPU, memory and health stats. Hold one model back on Official, push another to Early Access, or leave a device out entirely. Switch on **Autopilot** and it does all of this on its own, every time new firmware lands - with a heads-up first, and a way to stop it.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "channel-recommendations",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wifi-optimizer?tab=channels&recommend=true",
+      "selector": "[data-tour=\"wifi-channels\"]",
+      "title": "Wi-Fi Channel Recommendation",
+      "listLabel": "Channel recommendations weigh measured performance, not just airtime",
+      "body": "Recommendations now weigh what your network measured, not just how busy the air was - including the speeds your clients actually got, where InfluxDB is collecting.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "gateway-diagnostics",
+      "level": "minor",
+      "url": "/network-tools",
+      "selector": "[data-tour=\"gateway-diagnostics\"]",
+      "title": "Gateway Diagnostics",
+      "listLabel": "See what your gateway's kernel has to say",
+      "body": "Read the gateway's kernel messages and get a structured breakdown - hardware events, link changes, errors, and more, with the noise filtered out.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "console-support-file",
+      "level": "minor",
+      "url": "/network-tools",
+      "selector": "[data-tour=\"console-support-file\"]",
+      "title": "Console Support File",
+      "listLabel": "Generate a support bundle without leaving the app",
+      "body": "Generate the standard Support File that Ubiquiti Support asks for, straight from Network Optimizer. Pick Network only for a fast download, or include everything when you need the full bundle. Requires the console user to have **Super Admin** or **Control Plane - Full Admin**.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}

@@ -43,6 +43,12 @@ public static class ClientDashboardEndpoints
         // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
         // --- Client Dashboard API ---
 
+        // The page cannot read its own viewer's address: the app does not prerender, so the
+        // component only ever runs in the circuit, where there is no HttpContext. The browser asks
+        // for it here instead, where the request carries the real address.
+        read.MapGet("/api/client-dashboard/address", (HttpContext context) =>
+            Results.Ok(new { address = EndpointHelpers.GetClientIp(context) }));
+
         read.MapGet("/api/client-dashboard/client", async (HttpContext context, ClientDashboardService service) =>
         {
             var clientIp = EndpointHelpers.GetClientIp(context);
