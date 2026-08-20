@@ -3592,7 +3592,7 @@
     /// migrate and the configured vantage unchanged.
     /// </summary>
     private string? LabelServerVantage(string? detail) =>
-        detail is null || !ProbeExecutors.ServerVantageIsAgent
+        detail is null || !_wanTestViaAgent
             ? detail
             : detail == "Server" ? "Agent"
             : detail.StartsWith("Server, ", StringComparison.Ordinal) ? $"Agent, {detail["Server, ".Length..]}"
