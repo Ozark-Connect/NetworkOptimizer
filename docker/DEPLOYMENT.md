@@ -414,7 +414,11 @@ If you use the browser-based speed test (OpenSpeedTest), Traefik is the recommen
 
 See [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) for a ready-to-use Docker Compose setup with automatic Let's Encrypt certificates via Cloudflare DNS-01.
 
-**Running multi-site or multi-WAN agents?** They dial home over a long-lived gRPC tunnel that needs its own proxy route. New installs ship it enabled; older ones don't, since `setup.sh` only copies the example config on first run. Add it with `cd /opt/traefik && git pull && bash add-agent-tunnel.sh`.
+**Running multi-site or multi-WAN agents?** They dial home over a long-lived gRPC tunnel that needs its own proxy route. New installs ship it enabled; older ones don't, since `setup.sh` only copies the example config on first run. Add it with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer-Proxy/main/add-agent-tunnel.sh | bash
+```
 
 **Proxmox users:** The [Proxmox LXC installer](../scripts/proxmox/README.md) can set up Traefik automatically during installation.
 

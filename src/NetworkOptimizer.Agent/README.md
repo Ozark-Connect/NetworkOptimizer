@@ -365,10 +365,11 @@ DNS-01) that ships the agent tunnel route **enabled by default** - point it at
 your hostname and there is nothing else to configure for agents.
 
 Installed it before that route shipped? `setup.sh` only copies the example config
-on first run, so yours predates it. Add the route in place:
+on first run, so yours predates it. Add the route in place - no git checkout
+needed:
 
 ```bash
-cd /opt/traefik && git pull && bash add-agent-tunnel.sh
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer-Proxy/main/add-agent-tunnel.sh | bash
 ```
 
 The rest of this section is for folding the tunnel into a proxy you already run.
