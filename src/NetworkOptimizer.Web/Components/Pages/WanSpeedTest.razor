@@ -690,19 +690,15 @@
 
     /// <summary>
     /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
-    /// what the option is called and described as. True for a site the server cannot reach itself,
-    /// and for the main site once its agent covers it - the run moves to the agent there too, so
-    /// the label has to move with it. An agent that runs ON the gateway is not this case: that
-    /// option is hidden entirely, because the Gateway option already runs there.
+    /// what the option is called and described as. Matches the actual execution path: the test goes
+    /// via agent when <see cref="SiteTunnelRouting.IsViaAgentAsync"/> is true (requires
+    /// devices.via_agent), not merely when covers is set. An agent that runs ON the gateway is not
+    /// this case: that option is hidden entirely, because the Gateway option already runs there.
     /// </summary>
     private bool _runsOnAgent;
-    // Resolving the vantage needs an await, so the first render happens before the answer is in and
-    // the label was painted "Server" before flipping to "Agent". The first frame now uses the
-    // cached coverage answer, which any recent read has already populated - so the flash only
-    // survives a cold cache, and never shows the wrong word twice.
     private bool RunsOnAgent => _vantageResolved
         ? _runsOnAgent
-        : !SiteContext.IsDefault || AgentCoverage.Covers(SiteContext.Slug);
+        : !SiteContext.IsDefault;
     private bool _vantageResolved;
     private bool _serverAvailable = true;
     private string? _serverUnavailableReason;
@@ -973,7 +969,7 @@
         // the agent's capability instead of its location.
         _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
         _runsOnAgent = !_agentOnGateway
-            && (!SiteContext.IsDefault || await AgentCoverage.CoversAsync(SiteContext.Slug));
+            && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
         _vantageResolved = true;
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;

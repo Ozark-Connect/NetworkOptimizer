@@ -24,7 +24,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
-    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -66,7 +65,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
         _tunnelRouting = tunnelRouting;
-        _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
         _agentEnrollment = agentEnrollment;
     }
