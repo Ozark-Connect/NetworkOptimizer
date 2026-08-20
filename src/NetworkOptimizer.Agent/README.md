@@ -362,8 +362,16 @@ If you don't already run one,
 **[NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy)**
 is a ready-to-use Traefik setup (Let's Encrypt certificates via Cloudflare
 DNS-01) that ships the agent tunnel route **enabled by default** - point it at
-your hostname and there is nothing else to configure for agents. The rest of
-this section is for folding the tunnel into a proxy you already run.
+your hostname and there is nothing else to configure for agents.
+
+Installed it before that route shipped? `setup.sh` only copies the example config
+on first run, so yours predates it. Add the route in place:
+
+```bash
+cd /opt/traefik && git pull && bash add-agent-tunnel.sh
+```
+
+The rest of this section is for folding the tunnel into a proxy you already run.
 
 The tunnel listener speaks HTTP/2 over TLS with an ephemeral self-signed
 certificate: the reverse proxy fronting the central server terminates the
