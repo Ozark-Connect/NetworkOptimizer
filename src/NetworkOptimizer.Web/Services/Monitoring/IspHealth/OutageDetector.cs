@@ -38,10 +38,14 @@ public static class OutageDetector
 
     /// <param name="triggerTargets">The internet/destination loss series whose near-total loss defines an outage.</param>
     /// <param name="hops">Every monitored hop, ordered by distance (Depth ascending = nearest first), for the shape.</param>
+    /// <param name="triggerSampleSeconds">The trigger/hop series' aggregation interval. Long windows
+    /// arrive coarsely aggregated and stop-stamped, so a sample's darkness happened up to this many
+    /// seconds before its stamp; the gateway-dark (Local scope) test reaches back by it.</param>
     public static List<OutageEvent> Detect(
         IReadOnlyList<IReadOnlyList<LatencySample>> triggerTargets,
         IReadOnlyList<Hop> hops,
-        IspHealthOptions options)
+        IspHealthOptions options,
+        double triggerSampleSeconds = 0)
     {
         if (triggerTargets.Count == 0) return new List<OutageEvent>();
 
@@ -110,7 +114,7 @@ public static class OutageDetector
         foreach (var (start, end) in merged)
         {
             if (end - start < minDuration) continue;
-            events.Add(BuildEvent(start, end, triggerTargets, hops, hopBuckets, darkTriggerBuckets, options));
+            events.Add(BuildEvent(start, end, triggerTargets, hops, hopBuckets, darkTriggerBuckets, triggerSampleSeconds, options));
         }
         return events;
     }
@@ -125,13 +129,18 @@ public static class OutageDetector
     /// different instants, so they only land together over a longer window. Windows overlapping a
     /// blackout in <paramref name="darkWindows"/> are skipped so the two passes don't double-count.
     /// </summary>
-    /// <param name="pathHops">Every monitored non-gateway path hop (access/transit/internet), for breadth and shape.</param>
+    /// <param name="pathHops">Every monitored path hop for breadth and shape; a gateway hop is
+    /// excluded from both and consulted only for the Local (gateway-dark) scope.</param>
     /// <param name="darkWindows">Blackout outage spans already found by <see cref="Detect"/>, to exclude.</param>
+    /// <param name="pathSampleSeconds">The path series' aggregation interval - see the
+    /// equivalent parameter on <see cref="Detect"/>.</param>
     public static List<OutageEvent> DetectPartial(
         IReadOnlyList<Hop> pathHops,
         IReadOnlyList<(DateTime Start, DateTime End)> darkWindows,
-        IspHealthOptions options)
+        IspHealthOptions options,
+        double pathSampleSeconds = 0)
     {
+        var gateway = pathHops.FirstOrDefault(h => h.IsGateway);
         var pool = pathHops.Where(h => !h.IsGateway).ToList();
         if (pool.Count == 0) return new List<OutageEvent>();
 
@@ -180,7 +189,7 @@ public static class OutageDetector
             // A blackout also clears the partial threshold, so a window already flagged as a
             // blackout would otherwise surface twice - skip any that overlaps one.
             if (darkWindows.Any(w => start < w.End && w.Start < end)) continue;
-            events.Add(BuildPartialEvent(start, end, pool, hopBuckets, options));
+            events.Add(BuildPartialEvent(start, end, pool, hopBuckets, gateway, pathSampleSeconds, options));
         }
         return events;
     }
@@ -203,6 +212,7 @@ public static class OutageDetector
         DateTime start, DateTime end,
         List<Hop> pool,
         Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
+        Hop? gateway, double pathSampleSeconds,
         IspHealthOptions options)
     {
         var partialPct = options.OutagePartialLossPct;
@@ -254,9 +264,19 @@ public static class OutageDetector
 
         var nearest = pool.Where(h => degradedDepth.ContainsKey(h.Depth)).OrderBy(h => h.Depth).FirstOrDefault();
         var lastClean = pool.Where(h => degradedDepth.TryGetValue(h.Depth, out var d) && !d).OrderByDescending(h => h.Depth).FirstOrDefault();
-        var scope = nearest == null || degradedDepth[nearest.Depth] || lastClean == null
-            ? OutageScope.FullWan
-            : OutageScope.Upstream;
+        // Local override, mirroring the blackout builder: on a long window the coarse path series
+        // dilute a LAN outage's 100%-loss samples below the dark threshold, so it lands here as a
+        // partial - but the gateway series stays fine-grained (capped at OutageBucketSeconds), so
+        // the agent failing to reach its own gateway is still visible. When the gateway was dark
+        // for at least half the event's length, nothing recorded upstream says anything about the WAN.
+        var gatewayDark = gateway != null
+            && GatewayDarkCoversEvent(gateway.Series, start.AddSeconds(-pathSampleSeconds), end,
+                end - start, options.OutageDarkLossPct);
+        var scope = gatewayDark
+            ? OutageScope.Local
+            : nearest == null || degradedDepth[nearest.Depth] || lastClean == null
+                ? OutageScope.FullWan
+                : OutageScope.Upstream;
         // Same split as the blackout builder: any clean WAN row decides the scope, but only a
         // trace-map-anchored path hop may name where the break sat. Partial-loss cleanliness is
         // strict (no degraded bucket at all): partials are intermittent by nature, so the duty
@@ -398,12 +418,82 @@ public static class OutageDetector
         return false;
     }
 
+    /// <summary>
+    /// Whether the gateway was dark for most of the trigger's dark span within [start, end),
+    /// reached back one coarse trigger interval (a stop-stamped sample's darkness happened up to
+    /// that long before its stamp). Judged on the gateway's raw series - it is queried capped at
+    /// the outage bucket, so its samples already sit at bucket resolution. Duty over the span is
+    /// safe against coalesce padding: a monitoring gap has no gateway samples to dilute it.
+    /// </summary>
+    private static bool GatewayDarkOverTriggerSpan(
+        IReadOnlyList<LatencySample> gatewaySeries,
+        IReadOnlyCollection<DateTime> darkTriggerBuckets,
+        DateTime start, DateTime end,
+        double triggerSampleSeconds, IspHealthOptions options)
+    {
+        DateTime? first = null, last = null;
+        foreach (var b in darkTriggerBuckets)
+        {
+            if (b < start || b >= end) continue;
+            if (first == null || b < first) first = b;
+            if (last == null || b > last) last = b;
+        }
+        if (first == null) return false;
+        return MostlyDark(gatewaySeries,
+            first.Value.AddSeconds(-triggerSampleSeconds),
+            last!.Value.AddSeconds(options.OutageBucketSeconds),
+            options.OutageDarkLossPct);
+    }
+
+    /// <summary>At least half the reporting samples in [from, to) at or above the dark threshold.</summary>
+    private static bool MostlyDark(
+        IReadOnlyList<LatencySample> series, DateTime from, DateTime to, double darkPct)
+    {
+        int dark = 0, total = 0;
+        foreach (var s in series)
+        {
+            if (!s.LossPercent.HasValue || s.Time < from || s.Time >= to) continue;
+            total++;
+            if (s.LossPercent.Value >= darkPct) dark++;
+        }
+        return total > 0 && dark * 2 >= total;
+    }
+
+    /// <summary>
+    /// Whether the gateway's dark time within [from, to) covers at least half of
+    /// <paramref name="duration"/>. Not a duty test on purpose: the stop-stamp reach-back
+    /// necessarily pulls a clean lead into [from, to), which would dilute a duty below the bar
+    /// for exactly the short events this exists to catch. Dark time is measured absolutely -
+    /// dark samples times the series' own median cadence - and compared to the event's length.
+    /// </summary>
+    private static bool GatewayDarkCoversEvent(
+        IReadOnlyList<LatencySample> series, DateTime from, DateTime to,
+        TimeSpan duration, double darkPct)
+    {
+        var times = new List<DateTime>();
+        var dark = 0;
+        foreach (var s in series)
+        {
+            if (!s.LossPercent.HasValue || s.Time < from || s.Time >= to) continue;
+            times.Add(s.Time);
+            if (s.LossPercent.Value >= darkPct) dark++;
+        }
+        if (dark == 0 || times.Count < 2) return false;
+        times.Sort();
+        var gaps = new List<double>(times.Count - 1);
+        for (var i = 1; i < times.Count; i++)
+            gaps.Add((times[i] - times[i - 1]).TotalSeconds);
+        gaps.Sort();
+        return dark * gaps[gaps.Count / 2] >= duration.TotalSeconds * 0.5;
+    }
+
     private static OutageEvent BuildEvent(
         DateTime start, DateTime end,
         IReadOnlyList<IReadOnlyList<LatencySample>> triggerTargets,
         IReadOnlyList<Hop> hops,
         Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
         IReadOnlyCollection<DateTime> darkTriggerBuckets,
+        double triggerSampleSeconds,
         IspHealthOptions options)
     {
         var tiers = new List<(Hop Hop, OutageTierState State)>();
@@ -471,7 +561,16 @@ public static class OutageDetector
         // not reach its own gateway - a LAN/switch/gateway outage, not the ISP's WAN. With no gateway
         // hop, wanStates == all states and the FullWan/Upstream logic is byte-for-byte unchanged.
         var gwTier = tiers.FirstOrDefault(t => t.Hop.IsGateway);
-        var gatewayDark = gwTier.Hop != null && onBrokenPath.TryGetValue(gwTier.State.Depth, out var gwd) && gwd;
+        // Two gateway-dark tests, either sufficing. The trigger-normalized duty works at fine
+        // resolution; on a long window the coarse, stop-stamped trigger series leave the dark
+        // trigger buckets sparse and shifted up to one aggregate interval after the darkness they
+        // describe, so judging the (fine, capped) gateway series only at those exact instants can
+        // miss a real LAN outage. The second test reads duty over the trigger's whole dark span,
+        // reached back by the trigger interval to cover the stamp shift.
+        var gatewayDark = gwTier.Hop != null
+            && ((onBrokenPath.TryGetValue(gwTier.State.Depth, out var gwd) && gwd)
+                || GatewayDarkOverTriggerSpan(gwTier.Hop.Series, darkTriggerBuckets, start, end,
+                    triggerSampleSeconds, options));
         var wanStates = tiers.Where(t => !t.Hop.IsGateway).Select(t => t.State).ToList();
         var nearest = wanStates.OrderBy(s => s.Depth).FirstOrDefault();
         var lastReachable = wanStates.Where(s => !onBrokenPath[s.Depth]).OrderByDescending(s => s.Depth).FirstOrDefault();

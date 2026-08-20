@@ -12,6 +12,7 @@
 @inject ICredentialProtectionService CredentialProtection
 @inject ILoggerFactory LoggerFactory
 @inject AgentSnmpQueryService AgentSnmpQuery
+@inject ICustomOidService CustomOids
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -449,21 +450,8 @@
 
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var now = DateTime.UtcNow;
-            db.CustomOidConfigurations.Add(new CustomOidConfiguration
-            {
-                DeviceMac = _expandedDeviceMac,
-                Oid = _editOid.Trim(),
-                FieldName = _editFieldName.Trim(),
-                ValueType = _editValueType,
-                Scope = _editScope,
-                Enabled = true,
-                Description = string.IsNullOrWhiteSpace(_editDescription) ? null : _editDescription.Trim(),
-                CreatedAt = now,
-                UpdatedAt = now
-            });
-            await db.SaveChangesAsync();
+            await CustomOids.AddAsync(_expandedDeviceMac, _editOid, _editFieldName,
+                _editValueType, _editScope, _editDescription);
 
             _showAddForm = false;
             await LoadCustomOids(_expandedDeviceMac);
@@ -484,13 +472,7 @@
 
         try
         {
-            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
-            var entry = await db.CustomOidConfigurations.FindAsync(id);
-            if (entry != null)
-            {
-                db.CustomOidConfigurations.Remove(entry);
-                await db.SaveChangesAsync();
-            }
+            await CustomOids.DeleteAsync(id);
             await LoadCustomOids(_expandedDeviceMac);
         }
         catch (Exception ex)

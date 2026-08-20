@@ -1256,3 +1256,20 @@ Separately, the comparison set itself is narrow, and this one stands on its own 
   An agent reporting `local_ips` (2.6.0+) always hits one of the two, but an older single-address
   agent matches only if it named one of them. `NetworkInfo.Gateway` is already mapped for EVERY
   network in `UniFiConnectionService` and `UniFiDiscovery`, so the full set is there for the taking.
+
+## Firmware Rollout - SCP + syswrapper fallback for stubborn devices
+
+Cellular modems (and potentially other devices) can't reach fw-download.ubnt.com from their
+management interface. The console-cached `cmd: "upgrade"` path works when the console has the build
+staged, but downgrades and rollbacks need a version the console doesn't have cached.
+
+Observed on U5G-Max: `upgrade-external` with a CDN URL fails (0-byte download, curl stalls), but
+SCP'ing the firmware to `/tmp/fwupdate.bin` and running `syswrapper.sh upgrade2 &` works. This is
+the reference doc's "no internet" path for APs/switches.
+
+- [ ] Add an SCP + syswrapper fallback to the SSH upgrade chain for devices where the CDN path
+  fails. Requires: the firmware binary (already resolved as `PlanTargetImage.Url`), the device's
+  SSH address, and SCP support in `IUniFiSshService`. Trigger: after `upgrade-external` and
+  `TriggerUpgradeAsync` both fail, or after a device cycles back on the old version.
+- [ ] Investigate per-device-type command selection for the syswrapper path: APs/switches use
+  `syswrapper.sh upgrade2 &`, gateways may differ. The reference doc covers both cases.

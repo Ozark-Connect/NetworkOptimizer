@@ -427,7 +427,9 @@ public class ChannelRecommendationService
         RegulatoryChannelData? regulatoryData,
         RecommendationOptions? options = null,
         Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
-        Dictionary<string, ChannelSoakInfo>? soakInfo = null)
+        Dictionary<string, ChannelSoakInfo>? soakInfo = null,
+        Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null,
+        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -448,7 +450,8 @@ public class ChannelRecommendationService
             HistoricallyObservedChannels = new Dictionary<int, double>[n],
             ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
-            DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
+            DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? []),
+            ClientRates = clientRates
         };
 
         // Build nodes
@@ -493,6 +496,7 @@ public class ChannelRecommendationService
                 Interference = radio.Interference ?? 0,
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
                 HistoricalStress = apHistStress,
+                HistoricalStressCredibility = historicalCredibility?.GetValueOrDefault(macLower),
                 SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
@@ -814,12 +818,27 @@ public class ChannelRecommendationService
                 var absoluteImprovement = currentApScore - recommendedApScore;
                 var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
 
-                if (currentApScore < MinApScoreToMove)
+                // What clients actually got on these two channels moves the bar in both
+                // directions: evidence the candidate is better lowers it, evidence it is worse
+                // raises it. Absent or thin telemetry returns 1.0 and nothing changes.
+                var clientFactor = ClientOutcomeHelper.MoveThresholdFactor(
+                    graph.ClientRates?.GetValueOrDefault(node.Mac.ToLowerInvariant()),
+                    node.CurrentChannel, recommendedChannel, out var clientReason);
+                var moveThreshold = MinApScoreToMove * clientFactor;
+                if (clientReason != null)
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} client history {Direction} the move to ch{Channel} " +
+                        "(threshold x{Factor:F2}): {Reason}",
+                        node.Name,
+                        clientFactor < 1.0 ? "supports" : clientFactor > 1.0 ? "contradicts" : "has no opinion on",
+                        recommendedChannel, clientFactor, clientReason);
+
+                if (currentApScore < moveThreshold)
                 {
                     _logger.LogDebug(
                         "[ChannelRec] {ApName} current score {Score:F3} below threshold {Threshold:F3}, " +
                         "keeping current ch{Channel}/{Width} MHz",
-                        node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
+                        node.Name, currentApScore, moveThreshold, node.CurrentChannel, node.CurrentWidth);
                     recommendedChannel = node.CurrentChannel;
                     recommendedWidth = node.CurrentWidth;
                     recommendedApScore = currentApScore;
@@ -1712,6 +1731,7 @@ public class ChannelRecommendationService
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
+            if (!IsFullyCredible(node, histChannel)) continue;
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference < ComfortableInterferencePct;
@@ -1841,6 +1861,7 @@ public class ChannelRecommendationService
             var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
             if (!ChannelSpanHelper.SpansOverlap(span, siblingSpan)) continue;
             if (!sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress)) continue;
+            if (!IsFullyCredible(sibling, sibling.CurrentChannel)) continue;
             var scaled = stress.Interference * graph.InternalWeights[apIndex, j];
             if (worst is not double w || scaled > w) worst = scaled;
         }
@@ -1862,6 +1883,7 @@ public class ChannelRecommendationService
             foreach (var (ch, stress) in node.HistoricalStress)
                 if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
                 {
+                if (!IsFullyCredible(node, ch)) continue;
                     interferencePct = stress.Interference;
                     return true;
                 }
@@ -1897,6 +1919,7 @@ public class ChannelRecommendationService
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
+            if (!IsFullyCredible(node, histChannel)) continue;
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference >= escapePct;
@@ -2113,8 +2136,10 @@ public class ChannelRecommendationService
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, histSpan))
                 {
-                    confidence = Math.Max(confidence, HistoricOccupancyConfidence);
-                    break;
+                    // Thin evidence buys a proportionally weaker claim to having observed the
+                    // channel, so the unknown-channel penalty is only partly waived.
+                    var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
+                    confidence = Math.Max(confidence, HistoricOccupancyConfidence * cred);
                 }
             }
         }
@@ -2177,29 +2202,40 @@ public class ChannelRecommendationService
             // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
             double contentionPenalty = 0;
             double utilizationPenalty = 0;
-            bool hasDataForAssignedChannel = false;
+            // How well the assigned channel is evidenced, 0 (never measured) to 1 (full strength).
+            // Propagated estimates carry no credibility entry and count at full weight, as before.
+            double assignedCredibility = 0;
+            // Pooled memory is written to every control channel in a bonding group, and those
+            // entries all carry the identical span - so charging each one would multiply the same
+            // measurement by the group size (4x at 80 MHz, 8x at 160). Count each span once.
+            var countedSpans = new HashSet<(int Low, int High)>();
 
             foreach (var (histChannel, stress) in effectiveStress)
             {
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
                 {
-                    hasDataForAssignedChannel = true;
+                    var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
+                    assignedCredibility = Math.Max(assignedCredibility, cred);
+
+                    if (!countedSpans.Add(histSpan)) continue;
 
                     if (stress.TxRetryPct < StressMinThreshold &&
                         stress.Utilization < StressMinThreshold &&
                         stress.Interference < StressMinThreshold)
                         continue;
 
-                    contentionPenalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                        + (stress.Interference / 100.0) * InterferenceStressWeight;
-                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight;
+                    contentionPenalty += ((stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                        + (stress.Interference / 100.0) * InterferenceStressWeight) * cred;
+                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight * cred;
                 }
             }
 
-            // Unknown channels carry more risk than measured ones
-            if (!hasDataForAssignedChannel)
-                contentionPenalty += UnknownChannelPenalty;
+            // Unknown channels carry more risk than measured ones. Faded rather than switched:
+            // a channel measured on thin evidence is part known, and paying the full unknown
+            // penalty for it would erase what we did measure - which is how a radio's worst
+            // channel came to look like its best one once its record aged past the floor.
+            contentionPenalty += UnknownChannelPenalty * (1.0 - assignedCredibility);
 
             // Apply co-channel resolution scaling. TX-retry and interference are pure contention,
             // already counted by the internal weight term, so they scale all the way down to avoid
@@ -2546,6 +2582,16 @@ public class ChannelRecommendationService
     /// AP B gets that channel's stress added, scaled by the proximity weight.
     /// Only propagates between placed APs (where we have real propagation data).
     /// </summary>
+    /// <summary>
+    /// Whether a remembered channel's evidence is at full strength. Scoring blends thin evidence by
+    /// credibility, but the gates below are binary - comfortable or not, suffering or not, escape
+    /// the soak or not - and a yes/no answer cannot carry a confidence. So they only listen to
+    /// evidence that would have existed before the soft floor admitted anything, which keeps their
+    /// behavior identical to what it was rather than letting six samples flip a lock.
+    /// </summary>
+    private static bool IsFullyCredible(ApNode node, int channel) =>
+        (node.HistoricalStressCredibility?.GetValueOrDefault(channel, 1.0) ?? 1.0) >= 1.0;
+
     private static void PropagateHistoricalStress(InterferenceGraph graph, RadioBand band)
     {
         var n = graph.Nodes.Count;
@@ -2572,6 +2618,9 @@ public class ChannelRecommendationService
 
                 foreach (var (histChannel, stress) in source.HistoricalStress)
                 {
+                    // Credibility does not travel with a propagated estimate, so thin evidence
+                    // would arrive at the neighbor as full-strength. Only propagate what is solid.
+                    if (!IsFullyCredible(source, histChannel)) continue;
                     // Scale stress by proximity weight, dampened by 50%.
                     // Even at weight 1.0, only inherit half the neighbor's stress.
                     // Without dampening, 2.4 GHz (where all weights are high) gets

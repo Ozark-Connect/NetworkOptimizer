@@ -52,7 +52,7 @@
                         }
                         else
                         {
-                            <button type="button" class="btn btn-tertiary btn-sm" @onclick="() => Launch(info.Tour.Id)">
+                            <button type="button" class="btn btn-contrast btn-sm" @onclick="() => Launch(info.Tour.Id)">
                                 @(info.Status is TourStatus.Completed or TourStatus.Skipped ? "Replay" : "Start")
                             </button>
                         }

@@ -19,6 +19,8 @@ let _liveRates = {};
 let _cloudStats = {};
 let _nodeBadges = {};
 let _clientStats = {};
+let _presentClients = null;
+let _measuredClients = null;
 let _paused = false;
 let _mode = 'live';
 let _scrubberValue = 10000;
@@ -34,6 +36,11 @@ export function getLiveRates()  { return _liveRates; }
 export function getCloudStats() { return _cloudStats; }
 export function getNodeBadges() { return _nodeBadges; }
 export function getClientStats() { return _clientStats; }
+// Client node ids connected at the scrub instant, or null in live mode (no filtering).
+export function getPresentClients() { return _presentClients; }
+// Client node ids playback can say anything about. A client outside this set writes no telemetry
+// (one behind a device bridge has no switch port to be tagged with), so its absence is not evidence.
+export function getMeasuredClients() { return _measuredClients; }
 export function isPaused()       { return _paused; }
 export function getMode()        { return _mode; }
 export function getScrubber()    { return { value: _scrubberValue, right: _scrubberRight, speed: _playbackSpeed }; }
@@ -94,6 +101,11 @@ function _applyHistoricClients(update) {
 }
 
 export function publishLive(update) {
+    // Historic ticks carry only the links that were moving, and the store MERGES - so a link
+    // idle at this instant would keep whatever live value seeded it and read as still busy.
+    if (_mode === 'historic' && update.linkRates) {
+        for (const key in _liveRates) _liveRates[key] = { downstreamBps: 0, upstreamBps: 0 };
+    }
     if (update.linkRates)   Object.assign(_liveRates, update.linkRates);
     if (update.cloudStats)  _cloudStats = update.cloudStats;
     if (update.nodeBadges)  _nodeBadges = update.nodeBadges;
@@ -101,6 +113,14 @@ export function publishLive(update) {
     // don't, so this clears them when returning to live - renderers then fall back to
     // the snapshot values, which live snapshot rebuilds keep current.
     _clientStats = update.clientStats || {};
+    // Who was actually connected at this instant. Null in live mode, where the snapshot is the
+    // truth and every client in it is by definition connected.
+    _presentClients = _mode === 'historic' && update.presentClientIds
+        ? new Set(update.presentClientIds)
+        : null;
+    _measuredClients = _mode === 'historic' && update.measuredClientIds
+        ? new Set(update.measuredClientIds)
+        : null;
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
     if (_applyHistoricClients(update)) _notify('snapshot');
@@ -125,6 +145,13 @@ export function publishScrubberWindow(win) {
     _notify('scrubber-window');
 }
 
+// Drop every cached rate. A page that seeds the store with keys of its own derivation - the
+// Firmware Rollout preview maps id-keyed historic rates onto portKey, which the maps look up
+// first - must call this on teardown, or the next page reads those keys as its own.
+export function clearLiveRates() {
+    _liveRates = {};
+}
+
 // Restore live-mode playback defaults. Called by the 3D map (the playback
 // authority) at the start of each of its mounts, so state left behind by a
 // previous Live View session - historic mode, a paused flag, a parked
@@ -135,6 +162,8 @@ export function publishScrubberWindow(win) {
 export function resetPlayback() {
     _paused = false;
     _mode = 'live';
+    _presentClients = null;
+    _measuredClients = null;
     _scrubberValue = 10000;
     _scrubberRight = 'Live';
     _playbackSpeed = 1;

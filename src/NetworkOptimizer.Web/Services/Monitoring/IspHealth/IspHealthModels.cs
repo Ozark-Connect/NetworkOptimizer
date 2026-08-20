@@ -348,9 +348,10 @@ public class CongestionEvent
     /// <summary>True when the event overlapped heavy local WAN load (input to the self-inflicted gate).</summary>
     public bool LoadCoincident { get; set; }
 
-    /// <summary>Median WAN utilization across the event's window (worst direction, as a fraction of
-    /// the plan), or null when expected speeds are unknown. Display only - <see cref="LoadCoincident"/>
-    /// is what the score keys on.</summary>
+    /// <summary>Median WAN utilization during the event (worst direction, as a fraction of the plan),
+    /// or null when expected speeds are unknown. When the nearest-hop arm found load correlation, this
+    /// is the median at excursion moments rather than the full bucket-padded window. Display only -
+    /// <see cref="LoadCoincident"/> is what the score keys on.</summary>
     public double? MedianLoadUtilization { get; set; }
 
     /// <summary>
@@ -840,6 +841,12 @@ public class IspHealthInputs
     /// from <see cref="SmartQueuesEnabled"/> (UniFi's base feature); used so the loaded-loss
     /// recommendation never pitches Adaptive SQM to someone already running it.</summary>
     public bool AdaptiveSqmEnabled { get; init; }
+
+    /// <summary>Adaptive SQM nominal download rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalDownloadMbps { get; init; }
+
+    /// <summary>Adaptive SQM nominal upload rate (Mbps) for the scored WAN, when enabled.</summary>
+    public int? SqmNominalUploadMbps { get; init; }
 
     /// <summary>
     /// Time windows to exclude from loaded-line analysis. Adaptive SQM speed probes

@@ -261,6 +261,10 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IStarlinkRepository, NetworkOptimizer.Storage.Repositories.StarlinkRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IFirmwareRolloutRepository, NetworkOptimizer.Storage.Repositories.FirmwareRolloutRepository>();
+// Singleton on the MAIN database whichever site is planning: the shared firmware catalog pools
+// what every site's console has been offered, so per-site executors and scoped services share it.
+builder.Services.AddSingleton<NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository, NetworkOptimizer.Storage.Repositories.SharedFirmwareCatalogRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
@@ -288,6 +292,16 @@ builder.Services.AddSingleton<AgentOnGatewayDetector>();
 // licensing data is instance-wide registry data in the main database.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient("LicenseServer", client => client.Timeout = TimeSpan.FromSeconds(10));
+
+// Ubiquiti's public release feed: publish dates, changelog links, and prior-version firmware URLs
+// the console's latest-only catalog cannot supply. Read-only and anonymous, so a plain singleton.
+builder.Services.AddHttpClient(
+    NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient.HttpClientName,
+    client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient>();
+// Publish dates (autopilot's release-ripeness gate) and changelog links (the soak report) off that feed.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.IReleaseMetadataSource,
+    NetworkOptimizer.Web.Services.Firmware.ReleaseFeedMetadataSource>();
 builder.Services.AddSingleton<LicenseServerClient>();
 builder.Services.AddSingleton<LicenseStateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LicenseStateService>());
@@ -644,6 +658,8 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecuto
 // Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
 // the current site's gateway SSH service.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.GatewayDiagnosticsService>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.DmesgDiagnosticsService>();
+builder.Services.AddMutatingService<ISupportFileService, SupportFileService>();
 // Collection agents — drive SNMP polling on the three-tier cadence, write to InfluxDB.
 // Idle while monitoring is disabled or unconfigured; activate once both SNMP detection
 // succeeds and InfluxDB is reachable. One instance per site, owned by the registry
@@ -654,6 +670,27 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
+// group switches and rollout alerts. One instance per site, owned by the registry on the same
+// terms as monitoring collection (default always runs; non-default sites start/stop on site
+// enable/disable), and its reconcile tick also starts plans whose scheduled time has come.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());
+// The page's whole surface (settings, preview, controls) goes through the gate. Built per request
+// against the site in context: the executor comes from the registry that owns it, and the command
+// client is site-pinned the same way the registry pins it for the executor.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Firmware.IRolloutPlanningSource,
+    NetworkOptimizer.Web.Services.Firmware.RolloutPlanningSource>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirmwareRolloutService>(sp =>
+{
+    var slug = sp.GetRequiredService<SiteContextService>().Slug;
+    return ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutService>(
+        sp,
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
+        ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
+});
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
@@ -732,6 +769,7 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighPowerOverlapRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
+builder.Services.AddSingleton<ChannelPlanCache>();
 builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddMutatingService<IWiFiScanService>(sp => sp.GetRequiredService<WiFiOptimizerService>());
 // Mesh backhaul re-scan (Optimize Mesh button); scoped - forwards to the current
@@ -740,6 +778,13 @@ builder.Services.AddMutatingService<IMeshOptimizationService, MeshOptimizationSe
 builder.Services.AddScoped<ApMapService>();
 // GetApMapMarkersAsync stays ungated - every map draws AP markers from it, including a Viewer's.
 builder.Services.AddMutatingService<IApMapAdminService>(sp => sp.GetRequiredService<ApMapService>());
+// Per-site annotations and monitoring setup that used to be written straight from the page and
+// the API: the service is the gate (UPnP notes Site Operator; custom OIDs Operator to add, Admin
+// to remove, matching the card).
+builder.Services.AddScoped<UpnpNoteService>();
+builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredService<UpnpNoteService>());
+builder.Services.AddScoped<CustomOidService>();
+builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
 // per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
 // its own data (consumers - WiFiOptimizerService, floor-plan endpoints - are scoped).
@@ -1354,6 +1399,24 @@ app.Use(async (context, next) =>
 // instead of a bare 401 from a policy failure. With authentication disabled the policies short-
 // circuit to success (GlobalRoleHandler), so nothing changes for those installs.
 app.UseAuthorization();
+
+// API endpoints carry authorization metadata; the gated service behind them is what actually
+// decides, and it refuses by throwing. Without this that lands as a 500 - the caller was told
+// nothing, and the log reads like a fault rather than a refusal. Blazor has the same translation
+// in GateRefusalBoundary.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (NetworkOptimizer.Web.Services.Gates.AuthorizationDeniedException)
+        when (context.Request.Path.StartsWithSegments("/api") && !context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "You do not have permission to do that on this site." });
+    }
+});
 
 
 // Site selection via ?site=<slug> is per browser tab: it wins over the site cookie on

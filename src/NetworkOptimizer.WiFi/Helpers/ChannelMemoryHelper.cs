@@ -28,6 +28,17 @@ public static class ChannelMemoryHelper
     public const int MinLongTermSamples = 12;
 
     /// <summary>
+    /// Fraction of <see cref="MinLongTermSamples"/> at which a channel's evidence still speaks,
+    /// at reduced credibility. Below the full floor a measured average is noisier, not wrong, and
+    /// discarding it outright reverts the channel to "never measured" - where the mild
+    /// unknown-channel penalty beats a channel we know to be mediocre, and the optimizer moves
+    /// onto the worse one. Observed on a live site: a radio's worst 2.4 GHz channel sat at 11.1
+    /// effective samples against a floor of 12 and was recommended precisely because it had been
+    /// forgotten. Evidence below this fraction is still dropped - it is too thin to mean anything.
+    /// </summary>
+    public const double SoftFloorFraction = 0.5;
+
+    /// <summary>
     /// Half-life for aging long-term outcomes: a bucket's weight halves every 60 days, so
     /// month-old evidence speaks nearly at full strength while a five-month-old outcome
     /// contributes ~25% - the RF neighborhood drifts, and the average should tilt toward
@@ -170,20 +181,22 @@ public static class ChannelMemoryHelper
         IEnumerable<ChannelOutcomeBucket> longTermBuckets,
         int currentWidthMhz,
         DateTimeOffset now,
-        int minSampleCount = MinLongTermSamples)
+        int minSampleCount = MinLongTermSamples,
+        RadioBand band = RadioBand.Unknown,
+        double historyConfidence = 1.0,
+        Action<string>? trace = null,
+        IDictionary<int, double>? credibilityOut = null)
     {
         Dictionary<int, (double, double, double)>? merged = recentStress != null
             ? new Dictionary<int, (double, double, double)>(recentStress)
             : null;
 
-        var byChannel = longTermBuckets
+        var bySpan = longTermBuckets
             .Where(b => b.WidthMhz == 0 || b.WidthMhz == currentWidthMhz)
-            .GroupBy(b => b.Channel);
+            .GroupBy(b => SpanKey(band, b.Channel, currentWidthMhz));
 
-        foreach (var group in byChannel)
+        foreach (var group in bySpan)
         {
-            if (merged != null && merged.ContainsKey(group.Key)) continue;
-
             double effectiveWeight = 0, utilSum = 0, interfSum = 0, txRetrySum = 0;
             foreach (var bucket in group)
             {
@@ -195,16 +208,104 @@ public static class ChannelMemoryHelper
                 txRetrySum += bucket.TxRetrySum * decay;
             }
 
-            if (effectiveWeight < minSampleCount) continue;
+            if (effectiveWeight <= 0) continue;
 
-            merged ??= new Dictionary<int, (double, double, double)>();
-            merged[group.Key] = (
+            var pooledChannels = group.Select(b => b.Channel).Distinct().Count();
+            // Confidence scales the evidence bar, not the averages: on a churning band the same
+            // history has to be larger or fresher to speak at all, but what it says is unchanged.
+            var credibility = Math.Min(1.0, effectiveWeight * historyConfidence / minSampleCount);
+            if (credibility < SoftFloorFraction)
+            {
+                trace?.Invoke(
+                    $"span {group.Key} rejected: {effectiveWeight:F1} effective x {historyConfidence:F2} " +
+                    $"confidence = {credibility:F2} of floor {minSampleCount} " +
+                    $"({pooledChannels} control channel(s) pooled)");
+                continue;
+            }
+
+            if (credibility < 1.0)
+                trace?.Invoke(
+                    $"span {group.Key} admitted at {credibility:F2} credibility " +
+                    $"({effectiveWeight:F1} effective x {historyConfidence:F2} confidence, floor {minSampleCount})");
+            else if (pooledChannels > 1)
+                trace?.Invoke(
+                    $"span {group.Key} pooled {pooledChannels} control channels to {effectiveWeight:F1} " +
+                    $"effective samples (floor {minSampleCount}, confidence {historyConfidence:F2})");
+
+            var stats = (
                 utilSum / effectiveWeight,
                 interfSum / effectiveWeight,
                 txRetrySum / effectiveWeight);
+
+            merged ??= new Dictionary<int, (double, double, double)>();
+            foreach (var channel in SpanChannels(band, group.Key, currentWidthMhz))
+            {
+                // Recent data still wins per channel - it reflects today's RF neighborhood.
+                if (merged.ContainsKey(channel)) continue;
+                merged[channel] = stats;
+                if (credibilityOut != null) credibilityOut[channel] = credibility;
+            }
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Groups history by occupied spectrum rather than control channel. At 5/6 GHz a bonded radio
+    /// on ch 149@80 and one on ch 157@80 sit in the identical 80 MHz block, so their outcomes are
+    /// evidence about the same thing; keying on the control channel filed them apart and let each
+    /// half fall under the sample floor. 2.4 GHz keeps control-channel keying - its spans overlap
+    /// partially rather than in discrete blocks, which is a different problem.
+    /// </summary>
+    private static int SpanKey(RadioBand band, int channel, int widthMhz) =>
+        UsesBondingGroups(band, widthMhz)
+            ? (band == RadioBand.Band5GHz
+                ? ChannelSpanHelper.GetBondingGroupStart5GHz(channel, widthMhz)
+                : ChannelSpanHelper.GetBondingGroupStart6GHz(channel, widthMhz))
+            : channel;
+
+    /// <summary>
+    /// Every control channel a pooled span answers for. Callers look the map up by candidate
+    /// control channel, so pooled stats must be written back to all of them or the pooling is
+    /// invisible to the lookup that needs it.
+    /// </summary>
+    private static IEnumerable<int> SpanChannels(RadioBand band, int spanKey, int widthMhz) =>
+        UsesBondingGroups(band, widthMhz)
+            ? ChannelSpanHelper.GetChannelWidthSpan(band, spanKey, widthMhz)
+            : new[] { spanKey };
+
+    private static bool UsesBondingGroups(RadioBand band, int widthMhz) =>
+        widthMhz >= 40 && band is RadioBand.Band5GHz or RadioBand.Band6GHz;
+
+    /// <summary>
+    /// How far a band's neighbor load has to climb before remembered outcomes are trusted at half
+    /// strength. Calibrated against measured per-AP, per-band weighted load: an empty 5/6 GHz band
+    /// reads 0-1, a suburban 2.4 GHz band 10-24, and a dense urban 2.4 GHz band 108-134.
+    /// </summary>
+    public const double NeighborConfidenceScale = 25.0;
+
+    /// <summary>
+    /// Floor on history confidence. Even a heavily contested band's own measured past beats
+    /// inference, so crowding discounts memory rather than switching it off.
+    /// </summary>
+    public const double MinHistoryConfidence = 0.35;
+
+    /// <summary>
+    /// How far remembered outcomes should be trusted on a band, from its weighted neighbor load.
+    /// Neighbors are what churns: with few of them the environment is largely self-determined and
+    /// last month's measurement still describes today, so history speaks at full strength. As the
+    /// band fills, old outcomes describe a neighborhood that has since moved on.
+    ///
+    /// Load is the summed <see cref="ChannelSpanHelper.SignalToInterferenceWeight"/> of remembered
+    /// sightings, so a neighbor below the CCA threshold contributes nothing - it never made anyone
+    /// defer. Band-level on purpose: per-channel neighbor pressure is already priced into the
+    /// interference score, and applying it again here would count it twice.
+    /// </summary>
+    public static double HistoryConfidenceFromNeighbors(double weightedNeighborLoad)
+    {
+        if (weightedNeighborLoad <= 0) return 1.0;
+        return MinHistoryConfidence
+            + (1.0 - MinHistoryConfidence) / (1.0 + weightedNeighborLoad / NeighborConfidenceScale);
     }
 
     /// <summary>

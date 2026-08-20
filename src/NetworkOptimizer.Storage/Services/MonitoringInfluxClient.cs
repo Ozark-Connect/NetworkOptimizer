@@ -434,7 +434,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? memoryUsedPercent,
         double? temperatureC,
         long? uptimeSeconds,
-        DateTime timestamp)
+        DateTime timestamp,
+        int? fanSpeedRpm = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("device_health")
@@ -448,6 +449,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (memoryUsedPercent.HasValue) point = point.Field("memory_used_percent", memoryUsedPercent.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (uptimeSeconds.HasValue) point = point.Field("uptime_seconds", uptimeSeconds.Value);
+        if (fanSpeedRpm.HasValue) point = point.Field(InfluxFieldNames.FanSpeedRpm, (long)fanSpeedRpm.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -1277,6 +1279,86 @@ from(bucket: ""{_longtermBucket}"")
     // ---- Read API (Flux queries) ----
 
     /// <summary>
+    /// Total throughput per device per window - every interface and both directions summed - for
+    /// any number of devices in ONE query. The caller gets what it would have got by summing
+    /// <see cref="QueryInterfaceRatesAsync"/> rows itself, without a round trip per device and
+    /// without carrying every interface's row across the wire.
+    /// </summary>
+    /// <remarks>
+    /// The summing is two aggregateWindow passes, not one: the first takes each interface's mean
+    /// over the window, the second adds those means together. Do not collapse it to a single
+    /// pass - summing raw samples is a different number whenever interfaces report at different
+    /// rates, and grouping on _time instead builds one Flux table per bucket, which measured 8x
+    /// slower than this. Filtering by interface has to stay a plain tag regex for the same reason:
+    /// anything Influx cannot push down - a map(), or a conditional over two tags - is evaluated
+    /// row by row and costs two orders of magnitude more than the whole query.
+    ///
+    /// <paramref name="from"/> and <paramref name="to"/> must be aligned to
+    /// <paramref name="aggregateWindow"/> or the two passes disagree on where windows begin and
+    /// the totals land in neighboring buckets.
+    /// </remarks>
+    /// <param name="deviceMacs">Devices to total. An empty list returns nothing.</param>
+    /// <param name="from">Window start (UTC), aligned to <paramref name="aggregateWindow"/>.</param>
+    /// <param name="to">Window end (UTC), aligned to <paramref name="aggregateWindow"/>.</param>
+    /// <param name="aggregateWindow">Bucket size.</param>
+    /// <param name="wiredOnly">
+    /// Restrict to copper and SFP interfaces, by the raw port name where there is one and the
+    /// interface name otherwise - if_name carries the user's alias once a port has been renamed.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<DeviceRateTotalPoint>> QueryDeviceRateTotalsAsync(
+        IReadOnlyCollection<string> deviceMacs,
+        DateTime from,
+        DateTime to,
+        TimeSpan aggregateWindow,
+        bool wiredOnly = false,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || deviceMacs.Count == 0 || to <= from) return Array.Empty<DeviceRateTotalPoint>();
+
+        var macs = string.Join(" or ", deviceMacs
+            .Select(NormalizeMac)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(m => $@"r.device_mac == ""{m}"""));
+
+        // A plain disjunction of tag regexes, NEVER the if/else that expresses port_id-then-if_name
+        // precedence exactly - the conditional runs per row (82 s vs 0.26 s; see remarks). The two
+        // disagree only where a non-eth/sfp port has been renamed to eth*/sfp*, which no site has done.
+        const string wiredPrefix = @"/^(?i:eth|sfp)/";
+        var interfaceFilter = wiredOnly
+            ? $@"  |> filter(fn: (r) => r.port_id =~ {wiredPrefix} or r.if_name =~ {wiredPrefix})
+"
+            : "";
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => {macs})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+{interfaceFilter}  |> aggregateWindow(every: {ToFluxDuration(aggregateWindow)}, fn: mean, createEmpty: false)
+  |> group(columns: [""device_mac""])
+  |> aggregateWindow(every: {ToFluxDuration(aggregateWindow)}, fn: sum, createEmpty: false, timeSrc: ""_start"")
+";
+
+        var results = new List<DeviceRateTotalPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string;
+            if (string.IsNullOrEmpty(mac)) continue;
+            results.Add(new DeviceRateTotalPoint
+            {
+                DeviceMac = mac,
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                Bps = AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0,
+            });
+        }
+
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
     /// Per-port time-series of computed rates for one device. Used by the diagnostic
     /// view to plot ingress/egress per ifName over a chosen window. Returns rows
     /// ordered by time.
@@ -1307,6 +1389,7 @@ from(bucket: ""{_bucket}"")
             {
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 IfName = record.GetValueByKey("if_name") as string ?? "?",
+                PortId = record.GetValueByKey("port_id") as string,
                 RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
                 RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
             });
@@ -1693,7 +1776,7 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -1706,7 +1789,8 @@ from(bucket: ""{_bucket}"")
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
                 TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
-                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds"))
+                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds")),
+                FanSpeedRpm = (int?)AsDoubleOrNull(record.GetValueByKey("fan_speed_rpm"))
             });
         }
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
@@ -1772,12 +1856,13 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
 ";
         var cpu = new Dictionary<long, double>();
         var mem = new Dictionary<long, double>();
         var temp = new Dictionary<long, double>();
         var uptime = new Dictionary<long, double>();
+        var fan = new Dictionary<long, double>();
         var times = new Dictionary<long, DateTime>();
 
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -1792,6 +1877,7 @@ from(bucket: ""{_bucket}"")
             else if (field == "memory_used_percent") mem[key] = value.Value;
             else if (field == "temperature_c") temp[key] = value.Value;
             else if (field == "uptime_seconds") uptime[key] = value.Value;
+            else if (field == InfluxFieldNames.FanSpeedRpm) fan[key] = value.Value;
         }
 
         return times.Select(kv => new DeviceHealthPoint
@@ -1801,6 +1887,7 @@ from(bucket: ""{_bucket}"")
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
             TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
             UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
+            FanSpeedRpm = fan.TryGetValue(kv.Key, out var f) ? (int?)f : null,
         }).OrderBy(p => p.Time).ToList();
     }
 
@@ -2617,6 +2704,115 @@ from(bucket: ""{_longtermBucket}"")
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
     /// </summary>
+    /// <summary>
+    /// Client PHY-rate telemetry aggregated for the channel recommender: one row per AP, band,
+    /// channel, signal band and day.
+    /// </summary>
+    public record ClientChannelRatePoint
+    {
+        public string? ApMac { get; init; }
+        public string? Band { get; init; }
+        public int Channel { get; init; }
+        public int WidthMhz { get; init; }
+        public int SignalBandDbm { get; init; }
+        public DateTime Day { get; init; }
+        public int WindowCount { get; init; }
+        public double MeanTxRateMbps { get; init; }
+    }
+
+    /// <summary>
+    /// Throughput (bps, either direction) above which a window counts as carrying real traffic.
+    /// Idle clients are the large majority of samples and their PHY rate decays toward the floor,
+    /// so including them measures how busy the place was rather than what the channel can carry -
+    /// on one radio it reversed which channel looked better.
+    /// </summary>
+    public const double ClientActiveThroughputBps = 50_000;
+
+    /// <summary>Signal bucket width (dB) for matching like-for-like clients across channels.</summary>
+    private const int SignalBandStepDb = 5;
+
+    /// <summary>Aggregation window. See the pushdown notes on the query below before changing it.</summary>
+    private const string ClientRateWindowEvery = "15m";
+
+    /// <summary>
+    /// Per-channel client PHY rates for the channel recommender. Returns an empty list when
+    /// InfluxDB is not configured or the query fails, which the recommender treats as "no opinion".
+    ///
+    /// Two things in this Flux are load-bearing for performance, both measured on ~4.1M points per
+    /// field over 90 days (the naive raw-pivot form of this query took 33s):
+    ///
+    /// 1. Each branch repeats its own full from/range/filter chain. Hoisting the common prefix into
+    ///    a shared variable makes Flux materialize that node and read the entire measurement into
+    ///    memory before windowing - it never finishes inside 45s. Do not "tidy up" the duplication.
+    /// 2. toFloat() comes AFTER aggregateWindow on the channel branch. Ahead of it, the window
+    ///    aggregate stops being pushed down into storage: 0.5s becomes 11.8s.
+    ///
+    /// The channel branch uses last(), never mean() - averaging ch 1 and ch 11 would yield ch 6,
+    /// a real channel that was never in use.
+    /// </summary>
+    public async Task<IReadOnlyList<ClientChannelRatePoint>> QueryClientChannelRatesAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientChannelRatePoint>();
+
+        var flux = $@"import ""date""
+import ""math""
+
+means = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"")
+  |> aggregateWindow(every: {ClientRateWindowEvery}, fn: mean, createEmpty: false)
+
+chan = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""channel"" or r._field == ""channel_width"")
+  |> aggregateWindow(every: {ClientRateWindowEvery}, fn: last, createEmpty: false)
+  |> toFloat()
+
+union(tables: [means, chan])
+  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.tx_rate_kbps and exists r.channel and exists r.channel_width and exists r.signal_dbm)
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > {ClientActiveThroughputBps}) or (exists r.rx_throughput_bps and r.rx_throughput_bps > {ClientActiveThroughputBps}))
+  |> map(fn: (r) => ({{
+      device_mac: r.device_mac,
+      band: r.band,
+      day: string(v: date.truncate(t: r._time, unit: 1d)),
+      channel: int(v: r.channel),
+      width: int(v: r.channel_width),
+      signal_band: {SignalBandStepDb} * int(v: math.floor(x: r.signal_dbm / {SignalBandStepDb}.0)),
+      tx_rate_mbps: r.tx_rate_kbps / 1000.0
+  }}))
+  |> group(columns: [""device_mac"", ""band"", ""channel"", ""width"", ""signal_band"", ""day""])
+  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps}}), identity: {{n: 0, sum: 0.0}})
+  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
+  |> group()";
+
+        var results = new List<ClientChannelRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var windows = (int)(AsDoubleOrNull(record.GetValueByKey("n")) ?? 0);
+            if (windows <= 0) continue;
+            DateTime.TryParse(record.GetValueByKey("day") as string, null,
+                System.Globalization.DateTimeStyles.AdjustToUniversal, out var day);
+            results.Add(new ClientChannelRatePoint
+            {
+                ApMac = record.GetValueByKey("device_mac") as string,
+                Band = record.GetValueByKey("band") as string,
+                Channel = (int)(AsDoubleOrNull(record.GetValueByKey("channel")) ?? 0),
+                WidthMhz = (int)(AsDoubleOrNull(record.GetValueByKey("width")) ?? 0),
+                SignalBandDbm = (int)(AsDoubleOrNull(record.GetValueByKey("signal_band")) ?? 0),
+                Day = day,
+                WindowCount = windows,
+                MeanTxRateMbps = AsDoubleOrNull(record.GetValueByKey("mean_tx_rate_mbps")) ?? 0,
+            });
+        }
+        return results;
+    }
+
     public record ClientThroughputPoint
     {
         public DateTime Time { get; init; }
@@ -2812,6 +3008,10 @@ from(bucket: ""{_longtermBucket}"")
         return TimeSpan.FromSeconds(windowSeconds);
     }
 
+    /// <summary>
+    /// A range bound as Flux wants it. Callers pass UTC: an Unspecified DateTime is read as LOCAL
+    /// here, so a timestamp straight out of SQLite has to be stamped by its caller first.
+    /// </summary>
     private static string ToFluxInstant(DateTime t) =>
         t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
@@ -3484,8 +3684,23 @@ from(bucket: ""{_longtermBucket}"")
     {
         public required DateTime Time { get; init; }
         public required string IfName { get; init; }
+        /// <summary>Raw ifName tag ("eth8", "0/1") - stable across user-assigned aliases.</summary>
+        public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>One device's total throughput over one window, every interface and both directions.</summary>
+    public record DeviceRateTotalPoint
+    {
+        /// <summary>Device MAC, as stored in the tag.</summary>
+        public required string DeviceMac { get; init; }
+
+        /// <summary>Window start (UTC).</summary>
+        public required DateTime Time { get; init; }
+
+        /// <summary>Summed rate over the window, in bits per second.</summary>
+        public required double Bps { get; init; }
     }
 
     /// <summary>
@@ -3524,6 +3739,7 @@ from(bucket: ""{_longtermBucket}"")
         public double? MemoryUsedPercent { get; init; }
         public double? TemperatureC { get; init; }
         public long? UptimeSeconds { get; init; }
+        public int? FanSpeedRpm { get; init; }
     }
 
     public record LatencyPoint

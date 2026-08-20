@@ -35,6 +35,7 @@ public static class ApiEndpoints
         SiteAgentEndpoints.Map(app);
         MonitoringChartEndpoints.Map(app);
         IspHealthEndpoints.Map(app);
+        FirmwareRolloutEndpoints.Map(app);
         MonitoringInvestigateEndpoints.Map(app);
         FlakyTargetEndpoints.Map(app);
         DeviceHealthChartEndpoints.Map(app);
@@ -45,5 +46,6 @@ public static class ApiEndpoints
         OntChartEndpoints.Map(app);
         StarlinkChartEndpoints.Map(app);
         SnmpEndpoints.Map(app);
+        SupportFileEndpoints.Map(app);
     }
 }

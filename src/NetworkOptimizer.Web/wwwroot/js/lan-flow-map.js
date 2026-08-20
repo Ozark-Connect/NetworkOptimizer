@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=7';
+import * as flowData from './lan-flow-data.js?v=10';
 
 const COLORS = {
     background: 0x202023,
@@ -711,6 +711,9 @@ export class LanFlowMap {
         // Pin devices to a fixed physical size relative to the buildings (which
         // are built in meters * this same factor). Unanchored sites have a tiny
         // default bounds radius, so the ratio clamps to 1.0 and nothing changes.
+        // Kept for nodes added after this pass (a client rebuilt mid-playback): its saved
+        // placement has to be projected with the same scale or it lands somewhere else.
+        this._anchorScale = scale;
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
@@ -859,9 +862,17 @@ export class LanFlowMap {
             }
         }
 
-        // Post-layout: push WiFi clients outward from their parent AP so they
-        // fan out rather than clustering tightly around the infrastructure.
+        // Post-layout: put each unplaced client in the room its AP is in, and where no walls are
+        // drawn, push it outward from the AP so leaves don't clump on the infrastructure.
         const WIFI_SPREAD = 1.4;
+        const CLIENT_MAX_PARENT_DIST = 12;
+        this._buildRoomWalls(snap, scale);
+        const takenByParent = new Map();
+        for (const [id, pos] of positions) {
+            if (!pos.pinned) continue;
+            takenByParent.set(id, pos);
+        }
+        const placedNear = [...takenByParent.values()];
         for (const node of snap.nodes) {
             if (node.kind !== NODE_KIND.WifiClient) continue;
             const p = positions.get(node.id);
@@ -870,14 +881,25 @@ export class LanFlowMap {
             if (!parentId) continue;
             const pp = positions.get(parentId);
             if (!pp) continue;
+
+            const room = this._placeInRoom(node.id, pp, p, CLIENT_MAX_PARENT_DIST, placedNear);
+            if (room) {
+                p.x = room.x; p.y = room.y; p.z = room.z;
+                placedNear.push(p);
+                continue;
+            }
             const dx = p.x - pp.x;
             const dy = p.y - pp.y;
             const dz = p.z - pp.z;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
             if (d < 0.1) continue;
-            p.x = pp.x + dx * WIFI_SPREAD;
-            p.y = pp.y + dy * WIFI_SPREAD;
-            p.z = pp.z + dz * WIFI_SPREAD;
+            // Fan out, but not off into the distance: repulsion from every other leaf can push a
+            // client far past its AP, and the 1.4 above then multiplies that. Cap the result at
+            // the spacing a client added mid-playback gets, which is the spacing that reads right.
+            const spread = Math.min(d * WIFI_SPREAD, CLIENT_MAX_PARENT_DIST) / d;
+            p.x = pp.x + dx * spread;
+            p.y = pp.y + dy * spread;
+            p.z = pp.z + dz * spread;
         }
 
         // Safety net: should never trigger given the step clamp above, but if any
@@ -1519,6 +1541,9 @@ export class LanFlowMap {
         if (!pos || !group || !apPos) return;
         if (explicitPos) {
             pos.x = explicitPos.x; pos.y = explicitPos.y; pos.z = explicitPos.z;
+        } else if (pos.pinned) {
+            // A device someone placed stays where they put it. Roaming changes which AP it talks
+            // to, not where it physically is, so only the link is re-pointed below.
         } else {
             // Same scatter as a freshly-attached client (_addNodeIncremental): random
             // angle, 6-12 units out, slight y jitter - but seeded off the client id so
@@ -1948,6 +1973,148 @@ export class LanFlowMap {
         }, 30000);
     }
 
+
+    // ---- Room-aware client placement -------------------------------------------------
+    //
+    // An unplaced client belongs in the room its AP is in, not on a ring around it. Rooms are
+    // not stored as polygons, so the room is measured instead: cast rays from the AP across the
+    // floor's wall segments and take how far each one travels. That handles L-shapes and alcoves
+    // without solving the planar graph, and a floor with no walls drawn simply yields nothing and
+    // the caller falls back to the ring.
+    _buildRoomWalls(snap, scale) {
+        this._wallSegs = [];
+        for (const b of snap.buildings || []) {
+            for (const f of b.floors || []) {
+                const segs = [];
+                for (const w of f.walls || []) {
+                    const pts = (w.points || []).map(pt => ({ x: -pt.x * scale, z: pt.y * scale }));
+                    for (let i = 1; i < pts.length; i++) segs.push([pts[i - 1], pts[i]]);
+                }
+                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs });
+            }
+        }
+    }
+
+    // Distance from a point to the first wall along a direction, or null if it reaches nothing.
+    _rayToWall(segs, ox, oz, dx, dz) {
+        let best = null;
+        for (const [a, b] of segs) {
+            const sx = b.x - a.x, sz = b.z - a.z;
+            const denom = dx * sz - dz * sx;
+            if (Math.abs(denom) < 1e-9) continue;
+            const t = ((a.x - ox) * sz - (a.z - oz) * sx) / denom;
+            const u = ((a.x - ox) * dz - (a.z - oz) * dx) / denom;
+            if (t > 0.01 && u >= 0 && u <= 1 && (best === null || t < best)) best = t;
+        }
+        return best;
+    }
+
+    // A spot for a client inside its parent's room: an angle of its own, a radius bounded by how
+    // far the room actually goes, and a nudge off anything already placed there.
+    _placeInRoom(nodeId, parentPos, current, preferred, taken) {
+        const scale = this._anchorScale ?? 1;
+        // The floor this AP sits above: its base elevation is what client heights are measured
+        // from, since an AP is usually on the ceiling and hanging clients under it would leave
+        // every device floating at head-height of the storey above.
+        // Tolerance in metres, not scene units: a ceiling-mounted AP hangs a little under the
+        // floor above, and on a large site the whole scene shrinks until a fixed unit slack would
+        // read that AP as belonging upstairs. Mount type otherwise does not matter here - wall,
+        // desk and ceiling APs on one storey all resolve to the same room.
+        const slack = 0.35 * scale * 0.8;
+        let floor = null;
+        for (const f of this._wallSegs || []) {
+            const baseY = (f.z ?? 0) * scale * 0.8;
+            if (baseY - slack > parentPos.y) continue;
+            if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs };
+        }
+        const wallsForFloor = floor ? floor.segs : [];
+
+        // Stable angle per client, so a rebuild puts it back where it was.
+        const rnd = _roamSeed(nodeId);
+        let radius = preferred;
+        if (wallsForFloor.length > 0) {
+            const hits = [];
+            for (let i = 0; i < 24; i++) {
+                const a = (i / 24) * Math.PI * 2;
+                const d = this._rayToWall(wallsForFloor, parentPos.x, parentPos.z, Math.cos(a), Math.sin(a));
+                if (d !== null) hits.push(d);
+            }
+            if (hits.length >= 8) {
+                // Median, not the per-ray distance: a doorway lets one ray shoot into the next
+                // room, and sizing off that would post clients through the wall.
+                hits.sort((x, y) => x - y);
+                const median = hits[Math.floor(hits.length / 2)];
+                // Fraction of the way to the wall the first ring sits at. Devices belong near the
+                // AP they are talking to, so this is deliberately well inside the room; the
+                // overflow rings step outward from here when it fills.
+                radius = Math.max(2.0, Math.min(preferred, median * 0.4));
+            }
+        }
+
+        // Start from where the relaxation already put this client - it has spread the leaves
+        // apart sensibly - and let the room only pull it in. Ignoring that and re-scattering
+        // everything from scratch is what threw devices across the property.
+        let baseAngle = rnd() * Math.PI * 2;
+        let baseDist = radius * (0.55 + rnd() * 0.45);
+        if (current) {
+            const dx = current.x - parentPos.x, dz = current.z - parentPos.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d > 0.1) {
+                baseAngle = Math.atan2(dz, dx);
+                // Keep the direction the relaxation chose, but not its distance when that is
+                // wider than the room allows.
+                baseDist = Math.min(d, radius);
+            }
+        }
+
+        // Fill the room first, then step outward gently. A room that runs out of space pushes the
+        // overflow past its walls rather than stacking devices on each other, but a step of a few
+        // percent per ring keeps that a nudge instead of a launch.
+        // Best of a handful rather than first acceptable: taking the first spot that merely
+        // clears everything leaves the gap between two nearby devices unused, because both push
+        // their own clients away from it. Scoring by how empty a spot is fills that space.
+        let last = null;
+        let best = null;
+        let bestScore = -1;
+        for (let ring = 0; ring < 6; ring++) {
+            const ringRadius = baseDist * (1 + ring * 0.12);
+            for (let attempt = 0; attempt < 12; attempt++) {
+                const angle = baseAngle + (attempt === 0 && ring === 0 ? 0 : (rnd() - 0.5) * Math.PI);
+                const r = ringRadius * (0.9 + rnd() * 0.2);
+                // Staggered through the room's height rather than strung at one level: each
+                // client takes the next of five bands between floor and ceiling with jitter
+                // inside it, so a busy room reads with depth. No floor to measure from means no
+                // room either, so those sit below the AP as before.
+                const band = (this._roomBand = ((this._roomBand ?? -1) + 1) % 5);
+                const wallH = 2.9 * scale * 0.8;
+                const y = floor
+                    ? floor.baseY + wallH * (0.1 + band * 0.19 + rnd() * 0.13)
+                    : parentPos.y - 1.5 + rnd() * 2;
+                const cand = {
+                    x: parentPos.x + Math.cos(angle) * r,
+                    y,
+                    z: parentPos.z + Math.sin(angle) * r,
+                    pinned: false,
+                };
+                last = cand;
+                // How far this spot sits from the nearest thing already placed, height included
+                // so a different shelf is not treated as the same spot.
+                let nearest = Infinity;
+                for (const t of taken) {
+                    const dx = t.x - cand.x, dz = t.z - cand.z, dy = (t.y - cand.y) * 0.6;
+                    const d2 = dx * dx + dz * dz + dy * dy;
+                    if (d2 < nearest) nearest = d2;
+                }
+                if (nearest > bestScore) { bestScore = nearest; best = cand; }
+                // Roomy enough that looking further would only be churn.
+                if (nearest > 36) return cand;
+            }
+            // A ring with a genuinely clear spot ends the search; otherwise widen.
+            if (bestScore > 9) return best;
+        }
+        return best ?? last;
+    }
+
     // Incremental client add: create mesh near parent, create link pipe + particles.
     _addNodeIncremental(node, snap) {
         if (node.kind === NODE_KIND.Cloud) return;
@@ -1957,15 +2124,32 @@ export class LanFlowMap {
         const parentId = link.fromNodeId === node.id ? link.toNodeId : link.fromNodeId;
         const parentPos = this._positions.get(parentId);
         if (!parentPos) return;
-        // Scatter near parent
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 6 + Math.random() * 6;
-        const pos = {
-            x: parentPos.x + Math.cos(angle) * dist,
-            y: parentPos.y - 1.5 + Math.random(),
-            z: parentPos.z + Math.sin(angle) * dist,
-            pinned: false,
-        };
+        // A device the user has placed goes where they put it, even when it is being added back
+        // mid-playback rather than laid out with everything else. Same projection as _layoutNodes,
+        // so it lands on the same spot it holds in live.
+        const p = node.placement;
+        const scale = this._anchorScale;
+        let pos;
+        if (p && p.source === PLACEMENT_SOURCE.Anchor && Number.isFinite(scale)
+            && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
+            const mountM = Number.isFinite(p.heightM) ? p.heightM : 2.9 * 0.5;
+            pos = {
+                x: -p.x * scale,
+                y: p.z * scale * 0.8 + mountM * scale * 0.8,
+                z: p.y * scale,
+                pinned: true,
+            };
+        } else {
+            // Same room placement the layout pass uses, so a client that pops back in mid-playback
+            // lands where it would have on a fresh load rather than on a ring of its own.
+            const taken = [...this._positions.values()];
+            pos = this._placeInRoom(node.id, parentPos, null, 12, taken) || {
+                x: parentPos.x + Math.cos(Math.random() * Math.PI * 2) * 8,
+                y: parentPos.y - 1.5 + Math.random(),
+                z: parentPos.z + Math.sin(Math.random() * Math.PI * 2) * 8,
+                pinned: false,
+            };
+        }
         this._positions.set(node.id, pos);
 
         // Build node mesh (same as _buildNodes for a single node)

@@ -66,10 +66,10 @@ public static class IspHealthPresentation
             // hop's baseline and another's peak describes a rise that nothing measured. The members
             // below carry each hop's own.
             var mag = Magnitude(evt);
-            // What the line was actually carrying, not just whether it cleared the heavy bar. Load
-            // this side of the bar still shapes what a reader makes of an elevation, and it is only
-            // ever narration: the score keys on LoadCoincident, which this never touches.
-            var load = evt.MedianLoadUtilization is double u && u >= LoadMentionFloor
+            // What the line was actually carrying. When the event is already classified
+            // load-coincident, always show it - the sentence references load that would
+            // otherwise be invisible. The floor only gates non-load-coincident events.
+            var load = evt.MedianLoadUtilization is double u && (u >= LoadMentionFloor || evt.LoadCoincident)
                 ? $" under {u * 100:0}% WAN load" : "";
             // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
             // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide

@@ -41,6 +41,7 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 let tempChart = null;
 let cpuChart = null;
 let memChart = null;
+let fanChart = null;
 let customCharts = {};
 let customFieldDefs = [];
 let pollTimer = null;
@@ -191,6 +192,7 @@ function drawSeries() {
     if (tempChart) tempChart.updateSeries(padFirst(makeSeries('temp')), false);
     if (cpuChart) cpuChart.updateSeries(padFirst(makeSeries('cpu')), false);
     if (memChart) memChart.updateSeries(padFirst(makeSeries('mem')), false);
+    if (fanChart) fanChart.updateSeries(padFirst(makeSeries('fan')), false);
     for (const [field, chart] of Object.entries(customCharts)) {
         if (!chart) continue;
         chart.updateSeries(padFirst(devices.map(d => ({
@@ -217,8 +219,9 @@ function chartEntries() {
         [tempChart, chartEls.temp],
         [cpuChart, chartEls.cpu],
         [memChart, chartEls.mem],
+        [fanChart, chartEls.fan],
         ...Object.keys(customCharts).map(k => [customCharts[k], chartEls[`custom:${k}`]]),
-    ];
+    ].filter(([c]) => c);
 }
 
 const markLayer = createMarkLayer({ charts: chartEntries });
@@ -251,6 +254,9 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     // Before updateVisibility, which draws from it.
     lastData = data;
+    const hasFan = data.devices.some(d => (d.data || []).some(p => p.fan != null));
+    const fanCard = container?.querySelector('.health-fan-card');
+    if (fanCard) fanCard.style.display = hasFan ? '' : 'none';
     if (container) await syncCustomCharts(container, data.devices, newDefs);
 
     // Ahead of the redraw below - see apply().
@@ -311,6 +317,7 @@ async function syncCustomCharts(container, devices, defs) {
 
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 const fmtPct = v => v != null ? v.toFixed(1) + '%' : '-';
+const fmtRpm = v => v != null ? Math.round(v).toLocaleString() : '-';
 
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.health-stats-table');
@@ -325,12 +332,22 @@ function renderStatsTable(container, showAll) {
         );
     }
 
+    const hasFanData = lastData.devices.some(d => (d.data || []).some(p => p.fan != null));
+    const fanCols = hasFanData ? [
+        { header: 'Fan Mean', format: fmtRpm }, { header: 'Fan Min', format: fmtRpm }, { header: 'Fan Max', format: fmtRpm },
+    ] : [];
+
     const rows = lastData.devices.map(d => {
         const pts = d.data || [];
         const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
         const cpu = computeStats(pts.map(p => p.cpu).filter(v => v != null));
         const mem = computeStats(pts.map(p => p.mem).filter(v => v != null));
         const baseValues = [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max];
+
+        if (hasFanData) {
+            const fan = computeStats(pts.map(p => p.fan).filter(v => v != null));
+            baseValues.push(fan?.mean, fan?.min, fan?.max);
+        }
 
         for (const def of customFieldDefs) {
             const vals = (d.custom?.[def.fieldName] || []).map(p => p.value).filter(v => v != null);
@@ -349,6 +366,7 @@ function renderStatsTable(container, showAll) {
             { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
             { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
             { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
+            ...fanCols,
             ...customCols,
         ],
         filter: { meta: () => deviceMeta, key: 'mac', visibility: () => visibility,
@@ -500,11 +518,13 @@ export async function mount(elId) {
     const tempEl = container.querySelector('.health-temp-chart');
     const cpuEl = container.querySelector('.health-cpu-chart');
     const memEl = container.querySelector('.health-mem-chart');
+    const fanEl = container.querySelector('.health-fan-chart');
     if (!tempEl || !cpuEl || !memEl) return;
 
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
+    if (fanChart) { fanChart.destroy(); fanChart = null; }
 
     chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
 
@@ -519,6 +539,16 @@ export async function mount(elId) {
         yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
+
+    if (fanEl) {
+        chartEls.fan = fanEl;
+        fanChart = new ApexCharts(fanEl, {
+            ...baseOpts(200, 'RPM', v => v != null ? Math.round(v).toLocaleString() + ' RPM' : ''),
+            yaxis: { min: 0, title: { text: 'RPM', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toLocaleString() : '' } },
+            series: [], colors: PALETTE,
+        });
+        await fanChart.render();
+    }
 
     await tempChart.render();
     await cpuChart.render();
@@ -651,6 +681,7 @@ export function unmount() {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
+    if (fanChart) { fanChart.destroy(); fanChart = null; }
     for (const chart of Object.values(customCharts)) chart.destroy();
     customCharts = {};
     customFieldDefs = [];

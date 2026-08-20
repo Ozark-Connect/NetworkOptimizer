@@ -11,6 +11,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.OntProviders;
 
 namespace NetworkOptimizer.Web.Services;
@@ -870,6 +871,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
                 var temp = metrics.Temperature > 0 ? metrics.Temperature : (double?)null;
                 var uptime = metrics.Uptime > 0 ? metrics.Uptime / 100 : (long?)null;
+                var fanRpm = metrics.FanSpeedRpm;
 
                 if (cpu != null || memPct != null)
                     snmpHealthHits[NormalizeMac(device.Mac)] = true;
@@ -885,7 +887,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     memoryUsedPercent: memPct,
                     temperatureC: temp,
                     uptimeSeconds: uptime,
-                    timestamp: DateTime.UtcNow);
+                    timestamp: DateTime.UtcNow,
+                    fanSpeedRpm: fanRpm);
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
                 _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
@@ -2407,6 +2410,13 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
+    /// <summary>
+    /// The canonical <c>device_type</c> tag label. Every writer of a device-scoped measurement must
+    /// use it, server-side or agent-relayed: the tag is part of the series key, so two spellings of
+    /// one device are two series, and a device polled by both at different times reads as two.
+    /// Never <c>ToString()</c> - it spells an AP "accesspoint" and a modem "cellularmodem".
+    /// </summary>
+    /// <param name="type">Device type from the UniFi device data.</param>
     internal static string DescribeDeviceType(NetworkOptimizer.Core.Enums.DeviceType type) => type switch
     {
         NetworkOptimizer.Core.Enums.DeviceType.Gateway => "gateway",
@@ -2791,6 +2801,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private static string NormalizeMac(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
 
+    private bool _standardFanOidsMigrated;
+
     private async Task<Dictionary<string, List<CustomOidConfiguration>>> LoadCustomOidsAsync(CancellationToken ct)
     {
         if (DateTime.UtcNow - _customOidsLoadedAt < CustomOidsCacheTtl)
@@ -2799,6 +2811,13 @@ public class MonitoringCollectionAgent : BackgroundService
         try
         {
             await using var db = await CreateSiteDbAsync(ct);
+
+            if (!_standardFanOidsMigrated)
+            {
+                await CustomOidMigration.RemoveSupersededAsync(db, _siteSlug, _logger, ct);
+                _standardFanOidsMigrated = true;
+            }
+
             var all = await db.CustomOidConfigurations
                 .Where(c => c.Enabled)
                 .ToListAsync(ct);

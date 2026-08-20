@@ -38,6 +38,7 @@ public class AgentOnGatewayDetector
     private readonly AgentEnrollmentService _enrollment;
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
     // The agent address the last detection compared against the gateway's. Kept so callers that
@@ -62,11 +63,13 @@ public class AgentOnGatewayDetector
         AgentEnrollmentService enrollment,
         SiteConnectionRegistry siteConnections,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteAgentCoverage agentCoverage,
         ILogger<AgentOnGatewayDetector> logger)
     {
         _enrollment = enrollment;
         _siteConnections = siteConnections;
         _siteDbFactory = siteDbFactory;
+        _agentCoverage = agentCoverage;
         _logger = logger;
     }
 
@@ -76,11 +79,13 @@ public class AgentOnGatewayDetector
     /// (a stale answer is served while a background refresh runs); the first
     /// query for a site awaits one refresh (bounded by the refresh timeout) so
     /// speed-test surfaces never paint from a made-up false. False for the
-    /// default site.
+    /// default site unless its agent covers collection - a vantage-only agent
+    /// is not the site's agent for this purpose.
     /// </summary>
     public async Task<bool> IsAgentOnGatewayAsync(string siteSlug, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug)
+        if (string.IsNullOrWhiteSpace(siteSlug)) return false;
+        if (siteSlug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(siteSlug))
             return false;
 
         var hasCached = _cache.TryGetValue(siteSlug, out var cached);
@@ -133,8 +138,8 @@ public class AgentOnGatewayDetector
     /// goes to fix it, and it has to stay responsive.
     /// </para>
     /// <para>
-    /// Deliberately not gated on the site being non-default, unlike the site-level verdict whose
-    /// "false for the default site" contract its speed-test consumers rely on.
+    /// Not gated on covers (the site-level verdict is, so a vantage-only default-site agent stays
+    /// false there). This overload answers the physical question for any agent on any site.
     /// </para>
     /// </summary>
     public async Task<bool> IsAgentOnGatewayAsync(
@@ -237,10 +242,8 @@ public class AgentOnGatewayDetector
     /// of those agents may be sitting on it, and the site-level verdict cannot tell them apart: it
     /// correlates against whichever agent the enrollment registry answers with.
     ///
-    /// Deliberately not gated on the site being non-default. The site-level verdict keeps its
-    /// existing "false for the default site" contract for its existing consumers; this one answers
-    /// from the gateway addresses alone, so a main-site agent running on the gateway is recognized
-    /// as such - which is exactly the deployment multi-WAN contexts target.
+    /// Not gated on covers - answers from the gateway addresses alone, so a main-site agent
+    /// running on the gateway is recognized as such regardless of whether it collects.
     /// </summary>
     public async Task<bool> IsIpOnGatewayAsync(string siteSlug, string? ip, CancellationToken ct = default)
     {

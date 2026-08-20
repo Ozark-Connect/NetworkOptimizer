@@ -759,6 +759,10 @@
                     <div class="chart-header"><h3 class="chart-title">Memory</h3></div>
                     <div class="health-mem-chart"></div>
                 </div>
+                <div class="chart-card health-fan-card" style="display:none">
+                    <div class="chart-header"><h3 class="chart-title">Fan Speed</h3></div>
+                    <div class="health-fan-chart"></div>
+                </div>
                 <div class="health-custom-charts"></div>
                 <div class="health-stats-table"></div>
 
@@ -2120,7 +2124,28 @@
         // reverts to it, so a linkable investigation never counts as a user-set expand.
         _investigateCollapsed = false;
         _investigateDeepLinkOpened = true;
+        await EscapeLanScopeForInvestigationAsync();
         await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
+    }
+
+    /// <summary>
+    /// Moves a linked investigation off the LAN scope. It arrived from ISP Health, which is a
+    /// statement about the WAN: the events are graded against a WAN's plan speeds and read off its
+    /// counters, so LAN has nothing to answer with and any event found lands on a chart holding
+    /// none of its targets. A link that names a WAN has already moved here by applying it - a
+    /// single-WAN site names none, which is where a saved LAN scope used to swallow the jump.
+    /// Never persisted: following a link is not choosing a filter.
+    /// </summary>
+    private async Task EscapeLanScopeForInvestigationAsync()
+    {
+        if (!_lanScope) return;
+        var wan = _wanOptions.FirstOrDefault()?.Key;
+        if (wan == null) return;
+
+        _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { wan };
+        _lanScope = false;
+        _allScope = false;
+        await ApplyWanSelectionAsync(persist: false);
     }
 
     /// <summary>

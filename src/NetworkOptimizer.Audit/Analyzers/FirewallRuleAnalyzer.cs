@@ -1402,17 +1402,17 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find management networks that are isolated and don't have effective internet access
-        // Internet can be blocked via: 1) network config (InternetAccessEnabled=false), or
-        // 2) a firewall rule blocking all traffic to the External zone
+        // Find management networks without effective internet access. Internet can be blocked
+        // via: 1) network config (InternetAccessEnabled=false), 2) a firewall rule blocking all
+        // traffic to the External zone, or 3) zone-based isolation. The isolation toggle is not
+        // required: VLAN 1 can't have it, but internet can still be blocked by zones or rules.
         var isolatedMgmtNetworks = networks.Where(n =>
             n.Purpose == NetworkPurpose.Management &&
-            n.NetworkIsolationEnabled &&
             !HasEffectiveInternetAccess(n, rules, externalZoneId)).ToList();
 
         if (!isolatedMgmtNetworks.Any())
         {
-            _logger.LogDebug("No isolated management networks without internet access found");
+            _logger.LogDebug("No management networks without internet access found");
             return issues;
         }
 
@@ -1450,7 +1450,7 @@ public class FirewallRuleAnalyzer
                 {
                     Type = IssueTypes.MgmtMissingUnifiAccess,
                     Severity = AuditSeverity.Informational,
-                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
+                    Message = $"Management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
                     Metadata = new Dictionary<string, object>
@@ -1462,6 +1462,38 @@ public class FirewallRuleAnalyzer
                     RuleId = "FW-MGMT-001",
                     ScoreImpact = 0,
                     RecommendedAction = "Add firewall rule allowing TCP 443 to ui.com for UniFi cloud management. If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
+                });
+            }
+
+            // Firmware downloads come from fw-download.ubnt.com, not ui.com. A rule allowing
+            // ui.com keeps cloud management working but devices cannot download firmware updates.
+            var fwDownloadRule = rules.FirstOrDefault(r =>
+                r.Enabled &&
+                r.ActionType.IsAllowAction() &&
+                r.AppliesToSourceNetwork(mgmtNetwork) &&
+                r.WebDomains?.Any(d => d.Contains("ubnt.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
+
+            var hasFwDownloadAccess = fwDownloadRule != null && !IsAllowRuleEclipsedByBlockRule(rules, fwDownloadRule, mgmtNetwork, externalZoneId);
+
+            if (!hasFwDownloadAccess)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.MgmtMissingFirmwareDownload,
+                    Severity = AuditSeverity.Informational,
+                    Message = $"Management network '{mgmtNetwork.Name}' may lack firmware download access",
+                    CurrentNetwork = mgmtNetwork.Name,
+                    CurrentVlan = mgmtNetwork.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", mgmtNetwork.Name },
+                        { "vlan", mgmtNetwork.VlanId },
+                        { "required_domain", "fw-download.ubnt.com" }
+                    },
+                    RuleId = "FW-MGMT-004",
+                    ScoreImpact = 0,
+                    RecommendedAction = "Add firewall rule allowing TCP 443 to fw-download.ubnt.com (or ubnt.com) for firmware downloads. Without this, devices on this network cannot download firmware updates from Ubiquiti."
                 });
             }
 
@@ -1483,7 +1515,7 @@ public class FirewallRuleAnalyzer
                 {
                     Type = IssueTypes.MgmtMissingAfcAccess,
                     Severity = AuditSeverity.Informational,
-                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack AFC traffic access",
+                    Message = $"Management network '{mgmtNetwork.Name}' may lack AFC traffic access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
                     Metadata = new Dictionary<string, object>
@@ -1517,7 +1549,7 @@ public class FirewallRuleAnalyzer
                 {
                     Type = IssueTypes.MgmtMissingNtpAccess,
                     Severity = AuditSeverity.Informational,
-                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack NTP time sync access",
+                    Message = $"Management network '{mgmtNetwork.Name}' may lack NTP time sync access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
                     Metadata = new Dictionary<string, object>
@@ -1564,7 +1596,7 @@ public class FirewallRuleAnalyzer
                     {
                         Type = IssueTypes.MgmtMissing5gAccess,
                         Severity = AuditSeverity.Informational,
-                        Message = $"Isolated management network '{mgmtNetwork.Name}' may lack 5G/LTE modem registration access",
+                        Message = $"Management network '{mgmtNetwork.Name}' may lack 5G/LTE modem registration access",
                         CurrentNetwork = mgmtNetwork.Name,
                         CurrentVlan = mgmtNetwork.VlanId,
                         Metadata = new Dictionary<string, object>

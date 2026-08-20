@@ -125,12 +125,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     private void HandleAuthProbe(bool success, string? error)
     {
+        // Suppression must gate the LATCH, not just the publish: _consoleAlertActive means "an
+        // alert is published and standing". Latching a suppressed failure left it true with no
+        // alert out, so a console that never recovered was never alerted on at all.
+        var suppressed = IsInRolloutConsoleCycle();
         bool publishFailed = false, publishRestored = false;
         lock (_consoleAlertLock)
         {
             if (success)
             {
-                if (_consoleAlertActive)
+                if (_consoleAlertActive && !suppressed)
                 {
                     _consoleAlertActive = false;
                     publishRestored = true;
@@ -148,6 +152,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _consecutiveAuthFailures++;
 
                 if (!_consoleAlertActive
+                    && !suppressed
                     && _consecutiveAuthFailures >= 2
                     && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow)
                 {
@@ -183,6 +188,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             _consecutiveAuthFailures = 0;
         }
+    }
+
+    private bool IsInRolloutConsoleCycle()
+    {
+        try
+        {
+            var suppression = _serviceProvider.GetService<Firmware.RolloutSuppressionRegistry>();
+            return suppression?.IsInRolloutWindow(SiteSlug, null, DateTime.UtcNow) == true;
+        }
+        catch { return false; }
     }
 
     private void PublishConsoleAlert(string eventType, AlertSeverity severity, string title, string message)

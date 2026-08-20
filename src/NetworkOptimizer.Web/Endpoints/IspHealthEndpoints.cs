@@ -122,7 +122,9 @@ public static class IspHealthEndpoints
                     type = "congestion",
                     start = e.Start.ToString("o"),
                     end = e.End.ToString("o"),
-                    label = e.IsShared ? "Shared congestion" : "Congestion",
+                    label = e.IsShared ? "Shared congestion"
+                        : e.Disposition == CongestionDisposition.SelfInflicted ? "Loaded Latency"
+                        : "Congestion",
                     shared = e.IsShared,
                     // Witnesses too: the elevation is on their line as well, so isolating one must
                     // keep the shading that explains it.

@@ -532,6 +532,104 @@ public class OutageDetectorTests
         events[0].Scope.Should().Be(OutageScope.FullWan);
     }
 
+    /// <summary>
+    /// A target aggregated to stop-stamped windows, as Influx aggregateWindow emits on long report
+    /// windows: each sample is stamped at its window's END and carries the mean loss of
+    /// full-resolution darkness over [darkFrom, darkTo) within that window.
+    /// </summary>
+    private static List<LatencySample> StopStamped(int stepSeconds, DateTime darkFrom, DateTime darkTo)
+    {
+        var s = new List<LatencySample>();
+        for (var t = TestSeries.Start.AddSeconds(stepSeconds); t <= TestSeries.Start + Window; t = t.AddSeconds(stepSeconds))
+        {
+            var overlap = (new DateTime(Math.Min(t.Ticks, darkTo.Ticks))
+                - new DateTime(Math.Max(t.AddSeconds(-stepSeconds).Ticks, darkFrom.Ticks))).TotalSeconds;
+            s.Add(new LatencySample(t, 20, 20.5, 0.5, Math.Max(0, overlap) / stepSeconds * 100));
+        }
+        return s;
+    }
+
+    [Fact]
+    public void Coarse_window_lan_outage_diluted_to_a_partial_still_reads_local()
+    {
+        // A 30-day window's ~60 s aggregation dilutes a 2-min LAN outage's 100%-loss samples with
+        // clean neighbors, so the blackout pass never fires and it lands in the partial pass - but
+        // the gateway series stays fine (capped at OutageBucketSeconds) and shows the agent could
+        // not reach its own gateway. The partial event must scope Local, as the 7-day view does.
+        var darkFrom = TestSeries.Start.AddMinutes(10).AddSeconds(30);
+        var darkTo = TestSeries.Start.AddMinutes(12).AddSeconds(30);
+        List<LatencySample> Coarse() => StopStamped(60, darkFrom, darkTo);
+        var gateway = StopStamped(15, darkFrom, darkTo);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("access-hop", 1, Coarse(), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("Transit A", 2, Coarse(), AsnLabel: "Transit A", AsnNumber: 3356),
+            new OutageDetector.Hop("Cloudflare", 3, Coarse(), IsInternet: true, AsnNumber: 13335),
+            new OutageDetector.Hop("Google", 4, Coarse(), IsInternet: true, AsnNumber: 15169),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options, pathSampleSeconds: 60);
+
+        events.Should().ContainSingle();
+        events[0].IsPartial.Should().BeTrue();
+        events[0].IsNearTotal.Should().BeTrue();
+        events[0].Scope.Should().Be(OutageScope.Local);
+    }
+
+    [Fact]
+    public void Clean_gateway_does_not_flip_a_coarse_partial_to_local()
+    {
+        // Same coarse-diluted event, but the gateway answered throughout: a genuine WAN event,
+        // and the gateway's presence must not reclassify it.
+        var darkFrom = TestSeries.Start.AddMinutes(10).AddSeconds(30);
+        var darkTo = TestSeries.Start.AddMinutes(12).AddSeconds(30);
+        List<LatencySample> Coarse() => StopStamped(60, darkFrom, darkTo);
+        var gateway = StopStamped(15, darkFrom, darkFrom); // never dark
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("access-hop", 1, Coarse(), Groupable: true, AsnLabel: "Access ISP", AsnNumber: 64500),
+            new OutageDetector.Hop("Transit A", 2, Coarse(), AsnLabel: "Transit A", AsnNumber: 3356),
+            new OutageDetector.Hop("Cloudflare", 3, Coarse(), IsInternet: true, AsnNumber: 13335),
+            new OutageDetector.Hop("Google", 4, Coarse(), IsInternet: true, AsnNumber: 15169),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options, pathSampleSeconds: 60);
+
+        events.Should().ContainSingle();
+        events[0].Scope.Should().Be(OutageScope.FullWan);
+    }
+
+    [Fact]
+    public void Coarse_trigger_blackout_reads_local_off_the_fine_gateway_series()
+    {
+        // A ~2-min LAN outage seen through 60 s stop-stamped trigger samples: the dark trigger
+        // buckets are sparse and shifted after the real darkness, and the gateway's poll stream
+        // had a gap at one of them while its reading at the other straddles the recovery - so
+        // judging the gateway only AT the dark trigger buckets reads it as reachable. The duty
+        // over the trigger's dark span (reached back one aggregate interval) still sees it dark.
+        var darkFrom = TestSeries.Start.AddMinutes(10);
+        var darkTo = TestSeries.Start.AddMinutes(11).AddSeconds(58);
+        var internet1 = StopStamped(60, darkFrom, darkTo);
+        var internet2 = StopStamped(60, darkFrom, darkTo);
+        var gapFrom = TestSeries.Start.AddMinutes(10).AddSeconds(30);
+        var gapTo = TestSeries.Start.AddMinutes(11);
+        var gateway = StopStamped(15, darkFrom, darkTo)
+            .Where(s => s.Time <= gapFrom || s.Time > gapTo).ToList();
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("access-hop", 1, StopStamped(60, darkFrom, darkTo), Groupable: true, AsnLabel: "Access ISP"),
+            new OutageDetector.Hop("Cloudflare", 2, internet1, IsInternet: true),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options, triggerSampleSeconds: 60);
+
+        events.Should().ContainSingle();
+        events[0].Scope.Should().Be(OutageScope.Local);
+    }
+
     [Fact]
     public void Monitoring_gap_with_no_samples_is_not_an_outage()
     {

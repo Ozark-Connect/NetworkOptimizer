@@ -59,7 +59,7 @@ public class DashboardService : IDashboardService
     /// <returns>A <see cref="DashboardData"/> object containing all dashboard metrics.</returns>
     public async Task<DashboardData> GetDashboardDataAsync()
     {
-        _logger.LogInformation("Loading dashboard data");
+        _logger.LogDebug("Loading dashboard data");
 
         var data = new DashboardData();
 
@@ -135,7 +135,7 @@ public class DashboardService : IDashboardService
             data.ConnectionStatus = "Connected";
             data.ControllerType = _connectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
 
-            _logger.LogInformation("Dashboard loaded: {DeviceCount} devices", data.DeviceCount);
+            _logger.LogDebug("Dashboard loaded: {DeviceCount} devices", data.DeviceCount);
         }
         catch (Exception ex)
         {

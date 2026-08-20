@@ -806,9 +806,15 @@ public class IspHealthService
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, rateAggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
+        // The gateway series decides the Local (gateway-dark) outage scope, and darkness cannot
+        // survive a coarse mean: at a long window's 60 s aggregate, a sub-minute 100%-loss span
+        // averages with clean samples to under OutageDarkLossPct, so LAN/Gateway outages read as
+        // whole-WAN. Capped at the detector's own bucket - one target, so fine rows stay cheap.
+        var gatewayAggregate = TimeSpan.FromSeconds(
+            Math.Min(aggregate.TotalSeconds, _options.OutageBucketSeconds));
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
-            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, aggregate, ct);
+            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, outageQueryStart, windowEnd, gatewayAggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, customSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
         // Split the compute at the point every query has returned. Three rounds of optimizing the rate
         // path moved the total by nothing, which means the cost is not where it was assumed to be -
@@ -1282,7 +1288,9 @@ public class IspHealthService
         }
         var outageHops = BuildHops(outageSources);
         ct.ThrowIfCancellationRequested();
-        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
+        // The aggregate interval rides along so the gateway-dark (Local) scope test can reach back
+        // over the stop-stamp shift the coarse trigger/path series carry on long windows.
+        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options, aggregate.TotalSeconds);
         // Second pass: coincident partial-loss disruptions (the path getting lossy but not dark)
         // across the full set of monitored hops, excluding windows already flagged as blackouts.
         // Unlike the blackout pass - whose trigger is every internet target and whose HOPS are only
@@ -1291,7 +1299,8 @@ public class IspHealthService
         // an identical event trip at one site and not another purely because the first happened to
         // monitor one more transit hop (so its ASN split into one more RTT cluster).
         var partialDisruptions = OutageDetector.DetectPartial(
-            BuildHops(partialSources), outages.Select(o => (o.Start, o.End)).ToList(), _options);
+            BuildHops(partialSources), outages.Select(o => (o.Start, o.End)).ToList(), _options,
+            aggregate.TotalSeconds);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
         // Drop events that ended at or before the window start: the lead-in reach-back only exists to
         // capture an outage that STRADDLES the window start (its recovery is in-window), so an event
@@ -1357,7 +1366,7 @@ public class IspHealthService
         // data-path interface (SqmWanConfigurations rows are per interface).
         var scoredDataPathInterface = await GetScoredWanDataPathInterfaceAsync(ct);
         var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, scoredDataPathInterface, ct);
-        var adaptiveSqmEnabled = await IsAdaptiveSqmEnabledAsync(scoredDataPathInterface, ct);
+        var (adaptiveSqmEnabled, sqmNominalDown, sqmNominalUp) = await GetAdaptiveSqmStateAsync(scoredDataPathInterface, ct);
 
         // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
         // modem, or cellular modem) and aggregate its window metrics for the Physical Link factor.
@@ -1390,6 +1399,8 @@ public class IspHealthService
             Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
             AdaptiveSqmEnabled = adaptiveSqmEnabled,
+            SqmNominalDownloadMbps = sqmNominalDown,
+            SqmNominalUploadMbps = sqmNominalUp,
             HopOrderKnown = hopOrderKnown,
             // Hops with a discovery row but HopNumber 0 answered pings yet never landed in a trace
             // (OLT/CMTS ICMP-deprioritization); only meaningful once we have trace data at all.
@@ -2335,14 +2346,19 @@ public class IspHealthService
     /// recommendation uses this so it never tells a user to "consider Adaptive SQM" when they
     /// already run it.
     /// </summary>
-    private async Task<bool> IsAdaptiveSqmEnabledAsync(string? primaryWanInterface, CancellationToken ct)
+    private async Task<(bool Enabled, int? NominalDownMbps, int? NominalUpMbps)> GetAdaptiveSqmStateAsync(
+        string? primaryWanInterface, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(primaryWanInterface)) return false;
+        if (string.IsNullOrEmpty(primaryWanInterface)) return (false, null, null);
         await using var db = await CreateSiteDbAsync(ct);
         var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
             .Where(c => c.Enabled)
             .ToListAsync(ct);
-        return sqmConfigs.Any(c => string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
+        var config = sqmConfigs.FirstOrDefault(c =>
+            string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
+        return config == null
+            ? (false, null, null)
+            : (true, config.NominalDownloadMbps, config.NominalUploadMbps);
     }
 
     /// <summary>
