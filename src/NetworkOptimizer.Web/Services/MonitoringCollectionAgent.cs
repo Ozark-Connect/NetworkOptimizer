@@ -2814,7 +2814,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (!_standardFanOidsMigrated)
             {
-                await CustomOidMigration.RemoveSupersededAsync(db, _logger, ct);
+                await CustomOidMigration.RemoveSupersededAsync(db, _siteSlug, _logger, ct);
                 _standardFanOidsMigrated = true;
             }
 

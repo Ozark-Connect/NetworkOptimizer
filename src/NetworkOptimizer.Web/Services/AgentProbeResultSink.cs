@@ -893,7 +893,7 @@ public class AgentProbeResultSink
                 {
                     if (!_fanOidMigratedBySite.ContainsKey(connection.SiteSlug))
                     {
-                        await CustomOidMigration.RemoveSupersededAsync(db, _logger, ct);
+                        await CustomOidMigration.RemoveSupersededAsync(db, connection.SiteSlug, _logger, ct);
                         _fanOidMigratedBySite[connection.SiteSlug] = true;
                     }
 

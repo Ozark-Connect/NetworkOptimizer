@@ -19,7 +19,7 @@ public static class CustomOidMigration
     ];
 
     public static async Task<int> RemoveSupersededAsync(
-        NetworkOptimizerDbContext db, ILogger? logger, CancellationToken ct = default)
+        NetworkOptimizerDbContext db, string site, ILogger? logger, CancellationToken ct = default)
     {
         var removed = 0;
         foreach (var (oid, fieldName) in SupersededOids)
@@ -37,7 +37,7 @@ public static class CustomOidMigration
         if (removed > 0)
         {
             await db.SaveChangesAsync(ct);
-            logger?.LogInformation("Removed {Count} custom OID(s) superseded by standard polling", removed);
+            logger?.LogInformation("Removed {Count} custom OID(s) superseded by standard polling on site {Site}", removed, site);
         }
 
         return removed;
