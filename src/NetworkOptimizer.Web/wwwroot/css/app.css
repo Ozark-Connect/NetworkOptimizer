@@ -3012,7 +3012,6 @@ select.form-control {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    z-index: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -19396,18 +19395,6 @@ body.kiosk-mode .status-indicators {
     /* Square along the top so the panel reads as an extension of the row that opened it, rather
        than a separate card floating below it. */
     border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
-}
-
-/* The table holds a 500px floor, so on a phone the panel row extends into the wrapper's scroll
-   overflow and carries anything at its right edge - the command copy buttons - off screen. */
-.table-responsive:has(> .sites-table) {
-    container-type: inline-size;
-}
-
-.site-config-row .site-config-panel {
-    position: sticky;
-    left: 0;
-    max-width: 100cqw;
 }
 
 .site-config-section {
