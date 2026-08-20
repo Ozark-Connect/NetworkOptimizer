@@ -484,6 +484,9 @@ a stream that keeps resetting leaves the site reporting nothing even though the
 agent is up and reconnecting. Pin down the interval - a reset landing on the same
 round number every time is a proxy deadline, not a network fault.
 
+**Zoraxy** - supported, but the setup is GUI-driven and there is no written
+walkthrough yet. Email tj@ozarkconnect.net and we'll send you instructions.
+
 Over a site-to-site VPN the same config applies; the proxy is simply reached at
 its VPN address, with `"ignoreSslErrors": true` if its certificate does not
 match that address.
