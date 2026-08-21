@@ -26,6 +26,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector
+@inject SiteAgentCoverage AgentCoverage
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ProbeExecutors
 @inject SiteTunnelRouting TunnelRouting
 @inject WanDataUsageService DataUsageService
@@ -2378,7 +2379,7 @@
         try
         {
             _agentOnGateway = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
-            _wanTestViaAgent = !_agentOnGateway && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
+            _wanTestViaAgent = !_agentOnGateway && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
         }
         catch
         {
@@ -3581,8 +3582,8 @@
 
     /// <summary>
     /// What runs a "server" WAN speed test on THIS site: the server itself, or the on-site agent.
-    /// Matches the WAN speed test execution path (IsViaAgentAsync), not the probe vantage
-    /// (AgentOwnsPathMeasurement) - covers alone does not route WAN tests through the agent.
+    /// Matches the WAN speed test execution path (AgentOwnsPathMeasurement), which is the same
+    /// predicate the probe vantage resolves on - the agent runs the test binary itself.
     /// </summary>
     private string ServerVantageLabel => _wanTestViaAgent ? "Agent" : "Server";
 
