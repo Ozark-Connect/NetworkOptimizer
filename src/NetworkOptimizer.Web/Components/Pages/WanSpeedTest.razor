@@ -148,18 +148,16 @@
                     </div>
                     @if (!_gatewayAvailable && !_isRunning && !string.IsNullOrEmpty(_gatewayUnavailableReason))
                     {
-                        var reason = _gatewayUnavailableReason!;
-                        var linkIdx = string.IsNullOrEmpty(_gatewaySettingsHref)
-                            ? -1
-                            : reason.IndexOf("Settings", StringComparison.Ordinal);
+                        var linked = MessageLinker.Split(
+                            _gatewayUnavailableReason, _gatewaySettingsLinkText, _gatewaySettingsHref);
                         <div class="alert alert-warning">
-                            @if (linkIdx >= 0)
+                            @if (linked.HasLink)
                             {
-                                @reason.Substring(0, linkIdx)<a href="@_gatewaySettingsHref">Settings</a>@reason.Substring(linkIdx + "Settings".Length)
+                                @linked.Before<a href="@linked.Href">@linked.LinkText</a>@linked.After
                             }
                             else
                             {
-                                @reason
+                                @linked.Before
                             }
                         </div>
                     }
@@ -695,7 +693,8 @@
     private string? _gatewayUnavailableReason;
     private bool _gatewaySshConfigured;      // gateway SSH host+creds present and enabled
     private string? _gatewaySshUnavailableReason;
-    private string? _gatewaySettingsHref;    // deep link for the "Settings" word in the unavailable reason, when applicable
+    private string? _gatewaySettingsHref;     // where the unavailable reason's link goes, when it has one
+    private string? _gatewaySettingsLinkText; // the phrase in that reason to turn into the link
     private bool _consoleDataLoaded;         // WAN list/interfaces loaded from a connected console
 
     // Agent-backed secondary site whose on-site agent isn't currently connected.
@@ -1021,13 +1020,17 @@
             _gatewayUnavailableReason = agentReason;
             // Only the "no agent set up" reason points at a settings page; the
             // "agent offline, resumes when it reconnects" reason is not actionable.
-            _gatewaySettingsHref = _siteAgentOffline ? null : "/settings#multi-site";
+            _gatewaySettingsHref = _siteAgentOffline
+                ? null
+                : $"/settings?tab=multisite&configure={SiteContext.Slug}";
+            _gatewaySettingsLinkText = _siteAgentOffline ? null : "Settings > Multi-Site";
         }
         else
         {
             _gatewayAvailable = _gatewaySshConfigured;
             _gatewayUnavailableReason = _gatewaySshConfigured ? null : _gatewaySshUnavailableReason;
             _gatewaySettingsHref = "/settings#gateway-ssh";
+            _gatewaySettingsLinkText = "Settings, under the Connection tab";
         }
     }
 
