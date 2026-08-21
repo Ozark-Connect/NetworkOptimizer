@@ -19141,6 +19141,7 @@ body.kiosk-mode .status-indicators {
     font-family: monospace;
     font-size: 0.8rem;
     color: var(--text-muted);
+    margin-right: auto;
 }
 
 .site-card-footer {
