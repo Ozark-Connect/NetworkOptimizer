@@ -3385,7 +3385,13 @@
             ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
             : new TimeOnly(6, 0);
 
-        _newAgentVantage = GetConfigValue(config, "wanContextId") ?? "";
+        // A schedule whose WAN was deleted falls back to the default path here rather than holding an
+        // id no option carries: the select would show the first option while the field still held
+        // the dead one, so what was displayed and what would be saved disagreed until it was touched.
+        var storedVantage = GetConfigValue(config, "wanContextId") ?? "";
+        _newAgentVantage = _agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == storedVantage)
+            ? storedVantage
+            : "";
 
         // Try to match WAN selection from config
         if (_newWanTestType == "gateway")

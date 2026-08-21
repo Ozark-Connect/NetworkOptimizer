@@ -74,12 +74,18 @@ public class AgentWanTestVantageResolver
 
     /// <summary>
     /// The vantages offered on the site's WAN speed test surfaces: the default path, then one entry
-    /// per WAN context. Empty when the site has no contexts - a single-WAN site has nothing to
-    /// choose between and gets no selector at all.
+    /// per WAN context that could run a test. Empty when that leaves nothing to choose between,
+    /// which covers a site with no contexts and a site whose contexts are all served by a gateway
+    /// agent - one possibility is not a choice, so no selector is drawn at all.
     /// <para>
-    /// Deliberately the same list, in the same order, that Latency Targets offers when a target
-    /// picks its WAN: by WAN index so it reads WAN1, WAN2, ... rather than alphabetically, with
-    /// ties broken by name. Choosing a WAN should look the same wherever it is chosen.
+    /// Ordered the way Latency Targets orders the same list: by WAN index so it reads WAN1, WAN2,
+    /// ... rather than alphabetically, with ties broken by name.
+    /// </para>
+    /// <para>
+    /// The filter is about what CAN run, never about what happens to be up. A context whose agent
+    /// is merely offline stays listed and carries its reason, because it comes back; one bound to a
+    /// gateway agent or to no agent at all is dropped, because no amount of waiting makes it
+    /// runnable and the Gateway test already covers that WAN.
     /// </para>
     /// </summary>
     public async Task<List<AgentWanVantage>> ListVantagesAsync(string siteSlug, CancellationToken ct = default)
@@ -87,17 +93,35 @@ public class AgentWanTestVantageResolver
         var contexts = await LoadContextsAsync(siteSlug, ct);
         if (contexts.Count == 0) return new List<AgentWanVantage>();
 
+        var capable = new HashSet<int>();
+        foreach (var agentId in contexts.Where(c => c.AgentId != null).Select(c => c.AgentId!.Value).Distinct())
+            if (await CanRunAsync(siteSlug, agentId, ct))
+                capable.Add(agentId);
+
+        var runnable = SelectableContexts(contexts, capable).ToList();
+        if (runnable.Count == 0) return new List<AgentWanVantage>();
+
         var vantages = new List<AgentWanVantage>();
         var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
         vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
 
-        foreach (var context in OrderForDisplay(contexts))
+        foreach (var context in runnable)
         {
             var (_, refusal) = await ResolveAsync(siteSlug, context.Id, ct);
             vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal));
         }
         return vantages;
     }
+
+    /// <summary>
+    /// The contexts a WAN speed test could be pointed at, in display order. Drops what can never
+    /// run - a context with no agent, or one whose agent is on the gateway - rather than listing a
+    /// WAN that will refuse every time it is picked. An agent that is simply offline is NOT dropped:
+    /// it comes back, and its entry carries the reason meanwhile.
+    /// </summary>
+    internal static IEnumerable<WanContext> SelectableContexts(
+        IEnumerable<WanContext> contexts, IReadOnlyCollection<int> capableAgentIds) =>
+        OrderForDisplay(contexts.Where(c => c.AgentId != null && capableAgentIds.Contains(c.AgentId.Value)));
 
     /// <summary>
     /// WAN contexts in the order every selector shows them: by WAN index, then by name. Shared with

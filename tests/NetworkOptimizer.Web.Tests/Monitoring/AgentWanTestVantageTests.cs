@@ -165,6 +165,58 @@ public class AgentWanTestVantageTests
             .Should().Equal("Fiber", "Unkeyed A", "Unkeyed B");
     }
 
+    // ---- What the selector offers ------------------------------------------
+
+    [Fact]
+    public void ContextsServedByAGatewayAgentAreNotOffered()
+    {
+        // The main-site shape: every WAN context bound to the agent on the gateway. None of them
+        // can run this test and none ever will, so the list collapses to the default path alone -
+        // which the callers render as no selector, because one possibility is not a choice.
+        var contexts = new[]
+        {
+            Context(1, "Fiber", GatewayAgent, wan: "wan"),
+            Context(2, "Backup LTE", GatewayAgent, wan: "wan2"),
+        };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SpeedTestAgent })
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AContextWithNoAgentIsNotOffered()
+    {
+        var contexts = new[] { Context(1, "Cable", agentId: null) };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SpeedTestAgent })
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnOfflineAgentsWanIsStillOffered()
+    {
+        // Offline is temporary, so the WAN stays listed and its entry explains itself. Dropping it
+        // would make a WAN disappear from the picker every time its agent blinked.
+        var contexts = new[] { Context(1, "Starlink", SecondaryWanAgent) };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SecondaryWanAgent })
+            .Select(c => c.Name).Should().Equal("Starlink");
+    }
+
+    [Fact]
+    public void OnlyTheRunnableWansSurviveOnAMixedSite()
+    {
+        var contexts = new[]
+        {
+            Context(1, "Fiber", GatewayAgent, wan: "wan"),
+            Context(2, "Starlink", SecondaryWanAgent, wan: "wan2"),
+            Context(3, "Cable", agentId: null, wan: "wan3"),
+        };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SpeedTestAgent, SecondaryWanAgent })
+            .Select(c => c.Name).Should().Equal("Starlink");
+    }
+
     // ---- A chosen WAN context ---------------------------------------------
 
     [Fact]
