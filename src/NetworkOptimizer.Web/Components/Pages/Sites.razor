@@ -75,7 +75,7 @@ else
                     <h3 class="site-card-name">@site.Name</h3>
                     @if (isCurrent)
                     {
-                        <span class="status-badge status-connected">Current</span>
+                        <span class="status-badge status-info">Current</span>
                     }
                 </div>
                 @if (ConsoleHost(site.Id) is { Length: > 0 } host)
