@@ -3012,6 +3012,12 @@ select.form-control {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
+    z-index: 1;
+    /* The pre this sits over is an async-scrolled composited layer on iOS, which paints across an
+       unpromoted sibling whatever the paint order says. Never drop the transform: on a phone the
+       button then renders invisible - present, hit-testable, and not drawn. */
+    will-change: transform;
+    transform: translateZ(0);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -19395,6 +19401,17 @@ body.kiosk-mode .status-indicators {
     /* Square along the top so the panel reads as an extension of the row that opened it, rather
        than a separate card floating below it. */
     border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+}
+
+/* .data-table holds a 500px floor, so on a phone this row runs past the wrapper's visible width
+   into its scroll overflow, taking anything at its right edge - the command copy buttons - with
+   it. Capped to the scroller's own inline size instead. */
+.table-responsive:has(> .sites-table) {
+    container-type: inline-size;
+}
+
+.site-config-row .site-config-panel {
+    max-width: 100cqw;
 }
 
 .site-config-section {
