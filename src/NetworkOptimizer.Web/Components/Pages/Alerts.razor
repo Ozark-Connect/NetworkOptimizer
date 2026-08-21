@@ -27,6 +27,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject SiteAgentCoverage AgentCoverage
+@inject AgentWanTestVantageResolver AgentVantages
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ProbeExecutors
 @inject SiteTunnelRouting TunnelRouting
 @inject WanDataUsageService DataUsageService
@@ -1894,10 +1895,15 @@
     // so the Server WAN test can never succeed - hidden for new schedules. An
     // existing legacy Server schedule keeps its option while being edited so the
     // bound selection stays coherent.
-    private bool _agentOnGateway;
     private bool _wanTestViaAgent;
+
+    // Whether a "server" WAN test can be scheduled here at all: this server runs it, or an agent
+    // that can. A gateway agent carries no speed test binary, so it offers nothing to schedule.
+    private bool _serverTestOffered;
     private string _newWanTestType = "gateway";
     private string _newWanSelection = "0";
+    private List<AgentWanVantage> _agentVantages = new();
+    private string _newAgentVantage = "";
     private bool _newWanMaxMode;
     private TimeOnly _newWanStartTime = new(6, 0);
     private string? _newLanDevice;
@@ -1958,7 +1964,7 @@
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
     private string _scheduleMessageClass = "info";
-    private bool CanCreateWanSchedule => (_newWanTestType == "server" && !_agentOnGateway) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+    private bool CanCreateWanSchedule => (_newWanTestType == "server" && _serverTestOffered) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
     private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
 
     private RenderFragment WanScheduleForm => __builder =>
@@ -1981,12 +1987,24 @@
                             {
                                 <option value="gateway">Gateway (Direct)</option>
                             }
-                            @if (!_agentOnGateway || _newWanTestType == "server")
+                            @if (_serverTestOffered || _newWanTestType == "server")
                             {
                                 <option value="server">@ServerVantageLabel</option>
                             }
                         </select>
                     </div>
+                    @if (_newWanTestType == "server" && _agentVantages.Count > 0)
+                    {
+                        <div class="form-group schedule-field">
+                            <label>WAN</label>
+                            <select class="form-control" @bind="_newAgentVantage">
+                                @foreach (var vantage in _agentVantages)
+                                {
+                                    <option value="@(vantage.ContextId?.ToString() ?? "")">@vantage.Label</option>
+                                }
+                            </select>
+                        </div>
+                    }
                     @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
                     {
                         <div class="form-group schedule-field">
@@ -2396,15 +2414,21 @@
 
         try
         {
-            _agentOnGateway = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
-            _wanTestViaAgent = !_agentOnGateway && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _serverTestOffered = await AgentVantages.HasCapableAgentAsync(SiteContext.Slug)
+                || !AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _wanTestViaAgent = _serverTestOffered && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _agentVantages = _wanTestViaAgent
+                ? await AgentVantages.ListVantagesAsync(SiteContext.Slug)
+                : new List<AgentWanVantage>();
         }
         catch
         {
-            _agentOnGateway = false;
+            // Keep offering it rather than removing the option on a transient read failure: a run
+            // that cannot happen says so with a specific reason, a missing option says nothing.
+            _serverTestOffered = true;
         }
 
-        if (!_gatewayAvailable && !_agentOnGateway)
+        if (!_gatewayAvailable && _serverTestOffered)
             _newWanTestType = "server";
 
         BuildWanSelectorOptions();
@@ -3178,7 +3202,21 @@
 
             if (_newWanTestType == "server")
             {
-                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+                var vantage = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _newAgentVantage);
+                if (vantage?.ContextId != null)
+                {
+                    config["wanContextId"] = vantage.ContextId.Value;
+                    // Display only, so the schedule row shows its WAN the same way a gateway row
+                    // does. The executor reconciles wanName against the console for gateway tests
+                    // only, so this is never read back as a target.
+                    config["wanName"] = vantage.Label;
+                }
+                // The WAN goes in the name the way the gateway test does, so the row reads the same
+                // whichever runs it. Unnamed means the primary WAN, which is what a single-WAN site
+                // and every schedule made before this always meant.
+                var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
+                var loadLabel = _newWanMaxMode ? ", Max Load" : "";
+                taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
             }
             else
             {
@@ -3235,6 +3273,7 @@
 
             await AlertConfig.CreateScheduleAsync(task);
             _newWanSelection = "0";
+            _newAgentVantage = "";
             _newWanMaxMode = false;
             _newWanFrequency = 1440;
             _newWanStartTime = new(6, 0);
@@ -3346,6 +3385,8 @@
             ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
             : new TimeOnly(6, 0);
 
+        _newAgentVantage = GetConfigValue(config, "wanContextId") ?? "";
+
         // Try to match WAN selection from config
         if (_newWanTestType == "gateway")
         {
@@ -3379,6 +3420,7 @@
         _editingWanScheduleId = null;
         _newWanTestType = "gateway";
         _newWanSelection = "0";
+        _newAgentVantage = "";
         _newWanMaxMode = false;
         _newWanFrequency = 1440;
         _newWanStartTime = new(6, 0);
@@ -3404,7 +3446,21 @@
 
             if (_newWanTestType == "server")
             {
-                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+                var vantage = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _newAgentVantage);
+                if (vantage?.ContextId != null)
+                {
+                    config["wanContextId"] = vantage.ContextId.Value;
+                    // Display only, so the schedule row shows its WAN the same way a gateway row
+                    // does. The executor reconciles wanName against the console for gateway tests
+                    // only, so this is never read back as a target.
+                    config["wanName"] = vantage.Label;
+                }
+                // The WAN goes in the name the way the gateway test does, so the row reads the same
+                // whichever runs it. Unnamed means the primary WAN, which is what a single-WAN site
+                // and every schedule made before this always meant.
+                var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
+                var loadLabel = _newWanMaxMode ? ", Max Load" : "";
+                taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
             }
             else
             {

@@ -101,6 +101,9 @@ public static class ScheduleExecutorRegistration
             var maxMode = false;
             string? wanGroup = null;
             string? wanName = null;
+            // Which WAN an agent-run test measures. Null is the site's primary WAN, which is what
+            // every schedule made before this meant and what a single-WAN site always means.
+            int? wanContextId = null;
             string[]? multiInterfaces = null;
 
             if (!string.IsNullOrEmpty(targetConfig))
@@ -111,7 +114,9 @@ public static class ScheduleExecutorRegistration
                     testType = tt.GetString() ?? "gateway";
                 if (root.TryGetProperty("maxMode", out var mm))
                     maxMode = mm.GetBoolean();
-                if (root.TryGetProperty("wanGroup", out var wg))
+                if (root.TryGetProperty("wanContextId", out var wc) && wc.TryGetInt32(out var wanContextIdValue))
+                wanContextId = wanContextIdValue;
+            if (root.TryGetProperty("wanGroup", out var wg))
                     wanGroup = wg.GetString();
                 if (root.TryGetProperty("wanName", out var wn))
                     wanName = wn.GetString();
@@ -153,7 +158,8 @@ public static class ScheduleExecutorRegistration
                 var serverService = scope.ServiceProvider.GetRequiredService<IUwnSpeedTestService>();
                 if (await serverService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
-                result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
+                result = await serverService.RunTestAsync(
+                    maxMode: maxMode, wanContextId: wanContextId, cancellationToken: ct);
             }
             else
             {

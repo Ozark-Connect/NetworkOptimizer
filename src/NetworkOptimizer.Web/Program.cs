@@ -248,6 +248,7 @@ builder.Services.AddSingleton<AgentProbeResultSink>();
 builder.Services.AddSingleton<AgentTunnelProxyService>();
 builder.Services.AddSingleton<AgentIperf3Service>();
 builder.Services.AddSingleton<AgentUwnService>();
+builder.Services.AddSingleton<AgentWanTestVantageResolver>();
 builder.Services.AddSingleton<AgentProbeService>();
 builder.Services.AddSingleton<AgentSnmpQueryService>();
 builder.Services.AddSingleton<CanonicalBaseUrlProvider>();

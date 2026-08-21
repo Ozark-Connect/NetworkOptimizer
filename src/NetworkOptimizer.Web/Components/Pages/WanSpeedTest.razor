@@ -22,6 +22,7 @@
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject SiteTunnelRouting TunnelRouting
 @inject AgentOnGatewayDetector OnGatewayDetector
+@inject AgentWanTestVantageResolver AgentVantages
 @inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
@@ -142,7 +143,7 @@
                         }
                     </div>
                     <div class="wan-test-option-hint">
-                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead.@if (!_agentOnGateway)
+                        Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead.@if (_serverOptionVisible)
                         {<text> For multi-gig connections, @(RunsOnAgent ? "an Agent-based" : "a Server-based") test may be best.</text>}
                     </div>
                     @if (!_gatewayAvailable && !_isRunning && !string.IsNullOrEmpty(_gatewayUnavailableReason))
@@ -164,10 +165,10 @@
                     }
                 </div>
 
-                @* Server Option - Secondary. Hidden entirely when the site's agent runs
-                   on the gateway itself: the run would happen ON the gateway, which is
+                @* Server Option - Secondary. Hidden entirely when no agent at the site can run
+                   the test - on a gateway agent the run would happen ON the gateway, which is
                    what the Gateway option already does properly. *@
-                @if (!_agentOnGateway)
+                @if (_serverOptionVisible)
                 {
                 <div class="wan-test-option @(_serverAvailable ? "" : "wan-test-option-unavailable")">
                     <div class="wan-test-option-header">
@@ -178,6 +179,20 @@
                         }
                     </div>
                     <div class="wan-test-option-controls">
+                        @if (_agentVantages.Count > 0)
+                        {
+                            <div class="wan-selector">
+                                <select class="form-control wan-select"
+                                        @bind="_selectedAgentVantage"
+                                        @bind:after="OnAgentVantageChanged"
+                                        disabled="@(_isRunning)">
+                                    @foreach (var vantage in _agentVantages)
+                                    {
+                                        <option value="@(vantage.ContextId?.ToString() ?? "")">@vantage.Label</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         <label class="toggle-switch" data-tooltip="Normal: 4 servers, 20 connections, 8 s. Max Load: up to 12 servers, 48 connections, 8 s for saturating high-bandwidth or congested links." data-tooltip-hover-only>
                             <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
                             <span class="toggle-slider"></span>
@@ -686,7 +701,16 @@
     // Agent-backed secondary site whose on-site agent isn't currently connected.
     // Both WAN tests run through that agent, so they can't run until it reconnects.
     private bool _siteAgentOffline;
-    private bool _agentOnGateway;
+
+    // Whether any connected agent at this site can run the test. A gateway agent cannot (it carries
+    // no speed test binary), which is why the option hides rather than offering a run that fails.
+    private bool _hasCapableAgent;
+    private bool _serverOptionVisible = true;
+
+    // Selectable WAN vantages for the agent run. Empty on a site with no WAN contexts, which is
+    // every single-WAN site: nothing to choose between, so no selector.
+    private List<AgentWanVantage> _agentVantages = new();
+    private string _selectedAgentVantage = "";
 
     /// <summary>
     /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
@@ -968,9 +992,13 @@
         // IS the gateway - the Server option is hidden and the Gateway test is the
         // one to use. When speed-test-capable gateway installs arrive, key this off
         // the agent's capability instead of its location.
-        _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
-        _runsOnAgent = !_agentOnGateway
+        _hasCapableAgent = agentOnline && await AgentVantages.HasCapableAgentAsync(SiteContext.Slug);
+        _runsOnAgent = _hasCapableAgent
             && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+        // The option stays visible for a site this server tests itself; it is only the agent-run
+        // case that needs an agent able to run it.
+        _serverOptionVisible = _hasCapableAgent || !AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+        await LoadAgentVantagesAsync();
         _vantageResolved = true;
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
@@ -995,6 +1023,54 @@
     }
 
     /// <summary>
+    /// Loads the WAN vantages the agent run can be pointed at, keeping the current selection when
+    /// it survives the refresh. A run on this server has no vantage to choose, so the list is
+    /// dropped entirely there rather than offering a choice that would not be honored.
+    /// </summary>
+    private async Task LoadAgentVantagesAsync()
+    {
+        _agentVantages = RunsOnAgent
+            ? await AgentVantages.ListVantagesAsync(SiteContext.Slug)
+            : new List<AgentWanVantage>();
+
+        if (_agentVantages.Count == 0)
+        {
+            _selectedAgentVantage = "";
+            return;
+        }
+        if (!_agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage))
+            _selectedAgentVantage = _agentVantages[0].ContextId?.ToString() ?? "";
+        ApplyAgentVantageAvailability();
+    }
+
+    /// <summary>
+    /// Reports up front whether the chosen WAN can be tested, rather than leaving the operator to
+    /// press the button and read a failure. Only narrows: an option already unavailable for the
+    /// site as a whole (no agent, offline agent) keeps that reason.
+    /// </summary>
+    private void ApplyAgentVantageAvailability()
+    {
+        if (!_serverAvailable) return;
+        var selected = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage);
+        if (selected is { Runnable: false })
+        {
+            _serverAvailable = false;
+            _serverUnavailableReason = selected.Reason;
+        }
+    }
+
+    private void OnAgentVantageChanged()
+    {
+        _serverAvailable = true;
+        _serverUnavailableReason = null;
+        ApplyAgentVantageAvailability();
+    }
+
+    /// <summary>The WAN context the agent run measures, or null for the site's primary WAN.</summary>
+    private int? SelectedWanContextId =>
+        int.TryParse(_selectedAgentVantage, out var id) ? id : null;
+
+    /// <summary>
     /// Polls the site's agent tunnel status so the WAN test options re-enable on
     /// their own once the agent reconnects. Only agent-backed secondary sites can
     /// go offline, so the default site skips the timer entirely.
@@ -1011,9 +1087,9 @@
                     // Compare on the rendered availability, not just the offline flag:
                     // a site with no via-agent flag that gains its first agent flips
                     // _serverAvailable without ever changing _siteAgentOffline.
-                    var before = (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _agentOnGateway);
+                    var before = (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _serverOptionVisible);
                     await RefreshAgentAvailabilityAsync();
-                    var changed = before != (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _agentOnGateway);
+                    var changed = before != (_siteAgentOffline, _serverAvailable, _gatewayAvailable, _serverOptionVisible);
 
                     // The console comes back a moment after the agent tunnel does; once it's
                     // connected, load the WAN data the Gateway (Direct) test needs so the
@@ -2086,7 +2162,8 @@
                 // arriving up to one poll late is not visible.
                 InvokeAsync(StateHasChanged);
             },
-            maxMode: _maxMode);
+            maxMode: _maxMode,
+            wanContextId: SelectedWanContextId);
 
         StopPolling();
         _isRunning = false;

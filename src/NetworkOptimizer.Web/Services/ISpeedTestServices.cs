@@ -39,12 +39,20 @@ public interface IUwnSpeedTestService
     /// <summary>Raised with the result id once the post-test path analysis finishes.</summary>
     event Action<int>? OnPathAnalysisComplete;
 
-    /// <summary>Runs a WAN speed test from this server.</summary>
+    /// <summary>
+    /// Runs a WAN speed test from this server, or from the site's agent when the agent owns the
+    /// site's measurements.
+    /// </summary>
+    /// <param name="wanContextId">
+    /// WAN context the agent run should measure, or null for the site's primary WAN. Ignored by a
+    /// local run, which measures whatever this host's route takes.
+    /// </param>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]
     Task<Iperf3Result?> RunTestAsync(
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
         bool maxMode = false,
+        int? wanContextId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Stored WAN speed test results for this site.</summary>
