@@ -19406,6 +19406,12 @@ body.kiosk-mode .status-indicators {
         overflow-wrap: anywhere;
     }
 
+    /* Status is a badge or a dot and a word, so it takes what it needs and the name and site ID
+       split the rest. */
+    .sites-table > tbody > tr:not(.site-config-row) > td:nth-last-child(2) {
+        flex: 0 0 auto;
+    }
+
     .sites-table > tbody > tr:not(.site-config-row) > td:last-child {
         flex-basis: 100%;
         padding-top: 0;
