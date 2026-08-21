@@ -19467,6 +19467,13 @@ body.kiosk-mode .status-indicators {
     container-type: inline-size;
 }
 
+/* Drawn on the panel's inside edge. An outset ring is cut off here whichever element carries it:
+   .expand-content hides overflow for the expand animation, and .table-responsive scrolls. */
+.site-config-panel.nav-highlight {
+    outline-offset: -2px;
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+}
+
 .site-config-row .site-config-panel {
     max-width: 100cqw;
 }
