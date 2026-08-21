@@ -2311,6 +2311,10 @@ a.stat-card-link:active {
     color: var(--info-color);
 }
 
+.status-badge.badge-muted {
+    color: var(--text-muted);
+}
+
 .status-badge.badge-agent {
     background: rgba(100, 116, 139, 0.2);
     color: var(--text-secondary);
