@@ -20,7 +20,7 @@
             </div>
         </div>
 
-        <div class="signal-quality-section signal-centered">
+        <div class="signal-quality-section signal-with-model">
             <div class="ont-rx-gauge">
                 <span class="rx-power-value">-</span>
                 <span class="rx-power-label">Downstream SNR avg</span>
@@ -101,7 +101,7 @@
             </div>
         </div>
 
-        <div class="signal-quality-section signal-centered">
+        <div class="signal-quality-section signal-with-model">
             <div class="ont-rx-gauge">
                 <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
                     @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
@@ -116,6 +116,17 @@
                     <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
                 }
             </div>
+            @if (!string.IsNullOrWhiteSpace(_stats.DeviceModel))
+            {
+                var model = SplitModel(_stats.DeviceModel);
+                <div class="cm-model">
+                    <span class="cm-model-name">@model.Name</span>
+                    @if (model.Number != null)
+                    {
+                        <span class="cm-model-number">@model.Number</span>
+                    }
+                </div>
+            }
         </div>
 
         <div class="cellular-metrics" style="margin-top: 0.75rem;">
@@ -250,6 +261,22 @@
     private async Task Next()
     {
         if (_currentIndex < _configs.Count - 1) { _currentIndex++; await LoadStatsAsync(); }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex ModelWithNumber =
+        new(@"^(.*?)\s*\((.+)\)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Split a provider's device model into the name users know and the model
+    /// number behind it, so "CBR (CGA4332COM)" stacks as two lines. Models
+    /// reported as a single string stay on one.
+    /// </summary>
+    private static (string Name, string? Number) SplitModel(string model)
+    {
+        var match = ModelWithNumber.Match(model.Trim());
+        return match.Success
+            ? (match.Groups[1].Value, match.Groups[2].Value)
+            : (model.Trim(), null);
     }
 
     private string GetSnrClass(double? snr)

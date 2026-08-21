@@ -1926,6 +1926,33 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
+.signal-with-model .ont-rx-gauge {
+    align-items: flex-start;
+    flex: initial;
+}
+
+.cm-model {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+    text-align: right;
+    min-width: 0;
+}
+
+.cm-model-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.cm-model-number {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
 .signal-centered {
     position: relative;
     justify-content: center;
