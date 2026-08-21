@@ -19467,6 +19467,13 @@ body.kiosk-mode .status-indicators {
     container-type: inline-size;
 }
 
+/* Its wrapper clips overflow for the expand animation, so an offset ring is cut off. Sits on the
+   panel edge instead, keeping the panel's own bottom-only corners. */
+.site-config-panel.nav-highlight {
+    outline-offset: 0;
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+}
+
 .site-config-row .site-config-panel {
     max-width: 100cqw;
 }

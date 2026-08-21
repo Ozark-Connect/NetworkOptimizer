@@ -51,7 +51,7 @@
             {
                 <div class="alert alert-info">
                     <strong>On-site agent:</strong> Speed tests for this site run against its on-site agent at <code>@serverHost</code>, so they measure this site's own network rather than the central server.
-                    <a href="/settings#multi-site" class="tooltip-icon settings-link" data-tooltip="You can reconfigure this site's speed test URL if needed" data-tooltip-hover-only>
+                    <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="tooltip-icon settings-link" data-tooltip="You can reconfigure this site's speed test URL if needed" data-tooltip-hover-only>
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
                 </div>
@@ -59,7 +59,7 @@
             else if (agentOnGateway)
             {
                 <div class="alert alert-info">
-                    <strong>Agent on gateway:</strong> This site's agent runs on the UniFi gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal agent on a separate box at the site (Settings &gt; Multi-Site).
+                    <strong>Agent on gateway:</strong> This site's agent runs on the UniFi gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal agent on a separate box at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
                 </div>
             }
             else if (agentSiteOffline)

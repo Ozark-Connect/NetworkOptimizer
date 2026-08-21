@@ -67,7 +67,7 @@
                             The easiest way to monitor your other WANs is to deploy the agent on your
                             UniFi gateway. It reaches each WAN by that WAN's own interface, so there is
                             no routing policy to build. Set one up in
-                            <a href="/settings?tab=multisite#multi-site">Settings - Multi-Site</a>.
+                            <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>.
                         </p>
                     </div>
                     <button class="btn btn-sm btn-tertiary" @onclick="DismissGatewayAgentHintAsync">Dismiss</button>
@@ -193,11 +193,11 @@
                             Assigned agent
                             @* Hover-only because the icon navigates - see App.razor's tooltip init. *@
                             <span class="tooltip-wrapper">
-                                <a href="/settings?tab=multisite#multi-site"
+                                <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")"
                                    class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
                                    data-tooltip-hover-only>?</a>
                                 <span class="tooltip-content">
-                                    Agents enroll under <a href="/settings?tab=multisite#multi-site">Settings - Multi-Site</a>; the ones connected to this site appear here.
+                                    Agents enroll under <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>; the ones connected to this site appear here.
                                 </span>
                             </span>
                         </label>
@@ -260,7 +260,7 @@
                             No agent on the gateway yet. That is the shortest path to probing another
                             WAN: an agent on the UniFi gateway reaches every WAN by its own interface,
                             with no source address to pick and no routing policy to build. The install
-                            command is in <a href="/settings?tab=multisite#multi-site">Settings -
+                            command is in <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings -
                             Multi-Site</a>. Everything below relies on the gateway routing the probe
                             out the WAN instead.
                         </p>

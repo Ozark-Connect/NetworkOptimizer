@@ -5060,12 +5060,11 @@
             {
                 await ToggleAgents(target.Id);
                 // The panel rather than its row: the panel paints its own background over the
-                // whole row, so a row tint lands behind it and is never seen. Ringed with an
-                // explicit radius, which is what noHighlightTarget takes for a target that is
-                // not card-shaped.
+                // whole row, so a row tint lands behind it and is never seen. No radius passed -
+                // the panel keeps its own shape and ring offset in CSS, because its wrapper clips
+                // overflow and an offset ring would be cut off.
                 await Task.Delay(300);
-                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}",
-                    "center", "var(--border-radius)");
+                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center");
             }
         }
 
