@@ -1,3 +1,4 @@
+using System.Globalization;
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
@@ -18,6 +19,10 @@ public static class MonitoringLinks
     public const string TransitCategory = "Transit";
     public const string CustomCategory = "Custom";
     public const string InternetServiceCategory = "InternetService";
+
+    /// <summary>Now as the ?at= links frame their window on, for an alert raised at this instant.</summary>
+    public static string NowMs() =>
+        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The <c>?at=</c> value meaning the view was live rather than parked on an instant, which

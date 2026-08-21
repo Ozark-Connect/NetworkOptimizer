@@ -28,9 +28,6 @@ public class DeviceRebootAlertEvaluator
     /// </summary>
     public static readonly TimeSpan CurrentBootWindow = TimeSpan.FromMinutes(30);
 
-    /// <summary>The instant the alert fired, for the ?at= its link frames the window on.</summary>
-    private static string NowMs() =>
-        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds().ToString();
 
     private readonly IAlertEventBus _eventBus;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
@@ -119,7 +116,7 @@ public class DeviceRebootAlertEvaluator
             DeviceId = deviceMac,
             DeviceName = deviceName,
             DeviceIp = deviceIp
-            ,SourceUrl = MonitoringLinks.DeviceStats(deviceMac, NowMs())
+            ,SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs())
         }, ct);
 
         _logger.LogInformation(

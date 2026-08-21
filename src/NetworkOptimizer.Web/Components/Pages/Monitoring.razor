@@ -2641,9 +2641,17 @@
     /// One hour around the moment, set as a custom range, so the framing a link asked for never
     /// becomes the tab's remembered preset.
     /// </summary>
+    private bool _hardwareAtFramed;
+    private string? _lastHardwareAtParam;
+
     private string HardwareFrameJs()
     {
+        // Once per link, like the Device Stats and Network Performance paths clear theirs. The
+        // charts remount for reasons of their own - a console reconnect does it - and re-framing
+        // then would throw away a window the reader had since chosen.
+        if (_hardwareAtFramed) return "";
         if (!long.TryParse(AtParam, out var atMs) || atMs <= 0) return "";
+        _hardwareAtFramed = true;
         var iso = DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime.ToString("O");
         return $"m.frameMoment('{iso}');";
     }
@@ -2982,6 +2990,14 @@
         if (!string.IsNullOrEmpty(StarlinkParam) && _activeTab == "starlink")
         {
             _soloStarlinkId = StarlinkParam;
+        }
+
+        // A new link means a new moment to frame. Without this the second alert opened in a
+        // session would arrive on the first one's window.
+        if (AtParam != _lastHardwareAtParam)
+        {
+            _lastHardwareAtParam = AtParam;
+            _hardwareAtFramed = false;
         }
 
         // Expand on any funnel deep-link from the monitor forms. Those links always carry

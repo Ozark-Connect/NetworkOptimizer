@@ -62,6 +62,16 @@ namespace NetworkOptimizer.Storage.Migrations
             PerformanceRow(migrationBuilder, "\"target_type\":\"Wan\"", "InternetService", allWans: false);
             // Anything left on that tab is a custom target, including rows with no context at all.
             PerformanceRow(migrationBuilder, null, "Custom", allWans: true);
+
+            // A row that already knows its category only needs the window. None exist on the
+            // installs this was checked against, but the branches above all skip such a row, and
+            // being skipped silently is how a link stays broken.
+            migrationBuilder.Sql($@"
+                UPDATE AlertHistory
+                SET SourceUrl = REPLACE(SourceUrl, 'tab=performance', 'tab=performance&at=' || {AtMs})
+                WHERE SourceUrl LIKE '%tab=performance%'
+                  AND SourceUrl NOT LIKE '%at=%'
+                  AND {Recent};");
         }
 
         /// <summary>One category's share of the Network Performance rows.</summary>
