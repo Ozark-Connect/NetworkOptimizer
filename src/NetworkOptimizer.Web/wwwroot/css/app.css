@@ -1966,7 +1966,8 @@ a.stat-card-link:active {
     margin-left: 0;
 }
 @media (max-width: 768px) {
-    .signal-centered {
+    .signal-centered,
+    .signal-with-model {
         flex-wrap: wrap;
     }
     .signal-centered .modem-nav {
