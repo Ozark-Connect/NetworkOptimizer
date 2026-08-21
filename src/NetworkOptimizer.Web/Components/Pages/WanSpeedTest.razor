@@ -690,10 +690,11 @@
 
     /// <summary>
     /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
-    /// what the option is called and described as. Matches the actual execution path: the test goes
-    /// via agent when <see cref="SiteTunnelRouting.IsViaAgentAsync"/> is true (requires
-    /// devices.via_agent), not merely when covers is set. An agent that runs ON the gateway is not
-    /// this case: that option is hidden entirely, because the Gateway option already runs there.
+    /// what the option is called and described as. Matches the actual execution path
+    /// (<see cref="SiteAgentCoverage.AgentOwnsPathMeasurement"/>, the same predicate
+    /// UwnSpeedTestService runs on): the agent runs the binary itself, so this does not depend on
+    /// devices.via_agent, which only routes device endpoints. An agent that runs ON the gateway is
+    /// not this case: that option is hidden entirely, because the Gateway option already runs there.
     /// </summary>
     private bool _runsOnAgent;
     private bool RunsOnAgent => _vantageResolved
@@ -969,7 +970,7 @@
         // the agent's capability instead of its location.
         _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
         _runsOnAgent = !_agentOnGateway
-            && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
+            && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
         _vantageResolved = true;
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;

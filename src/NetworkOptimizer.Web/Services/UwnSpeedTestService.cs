@@ -24,6 +24,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
     private readonly AgentEnrollmentService _agentEnrollment;
 
@@ -65,18 +66,26 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
         _tunnelRouting = tunnelRouting;
+        _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
         _agentEnrollment = agentEnrollment;
     }
 
     /// <summary>
-    /// The default site runs the binary locally; a non-default site can run only
-    /// when it is reached through its agent (the agent runs the binary at the
-    /// site, measuring the site's WAN rather than this server's).
+    /// Whether this site's WAN test runs on its agent rather than on this server.
+    /// The agent runs the uwnspeedtest binary itself and dials no device, so this asks who owns
+    /// the site's measurements - never devices.via_agent, which only decides whether device
+    /// endpoints are reached through the tunnel and has nothing to say about where a test runs.
     /// </summary>
-    protected override async Task<bool> CanRunForSiteAsync() =>
-        IsDefaultSite ||
-        (await _tunnelRouting.IsViaAgentAsync(SiteSlug) && _tunnelRouting.IsAgentOnline(SiteSlug));
+    private bool RunsOnAgent => _agentCoverage.AgentOwnsPathMeasurement(SiteSlug);
+
+    /// <summary>
+    /// The default site runs the binary locally; a non-default site can run only
+    /// when its agent is online (the agent runs the binary at the site, measuring
+    /// the site's WAN rather than this server's).
+    /// </summary>
+    protected override Task<bool> CanRunForSiteAsync() =>
+        Task.FromResult(IsDefaultSite || (RunsOnAgent && _tunnelRouting.IsAgentOnline(SiteSlug)));
 
     /// <summary>
     /// Scope pinned to this instance's site so scoped services (SQM WAN lookup)
@@ -96,11 +105,11 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
-        // A site reached via its agent runs the binary at the site, so the measured WAN is the
-        // site's rather than this server's. CanRunForSiteAsync has already refused non-default
-        // sites without an agent, and IsViaAgentAsync answers false for the default site unless it
-        // has been handed to its agent.
-        if (await _tunnelRouting.IsViaAgentAsync(SiteSlug))
+        // A site whose agent owns its measurements runs the binary at the site, so the measured
+        // WAN is the site's rather than this server's. CanRunForSiteAsync has already refused
+        // non-default sites without an online agent, and RunsOnAgent answers false for the default
+        // site unless it has been handed to its agent.
+        if (RunsOnAgent)
             return await RunViaAgentAsync(report, cancellationToken);
 
         return await RunLocalAsync(report, cancellationToken);
@@ -493,7 +502,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     {
         try
         {
-            var viaAgent = await _tunnelRouting.IsViaAgentAsync(SiteSlug);
+            var viaAgent = RunsOnAgent;
             using var scope = CreateSiteScope();
             var siteDb = scope.ServiceProvider.GetRequiredService<SiteDbContextFactory>();
             var siteCtx = scope.ServiceProvider.GetRequiredService<SiteContextService>();
