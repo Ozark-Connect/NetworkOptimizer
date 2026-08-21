@@ -712,6 +712,10 @@
     private List<AgentWanVantage> _agentVantages = new();
     private string _selectedAgentVantage = "";
 
+    // Availability the site as a whole allows, which the chosen WAN can only narrow.
+    private bool _serverAvailableForSite = true;
+    private string? _serverUnavailableReasonForSite;
+
     /// <summary>
     /// Whether the non-gateway run happens on the site's agent rather than on this server, which is
     /// what the option is called and described as. Matches the actual execution path
@@ -987,24 +991,29 @@
             && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug)
             && !agentOnline;
 
-        // An agent on the gateway itself (monitoring-only) has no WAN test binary,
-        // and a "from the server through the LAN" run makes no sense when the agent
-        // IS the gateway - the Server option is hidden and the Gateway test is the
-        // one to use. When speed-test-capable gateway installs arrive, key this off
-        // the agent's capability instead of its location.
+        // An agent on the gateway itself (monitoring-only) has no WAN test binary, and a "from the
+        // server through the LAN" run makes no sense when the agent IS the gateway - the Server
+        // option is hidden and the Gateway test is the one to use. Keyed off whether any agent here
+        // CAN run the test rather than where one sits, so a site pairing a gateway agent with a
+        // bare-metal one keeps the option the bare-metal agent can serve.
         _hasCapableAgent = agentOnline && await AgentVantages.HasCapableAgentAsync(SiteContext.Slug);
         _runsOnAgent = _hasCapableAgent
             && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
         // The option stays visible for a site this server tests itself; it is only the agent-run
         // case that needs an agent able to run it.
         _serverOptionVisible = _hasCapableAgent || !AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
-        await LoadAgentVantagesAsync();
+        // Before the vantage list, which reads RunsOnAgent - and that answers from a fallback until
+        // this is set, so loading ahead of it asks the wrong question on a covered default site.
         _vantageResolved = true;
+        await LoadAgentVantagesAsync();
         var agentRequired = !SiteContext.IsDefault && !agentOnline;
         var agentReason = _siteAgentOffline ? AgentOfflineReason : NoAgentReason;
 
-        _serverAvailable = !agentRequired;
-        _serverUnavailableReason = agentRequired ? agentReason : null;
+        // What the SITE allows, before the chosen WAN narrows it. Kept apart because changing the
+        // selector re-derives availability without re-running any of the above.
+        _serverAvailableForSite = !agentRequired;
+        _serverUnavailableReasonForSite = agentRequired ? agentReason : null;
+        ApplyAgentVantageAvailability();
 
         if (agentRequired)
         {
@@ -1040,17 +1049,19 @@
         }
         if (!_agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage))
             _selectedAgentVantage = _agentVantages[0].ContextId?.ToString() ?? "";
-        ApplyAgentVantageAvailability();
     }
 
     /// <summary>
     /// Reports up front whether the chosen WAN can be tested, rather than leaving the operator to
-    /// press the button and read a failure. Only narrows: an option already unavailable for the
-    /// site as a whole (no agent, offline agent) keeps that reason.
+    /// press the button and read a failure. Always derived from what the site allows, so it only
+    /// ever narrows: a site already unavailable (no agent, offline agent) keeps its own reason.
     /// </summary>
     private void ApplyAgentVantageAvailability()
     {
+        _serverAvailable = _serverAvailableForSite;
+        _serverUnavailableReason = _serverUnavailableReasonForSite;
         if (!_serverAvailable) return;
+
         var selected = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage);
         if (selected is { Runnable: false })
         {
@@ -1059,12 +1070,7 @@
         }
     }
 
-    private void OnAgentVantageChanged()
-    {
-        _serverAvailable = true;
-        _serverUnavailableReason = null;
-        ApplyAgentVantageAvailability();
-    }
+    private void OnAgentVantageChanged() => ApplyAgentVantageAvailability();
 
     /// <summary>The WAN context the agent run measures, or null for the site's default path.</summary>
     private int? SelectedWanContextId =>
