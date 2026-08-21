@@ -45,6 +45,14 @@ export function saveWindowHours(tab, hours) {
     try { localStorage.setItem(storageKey(tab), String(hours)); } catch { /* storage unavailable */ }
 }
 
+/// Tell the page the reader moved the window themselves, so a link's ?at= stops outliving the
+/// window it framed - a reload would otherwise drag them back to the alert's moment. Same hook
+/// the analysis charts use.
+export function notifyWindowMoved() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnTimelineMovedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
 /// The active class ships in the Razor markup on each tab's own default, so a restored preset has
 /// to move it.
 export function markActiveRange(container, hours) {

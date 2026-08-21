@@ -12,7 +12,7 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'latency';

@@ -9,7 +9,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'starlink';
@@ -334,6 +334,7 @@ function updateCustomLabel(container) {
 // Grafana-style drag-select on a chart becomes a custom time window,
 // synced to the range selector (custom-range button + popover inputs).
 function applyDragZoom(xaxis) {
+    notifyWindowMoved();
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
         customFrom = new Date(xaxis.min);
@@ -502,12 +503,13 @@ export async function mount(elId) {
             // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
             // too, and a window the link chose must not become a remembered preference.
             saveWindowHours(WINDOW_TAB, hours);
+            notifyWindowMoved();
             selectPresetRange(container, hours);
         });
     });
 
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
+        btn.addEventListener('click', () => { notifyWindowMoved(); shiftWindow(container, btn.dataset.shift); });
     });
 
     const popover = container.querySelector('[data-popover="custom-range"]');
@@ -527,6 +529,7 @@ export async function mount(elId) {
     });
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
+        notifyWindowMoved();
         const from = fromInput?.value ? new Date(fromInput.value) : null;
         const to = toInput?.value ? new Date(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
