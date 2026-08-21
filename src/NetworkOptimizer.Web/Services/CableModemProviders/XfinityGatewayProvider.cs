@@ -574,14 +574,23 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Name the gateway from the Device Information section. Product Type is the
-    /// name users know ("XB10", "CBR"), with the model number as a fallback for
-    /// firmware that omits it.
+    /// Name the gateway from the Device Information section, pairing the name
+    /// users know with the model number behind it: "XB10 (SG417DBCT)",
+    /// "CBR (CGA4332COM)". Product Type alone is too coarse on business firmware,
+    /// where every gateway in the line reports "CBR", and the model number alone
+    /// is unrecognizable on residential firmware.
     /// </summary>
     private static string? ExtractProductType(HtmlDocument doc)
     {
-        return ExtractDeviceInfoValue(doc, "Product Type")
-            ?? ExtractDeviceInfoValue(doc, "Model");
+        var productType = ExtractDeviceInfoValue(doc, "Product Type");
+        var model = ExtractDeviceInfoValue(doc, "Model");
+
+        if (productType == null || model == null)
+            return productType ?? model;
+
+        return string.Equals(productType, model, StringComparison.OrdinalIgnoreCase)
+            ? productType
+            : $"{productType} ({model})";
     }
 
     /// <summary>

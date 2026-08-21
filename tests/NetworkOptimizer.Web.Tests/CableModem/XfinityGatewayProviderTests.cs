@@ -105,9 +105,9 @@ public class XfinityGatewayProviderTests
     }
 
     [Theory]
-    [InlineData("comcast-business-cga4332.html", "CBR")]
-    [InlineData("xfinity-xb10-network-setup.html", "XB10")]
-    public void ParseNetworkSetup_NamesTheGatewayFromProductType(string fixture, string expected)
+    [InlineData("comcast-business-cga4332.html", "CBR (CGA4332COM)")]
+    [InlineData("xfinity-xb10-network-setup.html", "XB10 (SG417DBCT)")]
+    public void ParseNetworkSetup_PairsProductTypeWithTheModelNumber(string fixture, string expected)
     {
         var stats = CreateProvider().ParseNetworkSetup(Fixture(fixture), Context());
 
