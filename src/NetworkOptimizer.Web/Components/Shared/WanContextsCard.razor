@@ -110,7 +110,15 @@
                                           data-tooltip="This site is probed by its agent, so assign one to this WAN.">&#9888;</span>
                                 }
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
-                                else { <span class="text-muted">Default NIC</span> }
+                                else
+                                {
+                                    @if (BindsNothing(wc))
+                                    {
+                                        <span class="wc-note"
+                                              data-tooltip="Nothing is bound, so probes leave by the agent's default interface - not this WAN. Edit to set the interface.">&#8505;</span>
+                                    }
+                                    <span class="text-muted">Default interface</span>
+                                }
                             </td>
                             <td>
                                 @if (wc.AgentId is int rowAgentId)
@@ -386,6 +394,11 @@
         margin-right: 0.35rem;
     }
 
+    .wc-note {
+        color: var(--info-color);
+        margin-right: 0.35rem;
+    }
+
     .wc-targets-none {
         color: var(--warning-color);
         font-weight: 600;
@@ -503,6 +516,19 @@
     /// WAN that is simply quiet.
     /// </summary>
     private bool IsOrphaned(WanContext context) => context.AgentId == null && !ServerProbesThisSite;
+
+    /// <summary>
+    /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
+    /// agent's default interface and are filed under this WAN regardless. Reachable without
+    /// anything going wrong: save the vantage while the agent is too old to offer a binding, then
+    /// update the agent - the capability arrives, the empty configuration does not change, and
+    /// nothing says so.
+    /// </summary>
+    private bool BindsNothing(WanContext context) =>
+        context.AgentId is int id
+        && (_bindCapableAgents.Contains(id) || _sourceBindAgents.Contains(id))
+        && string.IsNullOrEmpty(context.InterfaceName)
+        && string.IsNullOrEmpty(context.ProbeSourceIp);
 
     /// <summary>
     /// Whether the selected agent reports a version older than the release currently expected of
