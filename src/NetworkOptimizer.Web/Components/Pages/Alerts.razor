@@ -2241,7 +2241,10 @@
         {
             switch (_activeTab)
             {
-                case "data-usage": await LoadDataUsageAsync(); break;
+                case "data-usage":
+                    await DataUsageService.TriggerPollAsync();
+                    await LoadDataUsageAsync();
+                    break;
                 case "active": await LoadActiveAlerts(); break;
                 case "history": await LoadHistory(); break;
                 case "rules": await LoadRules(); break;
@@ -2324,6 +2327,10 @@
                     await LoadScheduleOptions();
                     break;
                 case "data-usage":
+                    // Poll before reading, the way pull-to-refresh does. Arriving from another tab
+                    // otherwise showed whatever the last background cycle left and stayed that way
+                    // until the next one came round.
+                    await DataUsageService.TriggerPollAsync();
                     await LoadDataUsageAsync();
                     break;
                 case "active":

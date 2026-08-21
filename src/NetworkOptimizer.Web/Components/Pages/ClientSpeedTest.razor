@@ -975,6 +975,10 @@
     {
         if (_scrollToLinkedResultId is not { } linkedId) return;
         _scrollToLinkedResultId = null;
+        // The history table renders behind this and the cards above it grow as their charts and
+        // map arrive, so a scroll fired the instant the row exists lands on a position that then
+        // moves out from under it - the same wait WAN Speed Test takes for the same reason.
+        await Task.Delay(350);
         // Tinted rather than ringed: an offset ring around a table row collides with the rows
         // either side. Ringed at all because a link brought the reader here.
         try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{linkedId}"); }
