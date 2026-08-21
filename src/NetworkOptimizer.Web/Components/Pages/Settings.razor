@@ -3553,7 +3553,7 @@
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
-                                        <tr class="history-details-row site-config-row">
+                                        <tr id="site-config-@site.Id" class="history-details-row site-config-row">
                                             <td colspan="5">
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
@@ -3845,6 +3845,16 @@
 @code {
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
+
+    /// <summary>
+    /// Slug of a site whose configuration a link wants opened, e.g. the Monitoring banner's route
+    /// to enrolling an agent. Deliberately NOT named "site": that one pins the tab's whole site
+    /// context (see site-context.js), so reusing it here would switch sites rather than open a row.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "configure")]
+    public string? ConfigureSiteParam { get; set; }
+
+    private bool _configureSiteHandled;
 
     /// <summary>The signed-in user, used by the Admin Password control to change their own password.</summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -5036,6 +5046,25 @@
         // on every render rather than only on the tab click, since a link with ?tab=multisite never
         // goes through SetActiveTab; the method itself runs once.
         if (_activeTab == "multisite") await EnsureMultiWanHintAsync();
+
+        // Open the row a ?configure= link names, once the sites are loaded and the tab is on
+        // screen. Once only: this is where the link took the reader, not a mode the page stays in,
+        // so closing the row must not have it spring back open on the next render.
+        if (!_configureSiteHandled && _activeTab == "multisite"
+            && !string.IsNullOrWhiteSpace(ConfigureSiteParam) && _sites.Count > 0)
+        {
+            _configureSiteHandled = true;
+            var target = _sites.FirstOrDefault(x =>
+                string.Equals(x.Slug, ConfigureSiteParam, StringComparison.OrdinalIgnoreCase));
+            if (target is not null)
+            {
+                await ToggleAgents(target.Id);
+                // The tinted row variant, not the ring: a ring offset around a table row collides
+                // with the rows either side. Ringed at all because a link sent the reader here.
+                await Task.Delay(300);
+                await JS.InvokeVoidAsync("noHighlightRow", $"site-config-{target.Id}");
+            }
+        }
 
         // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
         // panel to load - a deep link (the guided tour is one) would have shown the empty state on a
