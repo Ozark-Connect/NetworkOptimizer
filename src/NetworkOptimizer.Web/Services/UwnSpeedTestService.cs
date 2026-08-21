@@ -143,7 +143,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
 
         Logger.LogInformation(
             "Dispatching UWN WAN speed test to site {Slug}'s agent {AgentId} ({Wan}, {Streams} streams, {Servers} servers)",
-            SiteSlug, vantage.AgentId, vantage.Context?.Name ?? "primary WAN", Streams, ServerCount);
+            SiteSlug, vantage.AgentId, vantage.Context?.Name ?? "default path", Streams, ServerCount);
         // The agent returns only the final JSON over the tunnel, so there's no live progress to
         // stream. Report the SAME phase boundaries the local run does and let the page interpolate
         // download (20->55) and upload (60->95) between them, so the bar climbs smoothly. Reporting

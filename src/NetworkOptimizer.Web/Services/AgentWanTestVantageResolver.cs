@@ -4,8 +4,8 @@ using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
-/// <summary>One selectable vantage for an agent-run WAN speed test: the primary WAN, or a WAN context.</summary>
-/// <param name="ContextId">Null for the primary WAN, which has no context row.</param>
+/// <summary>One selectable vantage for an agent-run WAN speed test: the default path, or a WAN context.</summary>
+/// <param name="ContextId">Null for the default path, which has no context row.</param>
 /// <param name="Label">Display name for the selector.</param>
 /// <param name="Runnable">Whether a test started on this vantage right now would run.</param>
 /// <param name="Reason">Why it would not, when <paramref name="Runnable"/> is false.</param>
@@ -13,7 +13,7 @@ public sealed record AgentWanVantage(int? ContextId, string Label, bool Runnable
 
 /// <summary>The agent an agent-run WAN speed test will execute on, and the WAN it measures.</summary>
 /// <param name="AgentId">Agent to dispatch the run to.</param>
-/// <param name="Context">The chosen WAN context, or null when the run is on the primary WAN.</param>
+/// <param name="Context">The chosen WAN context, or null when the run takes the default path.</param>
 public sealed record AgentWanTestVantage(int AgentId, WanContext? Context);
 
 /// <summary>
@@ -25,6 +25,12 @@ public sealed record AgentWanTestVantage(int AgentId, WanContext? Context);
 /// </summary>
 public class AgentWanTestVantageResolver
 {
+    /// <summary>
+    /// The unpinned option, named the way the target list already names it in Latency Targets, so
+    /// one WAN choice does not read as two different things across the app.
+    /// </summary>
+    public const string DefaultPathLabel = "Default path";
+
     private readonly AgentTunnelRegistry _tunnels;
     private readonly AgentOnGatewayDetector _onGateway;
     private readonly AgentProbeResultSink _probeSink;
@@ -67,9 +73,14 @@ public class AgentWanTestVantageResolver
         => await FirstCapableAgentAsync(siteSlug, ct) != null;
 
     /// <summary>
-    /// The vantages offered on the site's WAN speed test surfaces: the primary WAN, then one entry
+    /// The vantages offered on the site's WAN speed test surfaces: the default path, then one entry
     /// per WAN context. Empty when the site has no contexts - a single-WAN site has nothing to
     /// choose between and gets no selector at all.
+    /// <para>
+    /// Deliberately the same list, in the same order, that Latency Targets offers when a target
+    /// picks its WAN: by WAN index so it reads WAN1, WAN2, ... rather than alphabetically, with
+    /// ties broken by name. Choosing a WAN should look the same wherever it is chosen.
+    /// </para>
     /// </summary>
     public async Task<List<AgentWanVantage>> ListVantagesAsync(string siteSlug, CancellationToken ct = default)
     {
@@ -77,16 +88,27 @@ public class AgentWanTestVantageResolver
         if (contexts.Count == 0) return new List<AgentWanVantage>();
 
         var vantages = new List<AgentWanVantage>();
-        var (_, primaryRefusal) = await ResolveAsync(siteSlug, null, ct);
-        vantages.Add(new AgentWanVantage(null, "Primary", primaryRefusal == null, primaryRefusal));
+        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
+        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
 
-        foreach (var context in contexts.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var context in OrderForDisplay(contexts))
         {
             var (_, refusal) = await ResolveAsync(siteSlug, context.Id, ct);
             vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal));
         }
         return vantages;
     }
+
+    /// <summary>
+    /// WAN contexts in the order every selector shows them: by WAN index, then by name. Shared with
+    /// <see cref="Components.Shared.LatencyTargetsCard"/>'s ordering so the two lists match.
+    /// </summary>
+    internal static IEnumerable<WanContext> OrderForDisplay(IEnumerable<WanContext> contexts) =>
+        contexts
+            .OrderBy(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(c.WanInterface) is var i && i >= 1
+                ? i
+                : int.MaxValue)
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The agent that runs the test, or the reason none will. Exactly one of the two is non-null.
@@ -98,7 +120,7 @@ public class AgentWanTestVantageResolver
     /// </para>
     /// </summary>
     /// <param name="siteSlug">Site whose agents are candidates.</param>
-    /// <param name="wanContextId">Chosen WAN context, or null for the site's primary WAN.</param>
+    /// <param name="wanContextId">Chosen WAN context, or null to take the site's default path.</param>
     public async Task<(AgentWanTestVantage? Vantage, string? Refusal)> ResolveAsync(
         string siteSlug, int? wanContextId, CancellationToken ct = default)
     {
@@ -119,14 +141,14 @@ public class AgentWanTestVantageResolver
     /// tunnel, a console or a database - the same reason
     /// <see cref="AgentProbeResultSink.SelectCollectorAgentId"/> is shaped this way.
     /// <para>
-    /// For the primary WAN: the collector when it can run the test, otherwise the lowest-id
+    /// On the default path: the collector when it can run the test, otherwise the lowest-id
     /// connected agent that can. The two rules diverge on purpose - a gateway agent is deliberately
     /// eligible to collect, because it binds each probe to a WAN and one of them can serve a whole
     /// site, and is equally deliberately unable to run this test. On a site pairing a gateway agent
     /// with a bare-metal one, that fallback is what finds the box that can.
     /// </para>
     /// </summary>
-    /// <param name="wanContextId">Chosen context, or null for the primary WAN.</param>
+    /// <param name="wanContextId">Chosen context, or null for the default path.</param>
     /// <param name="contexts">The site's WAN contexts. Only read when one was chosen.</param>
     /// <param name="connectedAgentIds">Agents with an open tunnel.</param>
     /// <param name="capableAgentIds">Of those, the ones that can run the test.</param>

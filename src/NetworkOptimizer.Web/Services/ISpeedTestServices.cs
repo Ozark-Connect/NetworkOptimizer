@@ -44,8 +44,8 @@ public interface IUwnSpeedTestService
     /// site's measurements.
     /// </summary>
     /// <param name="wanContextId">
-    /// WAN context the agent run should measure, or null for the site's primary WAN. Ignored by a
-    /// local run, which measures whatever this host's route takes.
+    /// WAN context the agent run should measure, or null for the site's default path. Ignored by a
+    /// local run, which measures whatever this host routes over.
     /// </param>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SpeedTestRun, TargetType = "wan_speedtest")]

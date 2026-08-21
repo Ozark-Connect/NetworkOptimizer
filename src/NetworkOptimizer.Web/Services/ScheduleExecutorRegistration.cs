@@ -85,7 +85,7 @@ public static class ScheduleExecutorRegistration
     /// <summary>
     /// A WAN speed test schedule's stored config. Every field is absent-tolerant: a schedule made
     /// before a field existed keeps the meaning it had when it was created, which for
-    /// <c>wanContextId</c> is the site's primary WAN.
+    /// <c>wanContextId</c> is the site's default path.
     /// </summary>
     internal static (string TestType, bool MaxMode, string? WanGroup, string? WanName, int? WanContextId, string[]? MultiInterfaces)
         ParseWanTestConfig(string? targetConfig)

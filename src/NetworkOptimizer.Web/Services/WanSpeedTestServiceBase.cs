@@ -49,8 +49,8 @@ public abstract class WanSpeedTestServiceBase
     protected bool MaxMode { get; private set; }
 
     /// <summary>
-    /// WAN context the current test measures, or null for the site's primary WAN. Only agent-run
-    /// tests can be pointed at one; the local run measures whatever this host's route takes.
+    /// WAN context the current test measures, or null to take the site's default path. Only
+    /// agent-run tests can be pointed at one; the local run measures whatever this host routes over.
     /// </summary>
     protected int? WanContextId { get; private set; }
 
@@ -144,7 +144,7 @@ public abstract class WanSpeedTestServiceBase
     /// Pauses the iperf3 server during the test to free pipe handles.
     /// </summary>
     /// <param name="maxMode">When true, uses more servers and connections for maximum throughput.</param>
-    /// <param name="wanContextId">WAN context to measure, or null for the site's primary WAN.</param>
+    /// <param name="wanContextId">WAN context to measure, or null for the site's default path.</param>
     public async Task<Iperf3Result?> RunTestAsync(
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
         bool maxMode = false,

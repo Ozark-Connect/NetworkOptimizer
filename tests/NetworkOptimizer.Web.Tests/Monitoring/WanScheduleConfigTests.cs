@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 public class WanScheduleConfigTests
 {
     [Fact]
-    public void AServerScheduleMadeBeforeWanChoiceRunsOnThePrimaryWan()
+    public void AServerScheduleMadeBeforeWanChoiceTakesTheDefaultPath()
     {
         var (testType, maxMode, _, _, wanContextId, _) =
             ScheduleExecutorRegistration.ParseWanTestConfig("""{"testType":"server"}""");

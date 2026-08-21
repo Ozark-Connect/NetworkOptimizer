@@ -1066,7 +1066,7 @@
         ApplyAgentVantageAvailability();
     }
 
-    /// <summary>The WAN context the agent run measures, or null for the site's primary WAN.</summary>
+    /// <summary>The WAN context the agent run measures, or null for the site's default path.</summary>
     private int? SelectedWanContextId =>
         int.TryParse(_selectedAgentVantage, out var id) ? id : null;
 

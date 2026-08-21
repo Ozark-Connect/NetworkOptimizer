@@ -19,10 +19,10 @@ public class AgentWanTestVantageTests
     private static WanContext Context(int id, string name, int? agentId, string? wan = "wan2") =>
         new() { Id = id, Name = name, AgentId = agentId, WanInterface = wan };
 
-    // ---- The primary WAN ---------------------------------------------------
+    // ---- The default path --------------------------------------------------
 
     [Fact]
-    public void ThePrimaryWanRunsOnTheCollector()
+    public void TheDefaultPathRunsOnTheCollector()
     {
         var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
             wanContextId: null,
@@ -37,7 +37,7 @@ public class AgentWanTestVantageTests
     }
 
     [Fact]
-    public void AGatewayCollectorHandsThePrimaryWanToAnAgentThatCanRunTheTest()
+    public void AGatewayCollectorHandsTheDefaultPathToAnAgentThatCanRunTheTest()
     {
         // The mixed topology: a gateway agent monitors, a bare-metal agent speed tests. The
         // gateway agent is a legitimate collector and still cannot run this.
@@ -116,8 +116,8 @@ public class AgentWanTestVantageTests
     [Fact]
     public void ASingleAgentSiteWithWanContextsStillDefaultsToItsOneAgent()
     {
-        // Contexts exist for monitoring, but nothing was chosen: still the primary WAN on the one
-        // agent, not a refusal because a context happens to name a different box.
+        // Contexts exist for monitoring, but nothing was chosen: still the default path on the
+        // one agent, not a refusal because a context happens to name a different box.
         var contexts = new[] { Context(1, "Starlink", SecondaryWanAgent) };
 
         var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
@@ -130,6 +130,39 @@ public class AgentWanTestVantageTests
         refusal.Should().BeNull();
         vantage!.AgentId.Should().Be(SpeedTestAgent);
         vantage.Context.Should().BeNull();
+    }
+
+    // ---- The selector reads like every other WAN selector ------------------
+
+    [Fact]
+    public void WansAreOrderedByWanIndexTheWayLatencyTargetsOrdersThem()
+    {
+        // WAN1, WAN2, WAN3 - not alphabetical. Picking a WAN should look the same wherever it is
+        // picked, and Latency Targets got there first.
+        var contexts = new[]
+        {
+            Context(1, "Zephyr Cable", SecondaryWanAgent, wan: "wan2"),
+            Context(2, "Alpha Fiber", SpeedTestAgent, wan: "wan"),
+            Context(3, "Backup LTE", GatewayAgent, wan: "wan3"),
+        };
+
+        AgentWanTestVantageResolver.OrderForDisplay(contexts).Select(c => c.Name)
+            .Should().Equal("Alpha Fiber", "Zephyr Cable", "Backup LTE");
+    }
+
+    [Fact]
+    public void AContextWithNoWanKeySortsLastByName()
+    {
+        // Rows predating the WanInterface column have no index to sort on.
+        var contexts = new[]
+        {
+            Context(1, "Unkeyed B", SpeedTestAgent, wan: null),
+            Context(2, "Unkeyed A", SpeedTestAgent, wan: null),
+            Context(3, "Fiber", SpeedTestAgent, wan: "wan"),
+        };
+
+        AgentWanTestVantageResolver.OrderForDisplay(contexts).Select(c => c.Name)
+            .Should().Equal("Fiber", "Unkeyed A", "Unkeyed B");
     }
 
     // ---- A chosen WAN context ---------------------------------------------

@@ -1996,7 +1996,7 @@
                     @if (_newWanTestType == "server" && _agentVantages.Count > 0)
                     {
                         <div class="form-group schedule-field">
-                            <label>WAN</label>
+                            <label>WAN / Path</label>
                             <select class="form-control" @bind="_newAgentVantage">
                                 @foreach (var vantage in _agentVantages)
                                 {
@@ -3212,8 +3212,8 @@
                     config["wanName"] = vantage.Label;
                 }
                 // The WAN goes in the name the way the gateway test does, so the row reads the same
-                // whichever runs it. Unnamed means the primary WAN, which is what a single-WAN site
-                // and every schedule made before this always meant.
+                // whichever runs it. Unnamed means the default path, which is what a single-WAN
+                // site and every schedule made before this always meant.
                 var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
                 var loadLabel = _newWanMaxMode ? ", Max Load" : "";
                 taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
@@ -3456,8 +3456,8 @@
                     config["wanName"] = vantage.Label;
                 }
                 // The WAN goes in the name the way the gateway test does, so the row reads the same
-                // whichever runs it. Unnamed means the primary WAN, which is what a single-WAN site
-                // and every schedule made before this always meant.
+                // whichever runs it. Unnamed means the default path, which is what a single-WAN
+                // site and every schedule made before this always meant.
                 var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
                 var loadLabel = _newWanMaxMode ? ", Max Load" : "";
                 taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
