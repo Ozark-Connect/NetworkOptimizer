@@ -293,12 +293,21 @@ async function refreshPonSection() {
             const gemDrop = ponPoints(m, 'gemDrop');
             errSeries.push(
                 { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
-                { name: `${prefix}HEC corrected`, data: ponPoints(m, 'hecCorr') },
                 { name: `${prefix}HEC`, data: hec },
-                { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
-                { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
+                { name: `${prefix}HEC corrected`, data: ponPoints(m, 'hecCorr') },
+            );
+            // The FEC counters can only move while the OLT profile has FEC enabled, so on a link
+            // where it is off they are two permanent zero lines. Test the whole window, not the
+            // latest sample: FEC switched off mid-window leaves real deltas behind it.
+            if ((m.pon || []).some(p => p.dsFec || p.usFec)) {
+                errSeries.push(
+                    { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
+                    { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
+                );
+            }
+            errSeries.push(
+                { name: `${prefix}BWmap`, data: ponPoints(m, 'bwmapUncorr') },
                 { name: `${prefix}BWmap corrected`, data: ponPoints(m, 'bwmapCorr') },
-                { name: `${prefix}BWmap uncorrected`, data: ponPoints(m, 'bwmapUncorr') },
                 { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
             );
             // Some ONTs report GEM drops off the same counter as uncorrectable HEC (every Lantiq
