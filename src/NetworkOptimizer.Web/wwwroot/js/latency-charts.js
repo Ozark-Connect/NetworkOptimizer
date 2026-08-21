@@ -1,4 +1,4 @@
-﻿// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
+// Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
 // Mounted from Blazor the same way as lan-flow-map.js.
 // TODO: Extract time-range controls (presets, shift arrows, custom range popover,
 // filter badges, poll interval scaling) into a shared module so latency-charts,
@@ -11,6 +11,7 @@ import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-fil
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -822,8 +823,11 @@ function getEffectiveTo() {
 // Taking it here also survives the unmount/remount of leaving the tab and returning.
 export async function mount(elId, initialWanScope, initialCategory) {
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     setWanScope(initialWanScope);
 

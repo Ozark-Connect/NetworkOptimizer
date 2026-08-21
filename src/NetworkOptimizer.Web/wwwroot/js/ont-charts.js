@@ -9,6 +9,7 @@ import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { syncIdentity } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -492,8 +493,11 @@ export async function mount(elId) {
     deviceMeta = [];
     visibility = {};
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const powerEl = container.querySelector('.ont-power-chart');
     const tempEl = container.querySelector('.ont-temp-chart');

@@ -209,7 +209,7 @@
             <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
                 Data Usage
             </button>
-            <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
+            <button class="wifi-view-tab @(_activeTab == "setup" && _tabResolved ? "active" : "")"
                     @onclick="@(() => SetActiveTab("setup"))">
                 Setup
             </button>
@@ -1538,7 +1538,7 @@
     }
 
     @* ──────────────── Tab: Setup ──────────────── *@
-    @if (_activeTab == "setup")
+    @if (_activeTab == "setup" && _tabResolved)
     {
         @if (_snmpState == SnmpDetectionState.NotChecked)
         {
@@ -2590,7 +2590,11 @@
     private DateTime? _mapHistoricAt;
     private HistoricStatSnapshot? _historicSnapshot;
 
+    // Setup is the default so a site that cannot finish initializing - unreachable InfluxDB,
+    // failing SNMP - still lands where it can be fixed. It just must not RENDER before the
+    // resolve below has had its say, or every visit flashes Setup on the way to its real tab.
     private string _activeTab = "setup";
+    private bool _tabResolved;
 
     // The instant the last navigation named, waiting for a map to hand it to, and the URL that
     // armed it. Keyed on the URL rather than the value: the eye sends the same instant every time
@@ -3002,6 +3006,14 @@
     }
 
     protected override async Task OnInitializedAsync()
+    {
+        // finally, not a catch: a throw still propagates, but the tab stops being withheld and
+        // the "setup" default above becomes visible, which is the right landing for a broken site.
+        try { await InitializeAsync(); }
+        finally { _tabResolved = true; }
+    }
+
+    private async Task InitializeAsync()
     {
         LiveWan.OnChanged = OnLiveWanChangedAsync;
         _canConfigure = AuthState is null
