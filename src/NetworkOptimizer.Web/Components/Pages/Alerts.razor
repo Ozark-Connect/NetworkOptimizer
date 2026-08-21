@@ -883,12 +883,21 @@
                             <label class="filter-label">Source:</label>
                             <select class="filter-select" @bind="_historySourceFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All Sources</option>
+                                <option value="agent">Agent</option>
                                 <option value="audit">Audit</option>
+                                <option value="cable_modem">Cable Modem</option>
+                                <option value="cellular">Cellular</option>
+                                <option value="console">UniFi Console</option>
                                 <option value="device">Device</option>
+                                <option value="rollout">Firmware Rollout</option>
+                                <option value="monitoring">Monitoring</option>
+                                <option value="ont">ONT</option>
+                                <option value="schedule">Schedule</option>
                                 <option value="speedtest">Speed Test</option>
+                                <option value="starlink">Starlink</option>
                                 <option value="threats">Threats</option>
                                 <option value="wan">WAN</option>
-                                <option value="wifi">WiFi</option>
+                                <option value="wifi">Wi-Fi</option>
                             </select>
                         </div>
                         <div class="filter-group">
