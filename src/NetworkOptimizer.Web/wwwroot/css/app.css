@@ -2277,6 +2277,7 @@ a.stat-card-link:active {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    background-color: var(--bg-elevated);
     padding: 0.25rem 0.75rem;
     border-radius: var(--border-radius-lg);
     font-size: 0.75rem;
