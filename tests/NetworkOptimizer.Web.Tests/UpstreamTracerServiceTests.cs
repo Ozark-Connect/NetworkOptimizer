@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
@@ -1325,6 +1325,16 @@ public class AccessIspFallbackTests
         // dssd-tc.wsqm.telekom-dienste.de does not answer ICMP, so it must stay out of the map.
         UpstreamTracerService.AccessIspFallbackHosts[3320]
             .Should().NotContain(h => h.StartsWith("dssd"));
+    }
+
+    [Fact]
+    public void AccessIspFallbackHosts_shares_one_verizon_pop_list_across_all_three_asns()
+    {
+        // The PoPs all live in AS701; Cellco keys to them because its own first mile answers nothing.
+        var pops = UpstreamTracerService.AccessIspFallbackHosts[701];
+        pops.Should().OnlyContain(h => h.EndsWith("-inet.vzbi.com")).And.HaveCount(8);
+        UpstreamTracerService.AccessIspFallbackHosts[6167].Should().BeEquivalentTo(pops);
+        UpstreamTracerService.AccessIspFallbackHosts[22394].Should().BeEquivalentTo(pops);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -1989,6 +1989,23 @@ public class UpstreamTracerService
     // Hosts must answer ICMP (the same gate post-traceroute hops face); non-pingable PoPs are omitted.
     // The label follows the standard convention (stripped ASN name + stripped hostname via
     // FormatTransitHopLabel), e.g. "Deutsche Telekom ffm.wsqm".
+    /// <summary>
+    /// Verizon's *.vzbi.com speedtest PoPs, shared by every Verizon access ASN keyed in
+    /// <see cref="AccessIspFallbackHosts"/>. Listed as hostnames, not the captured addresses: each
+    /// forward-resolves to exactly the address its PTR advertises, so a PoP renumber costs nothing.
+    /// </summary>
+    private static readonly string[] VerizonSpeedtestHosts =
+    {
+        "dllstx97-040205c-inet.vzbi.com",    // Dallas, TX
+        "bstpmall-100207c-inet.vzbi.com",    // Boston, MA
+        "rvdlilbd-0011403f-inet.vzbi.com",   // Chicago, IL (Riverdale)
+        "dnvrco26-091505f-inet.vzbi.com",    // Denver, CO
+        "sccsnj75-010206e-inet.vzbi.com",    // Secaucus, NJ
+        "miauflws-040102d-inet.vzbi.com",    // Miami, FL
+        "sttlwawb-000t08c-inet.vzbi.com",    // Seattle, WA
+        "lsancakv-075715b-inet.vzbi.com",    // Los Angeles, CA
+    };
+
     internal static readonly IReadOnlyDictionary<int, IReadOnlyList<string>> AccessIspFallbackHosts =
         new Dictionary<int, IReadOnlyList<string>>
         {
@@ -2096,6 +2113,15 @@ public class UpstreamTracerService
                 "gdjtco-speedtest-ookla-01.st.charter.com",   // Grand Junction, CO
                 "msslmt-speedtest-ookla-01.st.charter.com",   // Missoula, MT
             },
+
+            // Verizon (AS701 UUNET / Verizon Business) - the *.vzbi.com speedtest PoPs, all verified
+            // ICMP-pingable. The wireless ASNs (AS6167 / AS22394 Cellco) key to the same list: their
+            // traffic rides AS701 regardless, so the nearest vzbi PoP is the closest Verizon anchor.
+            // Never stamp the row with the TARGET's ASN - DetectAccessIspChangeAsync keys on that
+            // stamp, so AS701 on a Cellco site would fire a false provider change on every run.
+            [701] = VerizonSpeedtestHosts,     // UUNET - Verizon Business (Fios and business fiber)
+            [6167] = VerizonSpeedtestHosts,    // CELLCO-PART - Verizon Wireless
+            [22394] = VerizonSpeedtestHosts,   // CELLCO - Verizon Wireless
 
             // Orange S.A. (AS3215, France) - NOT YET ENABLED. These hosts BLOCK ICMP (0/3) but
             // answer TCP:8080, so enabling them needs per-endpoint TCP probe support added to this
