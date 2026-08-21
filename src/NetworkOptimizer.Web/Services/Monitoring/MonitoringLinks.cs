@@ -1,4 +1,5 @@
-﻿namespace NetworkOptimizer.Web.Services.Monitoring;
+using System.Globalization;
+namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// The links the Live surfaces build into the analysis views.
@@ -17,6 +18,11 @@ public static class MonitoringLinks
     public const string AccessIspCategory = "AccessIsp";
     public const string TransitCategory = "Transit";
     public const string CustomCategory = "Custom";
+    public const string InternetServiceCategory = "InternetService";
+
+    /// <summary>Now as the ?at= links frame their window on, for an alert raised at this instant.</summary>
+    public static string NowMs() =>
+        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The <c>?at=</c> value meaning the view was live rather than parked on an instant, which
@@ -93,6 +99,15 @@ public static class MonitoringLinks
     /// shift and a loss spike is over in seconds.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// A hardware stat tab framed on the moment an alert fired. Those tabs read ?at= as one hour
+    /// around the instant, since their counters move over a shift rather than in seconds.
+    /// </summary>
+    /// <param name="tab">The tab key: sfp, ont, cm, cellular or starlink.</param>
+    /// <param name="extra">Any tab-specific selector already formed, e.g. "&ont=3".</param>
+    public static string HardwareStats(string tab, DateTime atUtc, string extra = "") =>
+        $"/monitoring?tab={tab}&at={new DateTimeOffset(DateTime.SpecifyKind(atUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()}{extra}";
+
     public static string DeviceStats(string? deviceMac, string at) =>
         $"/monitoring?tab=devices&at={at}"
         + (string.IsNullOrEmpty(deviceMac) ? "" : $"&device={Uri.EscapeDataString(deviceMac)}");

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
@@ -227,17 +227,24 @@ public class MonitoringAlertEvaluator
     {
         var category = target.TargetType switch
         {
-            MonitoringTargetType.Fabric => "Fabric",
-            MonitoringTargetType.AccessIsp => "AccessIsp",
-            MonitoringTargetType.Transit => "Transit",
-            _ => "Custom"
+            MonitoringTargetType.Fabric => MonitoringLinks.FabricCategory,
+            MonitoringTargetType.AccessIsp => MonitoringLinks.AccessIspCategory,
+            MonitoringTargetType.Transit => MonitoringLinks.TransitCategory,
+            // Both name the WAN's own service. Falling through to Custom sent an outage on the
+            // service being monitored to the chart for user-added targets.
+            MonitoringTargetType.InternetService or MonitoringTargetType.Wan
+                => MonitoringLinks.InternetServiceCategory,
+            _ => MonitoringLinks.CustomCategory
         };
         var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
         var url = $"/monitoring?tab=performance&category={category}&at={at}";
         // A LAN target is not reached over any one WAN, so it asks for all of them rather than
         // arriving narrowed to whichever WAN the analysis filter happened to be left on - the same
         // choice the page's own LAN jump makes. A stamped target names its WAN.
-        if (target.TargetType == MonitoringTargetType.Fabric)
+        // Fabric, and any unpinned custom target, are not reached over one WAN. Naming none left
+        // the page on whichever WAN its filter was last set to, which is a different target's path.
+        if (target.TargetType == MonitoringTargetType.Fabric
+            || (category == MonitoringLinks.CustomCategory && MonitoringTarget.IsUnpinned(target.WanInterface)))
             return $"{url}&wan={LiveWanScope.AllWansToken}";
         return MonitoringTarget.IsUnpinned(target.WanInterface)
             ? url

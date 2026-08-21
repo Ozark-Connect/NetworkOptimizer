@@ -209,10 +209,12 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
 
-// Scroll with no ring, for something the user just caused to appear. The ring answers "which of
-// these is the one you were sent to" - a question that only exists when a link brought you from
-// somewhere else. A form that opened under the button you pressed needs no such answer, and
-// flagging it would say something arrived that the user already knows they asked for.
+// Scroll with no ring, for something that appeared where the reader clicked - a form opening
+// under its own button. They know what arrived, so flagging it says nothing.
+//
+// Ring it whenever the page MOVED to get there: another page, or another card on this one. A
+// click in one card that scrolls to a different card has to say which card to work in now,
+// and "the user asked for it" does not answer that.
 window.noScrollTo = function (id, block) {
     var el = document.getElementById(id);
     if (!el) return;

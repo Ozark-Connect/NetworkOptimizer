@@ -942,6 +942,49 @@
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>Id of a result an alert link wants opened.</summary>
+    [SupplyParameterFromQuery(Name = "result")]
+    public int? ResultParam { get; set; }
+
+    private bool _linkedResultOpened;
+    private int? _scrollToLinkedResultId;
+
+    /// <summary>
+    /// Opens the result an alert's ?result= names: turns to the page holding it and expands it,
+    /// rather than leaving the reader to find one row among pages of them.
+    /// <para>
+    /// A query parameter, not the #result-N fragment those links used to carry: a browser never
+    /// sends a fragment to the server, so Blazor cannot see one without asking the page for it
+    /// through JS. The row still carries the id in its markup, for the scroll.
+    /// </para>
+    /// </summary>
+    private void OpenLinkedResult()
+    {
+        if (_linkedResultOpened || ResultParam is not { } id) return;
+
+        var index = filteredHistory.FindIndex(r => r.Id == id);
+        if (index < 0) return;
+
+        _linkedResultOpened = true;
+        historyPage = (index / historyPageSize) + 1;
+        expandedHistoryId = id;
+        _scrollToLinkedResultId = id;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollToLinkedResultId is not { } linkedId) return;
+        _scrollToLinkedResultId = null;
+        // The history table renders behind this and the cards above it grow as their charts and
+        // map arrive, so a scroll fired the instant the row exists lands on a position that then
+        // moves out from under it - the same wait WAN Speed Test takes for the same reason.
+        await Task.Delay(350);
+        // Tinted rather than ringed: an offset ring around a table row collides with the rows
+        // either side. Ringed at all because a link brought the reader here.
+        try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{linkedId}"); }
+        catch { /* helper not loaded - the row is still open, which is the point */ }
+    }
+
     private async Task LoadHistory(bool resetPage = true)
     {
         loading = true;
@@ -955,6 +998,7 @@
             {
                 historyPage = 1;
             }
+            OpenLinkedResult();
         }
         catch (Exception)
         {

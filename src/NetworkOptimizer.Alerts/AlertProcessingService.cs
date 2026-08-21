@@ -475,8 +475,15 @@ public class AlertProcessingService : BackgroundService
 
         // The default site arrives here as null/empty; its selectable slug is "main".
         var slug = string.IsNullOrEmpty(siteSlug) ? "main" : siteSlug;
-        var separator = relativeUrl.Contains('?') ? '&' : '?';
-        var url = $"{relativeUrl}{separator}site={Uri.EscapeDataString(slug)}";
+
+        // In front of any #fragment, not on the end of the string. A speed test alert points at
+        // one result (/speedtest#result-12), and appending blindly put the query INSIDE the
+        // fragment - "#result-12?site=main" - which names no element and no site.
+        var hash = relativeUrl.IndexOf('#');
+        var head = hash < 0 ? relativeUrl : relativeUrl[..hash];
+        var fragment = hash < 0 ? "" : relativeUrl[hash..];
+        var separator = head.Contains('?') ? '&' : '?';
+        var url = $"{head}{separator}site={Uri.EscapeDataString(slug)}{fragment}";
 
         if (_appBaseUrl != null)
             return $"{_appBaseUrl}{url}";

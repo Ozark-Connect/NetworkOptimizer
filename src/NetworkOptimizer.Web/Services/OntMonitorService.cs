@@ -321,7 +321,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     bipErrors: stats.BipErrors,
                     hecErrors: stats.Pon?.HecUncorrected,
                     fecEnabled: fecEnabled,
-                    sourceUrl: $"/monitoring?tab=ont&ont={config.Id}");
+                    sourceUrl: NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.HardwareStats(
+                        "ont", DateTime.UtcNow, $"&ont={config.Id}"));
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

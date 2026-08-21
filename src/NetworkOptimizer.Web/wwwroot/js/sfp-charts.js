@@ -10,6 +10,10 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { awaitContainer } from './chart-mount.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
+
+// Storage scope for this tab's remembered time window.
+const WINDOW_TAB = 'sfp';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -466,6 +470,7 @@ function updateCustomLabel(container) {
 // Grafana-style drag-select on a chart becomes a custom time window,
 // synced to the range selector (custom-range button + popover inputs).
 function applyDragZoom(xaxis) {
+    notifyWindowMoved();
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
         customFrom = new Date(xaxis.min);
@@ -531,13 +536,46 @@ function shiftWindow(container, direction) {
     startPoll();
 }
 
+/**
+ * Frames an hour around a moment an alert link carried in. A custom range rather than a preset,
+ * so a linked window never becomes a remembered one, and an hour rather than the 15 minutes the
+ * latency charts use, because these counters move over a shift.
+ */
+export function frameMoment(isoTimestamp) {
+    const ts = new Date(isoTimestamp).getTime();
+    if (!Number.isFinite(ts)) return;
+    customFrom = new Date(ts - 30 * 60000);
+    customTo = new Date(ts + 30 * 60000);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        const fromInput = container.querySelector('[data-input="from"]');
+        const toInput = container.querySelector('[data-input="to"]');
+        if (fromInput) fromInput.value = toLocalDatetimeString(customFrom);
+        if (toInput) toInput.value = toLocalDatetimeString(customTo);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+}
+
 export async function mount(elId) {
     containerId = elId;
+    // Read before the await, so the decision is made against the URL this mount was called
+    // for. Null leaves this tab's own default standing.
+    const restoredHours = loadWindowHours(WINDOW_TAB);
+    if (restoredHours !== null) currentRangeHours = restoredHours;
+
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+
+    if (restoredHours !== null) markActiveRange(container, restoredHours);
 
     const powerEl = container.querySelector('.sfp-power-chart');
     const tempEl = container.querySelector('.sfp-temp-chart');
@@ -569,11 +607,18 @@ export async function mount(elId) {
     // it never create these instances.
 
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+        btn.addEventListener('click', () => {
+            const hours = parseInt(btn.dataset.range);
+            // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
+            // too, and a window the link chose must not become a remembered preference.
+            saveWindowHours(WINDOW_TAB, hours);
+            notifyWindowMoved();
+            selectPresetRange(container, hours);
+        });
     });
 
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
+        btn.addEventListener('click', () => { notifyWindowMoved(); shiftWindow(container, btn.dataset.shift); });
     });
 
     const popover = container.querySelector('[data-popover="custom-range"]');
@@ -593,6 +638,7 @@ export async function mount(elId) {
     });
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
+        notifyWindowMoved();
         const from = fromInput?.value ? new Date(fromInput.value) : null;
         const to = toInput?.value ? new Date(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;

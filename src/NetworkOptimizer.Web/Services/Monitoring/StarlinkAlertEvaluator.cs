@@ -459,7 +459,7 @@ public class StarlinkAlertEvaluator
             Message = message,
             DeviceId = subject.DeviceId,
             DeviceName = subject.Label,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "dish"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -536,7 +536,7 @@ public class StarlinkAlertEvaluator
             // would render as "0.0006 against 0.02" beside a message about low signal.
             MetricValue = fractionTripped ? fraction : null,
             ThresholdValue = fractionTripped ? StarlinkHealthThresholds.ObstructionFractionPoor : null,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "obstruction"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -633,7 +633,7 @@ public class StarlinkAlertEvaluator
             DeviceName = subject.Label,
             MetricValue = drift,
             ThresholdValue = AlignmentDriftDeg,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "alignment"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -689,7 +689,7 @@ public class StarlinkAlertEvaluator
             DeviceName = subject.Label,
             MetricValue = current,
             ThresholdValue = capable,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "ethernet"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -745,7 +745,7 @@ public class StarlinkAlertEvaluator
             DeviceName = subject.Label,
             MetricValue = total,
             ThresholdValue = StarlinkHealthThresholds.OutageSecondsPerDayPoor,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "outage"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -806,7 +806,7 @@ public class StarlinkAlertEvaluator
                           "allotment this is the moment it ran out.",
                 DeviceId = subject.DeviceId,
                 DeviceName = subject.Label,
-                SourceUrl = subject.SourceUrl,
+                SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
                 Tags = ["starlink", "restriction"],
                 Context = subject.Context(new Dictionary<string, string>
                 {
@@ -842,7 +842,7 @@ public class StarlinkAlertEvaluator
             Message = detail,
             DeviceId = subject.DeviceId,
             DeviceName = subject.Label,
-            SourceUrl = subject.SourceUrl,
+            SourceUrl = subject.SourceUrlAt(DateTime.UtcNow),
             Tags = ["starlink", "recovered"],
             Context = subject.Context(new Dictionary<string, string>
             {
@@ -927,7 +927,12 @@ public class StarlinkAlertEvaluator
 
         public string DeviceId => $"{DeviceIdPrefix}{Id}";
 
-        public string SourceUrl => $"/monitoring?tab=starlink&starlink={Id}";
+        /// <summary>
+        /// A method, not a property: it frames the link on the moment it is asked for, and a
+        /// property reading the clock would quietly answer differently on every read.
+        /// </summary>
+        public string SourceUrlAt(DateTime atUtc) =>
+            MonitoringLinks.HardwareStats("starlink", atUtc, $"&starlink={Id}");
 
         public Dictionary<string, string> Context(Dictionary<string, string> extra)
         {

@@ -28,6 +28,7 @@ public class DeviceRebootAlertEvaluator
     /// </summary>
     public static readonly TimeSpan CurrentBootWindow = TimeSpan.FromMinutes(30);
 
+
     private readonly IAlertEventBus _eventBus;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ILogger<DeviceRebootAlertEvaluator> _logger;
@@ -115,6 +116,7 @@ public class DeviceRebootAlertEvaluator
             DeviceId = deviceMac,
             DeviceName = deviceName,
             DeviceIp = deviceIp
+            ,SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs())
         }, ct);
 
         _logger.LogInformation(

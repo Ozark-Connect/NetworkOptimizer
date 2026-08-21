@@ -3557,7 +3557,7 @@
                                             <td colspan="5">
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
-                                                <div class="site-config-panel">
+                                                <div id="site-config-@site.Id" class="site-config-panel">
                                                                                                         <div class="site-config-section">
                                                         <div class="site-config-section-title">Agent</div>
                                                         @if (agents.Count > 0)
@@ -3845,6 +3845,16 @@
 @code {
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
+
+    /// <summary>
+    /// Slug of a site whose configuration a link wants opened, e.g. the Monitoring banner's route
+    /// to enrolling an agent. Deliberately NOT named "site": that one pins the tab's whole site
+    /// context (see site-context.js), so reusing it here would switch sites rather than open a row.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "configure")]
+    public string? ConfigureSiteParam { get; set; }
+
+    private bool _configureSiteHandled;
 
     /// <summary>The signed-in user, used by the Admin Password control to change their own password.</summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -4351,13 +4361,10 @@
     private async Task StartAgentSetup(Site site)
     {
         _setupWizard?.StartAgentSetupFor(site);
-        // Let the wizard render at the agent step, then bring it into view.
-        await Task.Delay(50);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('site-agent-setup');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            })();");
+        // Same scroll-and-highlight as arriving on the #site-agent-setup anchor: the wizard is
+        // several screens down, so landing there without the outline leaves the reader to work
+        // out which panel the click opened.
+        await ScrollToAndHighlightAsync("site-agent-setup");
     }
 
     private async Task LoadAgentsAsync()
@@ -5039,6 +5046,28 @@
         // on every render rather than only on the tab click, since a link with ?tab=multisite never
         // goes through SetActiveTab; the method itself runs once.
         if (_activeTab == "multisite") await EnsureMultiWanHintAsync();
+
+        // Open the row a ?configure= link names, once the sites are loaded and the tab is on
+        // screen. Once only: this is where the link took the reader, not a mode the page stays in,
+        // so closing the row must not have it spring back open on the next render.
+        if (!_configureSiteHandled && _activeTab == "multisite"
+            && !string.IsNullOrWhiteSpace(ConfigureSiteParam) && _sites.Count > 0)
+        {
+            _configureSiteHandled = true;
+            var target = _sites.FirstOrDefault(x =>
+                string.Equals(x.Slug, ConfigureSiteParam, StringComparison.OrdinalIgnoreCase));
+            if (target is not null)
+            {
+                await ToggleAgents(target.Id);
+                // The panel rather than its row: the panel paints its own background over the
+                // whole row, so a row tint lands behind it and is never seen. Ringed with an
+                // explicit radius, which is what noHighlightTarget takes for a target that is
+                // not card-shaped.
+                await Task.Delay(300);
+                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}",
+                    "center", "var(--border-radius)");
+            }
+        }
 
         // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
         // panel to load - a deep link (the guided tour is one) would have shown the empty state on a
