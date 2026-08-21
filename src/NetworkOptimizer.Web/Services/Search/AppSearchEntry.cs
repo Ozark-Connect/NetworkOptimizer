@@ -49,6 +49,11 @@ public sealed class AppSearchEntry
     /// "monitoring cable" is the section plus part of the title, and neither field holds both.
     /// Built once per entry rather than once per search: an index is static for the life of the
     /// process, and an app-wide one will not be small.
+    ///
+    /// That static index is shared by every circuit, so two users can race this. Deliberately
+    /// unlocked: the value is derived from init-only fields, so both would compute the same string
+    /// and publishing the reference is atomic. A lock here would serialize every search to protect
+    /// nothing.
     /// </summary>
     internal string SearchText => _searchText ??= string.Join(' ',
         new[] { Title, Section, Area }
