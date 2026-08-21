@@ -114,6 +114,10 @@ public class PonSupplementalStats
     /// <summary>Host (module-to-gateway) link PHY status, raw device enum.</summary>
     public long? LanLinkStatus { get; set; }
 
+    /// <summary>Host link PHY mode, raw device enum. Tracked because a module that renegotiates
+    /// its host link to a lower rate halves WAN capacity while the PON side stays healthy.</summary>
+    public long? LanMode { get; set; }
+
     /// <summary>Frames transmitted on the host link.</summary>
     public long? LanTxFrames { get; set; }
 

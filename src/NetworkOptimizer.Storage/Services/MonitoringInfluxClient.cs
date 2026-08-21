@@ -832,6 +832,7 @@ from(bucket: ""{_longtermBucket}"")
         if (stats.GpeLanEgressDiscard.HasValue) point = point.Field("gpe_lan_egress_discard", stats.GpeLanEgressDiscard.Value);
         if (stats.GpeLanLearningDiscard.HasValue) point = point.Field("gpe_lan_learning_discard", stats.GpeLanLearningDiscard.Value);
         if (stats.LanLinkStatus.HasValue) point = point.Field("lan_link_status", stats.LanLinkStatus.Value);
+        if (stats.LanMode.HasValue) point = point.Field("lan_mode", stats.LanMode.Value);
         if (stats.LanTxFrames.HasValue) point = point.Field("lan_tx_frames", stats.LanTxFrames.Value);
         if (stats.LanRxFrames.HasValue) point = point.Field("lan_rx_frames", stats.LanRxFrames.Value);
         if (stats.LanTxDropEvents.HasValue) point = point.Field("lan_tx_drop_events", stats.LanTxDropEvents.Value);
@@ -2339,6 +2340,11 @@ from(bucket: ""{_longtermBucket}"")
         public long? GemRxFrames { get; set; }
         public long? GemRxDropped { get; set; }
         public long? AllocLost { get; set; }
+        public long? HecCorrected { get; set; }
+        public long? BwmapCorrected { get; set; }
+        public long? BwmapUncorrected { get; set; }
+        public long? LanLinkStatus { get; set; }
+        public long? LanMode { get; set; }
         public long? LanRxFcsErrors { get; set; }
         public long? LanTxDropEvents { get; set; }
         public long? LanBufferOverflow { get; set; }
@@ -2367,8 +2373,10 @@ from(bucket: ""{_longtermBucket}"")
         {
             "pon_link_status", "pon_link_status_prev", "onu_id", "ds_fec_enabled", "us_fec_enabled",
             "onu_response_time", "sfp_uptime_s", "bip_errors", "fec_errors", "fec_corrected_words",
-            "hec_uncorrected", "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
-            "alloc_lost", "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
+            "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
+            "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
+            "alloc_lost", "lan_link_status", "lan_mode",
+            "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         };
         var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{f}"""));
 
@@ -2411,6 +2419,11 @@ from(bucket: ""{_longtermBucket}"")
                 GemRxFrames = AsLongOrNull(record.GetValueByKey("gem_rx_frames")),
                 GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
                 AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
+                HecCorrected = AsLongOrNull(record.GetValueByKey("hec_corrected")),
+                BwmapCorrected = AsLongOrNull(record.GetValueByKey("bwmap_corrected")),
+                BwmapUncorrected = AsLongOrNull(record.GetValueByKey("bwmap_uncorrected")),
+                LanLinkStatus = AsLongOrNull(record.GetValueByKey("lan_link_status")),
+                LanMode = AsLongOrNull(record.GetValueByKey("lan_mode")),
                 LanRxFcsErrors = AsLongOrNull(record.GetValueByKey("lan_rx_fcs_err")),
                 LanTxDropEvents = AsLongOrNull(record.GetValueByKey("lan_tx_drop_events")),
                 LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),

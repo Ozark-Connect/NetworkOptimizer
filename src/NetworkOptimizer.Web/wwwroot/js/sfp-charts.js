@@ -1,4 +1,4 @@
-﻿// SFP DDM time-series charts: RX/TX power, temperature, voltage.
+// SFP DDM time-series charts: RX/TX power, temperature, voltage.
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -289,14 +289,24 @@ async function refreshPonSection() {
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
+            const hec = ponPoints(m, 'hec');
+            const gemDrop = ponPoints(m, 'gemDrop');
             errSeries.push(
                 { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
+                { name: `${prefix}HEC corrected`, data: ponPoints(m, 'hecCorr') },
+                { name: `${prefix}HEC`, data: hec },
                 { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
                 { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
-                { name: `${prefix}HEC`, data: ponPoints(m, 'hec') },
-                { name: `${prefix}GEM drops`, data: ponPoints(m, 'gemDrop') },
+                { name: `${prefix}BWmap corrected`, data: ponPoints(m, 'bwmapCorr') },
+                { name: `${prefix}BWmap uncorrected`, data: ponPoints(m, 'bwmapUncorr') },
                 { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
             );
+            // Some ONTs report GEM drops off the same counter as uncorrectable HEC (every Lantiq
+            // one does), which draws a second line exactly on top of HEC. Keep the series only
+            // where the hardware really does count them separately.
+            if (!sameSeries(gemDrop, hec)) {
+                errSeries.push({ name: `${prefix}GEM drops`, data: gemDrop });
+            }
             gemSeries.push(
                 { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
                 { name: `${prefix}TX frames`, data: ponPoints(m, 'gemTx') },
@@ -365,6 +375,11 @@ function ponPoints(m, key) {
     return alignedPoints(m.pon || [], p => p[key]);
 }
 
+function sameSeries(a, b) {
+    if (a.length !== b.length) return false;
+    return a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+}
+
 // Create the three PON charts on first use. Kept out of mount() so setups without
 // supplemental PON polling never pay for instances they'd never see.
 async function ensurePonChartsMounted() {
@@ -401,17 +416,20 @@ function renderPonDetails(container, withPon) {
         const state = PLOAM_LABELS[last.state] || last.state || '-';
         const fec = last.dsFec == null && last.usFec == null ? '-'
             : `${last.dsFec ? 'on' : 'off'} / ${last.usFec ? 'on' : 'off'}`;
+        const host = last.lanLink == null && last.lanMode == null ? '-'
+            : `${last.lanLink ?? '-'} / ${last.lanMode ?? '-'}`;
         return `<tr>
             <td>${escapeHtml(m.label)}</td>
             <td>${escapeHtml(state)}</td>
             <td>${last.onuId ?? '-'}</td>
             <td>${fec}</td>
             <td>${last.respTime ?? '-'}</td>
+            <td>${host}</td>
             <td>${fmtUp(last.uptime)}</td>
         </tr>`;
     }).join('');
     el.innerHTML = `<div class="table-responsive"><table class="data-table">
-        <thead><tr><th>Module</th><th>PLOAM State</th><th>ONU ID</th><th>FEC DS / US</th><th>Response Time</th><th>ONT Uptime</th></tr></thead>
+        <thead><tr><th>Module</th><th>PLOAM State</th><th>ONU ID</th><th>FEC DS / US</th><th>Response Time</th><th><span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span></th><th>ONT Uptime</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
 }
 

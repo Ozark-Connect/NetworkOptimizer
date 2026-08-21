@@ -211,6 +211,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         GpeLanEgressDiscard = p.GpeLan?.EbpDiscard,
         GpeLanLearningDiscard = p.GpeLan?.LearningDiscard,
         LanLinkStatus = p.Lan?.LinkStatus,
+        LanMode = p.Lan?.Mode,
         LanTxFrames = p.LanCounters?.TxFrames,
         LanRxFrames = p.LanCounters?.RxFrames,
         LanTxDropEvents = p.LanCounters?.TxDropEvents,
