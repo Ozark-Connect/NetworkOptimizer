@@ -16,6 +16,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class DeviceHealthAlertEvaluator
 {
+    /// <summary>The instant the alert fired, for the ?at= the link frames its window on.</summary>
+    private static string NowMs() =>
+        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds().ToString();
+
     private const int CpuWindowSize = 5;
     private const double CpuHighThresholdPercent = 70.0;
     private const double CpuClearThresholdPercent = 55.0;
@@ -89,7 +93,7 @@ public class DeviceHealthAlertEvaluator
                         DeviceName = deviceName,
                         MetricValue = avg,
                         ThresholdValue = CpuHighThresholdPercent,
-                        SourceUrl = "/monitoring?tab=devices",
+                        SourceUrl = MonitoringLinks.DeviceStats(deviceMac, NowMs()),
                         Tags = ["device", "gateway", "cpu"],
                         Context = new Dictionary<string, string>
                         {
@@ -124,7 +128,7 @@ public class DeviceHealthAlertEvaluator
                     DeviceName = deviceName,
                     MetricValue = memoryUsedPercent.Value,
                     ThresholdValue = MemoryHighThresholdPercent,
-                    SourceUrl = "/monitoring?tab=devices",
+                    SourceUrl = MonitoringLinks.DeviceStats(deviceMac, NowMs()),
                     Tags = ["device", "gateway", "memory"],
                     Context = new Dictionary<string, string>
                     {
@@ -162,7 +166,7 @@ public class DeviceHealthAlertEvaluator
                     DeviceName = deviceName,
                     MetricValue = temperatureC.Value,
                     ThresholdValue = threshold,
-                    SourceUrl = "/monitoring?tab=devices",
+                    SourceUrl = MonitoringLinks.DeviceStats(deviceMac, NowMs()),
                     Tags = ["device", deviceType, "temperature"],
                     Context = new Dictionary<string, string>
                     {

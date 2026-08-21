@@ -1,4 +1,4 @@
-﻿namespace NetworkOptimizer.Web.Services.Monitoring;
+namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// The links the Live surfaces build into the analysis views.
@@ -93,6 +93,15 @@ public static class MonitoringLinks
     /// shift and a loss spike is over in seconds.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// A hardware stat tab framed on the moment an alert fired. Those tabs read ?at= as one hour
+    /// around the instant, since their counters move over a shift rather than in seconds.
+    /// </summary>
+    /// <param name="tab">The tab key: sfp, ont, cm, cellular or starlink.</param>
+    /// <param name="extra">Any tab-specific selector already formed, e.g. "&ont=3".</param>
+    public static string HardwareStats(string tab, DateTime atUtc, string extra = "") =>
+        $"/monitoring?tab={tab}&at={new DateTimeOffset(DateTime.SpecifyKind(atUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()}{extra}";
+
     public static string DeviceStats(string? deviceMac, string at) =>
         $"/monitoring?tab=devices&at={at}"
         + (string.IsNullOrEmpty(deviceMac) ? "" : $"&device={Uri.EscapeDataString(deviceMac)}");

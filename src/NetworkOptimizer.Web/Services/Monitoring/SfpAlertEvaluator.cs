@@ -142,7 +142,7 @@ public class SfpAlertEvaluator
             DeviceName = deviceName,
             MetricValue = value,
             ThresholdValue = threshold,
-            SourceUrl = "/monitoring?tab=sfp",
+            SourceUrl = MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow),
             Tags = ["monitoring", "sfp", catTag],
             Context = new Dictionary<string, string>
             {

@@ -665,7 +665,9 @@ public class StarlinkAlertEvaluatorTests
         evt.Title.Should().StartWith(DishName);
         evt.DeviceName.Should().Be(DishName);
         evt.DeviceId.Should().Be("starlink:1");
-        evt.SourceUrl.Should().Be("/monitoring?tab=starlink&starlink=1");
+        // Framed on the moment it fired, so the tab opens on the hour the alert is about.
+        evt.SourceUrl.Should().StartWith("/monitoring?tab=starlink&at=");
+        evt.SourceUrl.Should().EndWith("&starlink=1");
         evt.Context["dish_name"].Should().Be(DishName);
     }
 

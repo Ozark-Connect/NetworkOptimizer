@@ -2636,6 +2636,18 @@
         && CollectionAgent.LastCollectionUtc is DateTime last
         && DateTime.UtcNow - last < CollectionStaleAfter;
 
+    /// <summary>
+    /// The frame call for a hardware stat tab whose link carried ?at=, or "" for a plain visit.
+    /// One hour around the moment, set as a custom range, so the framing a link asked for never
+    /// becomes the tab's remembered preset.
+    /// </summary>
+    private string HardwareFrameJs()
+    {
+        if (!long.TryParse(AtParam, out var atMs) || atMs <= 0) return "";
+        var iso = DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime.ToString("O");
+        return $"m.frameMoment('{iso}');";
+    }
+
     private string ServerCollectionState =>
         _influxReachable != true ? "enabled, but InfluxDB unreachable"
         : !CollectionAgent.SiteCanProbe ? "SNMP only (add an agent for network performance data)"
@@ -5809,7 +5821,7 @@
                     ? $"m.soloModule('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloSfpModuleId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
             }
             catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
@@ -5856,7 +5868,7 @@
                     ? $"m.soloModem('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloCellularModemId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloCellularModemId = null;
             }
             catch (Exception ex) { _cellularChartsMounted = false; Logger.LogDebug(ex, "Cellular charts mount failed; will retry on next render"); }
@@ -5879,7 +5891,7 @@
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloStarlinkId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloStarlinkId = null;
             }
             catch (Exception ex) { _starlinkChartsMounted = false; Logger.LogDebug(ex, "Starlink charts mount failed; will retry on next render"); }
@@ -5902,7 +5914,7 @@
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloCmId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloCmId = null;
             }
             catch (Exception ex) { _cmChartsMounted = false; Logger.LogDebug(ex, "CM charts mount failed; will retry on next render"); }
@@ -5925,7 +5937,7 @@
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloOntId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloOntId = null;
             }
             catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }

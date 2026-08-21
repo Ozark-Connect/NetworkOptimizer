@@ -358,6 +358,32 @@ function shiftWindow(container, direction) {
     startPoll();
 }
 
+/**
+ * Frames an hour around a moment an alert link carried in. A custom range rather than a preset,
+ * so a linked window never becomes a remembered one, and an hour rather than the 15 minutes the
+ * latency charts use, because these counters move over a shift.
+ */
+export function frameMoment(isoTimestamp) {
+    const ts = new Date(isoTimestamp).getTime();
+    if (!Number.isFinite(ts)) return;
+    customFrom = new Date(ts - 30 * 60000);
+    customTo = new Date(ts + 30 * 60000);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        const fromInput = container.querySelector('[data-input="from"]');
+        const toInput = container.querySelector('[data-input="to"]');
+        if (fromInput) fromInput.value = toLocalDatetimeString(customFrom);
+        if (toInput) toInput.value = toLocalDatetimeString(customTo);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+}
+
 export async function mount(elId) {
     // Reset all state in case unmount didn't complete (Blazor Dispose race)
     stopPoll();

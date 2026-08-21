@@ -2548,7 +2548,8 @@ public class MonitoringCollectionAgent : BackgroundService
                         ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
                         : null;
                     // Attached ONTs surface on SFP Stats, so link the alert to that module.
-                    var sfpUrl = $"/monitoring?tab=sfp&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}";
+                    var sfpUrl = Monitoring.MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow,
+                        $"&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}");
                     try
                     {
                         await _ontAlertEvaluator.EvaluateAsync(

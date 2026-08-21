@@ -89,7 +89,7 @@ public class CableModemAlertEvaluator
                 Message = $"Cable modem {cmName} downstream SNR averaged {snr:0.#} dB, below the {DsSnrLowDb} dB threshold. Below 30 dB is typically service-affecting.",
                 MetricValue = snr,
                 ThresholdValue = DsSnrLowDb,
-                SourceUrl = "/monitoring?tab=cm",
+                SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
                 Tags = ["cable_modem", "snr"],
                 Context = new Dictionary<string, string>
                 {
@@ -124,7 +124,7 @@ public class CableModemAlertEvaluator
                 Message = $"Cable modem {cmName} downstream power averaged {power:0.#} dBmV, outside the {DsPowerLowDbmv} to {DsPowerHighDbmv} dBmV DOCSIS operating range.",
                 MetricValue = power,
                 ThresholdValue = power < DsPowerLowDbmv ? DsPowerLowDbmv : DsPowerHighDbmv,
-                SourceUrl = "/monitoring?tab=cm",
+                SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
                 Tags = ["cable_modem", "power"],
                 Context = new Dictionary<string, string>
                 {
@@ -156,7 +156,7 @@ public class CableModemAlertEvaluator
                 Message = $"Cable modem {cmName} upstream power averaged {power:0.#} dBmV, above {UsPowerHighDbmv} dBmV. The modem is compensating for poor return path signal.",
                 MetricValue = power,
                 ThresholdValue = UsPowerHighDbmv,
-                SourceUrl = "/monitoring?tab=cm",
+                SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
                 Tags = ["cable_modem", "power"],
                 Context = new Dictionary<string, string>
                 {
@@ -184,7 +184,7 @@ public class CableModemAlertEvaluator
             Message = $"Cable modem {cmName} had {delta:N0} uncorrectable FEC errors since the last poll, exceeding the {UncorrectablesDeltaThreshold} threshold.",
             MetricValue = delta,
             ThresholdValue = UncorrectablesDeltaThreshold,
-            SourceUrl = "/monitoring?tab=cm",
+            SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
             Tags = ["cable_modem", "uncorrectables"],
             Context = new Dictionary<string, string>
             {
@@ -219,7 +219,7 @@ public class CableModemAlertEvaluator
                 Message = $"Cable modem {cmName} dropped from {state.MaxLockedDsChannels} to {lockedDsChannels} locked downstream channels ({drop} lost).",
                 MetricValue = lockedDsChannels,
                 ThresholdValue = state.MaxLockedDsChannels,
-                SourceUrl = "/monitoring?tab=cm",
+                SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
                 Tags = ["cable_modem", "channels"],
                 Context = new Dictionary<string, string>
                 {
