@@ -79,6 +79,59 @@ public class AgentWanTestVantageTests
         refusal.Should().NotBeNullOrEmpty();
     }
 
+    // ---- The cases that already worked, which must keep working ------------
+
+    [Fact]
+    public void ASingleAgentSiteRunsOnThatAgent()
+    {
+        // The only shape that exists on installs today. It ran on the site's one agent before and
+        // has to keep doing exactly that, whether or not the site has WAN contexts.
+        var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
+            wanContextId: null,
+            contexts: Array.Empty<WanContext>(),
+            connectedAgentIds: new[] { SpeedTestAgent },
+            capableAgentIds: new[] { SpeedTestAgent },
+            collectorAgentId: SpeedTestAgent);
+
+        refusal.Should().BeNull();
+        vantage!.AgentId.Should().Be(SpeedTestAgent);
+    }
+
+    [Fact]
+    public void ASingleAgentSiteRunsOnThatAgentEvenWithNoCollector()
+    {
+        // A site whose collector cannot be resolved (console down, agent just connected) still has
+        // one obvious answer, and refusing there would take away a test that works today.
+        var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
+            wanContextId: null,
+            contexts: Array.Empty<WanContext>(),
+            connectedAgentIds: new[] { SpeedTestAgent },
+            capableAgentIds: new[] { SpeedTestAgent },
+            collectorAgentId: null);
+
+        refusal.Should().BeNull();
+        vantage!.AgentId.Should().Be(SpeedTestAgent);
+    }
+
+    [Fact]
+    public void ASingleAgentSiteWithWanContextsStillDefaultsToItsOneAgent()
+    {
+        // Contexts exist for monitoring, but nothing was chosen: still the primary WAN on the one
+        // agent, not a refusal because a context happens to name a different box.
+        var contexts = new[] { Context(1, "Starlink", SecondaryWanAgent) };
+
+        var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
+            wanContextId: null,
+            contexts: contexts,
+            connectedAgentIds: new[] { SpeedTestAgent },
+            capableAgentIds: new[] { SpeedTestAgent },
+            collectorAgentId: SpeedTestAgent);
+
+        refusal.Should().BeNull();
+        vantage!.AgentId.Should().Be(SpeedTestAgent);
+        vantage.Context.Should().BeNull();
+    }
+
     // ---- A chosen WAN context ---------------------------------------------
 
     [Fact]

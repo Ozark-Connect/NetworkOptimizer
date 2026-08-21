@@ -177,9 +177,21 @@ public class AgentWanTestVantageResolver
     /// <summary>
     /// Resolves one agent against its site's gateway addresses. The live tunnel reports every
     /// address its host holds; an agent with no open tunnel falls back to its last known LAN IP.
+    /// <para>
+    /// A site with one connected agent asks the SITE-level verdict instead, which is the question
+    /// every WAN test surface asked before there was a per-agent one, and is unambiguous when there
+    /// is only one agent to be about. That is not a preference: the two verdicts persist under
+    /// different keys, so an agent enrolled before the per-agent key existed has nothing stored to
+    /// fall back on, and a cold read with the console still down answers "not on the gateway"
+    /// (TODO(#1106) in AgentOnGatewayDetector). Routing single-agent sites through the site-level
+    /// answer means the only installs that exist today cannot behave differently than they did.
+    /// </para>
     /// </summary>
     private async Task<bool> IsOnGatewayAsync(string siteSlug, int agentId, CancellationToken ct)
     {
+        if (_tunnels.GetForSite(siteSlug).Count <= 1)
+            return await _onGateway.IsAgentOnGatewayAsync(siteSlug, ct);
+
         var candidates = _tunnels.GetForSite(siteSlug).FirstOrDefault(c => c.AgentId == agentId)?.HostAddresses;
         if (candidates is not { Count: > 0 })
         {
