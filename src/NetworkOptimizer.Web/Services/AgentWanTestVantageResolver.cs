@@ -102,14 +102,17 @@ public class AgentWanTestVantageResolver
         if (runnable.Count == 0) return new List<AgentWanVantage>();
 
         var vantages = new List<AgentWanVantage>();
-        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
-        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
-
         foreach (var context in runnable)
         {
             var (_, refusal) = await ResolveAsync(siteSlug, context.Id, ct);
             vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal));
         }
+
+        // Last, and so not the one selected by default. It is the only way to reach a WAN with no
+        // vantage yet, but a named WAN gives an attributed result where this gives an inferred one,
+        // so it is the fallback rather than the offer.
+        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
+        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
         return vantages;
     }
 

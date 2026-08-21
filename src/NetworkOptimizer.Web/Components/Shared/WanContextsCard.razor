@@ -110,9 +110,17 @@
                                           data-tooltip="This site is probed by its agent, so assign one to this WAN.">&#9888;</span>
                                 }
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
+                                else if (PinMatches(wc))
+                                {
+                                    <span class="text-muted" data-tooltip="@PinTooltip(wc)">Policy route</span>
+                                }
                                 else
                                 {
-                                    @if (BindsNothing(wc))
+                                    @if (PinFor(wc) is RoutePin misrouted)
+                                    {
+                                        <span class="wc-orphan-warn" data-tooltip="@MisroutedWarning(misrouted)">&#9888;</span>
+                                    }
+                                    else if (BindsNothing(wc))
                                     {
                                         <span class="wc-orphan-warn" data-tooltip="@UnboundWarning(wc)">&#9888;</span>
                                     }
@@ -466,6 +474,12 @@
     // bind, and one that cannot bind at all would fail every probe in the context.
     private HashSet<int> _bindCapableAgents = new();
     private HashSet<int> _sourceBindAgents = new();
+
+    /// <summary>What a policy route pins each agent's traffic to, keyed by agent id.</summary>
+    private Dictionary<int, RoutePin> _routePins = new();
+
+    /// <summary>A policy route steering one agent, in the terms this card shows.</summary>
+    private sealed record RoutePin(string WanKey, string? Description, bool KillSwitchEnabled);
     private HashSet<int> _connectedAgents = new();
     private Dictionary<int, int> _targetCounts = new();
     private bool _gatewayAgentHintAllowed;
@@ -565,6 +579,7 @@
         await LoadWansAsync();
         LoadConnectedAgents();
         await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
         _gatewayAgentHintAllowed = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
     }
 
@@ -705,6 +720,7 @@
         await LoadAgentsAsync();
         await LoadWansAsync();
         await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
     }
 
     /// <summary>
@@ -769,6 +785,85 @@
     /// interface, so it binds one of its own addresses instead and the gateway policy-routes that
     /// address out the WAN.
     /// </summary>
+    /// <summary>
+    /// Which WAN a policy route steers each of this site's agents onto. Resolved once per load
+    /// rather than per row, since it costs a console round trip. A gateway-resident agent is
+    /// skipped: it binds its own probe source, so a route naming it steers nothing extra.
+    /// </summary>
+    private async Task LoadRoutePinsAsync()
+    {
+        var pins = new Dictionary<int, RoutePin>();
+        try
+        {
+            var api = Connection.Client;
+            if (api != null && _agents.Count > 0)
+            {
+                var routes = await api.GetTrafficRoutesAsync();
+                if (routes.Count > 0)
+                {
+                    var clients = await api.GetClientsAsync();
+                    var networks = await Connection.GetNetworksAsync();
+                    foreach (var agent in _agents.Where(a => !_bindCapableAgents.Contains(a.Id)))
+                    {
+                        var mac = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
+                            .MacForAddress(clients, agent.LanIp);
+                        var pin = TrafficRouteWanPinning.ResolvePin(routes, mac);
+                        if (pin == null) continue;
+                        var network = networks.FirstOrDefault(n =>
+                            string.Equals(n.Id, pin.NetworkId, StringComparison.OrdinalIgnoreCase));
+                        if (network is not { IsWan: true } || string.IsNullOrEmpty(network.WanNetworkgroup)) continue;
+                        pins[agent.Id] = new RoutePin(
+                            GatewayWanHelper.WanInterfaceKeyFromKey(network.WanNetworkgroup),
+                            pin.Description,
+                            pin.KillSwitchEnabled);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best effort: with no answer every vantage reads as unrouted, which is what this card
+            // showed before it asked at all.
+            Log.LogDebug(ex, "Could not read policy routes for the vantage list");
+        }
+        _routePins = pins;
+    }
+
+    /// <summary>
+    /// What the route does for this vantage. The kill-switch sentence appears only when it is off,
+    /// which is most of the time and rightly so: a box that also does real work must not have its
+    /// traffic blackholed when a WAN drops. It is a consequence to know, not a fault to fix.
+    /// </summary>
+    private string PinTooltip(WanContext context)
+    {
+        var pin = PinFor(context);
+        var named = string.IsNullOrWhiteSpace(pin?.Description)
+            ? "Steered by a policy route."
+            : $"Steered by the policy route \"{pin!.Description}\".";
+        return pin is { KillSwitchEnabled: false }
+            ? named + " No kill switch, a WAN failover will send probe traffic over another WAN."
+            : named;
+    }
+
+    /// <summary>
+    /// A route steering this agent somewhere other than the WAN its vantage names. Every reading
+    /// here would carry this WAN's name and another WAN's numbers, which no binding can correct.
+    /// </summary>
+    private string MisroutedWarning(RoutePin pin) =>
+        $"A policy route sends this agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
+        + "while readings are recorded against this one. Point the route at this WAN, or change the vantage.";
+
+    /// <summary>The policy route steering this vantage's agent, if one does.</summary>
+    private RoutePin? PinFor(WanContext context) =>
+        context.AgentId is int id && _routePins.TryGetValue(id, out var pin) ? pin : null;
+
+    /// <summary>Whether a policy route steers this vantage's agent onto the WAN the vantage names.</summary>
+    private bool PinMatches(WanContext context) =>
+        PinFor(context) is RoutePin pin
+        && !string.IsNullOrEmpty(context.WanInterface)
+        && string.Equals(pin.WanKey, GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface),
+                         StringComparison.OrdinalIgnoreCase);
+
     private async Task LoadBindCapableAgentsAsync()
     {
         var byInterface = new HashSet<int>();
