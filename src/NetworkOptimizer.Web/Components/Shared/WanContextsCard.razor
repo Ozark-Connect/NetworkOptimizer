@@ -112,7 +112,7 @@
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
                                 else if (PinMatches(wc))
                                 {
-                                    <span class="text-muted wc-probe-source" data-tooltip="@PinTooltip(wc)">Policy route</span>
+                                    <span class="text-muted wc-probe-source" data-tooltip="@PinTooltip(wc)">Policy-Based Route</span>
                                 }
                                 else
                                 {
@@ -473,6 +473,9 @@
     // Null until a connected compute has recorded the site's WAN roles: neither sentence below is
     // shown on a guess, because they prescribe opposite things.
     private bool? _siteLoadBalances;
+
+    /// <summary>The site's primary WAN key, for the vantages that need no binding to reach it.</summary>
+    private string? _primaryWanKey;
     private string? _primaryWanLabel;
     // Agents that both run on the gateway and told us they can bind a probe source. Interface
     // binding is only offered for those: an agent elsewhere on the network has no WAN interface to
@@ -552,7 +555,19 @@
         context.AgentId is int id
         && (_bindCapableAgents.Contains(id) || _sourceBindAgents.Contains(id))
         && string.IsNullOrEmpty(context.InterfaceName)
-        && string.IsNullOrEmpty(context.ProbeSourceIp);
+        && string.IsNullOrEmpty(context.ProbeSourceIp)
+        && !PrimaryPathIsEnough(context);
+
+    /// <summary>
+    /// A primary-WAN vantage on a site that fails over needs nothing bound: the agent's default
+    /// route already is that WAN, and there is no policy route to find because none is wanted.
+    /// Where the site load balances it does need one, because there the balancer picks per flow and
+    /// only a route or a bind says which WAN a probe took. An unknown answer reads as failover, the
+    /// shape of nearly every site.
+    /// </summary>
+    private bool PrimaryPathIsEnough(WanContext context) =>
+        _siteLoadBalances != true
+        && AgentProbeResultSink.IsPrimaryWanContext(context, _primaryWanKey);
 
     /// <summary>
     /// Whether the selected agent reports a version older than the release currently expected of
@@ -677,10 +692,25 @@
         // After the render that created it, not before - there is no element to scroll to until
         // the form is actually in the DOM. Scroll only, no ring: the user pressed the button that
         // opened this, so nothing needs pointing out to them.
-        if (!_revealForm) return;
-        _revealForm = false;
-        await JS.InvokeVoidAsync("noScrollTo", "wan-vantage-form", "center");
+        if (_revealForm)
+        {
+            _revealForm = false;
+            await JS.InvokeVoidAsync("noScrollTo", "wan-vantage-form", "center");
+        }
+
+        if (!firstRender) return;
+        // Both answers below are resolved once and then persist, but the FIRST resolve for an agent
+        // has nothing to fall back on - a card opened just after an agent connects renders before
+        // its answer exists, and nothing here re-asks. One late re-read rather than a poll: by then
+        // the verdict is recorded and every later load reads it directly.
+        await Task.Delay(RowStateSettleDelay);
+        await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
+        StateHasChanged();
     }
+
+    /// <summary>How long to wait before re-reading the row state that is unresolved on a cold ask.</summary>
+    private static readonly TimeSpan RowStateSettleDelay = TimeSpan.FromSeconds(3);
 
     private async Task EditContextAsync(WanContext context)
     {
@@ -772,6 +802,9 @@
             await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var primary = await db.WanProfiles.AsNoTracking().FirstOrDefaultAsync(w => w.IsPrimary == true);
             _siteLoadBalances = primary?.SiteLoadBalances;
+            _primaryWanKey = string.IsNullOrEmpty(primary?.WanNetworkgroup)
+                ? null
+                : GatewayWanHelper.WanInterfaceKeyFromKey(primary!.WanNetworkgroup);
             if (_primaryWanLabel == null && primary != null)
             {
                 var key = GatewayWanHelper.WanInterfaceKeyFromKey(primary.WanNetworkgroup);
@@ -779,7 +812,7 @@
                     WanLabelFor(key), GatewayWanHelper.WanIndexFromKey(key));
             }
         }
-        catch { _siteLoadBalances = null; }
+        catch { _siteLoadBalances = null; _primaryWanKey = null; }
     }
 
     /// <summary>
@@ -852,9 +885,11 @@
     private string PinTooltip(WanContext context)
     {
         var pin = PinFor(context);
+        // Tooltips render HTML, and the name comes from the console, so it is encoded before it
+        // goes anywhere near the markup that bolds it.
         var named = string.IsNullOrWhiteSpace(pin?.Description)
-            ? "Steered by a policy route."
-            : $"Steered by the policy route \"{pin!.Description}\".";
+            ? "Steered by a Policy-Based Route."
+            : $"Steered by the Policy-Based Route <strong>{System.Net.WebUtility.HtmlEncode(pin!.Description)}</strong>.";
         return pin is { KillSwitchEnabled: false }
             ? named + " No kill switch, a WAN failover will send probe traffic over another WAN."
             : named;
@@ -865,7 +900,7 @@
     /// here would carry this WAN's name and another WAN's numbers, which no binding can correct.
     /// </summary>
     private string MisroutedWarning(RoutePin pin) =>
-        $"A policy route sends this agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
+        $"A Policy-Based Route sends this agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
         + "while readings are recorded against this one. Point the route at this WAN, or change the vantage.";
 
     /// <summary>The policy route steering this vantage's agent, if one does.</summary>

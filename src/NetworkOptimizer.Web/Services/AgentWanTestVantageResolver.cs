@@ -108,12 +108,49 @@ public class AgentWanTestVantageResolver
             vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal));
         }
 
-        // Last, and so not the one selected by default. It is the only way to reach a WAN with no
-        // vantage yet, but a named WAN gives an attributed result where this gives an inferred one,
-        // so it is the fallback rather than the offer.
-        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
-        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
+        // Last, and so not the one selected by default. It reaches a WAN that has no vantage yet,
+        // which is the only thing it is for - a named WAN gives an attributed result where this
+        // gives an inferred one. Once every WAN is covered it offers nothing but that ambiguity, so
+        // it is dropped rather than left as a way to file one WAN's numbers under a guess.
+        if (!await EveryWanIsCoveredAsync(siteSlug, runnable, ct))
+        {
+            var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
+            vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
+        }
         return vantages;
+    }
+
+    /// <summary>
+    /// Whether the runnable vantages between them account for every WAN the site has. Answers false
+    /// on any doubt - an unreadable site database, or a site with no WAN profiles recorded yet - so
+    /// the fallback stays offered rather than being removed on a gap.
+    /// </summary>
+    private async Task<bool> EveryWanIsCoveredAsync(
+        string siteSlug, IReadOnlyCollection<WanContext> runnable, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = _siteDbFactory.CreateForSite(
+                siteSlug, siteSlug == SiteManagementService.DefaultSiteSlug);
+            var wanKeys = await db.WanProfiles.AsNoTracking()
+                .Select(w => w.WanNetworkgroup).ToListAsync(ct);
+            var known = wanKeys
+                .Where(k => !string.IsNullOrEmpty(k))
+                .Select(k => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (known.Count == 0) return false;
+
+            var covered = runnable
+                .Where(c => !string.IsNullOrEmpty(c.WanInterface))
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return known.All(covered.Contains);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the WAN list for site {Slug}; keeping the default path option", siteSlug);
+            return false;
+        }
     }
 
     /// <summary>
