@@ -190,6 +190,31 @@ public class WanContextRoutingTests
         AgentProbeResultSink.ShouldPushSiteCollectionConfig(agentIsSteeredToWan: true).Should().BeFalse();
     }
 
+    [Fact]
+    public void Snmp_UnsteeredAgent_Polls()
+    {
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: false, agentIsCollector: false)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Snmp_SteeredAgent_StandsDownWhenAnotherCollects()
+    {
+        // Unchanged: the site has a collector, so a context agent polling too would double every
+        // sample.
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: true, agentIsCollector: false)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Snmp_SteeredCollector_PollsRatherThanLeavingTheSiteDark()
+    {
+        // One agent per WAN: every agent is steered, so the collector is necessarily one of them.
+        // Standing it down too left the site with no poller at all.
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: true, agentIsCollector: true)
+            .Should().BeTrue();
+    }
+
     // ---- Influx wan tag ---------------------------------------------------
 
     [Fact]

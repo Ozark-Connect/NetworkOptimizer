@@ -112,7 +112,7 @@
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
                                 else if (PinMatches(wc))
                                 {
-                                    <span class="text-muted" data-tooltip="@PinTooltip(wc)">Policy route</span>
+                                    <span class="text-muted wc-probe-source" data-tooltip="@PinTooltip(wc)">Policy route</span>
                                 }
                                 else
                                 {
@@ -400,6 +400,11 @@
     .wc-orphan-warn {
         color: var(--warning-color);
         margin-right: 0.35rem;
+        cursor: pointer;
+    }
+
+    .wc-probe-source {
+        cursor: pointer;
     }
 
     .wc-targets-none {
