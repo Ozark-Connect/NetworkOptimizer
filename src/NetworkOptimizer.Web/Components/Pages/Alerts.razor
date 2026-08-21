@@ -1779,6 +1779,8 @@
                     <h4 class="event-type-group-header">Device Health</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
+                        <div @onclick='() => SelectEventType("device.recovered")'><code>device.recovered</code> <span>Device came back online</span></div>
+                        <div @onclick='() => SelectEventType("device.rebooted")'><code>device.rebooted</code> <span>Device restarted</span></div>
                         <div @onclick='() => SelectEventType("device.high_temperature")'><code>device.high_temperature</code> <span>Device (switch, gateway, or AP) temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_memory")'><code>device.gateway_high_memory</code> <span>Gateway memory above threshold</span></div>
