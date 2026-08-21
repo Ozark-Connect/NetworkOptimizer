@@ -3718,6 +3718,12 @@
                 }
             }
 
+            // The spinner means "not looked yet", so the look counts however it went. Setting this
+            // only on success left a disconnected console - or a call that threw - spinning on
+            // "Connecting to UniFi Console..." with nothing to end it. The empty state says the
+            // same thing and stops, and OnConnectionChanged reloads the tab if the console returns.
+            _wanNetworksFetched = true;
+
             // Load live WAN up/down status from device API
             _wanUpStatus = await DataUsageService.GetWanStatusAsync();
 
