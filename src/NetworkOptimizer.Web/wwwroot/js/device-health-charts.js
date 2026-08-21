@@ -9,6 +9,10 @@ import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+
+// Storage scope for this tab's remembered time window.
+const WINDOW_TAB = 'device-health';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -513,11 +517,18 @@ function shiftWindow(container, direction) {
 
 export async function mount(elId) {
     containerId = elId;
+    // Read before the await, so the decision is made against the URL this mount was called
+    // for. Null leaves this tab's own default standing.
+    const restoredHours = loadWindowHours(WINDOW_TAB);
+    if (restoredHours !== null) currentRangeHours = restoredHours;
+
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+
+    if (restoredHours !== null) markActiveRange(container, restoredHours);
 
     const tempEl = container.querySelector('.health-temp-chart');
     const cpuEl = container.querySelector('.health-cpu-chart');
@@ -560,7 +571,13 @@ export async function mount(elId) {
 
     // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+        btn.addEventListener('click', () => {
+            const hours = parseInt(btn.dataset.range);
+            // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
+            // too, and a window the link chose must not become a remembered preference.
+            saveWindowHours(WINDOW_TAB, hours);
+            selectPresetRange(container, hours);
+        });
     });
 
     // Shift arrows

@@ -1741,6 +1741,36 @@
     /// the URL - the selection is in-memory, so nothing here outlives the page or reaches a badge
     /// the user clicks afterwards.
     /// </summary>
+    /// <summary>Id of a result an alert link wants opened.</summary>
+    [SupplyParameterFromQuery(Name = "result")]
+    public int? ResultParam { get; set; }
+
+    private bool _linkedResultOpened;
+
+    /// <summary>
+    /// Opens the result an alert's ?result= names: turns to the page holding it and expands it,
+    /// rather than leaving the reader to find one row among pages of them.
+    /// <para>
+    /// A query parameter, not the #result-N fragment those links used to carry: a browser never
+    /// sends a fragment to the server, so Blazor cannot see one without asking the page for it
+    /// through JS. The row still carries the id in its markup, for the scroll.
+    /// </para>
+    /// </summary>
+    private void OpenLinkedResult()
+    {
+        if (_linkedResultOpened || ResultParam is not { } id) return;
+
+        var index = _filteredHistory.FindIndex(r => r.Id == id);
+        if (index < 0) return;
+
+        _linkedResultOpened = true;
+        _historyPage = (index / HistoryPageSize) + 1;
+        _expandedHistoryId = id;
+        _scrollToLinkedResultId = id;
+    }
+
+    private int? _scrollToLinkedResultId;
+
     private async Task ApplyLinkWanFilterAsync()
     {
         if (_linkWanApplied || _wanSeries.Count <= 1) return;
@@ -1762,6 +1792,15 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollToLinkedResultId is { } linkedId)
+        {
+            _scrollToLinkedResultId = null;
+            // Tinted rather than ringed: an offset ring around a table row collides with the rows
+            // either side. Ringed at all because a link brought the reader here.
+            try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{linkedId}"); }
+            catch { /* helper not loaded - the row is still open, which is the point */ }
+        }
+
         if (!_scrollToHistoryPending) return;
         _scrollToHistoryPending = false;
         // The chart renders asynchronously behind this and the card grows as it does, so a scroll
@@ -2186,6 +2225,7 @@
             ApplyFilters();
             await RenderChartAsync();
             await ApplyLinkWanFilterAsync();
+            OpenLinkedResult();
         }
         catch (Exception ex)
         {

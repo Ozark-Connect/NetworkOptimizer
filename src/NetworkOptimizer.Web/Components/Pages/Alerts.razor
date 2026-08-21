@@ -883,12 +883,21 @@
                             <label class="filter-label">Source:</label>
                             <select class="filter-select" @bind="_historySourceFilter" @bind:after="ReloadHistoryFromFirstPage">
                                 <option value="">All Sources</option>
+                                <option value="agent">Agent</option>
                                 <option value="audit">Audit</option>
+                                <option value="cable_modem">Cable Modem</option>
+                                <option value="cellular">Cellular</option>
+                                <option value="console">UniFi Console</option>
                                 <option value="device">Device</option>
+                                <option value="rollout">Firmware Rollout</option>
+                                <option value="monitoring">Monitoring</option>
+                                <option value="ont">ONT</option>
+                                <option value="schedule">Schedule</option>
                                 <option value="speedtest">Speed Test</option>
+                                <option value="starlink">Starlink</option>
                                 <option value="threats">Threats</option>
                                 <option value="wan">WAN</option>
-                                <option value="wifi">WiFi</option>
+                                <option value="wifi">Wi-Fi</option>
                             </select>
                         </div>
                         <div class="filter-group">
@@ -1770,6 +1779,8 @@
                     <h4 class="event-type-group-header">Device Health</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
+                        <div @onclick='() => SelectEventType("device.recovered")'><code>device.recovered</code> <span>Device came back online</span></div>
+                        <div @onclick='() => SelectEventType("device.rebooted")'><code>device.rebooted</code> <span>Device restarted</span></div>
                         <div @onclick='() => SelectEventType("device.high_temperature")'><code>device.high_temperature</code> <span>Device (switch, gateway, or AP) temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_memory")'><code>device.gateway_high_memory</code> <span>Gateway memory above threshold</span></div>
@@ -2232,7 +2243,10 @@
         {
             switch (_activeTab)
             {
-                case "data-usage": await LoadDataUsageAsync(); break;
+                case "data-usage":
+                    await DataUsageService.TriggerPollAsync();
+                    await LoadDataUsageAsync();
+                    break;
                 case "active": await LoadActiveAlerts(); break;
                 case "history": await LoadHistory(); break;
                 case "rules": await LoadRules(); break;
@@ -2315,6 +2329,10 @@
                     await LoadScheduleOptions();
                     break;
                 case "data-usage":
+                    // Poll before reading, the way pull-to-refresh does. Arriving from another tab
+                    // otherwise showed whatever the last background cycle left and stayed that way
+                    // until the next one came round.
+                    await DataUsageService.TriggerPollAsync();
                     await LoadDataUsageAsync();
                     break;
                 case "active":
@@ -3708,6 +3726,12 @@
                     Logger.LogDebug(ex, "Could not load WAN networks for data usage tab");
                 }
             }
+
+            // The spinner means "not looked yet", so the look counts however it went. Setting this
+            // only on success left a disconnected console - or a call that threw - spinning on
+            // "Connecting to UniFi Console..." with nothing to end it. The empty state says the
+            // same thing and stops, and OnConnectionChanged reloads the tab if the console returns.
+            _wanNetworksFetched = true;
 
             // Load live WAN up/down status from device API
             _wanUpStatus = await DataUsageService.GetWanStatusAsync();

@@ -2636,6 +2636,26 @@
         && CollectionAgent.LastCollectionUtc is DateTime last
         && DateTime.UtcNow - last < CollectionStaleAfter;
 
+    /// <summary>
+    /// The frame call for a hardware stat tab whose link carried ?at=, or "" for a plain visit.
+    /// One hour around the moment, set as a custom range, so the framing a link asked for never
+    /// becomes the tab's remembered preset.
+    /// </summary>
+    private bool _hardwareAtFramed;
+    private string? _lastHardwareAtParam;
+
+    private string HardwareFrameJs()
+    {
+        // Once per link, like the Device Stats and Network Performance paths clear theirs. The
+        // charts remount for reasons of their own - a console reconnect does it - and re-framing
+        // then would throw away a window the reader had since chosen.
+        if (_hardwareAtFramed) return "";
+        if (!long.TryParse(AtParam, out var atMs) || atMs <= 0) return "";
+        _hardwareAtFramed = true;
+        var iso = DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime.ToString("O");
+        return $"m.frameMoment('{iso}');";
+    }
+
     private string ServerCollectionState =>
         _influxReachable != true ? "enabled, but InfluxDB unreachable"
         : !CollectionAgent.SiteCanProbe ? "SNMP only (add an agent for network performance data)"
@@ -2970,6 +2990,14 @@
         if (!string.IsNullOrEmpty(StarlinkParam) && _activeTab == "starlink")
         {
             _soloStarlinkId = StarlinkParam;
+        }
+
+        // A new link means a new moment to frame. Without this the second alert opened in a
+        // session would arrive on the first one's window.
+        if (AtParam != _lastHardwareAtParam)
+        {
+            _lastHardwareAtParam = AtParam;
+            _hardwareAtFramed = false;
         }
 
         // Expand on any funnel deep-link from the monitor forms. Those links always carry
@@ -3623,7 +3651,7 @@
                 Probe-based monitoring needs an on-site agent. SNMP collection is unaffected.
             </div>
             <div class="banner-actions">
-                <button class="btn btn-sm btn-primary" @onclick='() => NavigationManager.NavigateTo("/settings?tab=multisite")'>Set Up an Agent</button>
+                <button class="btn btn-sm btn-primary" @onclick='() => NavigationManager.NavigateTo($"/settings?tab=multisite&configure={SiteCtx.Slug}")'>Set Up an Agent</button>
             </div>
         </div>
     </div>;
@@ -5808,8 +5836,17 @@
                 var soloJs = !string.IsNullOrEmpty(_soloSfpModuleId)
                     ? $"m.soloModule('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloSfpModuleId)}');"
                     : "";
+                // The same ref the analysis charts use: these tabs report a user-moved window
+                // through it so a link's ?at= stops outliving the window it framed.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
             }
             catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
@@ -5855,8 +5892,17 @@
                 var soloJs = !string.IsNullOrEmpty(_soloCellularModemId)
                     ? $"m.soloModem('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloCellularModemId)}');"
                     : "";
+                // The same ref the analysis charts use: these tabs report a user-moved window
+                // through it so a link's ?at= stops outliving the window it framed.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloCellularModemId = null;
             }
             catch (Exception ex) { _cellularChartsMounted = false; Logger.LogDebug(ex, "Cellular charts mount failed; will retry on next render"); }
@@ -5878,8 +5924,17 @@
                 var soloJs = !string.IsNullOrEmpty(_soloStarlinkId)
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloStarlinkId)}');"
                     : "";
+                // The same ref the analysis charts use: these tabs report a user-moved window
+                // through it so a link's ?at= stops outliving the window it framed.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloStarlinkId = null;
             }
             catch (Exception ex) { _starlinkChartsMounted = false; Logger.LogDebug(ex, "Starlink charts mount failed; will retry on next render"); }
@@ -5901,8 +5956,17 @@
                 var soloJs = !string.IsNullOrEmpty(_soloCmId)
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloCmId)}');"
                     : "";
+                // The same ref the analysis charts use: these tabs report a user-moved window
+                // through it so a link's ?at= stops outliving the window it framed.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloCmId = null;
             }
             catch (Exception ex) { _cmChartsMounted = false; Logger.LogDebug(ex, "CM charts mount failed; will retry on next render"); }
@@ -5924,8 +5988,17 @@
                 var soloJs = !string.IsNullOrEmpty(_soloOntId)
                     ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloOntId)}');"
                     : "";
+                // The same ref the analysis charts use: these tabs report a user-moved window
+                // through it so a link's ?at= stops outliving the window it framed.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {soloJs} }})();");
+                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloOntId = null;
             }
             catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }

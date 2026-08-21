@@ -752,7 +752,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 DeviceIp = result.DeviceHost,
                 DeviceName = result.DeviceName,
                 MetricValue = downloadMbps,
-                SourceUrl = $"/client-speedtest#result-{result.Id}",
+                SourceUrl = $"/client-speedtest?result={result.Id}",
                 Context = new Dictionary<string, string>
                 {
                     ["downloadMbps"] = downloadMbps.ToString("F1"),
@@ -793,7 +793,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                             DeviceName = result.DeviceName,
                             MetricValue = downloadMbps,
                             ThresholdValue = avgDownload,
-                            SourceUrl = $"/client-speedtest#result-{result.Id}",
+                            SourceUrl = $"/client-speedtest?result={result.Id}",
                             Context = new Dictionary<string, string>
                             {
                                 ["current_mbps"] = downloadMbps.ToString("F1"),

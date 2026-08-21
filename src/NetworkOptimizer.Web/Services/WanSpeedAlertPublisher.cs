@@ -28,6 +28,18 @@ public static class WanSpeedAlertPublisher
             var downloadMbps = result.DownloadMbps;
             var uploadMbps = result.UploadMbps;
             var wanName = result.WanName ?? "Unknown";
+            // The page filters on the WAN key, which is what WanNetworkGroup already holds ("WAN",
+            // "WAN2"). Without it a multi-WAN site opens on whichever WAN it was left on, which is
+            // not the one the alert is about. Same filter the ISP Health hero link passes.
+            //
+            // A bonded test records "WAN+WAN2", which becomes the comma list the analysis charts
+            // already read. WAN Speed Test understands a single key today and ignores a list, but
+            // these URLs are frozen into history when the alert is raised: a row written without
+            // the filter never gains one, while a row carrying it starts working the day that page
+            // learns to read it.
+            var wanFilter = string.IsNullOrWhiteSpace(result.WanNetworkGroup)
+                ? "?"
+                : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}&";
 
             await alertEventBus.PublishAsync(new AlertEvent
             {
@@ -36,7 +48,7 @@ public static class WanSpeedAlertPublisher
                 Source = "wan",
                 Title = $"WAN Speed Test: {downloadMbps:F1} / {uploadMbps:F1} Mbps",
                 Message = $"Download: {downloadMbps:F1} Mbps, Upload: {uploadMbps:F1} Mbps ({result.Direction})",
-                SourceUrl = $"/wan-speedtest#result-{result.Id}",
+                SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
                 Context = new Dictionary<string, string>
                 {
                     ["download_mbps"] = downloadMbps.ToString("F1"),
@@ -74,7 +86,7 @@ public static class WanSpeedAlertPublisher
                             Message = $"{wanName} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
                             MetricValue = downloadMbps,
                             ThresholdValue = avgDownload,
-                            SourceUrl = $"/wan-speedtest#result-{result.Id}",
+                            SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
                             Context = new Dictionary<string, string>
                             {
                                 ["wan_name"] = wanName,

@@ -29,6 +29,7 @@ public class DeviceStateAlertEvaluator
     /// sample during a config apply or a brief adoption blip, and the poll cadence means two
     /// samples still announce within about a minute.
     /// </summary>
+
     private const int OfflineObservationsToAnnounce = 2;
 
     private readonly IAlertEventBus _eventBus;
@@ -150,6 +151,7 @@ public class DeviceStateAlertEvaluator
                 DeviceId = deviceMac,
                 DeviceName = deviceName,
                 DeviceIp = deviceIp,
+                SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs()),
                 Context = new Dictionary<string, string>
                 {
                     ["device_type"] = deviceType.ToString(),
@@ -184,6 +186,7 @@ public class DeviceStateAlertEvaluator
             DeviceId = deviceMac,
             DeviceName = label,
             DeviceIp = deviceIp,
+            SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs()),
             Context = new Dictionary<string, string> { ["device_type"] = deviceType.ToString() }
         }, ct);
 

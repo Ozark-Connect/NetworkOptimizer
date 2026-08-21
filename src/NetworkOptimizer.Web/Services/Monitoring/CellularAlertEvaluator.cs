@@ -69,7 +69,7 @@ public class CellularAlertEvaluator
                 DeviceName = modemName,
                 MetricValue = signalQuality,
                 ThresholdValue = SignalPoorThreshold,
-                SourceUrl = "/monitoring?tab=cellular",
+                SourceUrl = MonitoringLinks.HardwareStats("cellular", DateTime.UtcNow),
                 Tags = ["cellular", "signal"],
                 Context = new Dictionary<string, string>
                 {
@@ -115,7 +115,7 @@ public class CellularAlertEvaluator
                     Title = $"{modemName} network downgraded{_siteSuffix}",
                     Message = $"Cellular modem {modemName} dropped from {previousMode} to {currentMode}.",
                     DeviceName = modemName,
-                    SourceUrl = "/monitoring?tab=cellular",
+                    SourceUrl = MonitoringLinks.HardwareStats("cellular", DateTime.UtcNow),
                     Tags = ["cellular", "network_mode"],
                     Context = new Dictionary<string, string>
                     {
@@ -151,7 +151,7 @@ public class CellularAlertEvaluator
                 Title = $"{modemName} is roaming{_siteSuffix}",
                 Message = $"Cellular modem {modemName} entered roaming state. This may indicate loss of primary carrier coverage or incur additional charges.",
                 DeviceName = modemName,
-                SourceUrl = "/monitoring?tab=cellular",
+                SourceUrl = MonitoringLinks.HardwareStats("cellular", DateTime.UtcNow),
                 Tags = ["cellular", "roaming"],
                 Context = new Dictionary<string, string>
                 {
