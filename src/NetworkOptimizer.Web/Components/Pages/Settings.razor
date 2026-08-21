@@ -4351,13 +4351,10 @@
     private async Task StartAgentSetup(Site site)
     {
         _setupWizard?.StartAgentSetupFor(site);
-        // Let the wizard render at the agent step, then bring it into view.
-        await Task.Delay(50);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('site-agent-setup');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            })();");
+        // Same scroll-and-highlight as arriving on the #site-agent-setup anchor: the wizard is
+        // several screens down, so landing there without the outline leaves the reader to work
+        // out which panel the click opened.
+        await ScrollToAndHighlightAsync("site-agent-setup");
     }
 
     private async Task LoadAgentsAsync()
