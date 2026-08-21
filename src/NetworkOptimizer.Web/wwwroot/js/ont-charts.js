@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
-import { ponSeriesFor, ponDetailsHtml } from './pon-section.js?v=1';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { syncIdentity } from './chart-sync.js?v=7';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
@@ -314,14 +314,6 @@ const DETAIL_EXTRAS = [
     { header: 'PON Type', cell: d => d.ponType ? escapeHtml(d.ponType) : null },
     { header: 'OLT', cell: d => d.olt ? escapeHtml(d.olt) : null },
 ];
-
-function updatePonCard(container, cardSelector, chart, series) {
-    const card = container.querySelector(cardSelector);
-    if (!card) return;
-    const filled = series.filter(x => x.data.length);
-    card.style.display = filled.length ? '' : 'none';
-    if (filled.length && chart) chart.updateSeries(filled, false);
-}
 
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.ont-stats-table');

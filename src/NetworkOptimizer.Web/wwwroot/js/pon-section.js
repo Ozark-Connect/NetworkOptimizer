@@ -77,6 +77,18 @@ export function ponSeriesFor(item, prefix, slot, palette) {
     };
 }
 
+/// Draw one PON card, hiding it when nothing fills it. Which counters an ONT serves is a
+/// property of the hardware and the contract's optional sections, so a card with no series
+/// behind it is empty forever rather than empty for now. `prepare` is the caller's own
+/// series transform, since the two tabs pad their x ranges differently.
+export function updatePonCard(container, cardSelector, chart, series, prepare = x => x) {
+    const card = container.querySelector(cardSelector);
+    if (!card) return;
+    const filled = series.filter(x => x.data.length);
+    card.style.display = filled.length ? '' : 'none';
+    if (filled.length && chart) chart.updateSeries(prepare(filled), false);
+}
+
 /// The details table. `labelHeader` names the first column, `extras` appends tab-specific ones.
 /// A column no ONT fills is dropped rather than printed as a row of dashes.
 export function ponDetailsHtml(items, labelHeader, extras = []) {

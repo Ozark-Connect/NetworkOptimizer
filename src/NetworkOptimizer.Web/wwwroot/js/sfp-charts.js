@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
-import { ponSeriesFor, ponDetailsHtml } from './pon-section.js?v=1';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -296,9 +296,11 @@ async function refreshPonSection() {
             gemSeries.push(...series.gemSeries);
             hostSeries.push(...series.hostSeries);
         });
-        ponErrChart.updateSeries(padFirst(errSeries.filter(s => s.data.length)), false);
-        ponGemChart.updateSeries(padFirst(gemSeries.filter(s => s.data.length)), false);
-        ponHostChart.updateSeries(padFirst(hostSeries.filter(s => s.data.length)), false);
+        // Every section of the contract is optional, so an implementation serving the GTC
+        // counters and no host-link ones leaves that card empty for good. Hide what nothing fills.
+        updatePonCard(container, '.sfp-pon-errors-card', ponErrChart, errSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-gem-card', ponGemChart, gemSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-host-card', ponHostChart, hostSeries, padFirst);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
