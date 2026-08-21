@@ -284,9 +284,12 @@ async function updateErrorsChart() {
         section.style.display = 'none';
         return;
     }
+    // Shown BEFORE the charts mount: a chart first rendered in a display:none container stays
+    // zero-size. The cards inside start visible for the same reason, and updatePonCard hides the
+    // ones nothing fills once they have been sized.
+    section.style.display = '';
     await ensureErrorsChartMounted();
     if (!errorsChart) return;
-    section.style.display = '';
 
     const withErrors = reporting.filter(d => visibility[d.id] !== false);
     const multi = withErrors.length > 1;
