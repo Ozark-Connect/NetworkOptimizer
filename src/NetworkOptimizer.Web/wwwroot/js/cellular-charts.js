@@ -314,7 +314,6 @@ function applyDragZoom(xaxis) {
 
 function selectPresetRange(container, hours) {
     currentRangeHours = hours;
-    saveWindowHours(WINDOW_TAB, hours);
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
@@ -421,7 +420,13 @@ export async function mount(elId) {
     await qualityChart.render();
 
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+        btn.addEventListener('click', () => {
+            const hours = parseInt(btn.dataset.range);
+            // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
+            // too, and a window the link chose must not become a remembered preference.
+            saveWindowHours(WINDOW_TAB, hours);
+            selectPresetRange(container, hours);
+        });
     });
 
     container.querySelectorAll('[data-shift]').forEach(btn => {
