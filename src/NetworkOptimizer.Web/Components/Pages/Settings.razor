@@ -3591,7 +3591,8 @@
                                                                                 <button class="btn btn-sm btn-secondary"
                                                                                         @onclick="() => ToggleUpgradeCommand(agent.Id)"
                                                                                         data-tooltip="Show the upgrade one-liner">
-                                                                                    @(_upgradeCommandAgentId == agent.Id ? "Hide command" : "Upgrade command")
+                                                                                    <span class="btn-label-full">@(_upgradeCommandAgentId == agent.Id ? "Hide command" : "Upgrade command")</span>
+                                                                                    <span class="btn-label-compact">@(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")</span>
                                                                                 </button>
                                                                             }
                                                                         }
