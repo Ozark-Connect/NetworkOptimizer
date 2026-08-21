@@ -9,6 +9,13 @@ public sealed record CmPollContext
     /// <summary>Configuration ID for caching keys and diagnostics.</summary>
     public required int Id { get; init; }
 
+    /// <summary>
+    /// Site this configuration belongs to. Providers are singletons shared by
+    /// every site, while <see cref="Id"/> only counts within one site's database,
+    /// so any provider-side cache must key on both.
+    /// </summary>
+    public string SiteSlug { get; init; } = "";
+
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 

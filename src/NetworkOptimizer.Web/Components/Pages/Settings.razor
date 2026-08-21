@@ -1630,7 +1630,7 @@
                                 <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
                                 <option value="technicolor-cga">Technicolor CGA Series (HTTP)</option>
                                 <option value="vodafone-station">Vodafone Station (ARRIS TG3442DE)</option>
-                                <option value="xfinity-gateway">Xfinity XB8/XB10, Cox CGM4981 (HTTP)</option>
+                                <option value="xfinity-gateway">Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)</option>
                             </select>
                         </div>
                     </div>
@@ -7073,7 +7073,7 @@
         "arris-surfboard" => "ARRIS Surfboard (HTTP)",
         "arris-surfboard-hnap" => "ARRIS Surfboard S33/S34 (HNAP)",
         "motorola-hnap" => "Motorola (HNAP)",
-        "xfinity-gateway" => "Xfinity Gateway (HTTP)",
+        "xfinity-gateway" => "Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)",
         "technicolor-cga" => "Technicolor CGA Series (HTTP)",
         "vodafone-station" => "Vodafone Station (ARRIS TG3442DE)",
         _ => provider,
@@ -7084,7 +7084,7 @@
         "arris-surfboard" => "/cgi-bin/status",
         "arris-surfboard-hnap" => "N/A (uses /HNAP1/)",
         "motorola-hnap" => "N/A (uses /HNAP1/)",
-        "xfinity-gateway" => "/network_setup.jst",
+        "xfinity-gateway" => "Detected automatically",
         "technicolor-cga" => "/api/v1/sta_docsis_status",
         "vodafone-station" => "/php/status_docsis_data.php",
         _ => "/DocsisStatus.htm",
