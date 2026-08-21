@@ -709,7 +709,10 @@
     // Selectable WAN vantages for the agent run. Empty on a site with no WAN contexts, which is
     // every single-WAN site: nothing to choose between, so no selector.
     private List<AgentWanVantage> _agentVantages = new();
-    private string _selectedAgentVantage = "";
+
+    // Null until something is chosen. Not "", because that is Default path's own value - starting
+    // there made the keep-the-selection check below match it and never reach the first WAN.
+    private string? _selectedAgentVantage;
 
     // Availability the site as a whole allows, which the chosen WAN can only narrow.
     private bool _serverAvailableForSite = true;
@@ -1047,10 +1050,11 @@
 
         if (_agentVantages.Count == 0)
         {
-            _selectedAgentVantage = "";
+            _selectedAgentVantage = null;
             return;
         }
-        if (!_agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage))
+        if (_selectedAgentVantage == null
+            || !_agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == _selectedAgentVantage))
             _selectedAgentVantage = _agentVantages[0].ContextId?.ToString() ?? "";
     }
 

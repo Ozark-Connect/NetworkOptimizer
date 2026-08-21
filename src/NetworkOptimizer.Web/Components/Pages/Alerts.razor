@@ -2421,8 +2421,9 @@
                 ? await AgentVantages.ListVantagesAsync(SiteContext.Slug)
                 : new List<AgentWanVantage>();
             // First entry is a WAN, so a schedule made without touching the field measures one
-            // rather than the unpinned path.
-            if (_agentVantages.Count > 0 && string.IsNullOrEmpty(_newAgentVantage))
+            // rather than the unpinned path. Never while editing: an existing schedule's choice is
+            // its own, including the default path a deleted WAN falls back to.
+            if (_editingWanScheduleId == null && _agentVantages.Count > 0 && string.IsNullOrEmpty(_newAgentVantage))
                 _newAgentVantage = _agentVantages[0].ContextId?.ToString() ?? "";
         }
         catch

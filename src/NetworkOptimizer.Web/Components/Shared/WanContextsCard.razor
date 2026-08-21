@@ -532,13 +532,6 @@
     private bool IsOrphaned(WanContext context) => context.AgentId == null && !ServerProbesThisSite;
 
     /// <summary>
-    /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
-    /// agent's own interface and are filed under this WAN regardless. Gated on the capability
-    /// because an agent that cannot bind has nothing to fix. Reachable without anything going
-    /// wrong: save the vantage while the agent is too old to offer a binding, then update the agent
-    /// - the capability arrives, the empty configuration does not change, and nothing says so.
-    /// </summary>
-    /// <summary>
     /// What an unbound vantage costs, in the terms of the binding its agent actually offers: a
     /// gateway agent leaves by an interface, anything else by a source address the gateway
     /// policy-routes. Both record against this WAN either way, which is the part worth saying.
@@ -548,6 +541,13 @@
             ? "No interface bound. Probes follow the default route and are still recorded against this WAN. Bind the WAN's interface."
             : "No source address bound. The gateway cannot policy-route the probes, so they follow the default route and are still recorded against this WAN. Bind a source address.";
 
+    /// <summary>
+    /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
+    /// agent's own interface and are filed under this WAN regardless. Gated on the capability
+    /// because an agent that cannot bind has nothing to fix. Reachable without anything going
+    /// wrong: save the vantage while the agent is too old to offer a binding, then update the agent
+    /// - the capability arrives, the empty configuration does not change, and nothing says so.
+    /// </summary>
     private bool BindsNothing(WanContext context) =>
         context.AgentId is int id
         && (_bindCapableAgents.Contains(id) || _sourceBindAgents.Contains(id))
@@ -793,7 +793,9 @@
     /// <summary>
     /// Which WAN a policy route steers each of this site's agents onto. Resolved once per load
     /// rather than per row, since it costs a console round trip. A gateway-resident agent is
-    /// skipped: it binds its own probe source, so a route naming it steers nothing extra.
+    /// skipped: it binds its own probe source, so a route naming it steers nothing extra. Asked of
+    /// the durable per-agent verdict rather than the bind-capability set, which also requires the
+    /// agent to report source-bind support and so misses a gateway agent too old to say.
     /// </summary>
     private async Task LoadRoutePinsAsync()
     {
@@ -808,8 +810,16 @@
                 {
                     var clients = await api.GetClientsAsync();
                     var networks = await Connection.GetNetworksAsync();
-                    foreach (var agent in _agents.Where(a => !_bindCapableAgents.Contains(a.Id)))
+                    var connections = TunnelRegistry.GetForSite(SiteCtx.Slug);
+                    foreach (var agent in _agents)
                     {
+                        var candidates = connections.FirstOrDefault(c => c.AgentId == agent.Id)?.HostAddresses;
+                        if (candidates is not { Count: > 0 })
+                            candidates = string.IsNullOrEmpty(agent.LanIp)
+                                ? Array.Empty<string>()
+                                : new[] { agent.LanIp! };
+                        if (await OnGatewayDetector.IsAgentOnGatewayAsync(SiteCtx.Slug, agent.Id, candidates)) continue;
+
                         var mac = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
                             .MacForAddress(clients, agent.LanIp);
                         var pin = TrafficRouteWanPinning.ResolvePin(routes, mac);
@@ -878,12 +888,14 @@
             foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
             {
                 if (connection.SupportsSourceBind != true) continue;
-                // TODO(#1106): use the durable per-agent overload
-                // IsAgentOnGatewayAsync(slug, agentId, candidates) instead. This resolves live and
-                // has no persisted verdict, so a console that is not up yet - the norm on an agent
-                // site, where it reconnects through the agent's own tunnel - reads as "not on the
-                // gateway" and offers source-address binding where interface binding belongs.
-                if (await OnGatewayDetector.MatchGatewayAddressAsync(SiteCtx.Slug, connection.HostAddresses) != null)
+                // #1106 fixed HERE, as the pattern for the rest: the durable per-agent overload
+                // seeds from a persisted verdict and keeps the last answer when the console cannot
+                // be reached. The live MatchGatewayAddressAsync this replaced answered "not on the
+                // gateway" whenever the console was not up yet - the norm on an agent site, where
+                // it reconnects through the agent's own tunnel - so the card offered source-address
+                // binding where interface binding belongs, and settled only on a second load.
+                if (await OnGatewayDetector.IsAgentOnGatewayAsync(
+                        SiteCtx.Slug, connection.AgentId, connection.HostAddresses))
                     byInterface.Add(connection.AgentId);
                 else
                     byAddress.Add(connection.AgentId);
