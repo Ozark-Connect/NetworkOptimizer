@@ -5064,7 +5064,8 @@
                 // scrolls, so the sides and bottom get cut whichever element it is put on.
                 // Ringed rather than tinted - the panel paints its own background over the row.
                 await Task.Delay(300);
-                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center");
+                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center",
+                    "0 0 var(--border-radius-lg) var(--border-radius-lg)");
             }
         }
 
