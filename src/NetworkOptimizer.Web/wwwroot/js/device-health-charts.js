@@ -1,4 +1,4 @@
-﻿// TODO: Extract time-range controls (presets, shift arrows, custom range popover,
+// TODO: Extract time-range controls (presets, shift arrows, custom range popover,
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -8,6 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 // A device answers SNMP but can still miss a single field on a poll - a temperature or
 // memory OID that times out is written as no value rather than a zero, so the row arrives
@@ -512,8 +513,11 @@ function shiftWindow(container, direction) {
 
 export async function mount(elId) {
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const tempEl = container.querySelector('.health-temp-chart');
     const cpuEl = container.querySelector('.health-cpu-chart');

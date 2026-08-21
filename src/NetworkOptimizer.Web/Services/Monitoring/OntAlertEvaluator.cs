@@ -69,10 +69,16 @@ public class OntAlertEvaluator
 
         await CheckPonLink(state, ontId, ontName, ponLinkStatus, ct);
 
-        // BIP is always-on regardless of FEC, so it's evaluated whenever reported.
+        // BIP is always-on regardless of FEC, so it's evaluated whenever reported. Read the
+        // uncorrectable counter for the same interval first: BIP counts line errors, and whether
+        // any of them reached the data is what separates a degrading link from a lossy one. Safe
+        // to read here because the FEC/HEC checks below have not consumed their previous values yet.
         if (bipErrors.HasValue)
         {
-            await CheckBipErrors(state, ontId, ontName, bipErrors.Value, fecEnabled, ct);
+            var lost = fecEnabled == false
+                ? SpikeDelta(hecErrors, state.PreviousHecErrors)
+                : SpikeDelta(fecErrors, state.PreviousFecErrors);
+            await CheckBipErrors(state, ontId, ontName, bipErrors.Value, fecEnabled, lost, ct);
         }
 
         // The uncorrectable-codeword signal adapts to whether payload FEC is running:
@@ -208,16 +214,30 @@ public class OntAlertEvaluator
             v => state.PreviousFecErrors = v, state.SourceUrl, ct);
 
     private ValueTask CheckBipErrors(
-        OntAlertState state, int ontId, string ontName, long bipErrors, bool? fecEnabled, CancellationToken ct)
+        OntAlertState state, int ontId, string ontName, long bipErrors, bool? fecEnabled,
+        long? uncorrectableDelta, CancellationToken ct)
     {
         // BIP is uncorrected data loss only when payload FEC is off; with FEC on (or unknown,
         // the standalone-ONT default) it counts pre-FEC line errors FEC corrects, so relax the
         // threshold to avoid flagging a healthy FEC-enabled link at its normal operating point.
         var threshold = fecEnabled == false ? BipErrorStrictThreshold : BipErrorRelaxedThreshold;
+
+        // A BIP spike the correction layers absorbed entirely is a link degrading, not one losing
+        // data, so it drops to Info and leaves Warning to mean something reached the payload. Where
+        // the ONT reports no uncorrectable counter there is nothing to check it against, and the
+        // spike keeps its full severity rather than being quietly discounted.
+        // Reads with the pre-FEC assumption above: if BIP ever proves to be measured post-FEC on
+        // some hardware, this and that threshold relaxation are wrong together, not separately.
+        var severity = uncorrectableDelta == 0 ? AlertSeverity.Info : AlertSeverity.Warning;
+
         return CheckErrorSpike(ontId, ontName, bipErrors, state.PreviousBipErrors, threshold,
             "ont.bip_errors", "BIP error", "BIP errors", "bip", "bip_delta",
-            v => state.PreviousBipErrors = v, state.SourceUrl, ct);
+            v => state.PreviousBipErrors = v, state.SourceUrl, ct, severity);
     }
+
+    /// <summary>Per-poll increase, or null with no baseline. A counter reset counts as zero.</summary>
+    private static long? SpikeDelta(long? current, long? previous) =>
+        current is long c && previous is long p ? Math.Max(0, c - p) : null;
 
     private ValueTask CheckHecErrors(
         OntAlertState state, int ontId, string ontName, long hecErrors, CancellationToken ct) =>
@@ -233,7 +253,8 @@ public class OntAlertEvaluator
     private async ValueTask CheckErrorSpike(
         int ontId, string ontName, long current, long? previous, long threshold,
         string eventType, string spikeLabel, string countLabel, string metricTag, string deltaKey,
-        Action<long> setPrevious, string sourceUrl, CancellationToken ct)
+        Action<long> setPrevious, string sourceUrl, CancellationToken ct,
+        AlertSeverity severity = AlertSeverity.Warning)
     {
         if (previous.HasValue)
         {
@@ -248,7 +269,7 @@ public class OntAlertEvaluator
                 {
                     EventType = eventType,
                     Source = "ont",
-                    Severity = AlertSeverity.Warning,
+                    Severity = severity,
                     Title = $"{ontName} {spikeLabel} spike{_siteSuffix}",
                     Message = $"ONT {ontName} had {delta:N0} {countLabel} since last poll (threshold: {threshold:N0}).",
                     DeviceName = ontName,

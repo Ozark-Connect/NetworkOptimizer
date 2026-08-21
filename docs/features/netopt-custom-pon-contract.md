@@ -64,7 +64,7 @@ numeric strings; 64-bit counters are expected.
     "voltage_v": 3.28       // supply voltage, volts
   },
   "lan": {
-    "mode": 15,             // host-side PHY mode (raw device enum, informational)
+    "mode": 15,             // host-side PHY mode (raw device enum; recorded - see below)
     "link_status": 5,       // host (module-to-gateway) link state, raw enum
     "phy_duplex": 1         // raw enum, informational
   },
@@ -149,13 +149,40 @@ onto Network Optimizer's existing schema:
 | `gtc_counters.allocations_total` / `lost` | `alloc_total` / `alloc_lost` | |
 | `gpe_pon` / `gpe_lan` discards | `gpe_{pon,lan}_{ingress,egress,learning}_discard` | good-frame counters are not stored |
 | `lan.link_status` | `lan_link_status` | |
+| `lan.mode` | `lan_mode` | raw enum, recorded for change detection - see below |
 | `lan_counters.*` | `lan_tx_frames`, `lan_rx_frames`, `lan_tx_drop_events`, `lan_rx_fcs_err`, `lan_buffer_overflow` | |
 | `sfp_uptime_s` | `sfp_uptime_s` | |
 
-Not recorded: `lan.mode`, `lan.phy_duplex` (static config), GEM byte counters
+Not recorded: `lan.phy_duplex` (static config), GEM byte counters
 (32-bit wrap), `drop` / `omci_drop` / `rx_oversized_frames`,
 `fec_error_corr` / `fec_words_total` / `fec_seconds`, and the `gpe_*` good-frame
 counters (redundant with `lan_counters` and GEM frame counters).
+
+### Host link fields
+
+`lan.link_status` and `lan.mode` are raw device enums, so Network Optimizer stores
+the numbers without interpreting them and displays them as-is. They earn their
+place because a module can drop or renegotiate its host link while the PON side
+stays perfectly healthy - PLOAM holds at O5, `gtc_status.ds_state` holds at sync,
+`sfp_uptime_s` keeps climbing, and every GTC counter keeps accumulating, because
+the OLT never stopped sending. A change in these two is the only thing in the
+payload that marks the event. `lan.mode` matters most on recovery: it says which
+rate the link came back at.
+
+Note that the poll itself usually rides the same host link, so an implementation
+will more often report the outage as a failed poll (see [Failure shape](#failure-shape))
+than as a `link_status` of down. `sfp_uptime_s` continuing across the gap is what
+separates a host-link drop from a module reboot.
+
+### Duplicated counters
+
+Some hardware serves two contract fields off one register. On Lantiq-based
+modules `rx_gem_frames_dropped` and `hec_error_uncorr` are both the GEM header
+HEC error counter, so they are always equal - by construction, not coincidence,
+and regardless of whether the OLT profile has FEC enabled. Both are still stored,
+since another implementation may count them separately, but the SFP Stats error
+chart drops the GEM series when it matches HEC point for point rather than
+drawing one line on top of another.
 
 ### Optics precedence
 

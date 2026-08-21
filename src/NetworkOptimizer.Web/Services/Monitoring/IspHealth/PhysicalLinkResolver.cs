@@ -273,7 +273,7 @@ public class PhysicalLinkResolver
         // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature is
         // NOT passed for rejection (null temps => OpticalSampleStats keeps every sample). RAW points
         // (TimeSpan.Zero) so the FEC/BIP per-poll deltas are real polls, comparable to the alert threshold.
-        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), TimeSpan.Zero, ct);
+        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), TimeSpan.Zero, ct: ct);
         var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, (double?)null)).ToList());
         var ontTx = OpticalSampleStats.ComputeTx(pts.Select(p => (p.Time, p.TxPowerDbm, (double?)null)).ToList());
