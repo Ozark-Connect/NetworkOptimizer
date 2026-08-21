@@ -17,6 +17,7 @@ public static class MonitoringLinks
     public const string AccessIspCategory = "AccessIsp";
     public const string TransitCategory = "Transit";
     public const string CustomCategory = "Custom";
+    public const string InternetServiceCategory = "InternetService";
 
     /// <summary>
     /// The <c>?at=</c> value meaning the view was live rather than parked on an instant, which

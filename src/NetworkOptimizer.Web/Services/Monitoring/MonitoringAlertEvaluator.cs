@@ -227,13 +227,14 @@ public class MonitoringAlertEvaluator
     {
         var category = target.TargetType switch
         {
-            MonitoringTargetType.Fabric => "Fabric",
-            MonitoringTargetType.AccessIsp => "AccessIsp",
-            MonitoringTargetType.Transit => "Transit",
+            MonitoringTargetType.Fabric => MonitoringLinks.FabricCategory,
+            MonitoringTargetType.AccessIsp => MonitoringLinks.AccessIspCategory,
+            MonitoringTargetType.Transit => MonitoringLinks.TransitCategory,
             // Both name the WAN's own service. Falling through to Custom sent an outage on the
             // service being monitored to the chart for user-added targets.
-            MonitoringTargetType.InternetService or MonitoringTargetType.Wan => "InternetService",
-            _ => "Custom"
+            MonitoringTargetType.InternetService or MonitoringTargetType.Wan
+                => MonitoringLinks.InternetServiceCategory,
+            _ => MonitoringLinks.CustomCategory
         };
         var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
         var url = $"/monitoring?tab=performance&category={category}&at={at}";
@@ -243,7 +244,7 @@ public class MonitoringAlertEvaluator
         // Fabric, and any unpinned custom target, are not reached over one WAN. Naming none left
         // the page on whichever WAN its filter was last set to, which is a different target's path.
         if (target.TargetType == MonitoringTargetType.Fabric
-            || (category == "Custom" && MonitoringTarget.IsUnpinned(target.WanInterface)))
+            || (category == MonitoringLinks.CustomCategory && MonitoringTarget.IsUnpinned(target.WanInterface)))
             return $"{url}&wan={LiveWanScope.AllWansToken}";
         return MonitoringTarget.IsUnpinned(target.WanInterface)
             ? url
