@@ -19400,8 +19400,10 @@ body.kiosk-mode .status-indicators {
         border-bottom: 0;
     }
 
-    .sites-table > tbody > tr:not(.site-config-row) > td:first-child {
-        flex: 1;
+    .sites-table > tbody > tr:not(.site-config-row) > td:not(:last-child) {
+        flex: 1 1 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 
     .sites-table > tbody > tr:not(.site-config-row) > td:last-child {
