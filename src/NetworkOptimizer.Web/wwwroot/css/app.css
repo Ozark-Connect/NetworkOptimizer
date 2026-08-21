@@ -19467,14 +19467,6 @@ body.kiosk-mode .status-indicators {
     container-type: inline-size;
 }
 
-/* Its wrapper clips overflow for the expand animation, and an outline is painted outside the
-   border box at any offset from 0 up - so the ring is drawn INSIDE the panel instead, where
-   nothing can cut it off. Keeps the panel's own bottom-only corners. */
-.site-config-panel.nav-highlight {
-    outline-offset: -2px;
-    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
-}
-
 .site-config-row .site-config-panel {
     max-width: 100cqw;
 }

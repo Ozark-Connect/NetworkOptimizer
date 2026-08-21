@@ -3553,11 +3553,11 @@
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
-                                        <tr class="history-details-row site-config-row">
+                                        <tr id="site-config-@site.Id" class="history-details-row site-config-row">
                                             <td colspan="5">
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
-                                                <div id="site-config-@site.Id" class="site-config-panel">
+                                                <div class="site-config-panel">
                                                                                                         <div class="site-config-section">
                                                         <div class="site-config-section-title">Agent</div>
                                                         @if (agents.Count > 0)
@@ -5059,10 +5059,11 @@
             if (target is not null)
             {
                 await ToggleAgents(target.Id);
-                // The panel rather than its row: the panel paints its own background over the
-                // whole row, so a row tint lands behind it and is never seen. No radius passed -
-                // the panel keeps its own shape and ring offset in CSS, because its wrapper clips
-                // overflow and an offset ring would be cut off.
+                // The details row, not the panel inside it: the panel sits in a wrapper that hides
+                // overflow for the expand animation, and an outline is painted outside the border
+                // box at every offset, so a ring on the panel is clipped wherever it is put. The
+                // row is outside that wrapper. Ringed, not tinted - the panel paints its own
+                // background over the row, so a tint lands behind it and is never seen.
                 await Task.Delay(300);
                 await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center");
             }
