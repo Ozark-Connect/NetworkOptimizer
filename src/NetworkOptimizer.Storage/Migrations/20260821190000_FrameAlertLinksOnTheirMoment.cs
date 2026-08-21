@@ -57,12 +57,15 @@ namespace NetworkOptimizer.Storage.Migrations
             PerformanceRow(migrationBuilder, "\"target_type\":\"Fabric\"", "Fabric", allWans: true);
             PerformanceRow(migrationBuilder, "\"target_type\":\"AccessIsp\"", "AccessIsp", allWans: false);
             PerformanceRow(migrationBuilder, "\"target_type\":\"Transit\"", "Transit", allWans: false);
+            // Both name the WAN's own service, and both are reached over that one WAN.
+            PerformanceRow(migrationBuilder, "\"target_type\":\"InternetService\"", "InternetService", allWans: false);
+            PerformanceRow(migrationBuilder, "\"target_type\":\"Wan\"", "InternetService", allWans: false);
             // Anything left on that tab is a custom target, including rows with no context at all.
             PerformanceRow(migrationBuilder, null, "Custom", allWans: true);
         }
 
         /// <summary>One category's share of the Network Performance rows.</summary>
-        private static void PerformanceRow(MigrationBuilder builder, string? contextMarker, string category, bool allWans)
+        private static void PerformanceRow(MigrationBuilder builder, string contextMarker, string category, bool allWans)
         {
             var wan = allWans ? " || '&wan=all'" : "";
             var context = contextMarker is null ? "" : $"AND ContextJson LIKE '%{contextMarker}%'";

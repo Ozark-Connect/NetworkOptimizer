@@ -230,6 +230,9 @@ public class MonitoringAlertEvaluator
             MonitoringTargetType.Fabric => "Fabric",
             MonitoringTargetType.AccessIsp => "AccessIsp",
             MonitoringTargetType.Transit => "Transit",
+            // Both name the WAN's own service. Falling through to Custom sent an outage on the
+            // service being monitored to the chart for user-added targets.
+            MonitoringTargetType.InternetService or MonitoringTargetType.Wan => "InternetService",
             _ => "Custom"
         };
         var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
