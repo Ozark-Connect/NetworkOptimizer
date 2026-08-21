@@ -114,14 +114,33 @@ public class AgentWanTestVantageResolver
     }
 
     /// <summary>
+    /// Whether a speed test run on this context's agent actually leaves by this context's WAN.
+    /// <para>
+    /// Only true for a ROUTE-steered agent, which is what an empty <see cref="WanContext.InterfaceName"/>
+    /// means: the gateway sends everything that box emits out this WAN, the speed test included.
+    /// An interface-bound context is the opposite - the agent binds each PROBE to that interface,
+    /// and everything else it sends, an unbound uwnspeedtest run included, takes whatever route the
+    /// table prefers. Offering one would measure a different WAN and label it with this one's name.
+    /// </para>
+    /// <para>
+    /// It is the same property <see cref="AgentProbeResultSink.SelectCollectorAgentId"/> tests to
+    /// decide an agent must NOT collect, for the same reason read the other way: everything it
+    /// sends leaves by its own WAN.
+    /// </para>
+    /// </summary>
+    internal static bool MeasuresItsOwnWan(WanContext context) =>
+        context.AgentId != null && string.IsNullOrEmpty(context.InterfaceName);
+
+    /// <summary>
     /// The contexts a WAN speed test could be pointed at, in display order. Drops what can never
-    /// run - a context with no agent, or one whose agent is on the gateway - rather than listing a
-    /// WAN that will refuse every time it is picked. An agent that is simply offline is NOT dropped:
-    /// it comes back, and its entry carries the reason meanwhile.
+    /// produce a true reading - no agent, an interface-bound agent whose traffic does not follow
+    /// the WAN, or an agent that cannot run the binary - rather than listing a WAN that refuses
+    /// every time it is picked, or worse, answers with another WAN's number. An agent that is
+    /// simply offline is NOT dropped: it comes back, and its entry carries the reason meanwhile.
     /// </summary>
     internal static IEnumerable<WanContext> SelectableContexts(
         IEnumerable<WanContext> contexts, IReadOnlyCollection<int> capableAgentIds) =>
-        OrderForDisplay(contexts.Where(c => c.AgentId != null && capableAgentIds.Contains(c.AgentId.Value)));
+        OrderForDisplay(contexts.Where(c => MeasuresItsOwnWan(c) && capableAgentIds.Contains(c.AgentId!.Value)));
 
     /// <summary>
     /// WAN contexts in the order every selector shows them: by WAN index, then by name. Shared with
@@ -201,6 +220,9 @@ public class AgentWanTestVantageResolver
 
         if (context.AgentId == null)
             return (null, $"'{context.Name}' is measured by this server over a bound source address, not by an agent, so it has no agent to run a speed test on.");
+
+        if (!MeasuresItsOwnWan(context))
+            return (null, $"The agent for '{context.Name}' binds each probe to that WAN's interface rather than routing over it, so a speed test from it would measure whichever WAN its own route takes. Use the Gateway test for that WAN.");
 
         if (!connectedAgentIds.Contains(context.AgentId.Value))
             return (null, $"The agent for '{context.Name}' is not connected. WAN speed tests on that WAN resume when it reconnects.");

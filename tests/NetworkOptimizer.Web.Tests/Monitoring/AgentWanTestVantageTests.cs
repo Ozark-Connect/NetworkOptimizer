@@ -184,6 +184,53 @@ public class AgentWanTestVantageTests
     }
 
     [Fact]
+    public void AnInterfaceBoundContextIsNotOffered()
+    {
+        // The agent binds each PROBE to eth8; an unbound speed test from it leaves by whatever its
+        // own route prefers. Offering it would measure one WAN and name it another.
+        var contexts = new[]
+        {
+            new WanContext { Id = 1, Name = "Backup LTE", AgentId = SpeedTestAgent, WanInterface = "wan2", InterfaceName = "eth8" },
+        };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SpeedTestAgent })
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ARouteSteeredContextIsOffered()
+    {
+        // No InterfaceName: the gateway sends everything this box emits out that WAN, so the test
+        // measures the WAN the context names.
+        var contexts = new[]
+        {
+            new WanContext { Id = 1, Name = "Starlink", AgentId = SpeedTestAgent, WanInterface = "wan2" },
+        };
+
+        AgentWanTestVantageResolver.SelectableContexts(contexts, new[] { SpeedTestAgent })
+            .Select(c => c.Name).Should().Equal("Starlink");
+    }
+
+    [Fact]
+    public void PickingAnInterfaceBoundWanIsRefusedRatherThanMisattributed()
+    {
+        var contexts = new[]
+        {
+            new WanContext { Id = 1, Name = "Backup LTE", AgentId = SpeedTestAgent, WanInterface = "wan2", InterfaceName = "eth8" },
+        };
+
+        var (vantage, refusal) = AgentWanTestVantageResolver.Decide(
+            wanContextId: 1,
+            contexts: contexts,
+            connectedAgentIds: new[] { SpeedTestAgent },
+            capableAgentIds: new[] { SpeedTestAgent },
+            collectorAgentId: SpeedTestAgent);
+
+        vantage.Should().BeNull();
+        refusal.Should().Contain("binds each probe");
+    }
+
+    [Fact]
     public void AContextWithNoAgentIsNotOffered()
     {
         var contexts = new[] { Context(1, "Cable", agentId: null) };
