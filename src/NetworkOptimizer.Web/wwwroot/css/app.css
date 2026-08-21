@@ -19367,6 +19367,49 @@ body.kiosk-mode .status-indicators {
 .sites-table th:nth-child(4) { width: 8%; }
 .sites-table th:nth-child(5) { width: 41%; }
 
+@media (max-width: 768px) {
+    .table-responsive:has(> .sites-table) {
+        margin: 0 -0.25rem;
+    }
+
+    /* Each site reads as two lines on a phone - its columns, then its buttons across the full
+       width - so the cells size to their content and the header, the fixed layout and the 500px
+       floor all stop applying. One row still means one bottom border, so the two lines read as a
+       single record. */
+    .sites-table,
+    .sites-table > tbody,
+    .sites-table > tbody > tr.site-config-row,
+    .sites-table > tbody > tr.site-config-row > td {
+        display: block;
+        min-width: 0;
+    }
+
+    .sites-table > thead {
+        display: none;
+    }
+
+    .sites-table > tbody > tr:not(.site-config-row) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .sites-table > tbody > tr:not(.site-config-row) > td {
+        padding: 0.75rem 0.5rem;
+        border-bottom: 0;
+    }
+
+    .sites-table > tbody > tr:not(.site-config-row) > td:first-child {
+        flex: 1;
+    }
+
+    .sites-table > tbody > tr:not(.site-config-row) > td:last-child {
+        flex-basis: 100%;
+        padding-top: 0;
+    }
+}
+
 /* Created is hidden below 768px, so its share is redistributed rather than left as a gap. */
 @media (max-width: 768px) {
     .sites-table th:nth-child(1) { width: 28%; }
