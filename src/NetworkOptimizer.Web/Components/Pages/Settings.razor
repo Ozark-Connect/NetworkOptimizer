@@ -3553,9 +3553,9 @@
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
-                                        <tr id="site-config-@site.Id" class="history-details-row site-config-row">
+                                        <tr class="history-details-row site-config-row">
                                             <td colspan="5">
-                                                <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                <div id="site-config-@site.Id" class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
                                                 <div class="site-config-panel">
                                                                                                         <div class="site-config-section">
@@ -5059,11 +5059,10 @@
             if (target is not null)
             {
                 await ToggleAgents(target.Id);
-                // The details row, not the panel inside it: the panel sits in a wrapper that hides
-                // overflow for the expand animation, and an outline is painted outside the border
-                // box at every offset, so a ring on the panel is clipped wherever it is put. The
-                // row is outside that wrapper. Ringed, not tinted - the panel paints its own
-                // background over the row, so a tint lands behind it and is never seen.
+                // The expand wrapper, not the panel inside it and not the row around it. An
+                // element's own overflow never clips its own outline, so ringing the wrapper draws
+                // outside the area it hides - which a ring on the panel cannot do, and which a
+                // table row does not paint reliably.
                 await Task.Delay(300);
                 await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center");
             }
