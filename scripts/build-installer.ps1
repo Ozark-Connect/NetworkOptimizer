@@ -3,7 +3,10 @@
 
 param(
     [string]$Configuration = "Release",
-    [string]$OutputDir = "$PSScriptRoot\..\publish"
+    [string]$OutputDir = "$PSScriptRoot\..\publish",
+    # Stamps the build explicitly instead of deriving it from the nearest tag. Needed to rebuild an
+    # already-released version without moving its tag, which would retrigger the release pipeline.
+    [string]$Version
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,21 +16,23 @@ $WebProject = Join-Path $RepoRoot "src\NetworkOptimizer.Web\NetworkOptimizer.Web
 $InstallerProject = Join-Path $RepoRoot "src\NetworkOptimizer.Installer\NetworkOptimizer.Installer.wixproj"
 $PublishDir = Join-Path $RepoRoot "src\NetworkOptimizer.Web\bin\Release\net10.0\win-x64\publish"
 
-# Get version from git tags (MinVer style)
-Push-Location $RepoRoot
-try {
-    $gitDescribe = git describe --tags --abbrev=0 2>$null
-    if ($gitDescribe) {
-        $Version = $gitDescribe -replace '^v', ''
-    } else {
-        # Fallback: count commits for version
-        $commitCount = git rev-list --count HEAD 2>$null
-        $Version = "0.0.$commitCount"
+# Get version from git tags (MinVer style) unless one was passed in
+if (-not $Version) {
+    Push-Location $RepoRoot
+    try {
+        $gitDescribe = git describe --tags --abbrev=0 2>$null
+        if ($gitDescribe) {
+            $Version = $gitDescribe -replace '^v', ''
+        } else {
+            # Fallback: count commits for version
+            $commitCount = git rev-list --count HEAD 2>$null
+            $Version = "0.0.$commitCount"
+        }
+    } catch {
+        $Version = "0.0.0"
     }
-} catch {
-    $Version = "0.0.0"
+    Pop-Location
 }
-Pop-Location
 
 Write-Host "=== Building Network Optimizer Windows Installer ===" -ForegroundColor Cyan
 Write-Host ""
