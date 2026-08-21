@@ -62,7 +62,12 @@ public sealed class AppSearchService : IAppSearchService
             IReadOnlyList<AppSearchEntry> entries;
             try
             {
-                entries = await provider.GetEntriesAsync(context);
+                entries = await provider.GetEntriesAsync(context, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded typing, not a broken provider. Let it end the whole search.
+                throw;
             }
             catch (Exception ex)
             {
@@ -87,9 +92,8 @@ public sealed class AppSearchService : IAppSearchService
     }
 
     /// <summary>
-    /// The entry's best showing across its fields. The combined pass exists so a query whose words
-    /// are split across fields still lands - "monitoring cable" is the tab plus part of the title,
-    /// and no single field holds both.
+    /// The entry's best showing across its fields, then across all of them at once so a query whose
+    /// words are split between them still lands.
     /// </summary>
     internal static int ScoreEntry(AppSearchEntry entry, string query)
     {
@@ -97,11 +101,6 @@ public sealed class AppSearchService : IAppSearchService
         best = Math.Max(best, FuzzyMatch.ScoreBest(entry.Aliases, query) * AliasWeight / 100);
         best = Math.Max(best, FuzzyMatch.ScoreBest(entry.Keywords, query) * KeywordWeight / 100);
 
-        var combined = string.Join(' ', new[] { entry.Title, entry.Section, entry.Area }
-            .Concat(entry.Aliases)
-            .Concat(entry.Keywords)
-            .Where(s => !string.IsNullOrWhiteSpace(s)));
-
-        return Math.Max(best, FuzzyMatch.Score(combined, query) * CombinedWeight / 100);
+        return Math.Max(best, FuzzyMatch.Score(entry.SearchText, query) * CombinedWeight / 100);
     }
 }

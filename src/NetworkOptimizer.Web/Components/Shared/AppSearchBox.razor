@@ -8,14 +8,20 @@
 @inject IAppSearchService Search
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject ILogger<AppSearchBox> Logger
 
-<div class="app-search">
+<div class="app-search" @attributes="HostAttributes">
     <div class="app-search-field">
         <svg class="app-search-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         <input type="text"
                class="form-control app-search-input"
                placeholder="@Placeholder"
                aria-label="@Placeholder"
+               role="combobox"
+               aria-autocomplete="list"
+               aria-expanded="@(_open ? "true" : "false")"
+               aria-controls="@_listId"
+               aria-activedescendant="@ActiveOptionId"
                autocomplete="off"
                spellcheck="false"
                data-1p-ignore data-lpignore="true" data-bwignore
@@ -27,13 +33,13 @@
                @onblur="OnBlur" />
         @if (!string.IsNullOrEmpty(_query))
         {
-            <button type="button" class="app-search-clear" aria-label="Clear search" @onclick="ClearAsync">&times;</button>
+            <button type="button" class="app-search-clear" aria-label="Clear search" @onclick="ClearQuery">&times;</button>
         }
     </div>
 
     @if (_open)
     {
-        <div class="app-search-results" role="listbox">
+        <div class="app-search-results" role="listbox" id="@_listId">
             @if (_hits.Count == 0)
             {
                 <div class="app-search-empty">Nothing matches &ldquo;@_query&rdquo;</div>
@@ -46,6 +52,7 @@
                     var hit = _hits[i];
                     <button type="button"
                             role="option"
+                            id="@OptionId(index)"
                             aria-selected="@(index == _selected)"
                             class="app-search-result @(index == _selected ? "is-active" : "")"
                             @onmousedown:preventDefault="true"
@@ -74,6 +81,14 @@
     /// </summary>
     [Parameter] public EventCallback<AppSearchHit> OnSelect { get; set; }
 
+    /// <summary>
+    /// Anything else the host puts on the tag, landing on the root element - a <c>data-tour</c>
+    /// anchor being the one that matters, since the box is generic and only the host knows what
+    /// its instance is called.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? HostAttributes { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private string _query = "";
@@ -86,6 +101,13 @@
     // Long enough that a run of keystrokes is one search, short enough to feel immediate.
     private const int DebounceMs = 150;
 
+    // Distinct per instance so two boxes on one page cannot claim each other's option ids.
+    private readonly string _listId = $"app-search-{Guid.NewGuid():N}";
+
+    private string OptionId(int index) => $"{_listId}-{index}";
+
+    private string? ActiveOptionId => _open && _hits.Count > 0 ? OptionId(_selected) : null;
+
     private static string Crumb(AppSearchEntry entry) =>
         string.IsNullOrEmpty(entry.Section) ? entry.Area : $"{entry.Area} - {entry.Section}";
 
@@ -96,6 +118,7 @@
 
         if (string.IsNullOrWhiteSpace(_query))
         {
+            CancelInFlight();
             _hits = [];
             _open = false;
             return;
@@ -103,7 +126,19 @@
 
         _debounce = new System.Timers.Timer(DebounceMs) { AutoReset = false };
         // Fires on the thread pool, so hop back to the circuit before touching component state.
-        _debounce.Elapsed += async (_, _) => await InvokeAsync(RunSearchAsync);
+        _debounce.Elapsed += async (_, _) =>
+        {
+            try
+            {
+                await InvokeAsync(RunSearchAsync);
+            }
+            catch (Exception ex)
+            {
+                // The circuit can be gone between the timer firing and this running, and an
+                // unobserved throw here would surface on the thread pool with no owner.
+                Logger.LogDebug(ex, "Search box could not run its query");
+            }
+        };
         _debounce.Start();
     }
 
@@ -112,31 +147,53 @@
         var query = _query?.Trim() ?? "";
         if (query.Length == 0)
         {
+            CancelInFlight();
             _hits = [];
             _open = false;
             StateHasChanged();
             return;
         }
 
-        _inFlight?.Cancel();
+        CancelInFlight();
         _inFlight?.Dispose();
         _inFlight = new CancellationTokenSource();
         var token = _inFlight.Token;
 
         var user = AuthState is null ? null : (await AuthState).User;
 
+        IReadOnlyList<AppSearchHit> hits;
         try
         {
-            _hits = await Search.SearchAsync(query, new AppSearchContext(user), MaxResults, Area, token);
+            hits = await Search.SearchAsync(query, new AppSearchContext(user), MaxResults, Area, token);
         }
         catch (OperationCanceledException)
         {
             return;
         }
 
+        // The box moves on while a search is in flight - cleared, dismissed, or a result already
+        // chosen - and results arriving after that would re-open the list over whatever the user
+        // went to. Comparing the query rather than the token because the token's source may since
+        // have been replaced and disposed.
+        if (!string.Equals(_query?.Trim(), query, StringComparison.Ordinal))
+            return;
+
+        _hits = hits;
         _selected = 0;
         _open = true;
         StateHasChanged();
+    }
+
+    private void CancelInFlight()
+    {
+        try
+        {
+            _inFlight?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Raced with teardown; there is nothing left to cancel.
+        }
     }
 
     private async Task OnKeyDownAsync(KeyboardEventArgs e)
@@ -152,7 +209,11 @@
                 break;
 
             case "ArrowUp":
-                _selected = Math.Max(_selected - 1, 0);
+                if (_hits.Count > 0)
+                {
+                    _open = true;
+                    _selected = Math.Max(_selected - 1, 0);
+                }
                 break;
 
             case "Enter":
@@ -164,9 +225,17 @@
 
             case "Escape":
                 if (_open)
+                {
+                    // Drop the results as well as hiding them. Focus returning to the box must not
+                    // bring back a list that was dismissed; typing again searches afresh.
+                    CancelInFlight();
+                    _hits = [];
                     _open = false;
+                }
                 else
-                    await ClearAsync();
+                {
+                    ClearQuery();
+                }
                 break;
         }
     }
@@ -179,19 +248,25 @@
 
     // The result buttons suppress mousedown's default, so choosing one never blurs the input and
     // this only runs when focus genuinely leaves the box.
-    private void OnBlur() => _open = false;
+    private void OnBlur()
+    {
+        CancelInFlight();
+        _open = false;
+    }
 
-    private async Task ClearAsync()
+    private void ClearQuery()
     {
         _debounce?.Stop();
+        CancelInFlight();
         _query = "";
         _hits = [];
         _open = false;
-        await Task.CompletedTask;
     }
 
     private async Task SelectAsync(AppSearchHit hit)
     {
+        _debounce?.Stop();
+        CancelInFlight();
         _open = false;
         _query = "";
         _hits = [];
@@ -224,7 +299,7 @@
     public void Dispose()
     {
         _debounce?.Dispose();
-        _inFlight?.Cancel();
+        CancelInFlight();
         _inFlight?.Dispose();
     }
 }

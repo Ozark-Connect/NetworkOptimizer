@@ -145,7 +145,8 @@
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     @* Every tab renders at once and is shown by class, so a hit is already on the page - selection
        switches tab and rings the card rather than navigating. *@
-    <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync" />
+    <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync"
+                  data-tour="settings-search" />
 </div>
 
 <div class="settings-container settings-tabbed active-@_activeTab">

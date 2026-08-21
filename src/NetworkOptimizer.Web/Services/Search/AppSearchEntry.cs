@@ -9,8 +9,12 @@ namespace NetworkOptimizer.Web.Services.Search;
 /// The shape is deliberately area-agnostic. Settings is the first area indexed, but nothing here
 /// knows about tabs - a second area registers its own <see cref="IAppSearchProvider"/> and the same
 /// search box, scorer and result list serve it unchanged.
+///
+/// A class rather than a record because <see cref="SearchText"/> caches into a field, and a record
+/// would fold that field into its generated equality - two identical entries would compare unequal
+/// on nothing more than which of them had been searched.
 /// </summary>
-public sealed record AppSearchEntry
+public sealed class AppSearchEntry
 {
     /// <summary>The on-screen name of the target, exactly as the user reads it on the card.</summary>
     public required string Title { get; init; }
@@ -39,6 +43,20 @@ public sealed record AppSearchEntry
     /// trip through the URL.
     /// </summary>
     public string? Key { get; init; }
+
+    /// <summary>
+    /// Every field as one string, so a query whose words are split across them still lands -
+    /// "monitoring cable" is the section plus part of the title, and neither field holds both.
+    /// Built once per entry rather than once per search: an index is static for the life of the
+    /// process, and an app-wide one will not be small.
+    /// </summary>
+    internal string SearchText => _searchText ??= string.Join(' ',
+        new[] { Title, Section, Area }
+            .Concat(Aliases)
+            .Concat(Keywords)
+            .Where(s => !string.IsNullOrWhiteSpace(s)));
+
+    private string? _searchText;
 }
 
 /// <summary>A matched entry and the score it earned, higher being better.</summary>
@@ -59,6 +77,10 @@ public interface IAppSearchProvider
     /// <summary>The area these entries belong to, matching <see cref="AppSearchEntry.Area"/>.</summary>
     string Area { get; }
 
-    /// <summary>The entries this caller may reach, in no particular order.</summary>
-    Task<IReadOnlyList<AppSearchEntry>> GetEntriesAsync(AppSearchContext context);
+    /// <summary>
+    /// The entries this caller may reach, in no particular order. The token is superseded typing:
+    /// a provider that does real work to answer should abandon it rather than finish for nobody.
+    /// </summary>
+    Task<IReadOnlyList<AppSearchEntry>> GetEntriesAsync(
+        AppSearchContext context, CancellationToken cancellationToken = default);
 }

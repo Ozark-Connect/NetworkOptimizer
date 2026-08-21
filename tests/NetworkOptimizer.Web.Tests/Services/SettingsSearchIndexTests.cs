@@ -125,6 +125,19 @@ public class SettingsSearchIndexTests
     }
 
     [Fact]
+    public void The_combined_search_text_carries_every_field_and_is_stable_when_cached()
+    {
+        var entry = Entries.Single(e => e.Anchor == "cable-modem");
+
+        var first = entry.SearchText;
+        first.Should().Contain(entry.Title).And.Contain(entry.Section!).And.Contain(entry.Area);
+        foreach (var word in entry.Aliases.Concat(entry.Keywords))
+            first.Should().Contain(word);
+
+        entry.SearchText.Should().BeSameAs(first, "it is built once and reused");
+    }
+
+    [Fact]
     public void Nonsense_matches_nothing()
     {
         var hits = Entries

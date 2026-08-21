@@ -36,11 +36,16 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
     public string Area => SettingsArea;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<AppSearchEntry>> GetEntriesAsync(AppSearchContext context)
+    public async Task<IReadOnlyList<AppSearchEntry>> GetEntriesAsync(
+        AppSearchContext context, CancellationToken cancellationToken = default)
     {
         var isAdmin = context.User is not null
             && (await _authorization.AuthorizeAsync(context.User, Policies.RequireAdmin)).Succeeded;
         var isDefaultSite = _siteContext.IsDefault;
+
+        // Checked here because the read below is the only I/O in this provider and neither it nor
+        // the policy check above takes a token of its own.
+        cancellationToken.ThrowIfCancellationRequested();
         var multiSiteEnabled = await _siteManagement.IsMultiSiteEnabledAsync();
 
         return Index.Where(i => CanReach(i.Reach, isAdmin, isDefaultSite, multiSiteEnabled))
