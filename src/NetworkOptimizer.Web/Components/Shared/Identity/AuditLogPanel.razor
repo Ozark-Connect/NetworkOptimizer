@@ -13,7 +13,7 @@
 
 @* Settings shows a tab by putting settings-tab-<name> on the card and hiding every sibling, so the
    host has to be able to put that class on this root. Empty on the standalone page. *@
-<div class="card @Class" data-tour="audit-log">
+<div class="card @Class" id="audit-log" data-tour="audit-log">
     <div class="card-body">
         <div class="audit-filter-bar">
             <select class="form-control" @bind="_category" style="max-width: 180px;">

@@ -1,0 +1,358 @@
+@* A search box over the app's search index. Area-agnostic: what it can find is whatever
+   IAppSearchProvider implementations are registered, so pointing it at a second area is a matter of
+   adding a provider, not of touching this file. Settings passes Area to keep its box to its own
+   page; leaving Area unset searches everything registered. *@
+
+@using NetworkOptimizer.Web.Services.Search
+@implements IDisposable
+@inject IAppSearchService Search
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<div class="app-search">
+    <div class="app-search-field">
+        <svg class="app-search-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text"
+               class="form-control app-search-input"
+               placeholder="@Placeholder"
+               aria-label="@Placeholder"
+               autocomplete="off"
+               spellcheck="false"
+               data-1p-ignore data-lpignore="true" data-bwignore
+               @bind="_query"
+               @bind:event="oninput"
+               @bind:after="OnQueryChanged"
+               @onkeydown="OnKeyDownAsync"
+               @onfocus="OnFocus"
+               @onblur="OnBlur" />
+        @if (!string.IsNullOrEmpty(_query))
+        {
+            <button type="button" class="app-search-clear" aria-label="Clear search" @onclick="ClearAsync">&times;</button>
+        }
+    </div>
+
+    @if (_open)
+    {
+        <div class="app-search-results" role="listbox">
+            @if (_hits.Count == 0)
+            {
+                <div class="app-search-empty">Nothing matches &ldquo;@_query&rdquo;</div>
+            }
+            else
+            {
+                @for (var i = 0; i < _hits.Count; i++)
+                {
+                    var index = i;
+                    var hit = _hits[i];
+                    <button type="button"
+                            role="option"
+                            aria-selected="@(index == _selected)"
+                            class="app-search-result @(index == _selected ? "is-active" : "")"
+                            @onmousedown:preventDefault="true"
+                            @onclick="@(() => SelectAsync(hit))">
+                        <span class="app-search-result-title">@hit.Entry.Title</span>
+                        <span class="app-search-result-crumb">@Crumb(hit.Entry)</span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Restricts results to one area, e.g. "Settings". Null searches everything registered.</summary>
+    [Parameter] public string? Area { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = "Search";
+
+    /// <summary>How many results the list shows at once.</summary>
+    [Parameter] public int MaxResults { get; set; } = 8;
+
+    /// <summary>
+    /// Handles a chosen result. A page that already has the target rendered uses this to switch to
+    /// it in place; with no handler the box navigates to the entry's route and highlights it there.
+    /// </summary>
+    [Parameter] public EventCallback<AppSearchHit> OnSelect { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string _query = "";
+    private IReadOnlyList<AppSearchHit> _hits = [];
+    private int _selected;
+    private bool _open;
+    private System.Timers.Timer? _debounce;
+    private CancellationTokenSource? _inFlight;
+
+    // Long enough that a run of keystrokes is one search, short enough to feel immediate.
+    private const int DebounceMs = 150;
+
+    private static string Crumb(AppSearchEntry entry) =>
+        string.IsNullOrEmpty(entry.Section) ? entry.Area : $"{entry.Area} - {entry.Section}";
+
+    private void OnQueryChanged()
+    {
+        _debounce?.Stop();
+        _debounce?.Dispose();
+
+        if (string.IsNullOrWhiteSpace(_query))
+        {
+            _hits = [];
+            _open = false;
+            return;
+        }
+
+        _debounce = new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        // Fires on the thread pool, so hop back to the circuit before touching component state.
+        _debounce.Elapsed += async (_, _) => await InvokeAsync(RunSearchAsync);
+        _debounce.Start();
+    }
+
+    private async Task RunSearchAsync()
+    {
+        var query = _query?.Trim() ?? "";
+        if (query.Length == 0)
+        {
+            _hits = [];
+            _open = false;
+            StateHasChanged();
+            return;
+        }
+
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+        _inFlight = new CancellationTokenSource();
+        var token = _inFlight.Token;
+
+        var user = AuthState is null ? null : (await AuthState).User;
+
+        try
+        {
+            _hits = await Search.SearchAsync(query, new AppSearchContext(user), MaxResults, Area, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        _selected = 0;
+        _open = true;
+        StateHasChanged();
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                if (_hits.Count > 0)
+                {
+                    _open = true;
+                    _selected = Math.Min(_selected + 1, _hits.Count - 1);
+                }
+                break;
+
+            case "ArrowUp":
+                _selected = Math.Max(_selected - 1, 0);
+                break;
+
+            case "Enter":
+                // With nothing picked by hand this takes the top-ranked hit, so typing and pressing
+                // Enter goes straight to the best answer.
+                if (_hits.Count > 0)
+                    await SelectAsync(_hits[Math.Clamp(_selected, 0, _hits.Count - 1)]);
+                break;
+
+            case "Escape":
+                if (_open)
+                    _open = false;
+                else
+                    await ClearAsync();
+                break;
+        }
+    }
+
+    private void OnFocus()
+    {
+        if (_hits.Count > 0)
+            _open = true;
+    }
+
+    // The result buttons suppress mousedown's default, so choosing one never blurs the input and
+    // this only runs when focus genuinely leaves the box.
+    private void OnBlur() => _open = false;
+
+    private async Task ClearAsync()
+    {
+        _debounce?.Stop();
+        _query = "";
+        _hits = [];
+        _open = false;
+        await Task.CompletedTask;
+    }
+
+    private async Task SelectAsync(AppSearchHit hit)
+    {
+        _open = false;
+        _query = "";
+        _hits = [];
+
+        if (OnSelect.HasDelegate)
+        {
+            await OnSelect.InvokeAsync(hit);
+            return;
+        }
+
+        await NavigateAsync(hit.Entry);
+    }
+
+    /// <summary>
+    /// The fallback for a host that does not handle selection: go to the route, then ring the target
+    /// once it is on screen. The delay is the same one the Settings deep links use - the destination
+    /// has to render before there is anything to scroll to.
+    /// </summary>
+    private async Task NavigateAsync(AppSearchEntry entry)
+    {
+        Navigation.NavigateTo(entry.Route);
+
+        if (string.IsNullOrEmpty(entry.Anchor))
+            return;
+
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", entry.Anchor);
+    }
+
+    public void Dispose()
+    {
+        _debounce?.Dispose();
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+    }
+}
+
+<style>
+    .app-search {
+        position: relative;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        margin-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        padding-left: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .app-search-field {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 210px;
+    }
+
+    .app-search-icon {
+        position: absolute;
+        left: 0.55rem;
+        color: var(--text-muted);
+        pointer-events: none;
+    }
+
+    .app-search-input {
+        padding-left: 2rem;
+        padding-right: 1.75rem;
+        font-size: 0.85rem;
+        height: 32px;
+    }
+
+    .app-search-clear {
+        position: absolute;
+        right: 0.35rem;
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.15rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
+        width: 1.25rem;
+        height: 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+    }
+
+    .app-search-clear:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .app-search-results {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 30;
+        min-width: 280px;
+        max-width: 360px;
+        max-height: 340px;
+        overflow-y: auto;
+        margin-top: 0.35rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        padding: 0.25rem;
+    }
+
+    .app-search-result {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.1rem;
+        width: 100%;
+        background: none;
+        border: none;
+        border-radius: 6px;
+        padding: 0.4rem 0.55rem;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .app-search-result:hover,
+    .app-search-result.is-active {
+        background: var(--bg-tertiary);
+    }
+
+    .app-search-result-title {
+        color: var(--text-primary);
+        font-size: 0.875rem;
+    }
+
+    .app-search-result-crumb {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+
+    .app-search-empty {
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        padding: 0.5rem 0.55rem;
+    }
+
+    @@media (max-width: 768px) {
+        .app-search {
+            flex-basis: 100%;
+            padding-left: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .app-search-field {
+            width: 100%;
+        }
+
+        .app-search-results {
+            left: 0;
+            right: 0;
+            max-width: none;
+        }
+    }
+</style>

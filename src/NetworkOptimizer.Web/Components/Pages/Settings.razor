@@ -74,7 +74,7 @@
     <p class="page-description">Configure Network Optimizer connections and preferences</p>
 </div>
 
-<div class="wifi-view-tabs-wrapper">
+<div class="wifi-view-tabs-wrapper settings-tabs-wrapper">
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
     <div class="wifi-view-tabs">
         <button class="wifi-view-tab @(_activeTab == "connection" ? "active" : "")"
@@ -143,6 +143,9 @@
         </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+    @* Every tab renders at once and is shown by class, so a hit is already on the page - selection
+       switches tab and rings the card rather than navigating. *@
+    <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync" />
 </div>
 
 <div class="settings-container settings-tabbed active-@_activeTab">
@@ -3827,6 +3830,12 @@
 <SponsorshipBanner AlwaysShow="true" />
 
 <style>
+    @@media (max-width: 768px) {
+        .settings-tabs-wrapper {
+            flex-wrap: wrap;
+        }
+    }
+
     .mi-funnel {
         margin-top: 0.5rem;
         color: var(--text-secondary);
@@ -3899,6 +3908,7 @@
         ["data-management"] = "application",
         ["identity-users"] = "identity",
         ["identity-access"] = "identity",
+        ["identity-roles"] = "identity",
         ["identity-sign-in"] = "identity",
         ["multi-site"] = "multisite",
         ["site-agent-setup"] = "multisite",
@@ -4060,6 +4070,20 @@
                     if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
+    }
+
+    /// <summary>
+    /// Takes a search result to its card. The entry's Key is the tab it lives on and its Anchor is
+    /// the card's id, so this is the same tab switch plus scroll-and-highlight a #anchor link gets.
+    /// </summary>
+    private async Task GoToSearchHitAsync(NetworkOptimizer.Web.Services.Search.AppSearchHit hit)
+    {
+        var tab = ResolveTab(hit.Entry.Key);
+        if (_activeTab != tab)
+            SetActiveTab(tab);
+
+        if (!string.IsNullOrEmpty(hit.Entry.Anchor))
+            await ScrollToAndHighlightAsync(hit.Entry.Anchor);
     }
 
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
