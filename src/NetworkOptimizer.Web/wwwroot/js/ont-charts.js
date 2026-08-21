@@ -298,10 +298,10 @@ async function updateErrorsChart() {
         gemSeries.push(...built.gemSeries);
         hostSeries.push(...built.hostSeries);
     });
-    errorsChart.updateSeries(errSeries.filter(x => x.data.length), false);
-
-    // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones reporting a
-    // couple of counters, so each of these hides itself rather than drawing an empty frame.
+    // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones that report a
+    // link state and no counters at all, so each card hides itself rather than drawing an empty
+    // frame. The AT&T gateway provider harvests no error counters of any kind.
+    updatePonCard(container, '.ont-pon-errors-card', errorsChart, errSeries);
     updatePonCard(container, '.ont-pon-host-card', ponHostChart, hostSeries);
     updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
 
