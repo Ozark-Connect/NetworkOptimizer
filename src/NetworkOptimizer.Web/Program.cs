@@ -1282,7 +1282,13 @@ if (!string.IsNullOrEmpty(canonicalHost))
 // Only use HTTPS redirection if not in Docker/container (check for DOTNET_RUNNING_IN_CONTAINER)
 if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase))
 {
-    app.UseHttpsRedirection();
+    // Not while the agent tunnel is up. Its TLS listener is the only HTTPS endpoint on the server,
+    // so the redirect middleware adopts that port and sends every request to an HTTP/2-only gRPC
+    // listener holding a self-signed cert. The tunnel binds only when the app itself is HTTP-only
+    // (ResolveHttpBindings rejects an https URL), so there is never a correct port to redirect to.
+    if (!agentTunnelEnabled)
+        app.UseHttpsRedirection();
+
     app.UseHsts();
 }
 
