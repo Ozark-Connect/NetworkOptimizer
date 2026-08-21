@@ -3553,11 +3553,11 @@
                                     @if (_expandedSiteId == site.Id)
                                     {
                                         var agents = AgentsFor(site.Id).ToList();
-                                        <tr id="site-config-@site.Id" class="history-details-row site-config-row">
+                                        <tr class="history-details-row site-config-row">
                                             <td colspan="5">
                                                 <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
                                                     <div class="expand-content">
-                                                <div class="site-config-panel">
+                                                <div id="site-config-@site.Id" class="site-config-panel">
                                                                                                         <div class="site-config-section">
                                                         <div class="site-config-section-title">Agent</div>
                                                         @if (agents.Count > 0)
@@ -5059,10 +5059,13 @@
             if (target is not null)
             {
                 await ToggleAgents(target.Id);
-                // The tinted row variant, not the ring: a ring offset around a table row collides
-                // with the rows either side. Ringed at all because a link sent the reader here.
+                // The panel rather than its row: the panel paints its own background over the
+                // whole row, so a row tint lands behind it and is never seen. Ringed with an
+                // explicit radius, which is what noHighlightTarget takes for a target that is
+                // not card-shaped.
                 await Task.Delay(300);
-                await JS.InvokeVoidAsync("noHighlightRow", $"site-config-{target.Id}");
+                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}",
+                    "center", "var(--border-radius)");
             }
         }
 
