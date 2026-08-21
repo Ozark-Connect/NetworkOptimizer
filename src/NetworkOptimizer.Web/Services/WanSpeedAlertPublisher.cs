@@ -38,8 +38,8 @@ public static class WanSpeedAlertPublisher
             // the filter never gains one, while a row carrying it starts working the day that page
             // learns to read it.
             var wanFilter = string.IsNullOrWhiteSpace(result.WanNetworkGroup)
-                ? ""
-                : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}";
+                ? "?"
+                : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}&";
 
             await alertEventBus.PublishAsync(new AlertEvent
             {
@@ -48,7 +48,7 @@ public static class WanSpeedAlertPublisher
                 Source = "wan",
                 Title = $"WAN Speed Test: {downloadMbps:F1} / {uploadMbps:F1} Mbps",
                 Message = $"Download: {downloadMbps:F1} Mbps, Upload: {uploadMbps:F1} Mbps ({result.Direction})",
-                SourceUrl = $"/wan-speedtest{wanFilter}#result-{result.Id}",
+                SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
                 Context = new Dictionary<string, string>
                 {
                     ["download_mbps"] = downloadMbps.ToString("F1"),
@@ -86,7 +86,7 @@ public static class WanSpeedAlertPublisher
                             Message = $"{wanName} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
                             MetricValue = downloadMbps,
                             ThresholdValue = avgDownload,
-                            SourceUrl = $"/wan-speedtest{wanFilter}#result-{result.Id}",
+                            SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
                             Context = new Dictionary<string, string>
                             {
                                 ["wan_name"] = wanName,

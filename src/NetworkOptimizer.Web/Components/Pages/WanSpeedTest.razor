@@ -1741,19 +1741,24 @@
     /// the URL - the selection is in-memory, so nothing here outlives the page or reaches a badge
     /// the user clicks afterwards.
     /// </summary>
+    /// <summary>Id of a result an alert link wants opened.</summary>
+    [SupplyParameterFromQuery(Name = "result")]
+    public int? ResultParam { get; set; }
+
     private bool _linkedResultOpened;
 
     /// <summary>
-    /// Opens the result an alert's #result-N names: turns to the page holding it and expands it,
-    /// rather than leaving the reader to find one row among pages of them. The row carries that id
-    /// in the markup, but it is rendered long after the browser has been and gone looking for it.
+    /// Opens the result an alert's ?result= names: turns to the page holding it and expands it,
+    /// rather than leaving the reader to find one row among pages of them.
+    /// <para>
+    /// A query parameter, not the #result-N fragment those links used to carry: a browser never
+    /// sends a fragment to the server, so Blazor cannot see one without asking the page for it
+    /// through JS. The row still carries the id in its markup, for the scroll.
+    /// </para>
     /// </summary>
     private void OpenLinkedResult()
     {
-        if (_linkedResultOpened) return;
-        var fragment = new Uri(NavigationManager.Uri).Fragment;
-        if (!fragment.StartsWith("#result-", StringComparison.OrdinalIgnoreCase)) return;
-        if (!int.TryParse(fragment["#result-".Length..], out var id)) return;
+        if (_linkedResultOpened || ResultParam is not { } id) return;
 
         var index = _filteredHistory.FindIndex(r => r.Id == id);
         if (index < 0) return;
