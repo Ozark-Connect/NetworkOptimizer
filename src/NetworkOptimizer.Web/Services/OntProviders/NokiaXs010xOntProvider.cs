@@ -100,7 +100,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Nokia XS-010X-Q ONT poll requested but Host is empty (config {Id})", context.CacheKey);
+            _logger.LogWarning("Nokia XS-010X-Q ONT poll requested but Host is empty (config {Id})", context.Id);
             return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 

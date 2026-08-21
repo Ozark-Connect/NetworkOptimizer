@@ -73,7 +73,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.CacheKey);
+            _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.Id);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 

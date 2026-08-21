@@ -52,7 +52,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Technicolor CGA poll requested but Host is empty (config {Id})", context.CacheKey);
+            _logger.LogWarning("Technicolor CGA poll requested but Host is empty (config {Id})", context.Id);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 

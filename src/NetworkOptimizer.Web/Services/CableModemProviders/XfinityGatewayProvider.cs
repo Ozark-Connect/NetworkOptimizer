@@ -230,6 +230,9 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     /// <summary>
     /// GET one candidate path. A 404 or a bounce back to the login page is an
     /// ordinary "not this one" answer here, not a failure worth surfacing.
+    /// Connection-level failures are left to throw: they are path-independent,
+    /// so swallowing them per candidate would trade the caller's specific
+    /// message ("connection refused") for a generic "no stats could be read".
     /// </summary>
     private async Task<string?> TryGetPageAsync(
         HttpClient client,
@@ -238,19 +241,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         CmPollContext context,
         CancellationToken cancellationToken)
     {
-        HttpResponseMessage response;
-        try
-        {
-            response = await client.GetAsync($"{baseUrl}{path}", cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogDebug(ex, "Xfinity Gateway at {Host}: {Path} could not be fetched",
-                context.ConfiguredHost ?? context.Host, path);
-            return null;
-        }
-
-        using (response)
+        using (var response = await client.GetAsync($"{baseUrl}{path}", cancellationToken))
         {
             if (!response.IsSuccessStatusCode)
             {

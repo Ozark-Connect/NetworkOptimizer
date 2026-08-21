@@ -258,7 +258,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         return stats;
     }
 
-    private void ApplyHistory(StarlinkStats stats, DishGetHistoryResponse history, string configId)
+    private void ApplyHistory(StarlinkStats stats, DishGetHistoryResponse history, string cacheKey)
     {
         var counter = history.Current;
         var bufferLen = Math.Max(history.PopPingDropRate.Count, history.PowerIn.Count);
@@ -268,10 +268,10 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         // ring buffer length. First poll (or counter reset after reboot)
         // aggregates over the full buffer.
         long window = bufferLen;
-        if (_lastHistoryCounter.TryGetValue(configId, out var prev) && counter > prev)
+        if (_lastHistoryCounter.TryGetValue(cacheKey, out var prev) && counter > prev)
             window = Math.Min((long)(counter - prev), bufferLen);
         window = Math.Min(window, (long)counter);
-        _lastHistoryCounter[configId] = counter;
+        _lastHistoryCounter[cacheKey] = counter;
 
         AggregateRing(history.PopPingDropRate, counter, window,
             out var dropAvg, out var dropMax, out _);

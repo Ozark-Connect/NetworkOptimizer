@@ -117,7 +117,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Netgear CM poll requested but Host is empty (config {Id})", context.CacheKey);
+            _logger.LogWarning("Netgear CM poll requested but Host is empty (config {Id})", context.Id);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 

@@ -47,7 +47,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("ARRIS Surfboard poll requested but Host is empty (config {Id})", context.CacheKey);
+            _logger.LogWarning("ARRIS Surfboard poll requested but Host is empty (config {Id})", context.Id);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
