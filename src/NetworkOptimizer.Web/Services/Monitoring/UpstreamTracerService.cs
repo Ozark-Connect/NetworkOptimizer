@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -1982,13 +1982,6 @@ public class UpstreamTracerService
         (3356, "4.2.2.2", "Level 3", "Level 3 DNS (transit witness)")
     };
 
-    // Curated access-ISP endpoints for carriers whose first-mile routers commonly ICMP-deprioritize,
-    // leaving the access cloud with no probed target. When the detected access ASN is in this map and
-    // none of the discovered access hops clear the reachability gate, we resolve + ping these published
-    // hosts and adopt the lowest-RTT reachable one as the access target (InjectAccessIspFallbackAsync).
-    // Hosts must answer ICMP (the same gate post-traceroute hops face); non-pingable PoPs are omitted.
-    // The label follows the standard convention (stripped ASN name + stripped hostname via
-    // FormatTransitHopLabel), e.g. "Deutsche Telekom ffm.wsqm".
     /// <summary>
     /// Verizon's *.vzbi.com speedtest PoPs, shared by every Verizon access ASN keyed in
     /// <see cref="AccessIspFallbackHosts"/>. Listed as hostnames, not the captured addresses: each
@@ -2006,6 +1999,13 @@ public class UpstreamTracerService
         "lsancakv-075715b-inet.vzbi.com",    // Los Angeles, CA
     };
 
+    // Curated access-ISP endpoints for carriers whose first-mile routers commonly ICMP-deprioritize,
+    // leaving the access cloud with no probed target. When the detected access ASN is in this map and
+    // none of the discovered access hops clear the reachability gate, we resolve + ping these published
+    // hosts and adopt the lowest-RTT reachable one as the access target (InjectAccessIspFallbackAsync).
+    // Hosts must answer ICMP (the same gate post-traceroute hops face); non-pingable PoPs are omitted.
+    // The label follows the standard convention (stripped ASN name + stripped hostname via
+    // FormatTransitHopLabel), e.g. "Deutsche Telekom ffm.wsqm".
     internal static readonly IReadOnlyDictionary<int, IReadOnlyList<string>> AccessIspFallbackHosts =
         new Dictionary<int, IReadOnlyList<string>>
         {

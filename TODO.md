@@ -1,4 +1,4 @@
-﻿# Network Optimizer - TODO / Future Enhancements
+# Network Optimizer - TODO / Future Enhancements
 
 ## SSH key placement on console gateways (udm-boot)
 
