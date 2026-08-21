@@ -8,6 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { ponSeriesFor, ponDetailsHtml } from './pon-section.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -289,39 +290,11 @@ async function refreshPonSection() {
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
-            const err = errSeriesFor(m, prefix);
-            const hec = err('hec', 'HEC');
-            const gemDrop = err('gemDrop', 'GEM drops');
-            const fec = err('fec', 'FEC'), fecCorr = err('fecCorr', 'FEC corrected');
-            errSeries.push(err('bip', 'BIP'), hec, err('hecCorr', 'HEC corrected'));
-            // The FEC counters can only move while the OLT profile has FEC enabled, so on a link
-            // where it is off they are two permanent zero lines. Test the whole window, not the
-            // latest sample: FEC switched off mid-window leaves real deltas behind it. The flags
-            // are optional in the contract, so counted errors are evidence in their own right.
-            if ((m.pon || []).some(p => p.dsFec || p.usFec)
-                || fec.data.some(p => p.y) || fecCorr.data.some(p => p.y)) {
-                errSeries.push(fec, fecCorr);
-            }
-            errSeries.push(
-                err('bwmapUncorr', 'BWmap'),
-                err('bwmapCorr', 'BWmap corrected'),
-                err('allocLost', 'Allocs lost'),
-            );
-            // Some ONTs report GEM drops off the same counter as uncorrectable HEC (every Lantiq
-            // one does), which draws a second line exactly on top of HEC. Keep the series only
-            // where the hardware really does count them separately.
-            if (!sameSeries(gemDrop.data, hec.data)) {
-                errSeries.push(gemDrop);
-            }
-            gemSeries.push(
-                { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
-                { name: `${prefix}TX frames`, data: ponPoints(m, 'gemTx') },
-            );
-            hostSeries.push(
-                { name: `${prefix}FCS errors`, data: ponPoints(m, 'lanFcs') },
-                { name: `${prefix}TX drops`, data: ponPoints(m, 'lanDrop') },
-                { name: `${prefix}Buffer overflows`, data: ponPoints(m, 'lanOvfl') },
-            );
+            const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
+            const series = ponSeriesFor(m, prefix, slot, PALETTE);
+            errSeries.push(...series.errSeries);
+            gemSeries.push(...series.gemSeries);
+            hostSeries.push(...series.hostSeries);
         });
         ponErrChart.updateSeries(padFirst(errSeries.filter(s => s.data.length)), false);
         ponGemChart.updateSeries(padFirst(gemSeries.filter(s => s.data.length)), false);
@@ -359,47 +332,6 @@ const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 
-// Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.
-const PLOAM_LABELS = {
-    initial: 'Initializing (O1)', standby: 'Standby (O2)', serial_number: 'Authenticating (O3)',
-    ranging: 'Ranging (O4)', operation: 'Connected (O5)', popup: 'Signal Lost (O6)',
-    emergency_stop: 'Disabled (O7)',
-};
-
-// Every series keeps the same x values, with gaps as null rather than dropped.
-//
-// Filtering each series down to its own non-null points gave the series different x
-// arrays, and a shared ApexCharts tooltip resolves the other series by data-point INDEX
-// rather than by timestamp - so once the arrays diverged, only the first series lined up
-// and PON Errors showed "BIP: 0" while every non-zero counter beside it went unlisted.
-// A null y still breaks the line where there is no reading, which is what the filter was
-// really for; valueSortedTooltip skips nulls, so the gaps cost no tooltip rows either.
-//
-// A counter the module never reports at all returns nothing, so it is dropped as a
-// series rather than drawn as an empty one.
-function ponPoints(m, key) {
-    return alignedPoints(m.pon || [], p => p[key]);
-}
-
-// Error-chart colors are pinned per metric, not left to series position. Two of these series come
-// and go - FEC only while the OLT profile has it on, GEM drops only where it is a separate counter -
-// and positional colors would re-color everything after the one that appeared. The module's slot
-// comes from the full PON list, so hiding a module never re-colors the ones that stay.
-const ERR_METRICS = ['bip', 'hec', 'hecCorr', 'fec', 'fecCorr', 'bwmapUncorr', 'bwmapCorr', 'allocLost', 'gemDrop'];
-
-function errSeriesFor(m, prefix) {
-    const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
-    return (key, name) => ({
-        name: `${prefix}${name}`,
-        data: ponPoints(m, key),
-        color: PALETTE[(slot * ERR_METRICS.length + ERR_METRICS.indexOf(key)) % PALETTE.length],
-    });
-}
-
-function sameSeries(a, b) {
-    if (a.length !== b.length) return false;
-    return a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
-}
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
 // supplemental PON polling never pay for instances they'd never see.
@@ -430,28 +362,7 @@ async function updatePonCharts(data) {
 function renderPonDetails(container, withPon) {
     const el = container.querySelector('.sfp-pon-details');
     if (!el) return;
-    const fmtUp = s => s == null ? '-'
-        : `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
-    const rows = withPon.map(m => {
-        const last = [...m.pon].reverse().find(p => p.state != null) || m.pon[m.pon.length - 1];
-        const state = PLOAM_LABELS[last.state] || last.state || '-';
-        const fec = last.dsFec == null && last.usFec == null ? '-'
-            : `${last.dsFec ? 'on' : 'off'} / ${last.usFec ? 'on' : 'off'}`;
-        const host = last.lanLink == null && last.lanMode == null ? '-'
-            : `${last.lanLink ?? '-'} / ${last.lanMode ?? '-'}`;
-        return `<tr>
-            <td>${escapeHtml(m.label)}</td>
-            <td>${escapeHtml(state)}</td>
-            <td>${last.onuId ?? '-'}</td>
-            <td>${fec}</td>
-            <td>${last.respTime ?? '-'}</td>
-            <td>${host}</td>
-            <td>${fmtUp(last.uptime)}</td>
-        </tr>`;
-    }).join('');
-    el.innerHTML = `<div class="table-responsive"><table class="data-table">
-        <thead><tr><th>Module</th><th>PLOAM State</th><th>ONU ID</th><th>FEC DS / US</th><th>Response Time</th><th><span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span></th><th>ONT Uptime</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>`;
+    el.innerHTML = ponDetailsHtml(withPon, 'Module');
 }
 
 function renderStatsTable(container, showAll) {

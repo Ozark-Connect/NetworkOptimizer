@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Models;
+
 namespace NetworkOptimizer.Monitoring.Models;
 
 /// <summary>
@@ -66,6 +68,10 @@ public class OntStats
 
     /// <summary>BIP (bit-interleaved-parity) error count. Cumulative; reads 0 on a healthy link.</summary>
     public long? BipErrors { get; set; }
+
+    /// <summary>Full PON-layer detail, for providers that serve it. Null for the rest, which is
+    /// what keeps the PON charts and details off a tab showing an ONT that cannot fill them.</summary>
+    public PonSupplementalStats? Pon { get; set; }
 
     /// <summary>Estimated distance to OLT in meters</summary>
     public double? Distance { get; set; }

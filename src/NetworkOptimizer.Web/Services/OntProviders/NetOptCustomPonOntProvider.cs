@@ -236,6 +236,9 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
         FecErrors = p.GtcCounters?.FecWordsUncorr,
         BipErrors = p.GtcCounters?.Bip,
+        // Standalone gets the same PON detail as an attached module: same endpoint, same payload,
+        // so the only difference between the two modes should be which tab it lands on.
+        Pon = MapToSupplemental(p),
     };
 
     /// <summary>Raw PLOAM state number (1-7 = O1-O7) to the shared enum.</summary>

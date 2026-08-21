@@ -44,7 +44,7 @@ public static class OntChartEndpoints
                 queryFrom = hours == 0 ? queryTo.AddMinutes(-15) : queryTo.AddHours(-hours);
             }
 
-            var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, ct: ct);
+            var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, includePon: true, ct: ct);
 
             // Standalone configs only: an attached config writes to the sfp
             // measurement, not ont, and must never appear as a standalone ONT series.
@@ -82,11 +82,25 @@ public static class OntChartEndpoints
                     prev = p;
                 }
 
+                // The same PON payload the SFP tab charts, for a provider serving it standalone.
+                // Null for every other provider, which is what keeps the section off their tab.
+                var pon = PonChartSeries.Build(pts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList());
+
+                // Identity and link uptime are per-ONT rather than per-point: take the last
+                // reading that carried them, since a poll that skipped one still knows it.
+                var lastWith = pts.AsEnumerable().Reverse();
+                var olt = new[] { lastWith.FirstOrDefault(p => p.OltVendor != null)?.OltVendor,
+                                  lastWith.FirstOrDefault(p => p.OltModel != null)?.OltModel };
+
                 return new
                 {
                     id = kvp.Key,
                     label = name,
                     data = items,
+                    pon,
+                    linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
+                    ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
+                    olt = string.Join(" ", olt.Where(v => !string.IsNullOrEmpty(v))) is { Length: > 0 } o ? o : null,
                 };
             }).ToList();
 
