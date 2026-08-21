@@ -471,7 +471,14 @@
     }
 
     @* ──────────────── Tab: ISP Health ──────────────── *@
-    @if (_activeTab == "isp-health" && _monitoringReady)
+    @* Every card on these two tabs is probe-fed, so with nothing probing they would render as a
+       page of empty charts with no stated reason. The banner stands in their place. *@
+    @if ((_activeTab == "isp-health" || _activeTab == "performance") && _monitoringReady && !CollectionAgent.SiteCanProbe)
+    {
+        @NoAgentProbeBanner
+    }
+
+    @if (_activeTab == "isp-health" && _monitoringReady && CollectionAgent.SiteCanProbe)
     {
         @* Flaky internet targets skew the score shown here, so surface the same advisory
            (#849) above the panel - not only on Live View where it was first detected. *@
@@ -483,7 +490,7 @@
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
-    @if (_activeTab == "performance" && _monitoringReady)
+    @if (_activeTab == "performance" && _monitoringReady && CollectionAgent.SiteCanProbe)
     {
         @if (_upstreamNeedsReview && !_upstreamReviewDismissed)
         {
@@ -1764,10 +1771,12 @@
                                     <span class="status-indicator @(ServerCollecting ? "status-active" : "status-danger")"></span>
                                     <span>Server: @ServerCollectionState</span>
                                 </div>
-                                @if (_siteAgent is not null)
+                                @* Rendered when there is NO agent too: a site that cannot probe without one is
+                                   exactly where the row has something to say. *@
+                                @if (_siteAgent is not null || !CollectionAgent.SiteCanProbe)
                                 {
                                     <div class="form-value-line">
-                                        <span class="status-indicator @(TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
+                                        <span class="status-indicator @(_siteAgent is not null && TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
                                         <span>On-site agent: @AgentCollectionState</span>
                                     </div>
                                 }
@@ -2629,6 +2638,7 @@
 
     private string ServerCollectionState =>
         _influxReachable != true ? "enabled, but InfluxDB unreachable"
+        : !CollectionAgent.SiteCanProbe ? "SNMP only (add an agent for network performance data)"
         : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
         : ServerCollecting ? "collecting"
         : CollectionAgent.LastCollectionUtc is DateTime last
@@ -2639,7 +2649,7 @@
     {
         get
         {
-            if (_siteAgent is null) return "";
+            if (_siteAgent is null) return "not set up";
             var version = _siteAgent.LastVersion is null ? ""
                 : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
@@ -3600,6 +3610,24 @@
 
     // Shared markup for the "results ready" banner so Live View and Network Performance
     // render the identical block.
+    /// <summary>
+    /// Shown where an agent is the ONLY way the data on the tab could exist. Warning rather than
+    /// info: this is not a wait, it is a standing gap - the server never probes a non-default site,
+    /// so nothing here will fill in on its own.
+    /// </summary>
+    private RenderFragment NoAgentProbeBanner => @<div class="alert alert-warning" style="margin-bottom: 1rem;">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text" style="flex: 1;">
+                <strong>No agent for this site</strong>
+                Probe-based monitoring needs an on-site agent. SNMP collection is unaffected.
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-primary" @onclick='() => NavigationManager.NavigateTo("/settings?tab=multi-site")'>Set Up an Agent</button>
+            </div>
+        </div>
+    </div>;
+
     private RenderFragment UpstreamReviewBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
         <div class="banner-content">
             <span class="banner-icon banner-icon-info">i</span>

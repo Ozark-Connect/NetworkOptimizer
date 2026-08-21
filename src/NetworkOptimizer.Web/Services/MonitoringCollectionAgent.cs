@@ -129,6 +129,15 @@ public class MonitoringCollectionAgent : BackgroundService
     public bool ServerProbesThisSite => _isDefault && !AgentOwnsProbing();
 
     /// <summary>
+    /// Whether ANYTHING can probe this site: the server where it still does, otherwise an enrolled
+    /// agent. False is a standing condition, not a transient one - the server never hands probing
+    /// back for a non-default site - so latency and path measurement cannot run here at all until
+    /// an agent is enrolled. SNMP is unaffected: it stands down only when an agent IS present.
+    /// </summary>
+    public bool SiteCanProbe =>
+        ServerProbesThisSite || _tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled;
+
+    /// <summary>
     /// Lets the Setup page's interactive re-check override the cached self-heal sighting
     /// with its fresher console read. Without this, a user who shortens the community and
     /// hits Re-check still sees the too-long banner until the agent's next re-pull.

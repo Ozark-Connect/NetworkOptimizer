@@ -3515,7 +3515,8 @@
                                                         Users
                                                     </button>
                                                 </AuthorizeView>
-                                                @if (site.Slug != SiteContext.Slug)
+                                                @* A disabled site has nothing to switch into, so the row offers the badge alone. *@
+                                                @if (site.Slug != SiteContext.Slug && site.Enabled)
                                                 {
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)" @onclick:stopPropagation="true">
                                                         Switch to Site
