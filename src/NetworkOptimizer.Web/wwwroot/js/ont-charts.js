@@ -1,4 +1,4 @@
-﻿// External ONT signal time-series charts: RX/TX Power, Temperature, OLT RX Power.
+// External ONT signal time-series charts: RX/TX Power, Temperature, OLT RX Power.
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -7,7 +7,9 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { syncIdentity } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -20,6 +22,8 @@ let powerChart = null;
 let tempChart = null;
 // FEC/BIP error-delta chart; its section stays hidden unless some ONT reports the counters.
 let errorsChart = null;
+let ponGemChart = null;
+let ponHostChart = null;
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -165,6 +169,7 @@ function chartEntries() {
         [powerChart, chartEls.power],
         [tempChart, chartEls.temp],
         [errorsChart, chartEls.errors],
+        [ponHostChart, chartEls.ponHost],
     ].filter(([chart]) => chart);
 }
 
@@ -259,7 +264,11 @@ async function ensureErrorsChartMounted() {
     if (!errorsEl) return;
     errorsChart = new ApexCharts(errorsEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     chartEls.errors = errorsEl;
-    await errorsChart.render();
+    const hostEl = container.querySelector('.ont-pon-host-chart');
+    const gemEl = container.querySelector('.ont-pon-gem-chart');
+    if (hostEl) { ponHostChart = new ApexCharts(hostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE }); chartEls.ponHost = hostEl; }
+    if (gemEl) ponGemChart = new ApexCharts(gemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
+    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render()].filter(Boolean));
     // It arrives after the first draw, so it starts with no marks on it.
     markLayer.reset();
     applyAnnotations();
@@ -269,28 +278,46 @@ async function updateErrorsChart() {
     const container = document.getElementById(containerId);
     const section = container?.querySelector('.ont-errors-section');
     if (!section) return;
-    const reporting = (lastData?.devices || []).filter(d =>
-        (d.data || []).some(p => p.fec != null || p.bip != null));
+    const reporting = (lastData?.devices || []).filter(d => d.pon?.length);
     // The section appears when ANY ONT reports errors, filtered or not - it is a property of the
     // hardware, so it must not come and go as the chips are clicked. Only its series are filtered.
     if (!reporting.length) {
         section.style.display = 'none';
         return;
     }
+    // Shown BEFORE the charts mount: a chart first rendered in a display:none container stays
+    // zero-size. The cards inside start visible for the same reason, and updatePonCard hides the
+    // ones nothing fills once they have been sized.
+    section.style.display = '';
     await ensureErrorsChartMounted();
     if (!errorsChart) return;
-    section.style.display = '';
 
     const withErrors = reporting.filter(d => visibility[d.id] !== false);
-    const series = [];
+    const multi = withErrors.length > 1;
+    const errSeries = [], gemSeries = [], hostSeries = [];
     withErrors.forEach(d => {
-        const pts = d.data || [];
-        series.push(
-            { name: `${d.label} FEC`, data: alignedPoints(pts, p => p.fec) },
-            { name: `${d.label} BIP`, data: alignedPoints(pts, p => p.bip) });
+        const slot = Math.max(0, reporting.findIndex(x => x.id === d.id));
+        const built = ponSeriesFor(d, multi ? `${d.label} ` : '', slot, PALETTE);
+        errSeries.push(...built.errSeries);
+        gemSeries.push(...built.gemSeries);
+        hostSeries.push(...built.hostSeries);
     });
-    errorsChart.updateSeries(series, false);
+    // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones that report a
+    // link state and no counters at all, so each card hides itself rather than drawing an empty
+    // frame. The AT&T gateway provider harvests no error counters of any kind.
+    updatePonCard(container, '.ont-pon-errors-card', errorsChart, errSeries);
+    updatePonCard(container, '.ont-pon-host-card', ponHostChart, hostSeries);
+    updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
+
+    const el = container.querySelector('.ont-pon-details');
+    if (el) el.innerHTML = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
 }
+
+// Columns this tab adds to the shared table. Ones no ONT fills are dropped by the renderer.
+const DETAIL_EXTRAS = [
+    { header: 'PON Type', cell: d => d.ponType ? escapeHtml(d.ponType) : null },
+    { header: 'OLT', cell: d => d.olt ? escapeHtml(d.olt) : null },
+];
 
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.ont-stats-table');
@@ -466,8 +493,11 @@ export async function mount(elId) {
     deviceMeta = [];
     visibility = {};
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const powerEl = container.querySelector('.ont-power-chart');
     const tempEl = container.querySelector('.ont-temp-chart');
@@ -478,6 +508,8 @@ export async function mount(elId) {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
+    if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
+    if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
@@ -573,6 +605,8 @@ export function unmount() {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
+    if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
+    if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};

@@ -307,13 +307,20 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                 // Fire-and-forget write to InfluxDB
                 WriteToInflux(config, stats);
 
-                // Standalone ONT providers report BIP where available but not HEC or the
-                // FEC-enable state, so FEC stays the codeword-error signal (fecEnabled null).
+                // Most standalone providers report BIP but neither HEC nor the FEC-enable state,
+                // leaving FEC as the codeword-error signal (fecEnabled null). A provider that
+                // serves the full PON set answers both, and on a FEC-disabled link that is the
+                // difference between evaluating a counter that cannot move and the one that does.
+                bool? fecEnabled = stats.Pon?.DsFecEnabled.HasValue == true || stats.Pon?.UsFecEnabled.HasValue == true
+                    ? stats.Pon.DsFecEnabled == 1 || stats.Pon.UsFecEnabled == 1
+                    : null;
                 _ = _alertEvaluator.EvaluateAsync(
                     config.Id, config.Name,
                     stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors,
                     stats.TemperatureC, thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
                     bipErrors: stats.BipErrors,
+                    hecErrors: stats.Pon?.HecUncorrected,
+                    fecEnabled: fecEnabled,
                     sourceUrl: $"/monitoring?tab=ont&ont={config.Id}");
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
@@ -370,7 +377,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                 timestamp: stats.Timestamp,
                 linkUptimeSeconds: stats.LinkUptimeSeconds,
                 oltVendor: stats.OltVendor,
-                oltModel: stats.OltModel);
+                oltModel: stats.OltModel,
+                pon: stats.Pon);
         }
         catch (Exception ex)
         {

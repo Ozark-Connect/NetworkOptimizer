@@ -133,6 +133,68 @@ public class OntAlertEvaluatorTests
     }
 
     [Fact]
+    public async Task BipSpike_NothingUncorrectable_DropsToInfo()
+    {
+        var (evaluator, bus) = Create();
+
+        // FEC on and absorbing all of it: the link is degrading, not losing data, so the spike
+        // still reports but at Info rather than Warning.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 0, bipErrors: 0, fecEnabled: true);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 0, bipErrors: 1400, fecEnabled: true);
+
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].Severity.Should().Be(AlertSeverity.Info);
+        bip[0].MetricValue.Should().Be(1400);
+    }
+
+    [Fact]
+    public async Task BipSpike_WithUncorrectableCodewords_StaysWarning()
+    {
+        var (evaluator, bus) = Create();
+
+        // Uncorrectable codewords in the same interval: something reached the payload, so the
+        // spike is corroborated and keeps its full severity.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 0, bipErrors: 0, fecEnabled: true);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 3, bipErrors: 1400, fecEnabled: true);
+
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].Severity.Should().Be(AlertSeverity.Warning);
+    }
+
+    [Fact]
+    public async Task BipSpike_FecDisabled_ChecksHecNotFec()
+    {
+        var (evaluator, bus) = Create();
+
+        // With FEC off the corroborating counter is HEC, and it moved here, so Warning stands
+        // even though the FEC counter beside it never budges on such a link.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 0, bipErrors: 0,
+            hecErrors: 0, fecEnabled: false);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, 0, bipErrors: 50,
+            hecErrors: 2, fecEnabled: false);
+
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].Severity.Should().Be(AlertSeverity.Warning);
+    }
+
+    [Fact]
+    public async Task BipSpike_NoUncorrectableCounterReported_KeepsWarning()
+    {
+        var (evaluator, bus) = Create();
+
+        // Nothing to check the spike against, so it is not quietly discounted.
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 0, fecEnabled: false);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, bipErrors: 50, fecEnabled: false);
+
+        var bip = bus.Events.Where(e => e.EventType == "ont.bip_errors").ToList();
+        bip.Should().HaveCount(1);
+        bip[0].Severity.Should().Be(AlertSeverity.Warning);
+    }
+
+    [Fact]
     public async Task BipCounterReset_DoesNotFakeSpike()
     {
         var (evaluator, bus) = Create();

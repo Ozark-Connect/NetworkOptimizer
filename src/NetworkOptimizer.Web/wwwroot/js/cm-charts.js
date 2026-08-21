@@ -1,4 +1,4 @@
-﻿// Cable modem signal time-series charts: DS Power, DS SNR, US Power, Uncorrectable Errors.
+// Cable modem signal time-series charts: DS Power, DS SNR, US Power, Uncorrectable Errors.
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -7,6 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -393,8 +394,11 @@ export async function mount(elId) {
     deviceMeta = [];
     visibility = {};
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const dsPowerEl = container.querySelector('.cm-ds-power-chart');
     const dsSnrEl = container.querySelector('.cm-ds-snr-chart');

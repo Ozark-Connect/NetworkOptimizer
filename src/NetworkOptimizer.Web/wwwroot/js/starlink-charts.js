@@ -1,4 +1,4 @@
-﻿// Starlink terminal time-series charts: power draw, ping drop rate, obstruction,
+// Starlink terminal time-series charts: power draw, ping drop rate, obstruction,
 // outage seconds, GPS satellites, alignment offset.
 // Same control pattern as cellular-charts.js and cm-charts.js.
 
@@ -8,6 +8,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -405,8 +406,11 @@ export async function mount(elId) {
     deviceMeta = [];
     visibility = {};
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const powerEl = container.querySelector('.starlink-power-chart');
     const dropEl = container.querySelector('.starlink-drop-chart');

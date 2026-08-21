@@ -209,7 +209,7 @@
             <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
                 Data Usage
             </button>
-            <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
+            <button class="wifi-view-tab @(_activeTab == "setup" && _tabResolved ? "active" : "")"
                     @onclick="@(() => SetActiveTab("setup"))">
                 Setup
             </button>
@@ -471,7 +471,14 @@
     }
 
     @* ──────────────── Tab: ISP Health ──────────────── *@
-    @if (_activeTab == "isp-health" && _monitoringReady)
+    @* Every card on these two tabs is probe-fed, so with nothing probing they would render as a
+       page of empty charts with no stated reason. The banner stands in their place. *@
+    @if ((_activeTab == "isp-health" || _activeTab == "performance") && _monitoringReady && !CollectionAgent.SiteCanProbe)
+    {
+        @NoAgentProbeBanner
+    }
+
+    @if (_activeTab == "isp-health" && _monitoringReady && CollectionAgent.SiteCanProbe)
     {
         @* Flaky internet targets skew the score shown here, so surface the same advisory
            (#849) above the panel - not only on Live View where it was first detected. *@
@@ -483,7 +490,7 @@
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
-    @if (_activeTab == "performance" && _monitoringReady)
+    @if (_activeTab == "performance" && _monitoringReady && CollectionAgent.SiteCanProbe)
     {
         @if (_upstreamNeedsReview && !_upstreamReviewDismissed)
         {
@@ -895,15 +902,15 @@
                 <!-- Supplemental PON-layer charts: shown only when a module has an attached
                      Network Optimizer Custom ONT config feeding PON stats. -->
                 <div class="sfp-pon-section" style="display: none;">
-                    <div class="chart-card">
+                    <div class="chart-card sfp-pon-errors-card">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
                         <div class="sfp-pon-errors-chart"></div>
                     </div>
-                    <div class="chart-card">
+                    <div class="chart-card sfp-pon-host-card">
                         <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
                         <div class="sfp-pon-host-chart"></div>
                     </div>
-                    <div class="chart-card">
+                    <div class="chart-card sfp-pon-gem-card">
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
@@ -1239,12 +1246,23 @@
                     <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
                     <div class="ont-temp-chart"></div>
                 </div>
-                <!-- Shown only when at least one ONT reports FEC/BIP counters. -->
+                <!-- Shown when at least one ONT reports anything PON-layer, which for some is a
+                     link state and nothing else. Every card hides itself when nothing fills it, so
+                     an ONT reporting no error counters gets the details table alone. -->
                 <div class="ont-errors-section" style="display: none;">
-                    <div class="chart-card">
-                        <div class="chart-header"><h3 class="chart-title">FEC / BIP Errors (per interval)</h3></div>
+                    <div class="chart-card ont-pon-errors-card">
+                        <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
                         <div class="ont-errors-chart"></div>
                     </div>
+                    <div class="chart-card ont-pon-host-card">
+                        <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
+                        <div class="ont-pon-host-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-gem-card">
+                        <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
+                        <div class="ont-pon-gem-chart"></div>
+                    </div>
+                    <div class="ont-pon-details"></div>
                 </div>
                 <div class="ont-stats-table"></div>
             </div>
@@ -1527,7 +1545,7 @@
     }
 
     @* ──────────────── Tab: Setup ──────────────── *@
-    @if (_activeTab == "setup")
+    @if (_activeTab == "setup" && _tabResolved)
     {
         @if (_snmpState == SnmpDetectionState.NotChecked)
         {
@@ -1753,10 +1771,12 @@
                                     <span class="status-indicator @(ServerCollecting ? "status-active" : "status-danger")"></span>
                                     <span>Server: @ServerCollectionState</span>
                                 </div>
-                                @if (_siteAgent is not null)
+                                @* Rendered when there is NO agent too: a site that cannot probe without one is
+                                   exactly where the row has something to say. *@
+                                @if (_siteAgent is not null || !CollectionAgent.SiteCanProbe)
                                 {
                                     <div class="form-value-line">
-                                        <span class="status-indicator @(TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
+                                        <span class="status-indicator @(_siteAgent is not null && TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
                                         <span>On-site agent: @AgentCollectionState</span>
                                     </div>
                                 }
@@ -2579,7 +2599,11 @@
     private DateTime? _mapHistoricAt;
     private HistoricStatSnapshot? _historicSnapshot;
 
+    // Setup is the default so a site that cannot finish initializing - unreachable InfluxDB,
+    // failing SNMP - still lands where it can be fixed. It just must not RENDER before the
+    // resolve below has had its say, or every visit flashes Setup on the way to its real tab.
     private string _activeTab = "setup";
+    private bool _tabResolved;
 
     // The instant the last navigation named, waiting for a map to hand it to, and the URL that
     // armed it. Keyed on the URL rather than the value: the eye sends the same instant every time
@@ -2614,6 +2638,7 @@
 
     private string ServerCollectionState =>
         _influxReachable != true ? "enabled, but InfluxDB unreachable"
+        : !CollectionAgent.SiteCanProbe ? "SNMP only (add an agent for network performance data)"
         : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
         : ServerCollecting ? "collecting"
         : CollectionAgent.LastCollectionUtc is DateTime last
@@ -2624,7 +2649,7 @@
     {
         get
         {
-            if (_siteAgent is null) return "";
+            if (_siteAgent is null) return "not set up";
             var version = _siteAgent.LastVersion is null ? ""
                 : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
@@ -2991,6 +3016,14 @@
     }
 
     protected override async Task OnInitializedAsync()
+    {
+        // finally, not a catch: a throw still propagates, but the tab stops being withheld and
+        // the "setup" default above becomes visible, which is the right landing for a broken site.
+        try { await InitializeAsync(); }
+        finally { _tabResolved = true; }
+    }
+
+    private async Task InitializeAsync()
     {
         LiveWan.OnChanged = OnLiveWanChangedAsync;
         _canConfigure = AuthState is null
@@ -3577,6 +3610,24 @@
 
     // Shared markup for the "results ready" banner so Live View and Network Performance
     // render the identical block.
+    /// <summary>
+    /// Shown where an agent is the ONLY way the data on the tab could exist. Warning rather than
+    /// info: this is not a wait, it is a standing gap - the server never probes a non-default site,
+    /// so nothing here will fill in on its own.
+    /// </summary>
+    private RenderFragment NoAgentProbeBanner => @<div class="alert alert-warning" style="margin-bottom: 1rem;">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text" style="flex: 1;">
+                <strong>No agent for this site</strong>
+                Probe-based monitoring needs an on-site agent. SNMP collection is unaffected.
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-primary" @onclick='() => NavigationManager.NavigateTo("/settings?tab=multisite")'>Set Up an Agent</button>
+            </div>
+        </div>
+    </div>;
+
     private RenderFragment UpstreamReviewBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
         <div class="banner-content">
             <span class="banner-icon banner-icon-info">i</span>

@@ -1,4 +1,4 @@
-﻿// SFP DDM time-series charts: RX/TX power, temperature, voltage.
+// SFP DDM time-series charts: RX/TX power, temperature, voltage.
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -8,6 +8,8 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
+import { awaitContainer } from './chart-mount.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -289,27 +291,17 @@ async function refreshPonSection() {
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
-            errSeries.push(
-                { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
-                { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
-                { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
-                { name: `${prefix}HEC`, data: ponPoints(m, 'hec') },
-                { name: `${prefix}GEM drops`, data: ponPoints(m, 'gemDrop') },
-                { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
-            );
-            gemSeries.push(
-                { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
-                { name: `${prefix}TX frames`, data: ponPoints(m, 'gemTx') },
-            );
-            hostSeries.push(
-                { name: `${prefix}FCS errors`, data: ponPoints(m, 'lanFcs') },
-                { name: `${prefix}TX drops`, data: ponPoints(m, 'lanDrop') },
-                { name: `${prefix}Buffer overflows`, data: ponPoints(m, 'lanOvfl') },
-            );
+            const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
+            const series = ponSeriesFor(m, prefix, slot, PALETTE);
+            errSeries.push(...series.errSeries);
+            gemSeries.push(...series.gemSeries);
+            hostSeries.push(...series.hostSeries);
         });
-        ponErrChart.updateSeries(padFirst(errSeries.filter(s => s.data.length)), false);
-        ponGemChart.updateSeries(padFirst(gemSeries.filter(s => s.data.length)), false);
-        ponHostChart.updateSeries(padFirst(hostSeries.filter(s => s.data.length)), false);
+        // Every section of the contract is optional, so an implementation serving the GTC
+        // counters and no host-link ones leaves that card empty for good. Hide what nothing fills.
+        updatePonCard(container, '.sfp-pon-errors-card', ponErrChart, errSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-gem-card', ponGemChart, gemSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-host-card', ponHostChart, hostSeries, padFirst);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
@@ -343,27 +335,6 @@ const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 
-// Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.
-const PLOAM_LABELS = {
-    initial: 'Initializing (O1)', standby: 'Standby (O2)', serial_number: 'Authenticating (O3)',
-    ranging: 'Ranging (O4)', operation: 'Connected (O5)', popup: 'Signal Lost (O6)',
-    emergency_stop: 'Disabled (O7)',
-};
-
-// Every series keeps the same x values, with gaps as null rather than dropped.
-//
-// Filtering each series down to its own non-null points gave the series different x
-// arrays, and a shared ApexCharts tooltip resolves the other series by data-point INDEX
-// rather than by timestamp - so once the arrays diverged, only the first series lined up
-// and PON Errors showed "BIP: 0" while every non-zero counter beside it went unlisted.
-// A null y still breaks the line where there is no reading, which is what the filter was
-// really for; valueSortedTooltip skips nulls, so the gaps cost no tooltip rows either.
-//
-// A counter the module never reports at all returns nothing, so it is dropped as a
-// series rather than drawn as an empty one.
-function ponPoints(m, key) {
-    return alignedPoints(m.pon || [], p => p[key]);
-}
 
 // Create the three PON charts on first use. Kept out of mount() so setups without
 // supplemental PON polling never pay for instances they'd never see.
@@ -394,25 +365,7 @@ async function updatePonCharts(data) {
 function renderPonDetails(container, withPon) {
     const el = container.querySelector('.sfp-pon-details');
     if (!el) return;
-    const fmtUp = s => s == null ? '-'
-        : `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
-    const rows = withPon.map(m => {
-        const last = [...m.pon].reverse().find(p => p.state != null) || m.pon[m.pon.length - 1];
-        const state = PLOAM_LABELS[last.state] || last.state || '-';
-        const fec = last.dsFec == null && last.usFec == null ? '-'
-            : `${last.dsFec ? 'on' : 'off'} / ${last.usFec ? 'on' : 'off'}`;
-        return `<tr>
-            <td>${escapeHtml(m.label)}</td>
-            <td>${escapeHtml(state)}</td>
-            <td>${last.onuId ?? '-'}</td>
-            <td>${fec}</td>
-            <td>${last.respTime ?? '-'}</td>
-            <td>${fmtUp(last.uptime)}</td>
-        </tr>`;
-    }).join('');
-    el.innerHTML = `<div class="table-responsive"><table class="data-table">
-        <thead><tr><th>Module</th><th>PLOAM State</th><th>ONU ID</th><th>FEC DS / US</th><th>Response Time</th><th>ONT Uptime</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>`;
+    el.innerHTML = ponDetailsHtml(withPon, 'Module');
 }
 
 function renderStatsTable(container, showAll) {
@@ -580,8 +533,11 @@ function shiftWindow(container, direction) {
 
 export async function mount(elId) {
     containerId = elId;
-    const container = document.getElementById(elId);
+    // Awaited, not read once: Blazor can call mount before it has rendered this tab.
+    const container = await awaitContainer(elId);
     if (!container) return;
+    // A second mount while this one waited owns the tab now.
+    if (containerId !== elId) return;
 
     const powerEl = container.querySelector('.sfp-power-chart');
     const tempEl = container.querySelector('.sfp-temp-chart');
