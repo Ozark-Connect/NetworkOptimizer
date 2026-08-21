@@ -89,7 +89,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     /// later polls go straight to it instead of re-probing the wrong flow (and, for the curl
     /// replay, its extra requests) every interval. Re-detected after a restart.
     /// </summary>
-    private readonly ConcurrentDictionary<int, AuthFlow> _flowCache = new();
+    private readonly ConcurrentDictionary<string, AuthFlow> _flowCache = new();
 
     public NokiaXs010xOntProvider(ILogger<NokiaXs010xOntProvider> logger)
     {
@@ -100,7 +100,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Nokia XS-010X-Q ONT poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("Nokia XS-010X-Q ONT poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<OntStats>.Failed("No address is configured for this device.");
         }
 
@@ -199,7 +199,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
             if (stats.RxPowerDbm is not null)
             {
                 if (context.Id > 0)
-                    _flowCache[context.Id] = flow;
+                    _flowCache[context.CacheKey] = flow;
                 return stats;
             }
 
@@ -218,7 +218,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     /// </summary>
     private IReadOnlyList<AuthFlow> ResolveFlows(OntPollContext context)
     {
-        if (context.Id > 0 && _flowCache.TryGetValue(context.Id, out var cached))
+        if (context.Id > 0 && _flowCache.TryGetValue(context.CacheKey, out var cached))
             return cached == AuthFlow.CurlReplay
                 ? new[] { AuthFlow.CurlReplay, AuthFlow.Direct }
                 : new[] { AuthFlow.Direct, AuthFlow.CurlReplay };

@@ -29,8 +29,8 @@ public class StarlinkGrpcProvider : IStarlinkProvider
     // History ring buffers are 1 Hz with a monotonic sample counter; remember
     // the counter and poll time per config so aggregates cover exactly the
     // samples since the previous poll (the CM correctables-delta pattern).
-    private readonly ConcurrentDictionary<int, ulong> _lastHistoryCounter = new();
-    private readonly ConcurrentDictionary<int, DateTime> _lastPollUtc = new();
+    private readonly ConcurrentDictionary<string, ulong> _lastHistoryCounter = new();
+    private readonly ConcurrentDictionary<string, DateTime> _lastPollUtc = new();
 
     public StarlinkGrpcProvider(ILogger<StarlinkGrpcProvider> logger)
     {
@@ -67,7 +67,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
             {
                 var historyResp = await CallAsync(client, new Request { GetHistory = new GetHistoryRequest() }, cancellationToken);
                 if (historyResp?.ResponseCase == Response.ResponseOneofCase.DishGetHistory)
-                    ApplyHistory(stats, historyResp.DishGetHistory, context.Id);
+                    ApplyHistory(stats, historyResp.DishGetHistory, context.CacheKey);
             }
             catch (Exception ex)
             {
@@ -85,7 +85,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
                 _logger.LogDebug(ex, "Starlink {Name}: diagnostics fetch failed; skipping self-test result", context.Name);
             }
 
-            _lastPollUtc[context.Id] = stats.Timestamp;
+            _lastPollUtc[context.CacheKey] = stats.Timestamp;
             return PollResult<StarlinkStats>.Ok(stats);
         }
         catch (Exception ex)
@@ -258,7 +258,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         return stats;
     }
 
-    private void ApplyHistory(StarlinkStats stats, DishGetHistoryResponse history, int configId)
+    private void ApplyHistory(StarlinkStats stats, DishGetHistoryResponse history, string configId)
     {
         var counter = history.Current;
         var bufferLen = Math.Max(history.PopPingDropRate.Count, history.PowerIn.Count);

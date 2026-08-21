@@ -415,6 +415,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         return new OntPollContext
         {
             Id = config.Id,
+            SiteSlug = _siteSlug,
             Name = config.Name,
             Host = host,
             ConfiguredHost = config.Host,

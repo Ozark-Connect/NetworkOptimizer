@@ -38,7 +38,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     private const int TimeoutSeconds = 15;
 
     private readonly ILogger<TechnicolorCgaProvider> _logger;
-    private readonly ConcurrentDictionary<int, CgaSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, CgaSession> _sessions = new();
 
     public TechnicolorCgaProvider(ILogger<TechnicolorCgaProvider> logger)
     {
@@ -52,7 +52,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Technicolor CGA poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("Technicolor CGA poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
@@ -76,7 +76,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogWarning(ex, "Error polling Technicolor CGA {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
@@ -125,7 +125,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         {
             // A token only stays valid for one signed-in session, so anything else signing in
             // invalidates ours. Re-authenticate once before giving up.
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             session = await LoginAsync(context, cancellationToken);
             if (session == null)
                 return null;
@@ -143,7 +143,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
 
     private async Task<CgaSession?> EnsureSessionAsync(CmPollContext context, CancellationToken cancellationToken)
     {
-        if (_sessions.TryGetValue(context.Id, out var cached))
+        if (_sessions.TryGetValue(context.CacheKey, out var cached))
             return cached;
 
         return await LoginAsync(context, cancellationToken);
@@ -230,7 +230,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         }
 
         session = session with { DeviceModel = await ReadDeviceModelAsync(authedClient, baseUrl, session.DeviceModel, cancellationToken) };
-        _sessions[context.Id] = session;
+        _sessions[context.CacheKey] = session;
 
         _logger.LogDebug("Technicolor CGA {Name}: authenticated", context.Name);
         return session;

@@ -36,7 +36,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
     private const int TimeoutSeconds = 15;
 
     private readonly ILogger<ArrisSurfboardHnapProvider> _logger;
-    private readonly ConcurrentDictionary<int, HnapSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, HnapSession> _sessions = new();
     private readonly ConditionalWeakTable<HttpClient, CookieContainer> _cookieContainers = new();
 
     public ArrisSurfboardHnapProvider(ILogger<ArrisSurfboardHnapProvider> logger)
@@ -51,7 +51,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("ARRIS Surfboard HNAP poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("ARRIS Surfboard HNAP poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
@@ -75,7 +75,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogWarning(ex, "Error polling ARRIS Surfboard HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
@@ -137,7 +137,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
 
             if (channelResponse == null)
             {
-                _sessions.TryRemove(context.Id, out _);
+                _sessions.TryRemove(context.CacheKey, out _);
                 return null;
             }
 
@@ -149,7 +149,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogDebug(ex, "ARRIS Surfboard HNAP request failed for {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
@@ -161,7 +161,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         CmPollContext context,
         CancellationToken cancellationToken)
     {
-        if (_sessions.TryGetValue(context.Id, out var cached))
+        if (_sessions.TryGetValue(context.CacheKey, out var cached))
         {
             ApplySession(client, endpoint[..^HnapPath.Length], cached);
 
@@ -175,12 +175,12 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
             if (testResponse != null)
                 return cached;
 
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
         }
 
         var session = await LoginAsync(client, endpoint, context, cancellationToken);
         if (session != null)
-            _sessions[context.Id] = session;
+            _sessions[context.CacheKey] = session;
 
         return session;
     }

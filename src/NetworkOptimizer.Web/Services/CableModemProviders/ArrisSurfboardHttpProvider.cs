@@ -33,7 +33,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     /// Cached auth tokens keyed by CmConfiguration.Id.
     /// SB8200 requires token-based auth; tokens are cached until they expire.
     /// </summary>
-    private readonly ConcurrentDictionary<int, string> _tokenCache = new();
+    private readonly ConcurrentDictionary<string, string> _tokenCache = new();
 
     public ArrisSurfboardHttpProvider(ILogger<ArrisSurfboardHttpProvider> logger)
     {
@@ -47,7 +47,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("ARRIS Surfboard poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("ARRIS Surfboard poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
@@ -144,14 +144,14 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         using var client = CreateHttpClient(ignoreSslErrors: true);
 
         // Try with cached token first
-        if (_tokenCache.TryGetValue(context.Id, out var cachedToken))
+        if (_tokenCache.TryGetValue(context.CacheKey, out var cachedToken))
         {
             var html = await FetchWithTokenAsync(client, statusUrl, cachedToken, cancellationToken);
             if (html != null && !IsAuthPage(html))
                 return html;
 
             // Cached token expired
-            _tokenCache.TryRemove(context.Id, out _);
+            _tokenCache.TryRemove(context.CacheKey, out _);
             _logger.LogDebug("ARRIS SB8200 cached token expired for {Name}, re-authenticating", context.Name);
         }
 
@@ -160,7 +160,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         if (token == null)
             return null;
 
-        _tokenCache[context.Id] = token;
+        _tokenCache[context.CacheKey] = token;
 
         // Fetch with new token
         var result = await FetchWithTokenAsync(client, statusUrl, token, cancellationToken);
@@ -168,7 +168,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
             return result;
 
         // Auth failed completely
-        _tokenCache.TryRemove(context.Id, out _);
+        _tokenCache.TryRemove(context.CacheKey, out _);
         return null;
     }
 

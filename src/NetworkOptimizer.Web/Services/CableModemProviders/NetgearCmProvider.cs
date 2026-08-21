@@ -103,7 +103,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// CmConfiguration.Id so later polls go straight to it instead of re-probing the dead
     /// extension or wrong auth style every interval.
     /// </summary>
-    private readonly ConcurrentDictionary<int, (string Path, bool FormLogin)> _attemptCache = new();
+    private readonly ConcurrentDictionary<string, (string Path, bool FormLogin)> _attemptCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -117,7 +117,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Netgear CM poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("Netgear CM poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
@@ -253,7 +253,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 if (IsStatusPage(html))
                 {
                     if (context.Id > 0)
-                        _attemptCache[context.Id] = (path, formLogin);
+                        _attemptCache[context.CacheKey] = (path, formLogin);
                     return html;
                 }
 
@@ -296,7 +296,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         // (and logging a 404 or connection error for) the wrong extension/auth. The poll loop
         // forces the full matrix on its final retry, so a combo that has genuinely stopped working
         // is still re-discovered.
-        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cached))
+        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.CacheKey, out var cached))
             return new List<(string Path, bool FormLogin)> { cached };
 
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
@@ -320,7 +320,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 attempts.Add((htmPath, true));
         }
 
-        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGood))
+        if (context.Id > 0 && _attemptCache.TryGetValue(context.CacheKey, out var lastGood))
         {
             var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.FormLogin == lastGood.FormLogin);
             if (idx > 0)

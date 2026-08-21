@@ -51,9 +51,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
 
     /// <summary>
     /// Status page path discovered per configured modem, so only the first poll
-    /// pays for probing. Keyed by site and configuration ID together: this
-    /// provider is a singleton shared by every site, and configuration IDs only
-    /// count within one site's database.
+    /// pays for probing.
     /// </summary>
     private readonly ConcurrentDictionary<string, DiscoveredPath> _discoveredPaths = new();
 
@@ -285,7 +283,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath) ? null : context.StatusPagePath;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (_discoveredPaths.TryGetValue(CacheKey(context), out var remembered)
+        if (_discoveredPaths.TryGetValue(context.CacheKey, out var remembered)
             && string.Equals(remembered.ConfiguredPath, configured, StringComparison.OrdinalIgnoreCase)
             && seen.Add(remembered.Path))
         {
@@ -306,7 +304,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     {
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath) ? null : context.StatusPagePath;
         var entry = new DiscoveredPath(configured, path);
-        var key = CacheKey(context);
+        var key = context.CacheKey;
 
         if (_discoveredPaths.TryGetValue(key, out var previous) && previous == entry)
             return;
@@ -315,8 +313,6 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         _logger.LogDebug("Xfinity Gateway {Name} at {Host}: serving DOCSIS stats from {Path}",
             context.Name, context.ConfiguredHost ?? context.Host, path);
     }
-
-    private static string CacheKey(CmPollContext context) => $"{context.SiteSlug}/{context.Id}";
 
     /// <summary>Whether a page carries a channel table this provider can read.</summary>
     private static bool HasChannelData(string html)

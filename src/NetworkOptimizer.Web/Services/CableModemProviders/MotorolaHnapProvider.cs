@@ -46,20 +46,20 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// Cached HNAP sessions keyed by CmConfiguration.Id.
     /// Each session holds the derived private key and cookies for reuse across polls.
     /// </summary>
-    private readonly ConcurrentDictionary<int, HnapSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, HnapSession> _sessions = new();
 
     /// <summary>
     /// Per-config timestamps until which automatic login attempts are suspended
     /// after a login failure, to avoid tripping the modem's 3-strike lockout.
     /// </summary>
-    private readonly ConcurrentDictionary<int, DateTime> _loginBackoffUntil = new();
+    private readonly ConcurrentDictionary<string, DateTime> _loginBackoffUntil = new();
 
     /// <summary>
     /// Per-config detected transport scheme: true = HTTPS, false = HTTP. Determined on
     /// first successful contact (a Test press or the first poll) and reused so later
     /// polls skip protocol detection. Re-detected after a process restart.
     /// </summary>
-    private readonly ConcurrentDictionary<int, bool> _useHttps = new();
+    private readonly ConcurrentDictionary<string, bool> _useHttps = new();
 
     public MotorolaHnapProvider(ILogger<MotorolaHnapProvider> logger)
     {
@@ -73,11 +73,11 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     {
         if (string.IsNullOrWhiteSpace(context.Host))
         {
-            _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.Id);
+            _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.CacheKey);
             return PollResult<CableModemStats>.Failed("No address is configured for this device.");
         }
 
-        if (_loginBackoffUntil.TryGetValue(context.Id, out var backoffUntil))
+        if (_loginBackoffUntil.TryGetValue(context.CacheKey, out var backoffUntil))
         {
             if (DateTime.UtcNow < backoffUntil)
             {
@@ -87,7 +87,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
                 return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
 
-            _loginBackoffUntil.TryRemove(context.Id, out _);
+            _loginBackoffUntil.TryRemove(context.CacheKey, out _);
         }
 
         try
@@ -113,7 +113,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
             if (response == null)
             {
-                _sessions.TryRemove(context.Id, out _);
+                _sessions.TryRemove(context.CacheKey, out _);
                 _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.ConfiguredHost ?? context.Host);
                 return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
             }
@@ -132,7 +132,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
         }
@@ -193,8 +193,8 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         HttpClient client, CmPollContext context, CancellationToken cancellationToken)
     {
         // Fast path: reuse a cached session over the scheme we already detected.
-        if (_useHttps.TryGetValue(context.Id, out var knownScheme) &&
-            _sessions.TryGetValue(context.Id, out var cached))
+        if (_useHttps.TryGetValue(context.CacheKey, out var knownScheme) &&
+            _sessions.TryGetValue(context.CacheKey, out var cached))
         {
             var cachedUrl = BuildBaseUrl(context, knownScheme);
             using var testResponse = await CallMultipleHnapsAsync(
@@ -205,7 +205,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             if (testResponse != null)
                 return new SessionInfo(cached, cachedUrl);
 
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogDebug("Motorola HNAP session expired for {Name}, re-authenticating", context.Name);
         }
 
@@ -213,7 +213,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         // modems already working over TLS keep the exact same path they use today; HTTP
         // is the fallback for modems whose HTTPS handshake .NET can't complete (it stalls
         // until timeout, e.g. on macOS) - those modems also serve /HNAP1/ over plain HTTP.
-        foreach (var useHttps in SchemesToTry(context.Id))
+        foreach (var useHttps in SchemesToTry(context.CacheKey))
         {
             var baseUrl = BuildBaseUrl(context, useHttps);
 
@@ -233,17 +233,17 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
             if (session != null)
             {
-                _sessions[context.Id] = session;
-                _useHttps[context.Id] = useHttps;
+                _sessions[context.CacheKey] = session;
+                _useHttps[context.CacheKey] = useHttps;
                 return new SessionInfo(session, baseUrl);
             }
 
             // The endpoint answered on this scheme but auth failed (lockout backoff is
             // now set). The scheme is correct, so remember it and stop - retrying the
             // other scheme would just burn another failed login against the lockout.
-            if (_loginBackoffUntil.ContainsKey(context.Id))
+            if (_loginBackoffUntil.ContainsKey(context.CacheKey))
             {
-                _useHttps[context.Id] = useHttps;
+                _useHttps[context.CacheKey] = useHttps;
                 return null;
             }
 
@@ -253,7 +253,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
         // Nothing worked and no scheme was confirmed - drop any stale cached scheme so
         // the next attempt probes both again.
-        _useHttps.TryRemove(context.Id, out _);
+        _useHttps.TryRemove(context.CacheKey, out _);
         return null;
     }
 
@@ -261,8 +261,8 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// Schemes to attempt for this config: the cached one if known, otherwise HTTPS
     /// first (so modems already working over TLS are unchanged) then HTTP.
     /// </summary>
-    private bool[] SchemesToTry(int id) =>
-        _useHttps.TryGetValue(id, out var scheme) ? [scheme] : [true, false];
+    private bool[] SchemesToTry(string cacheKey) =>
+        _useHttps.TryGetValue(cacheKey, out var scheme) ? [scheme] : [true, false];
 
     /// <summary>
     /// Two-phase HNAP login: request challenge, derive keys, authenticate.
@@ -303,7 +303,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var result = loginResp.GetProperty("LoginResult").GetString();
         if (result == "FAILED")
         {
-            _loginBackoffUntil[context.Id] = DateTime.UtcNow + LoginFailureBackoff;
+            _loginBackoffUntil[context.CacheKey] = DateTime.UtcNow + LoginFailureBackoff;
             _logger.LogWarning(
                 "Motorola HNAP {Name}: login locked out. Wait 5 minutes before retrying", context.Name);
             return null;
@@ -357,7 +357,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var authResult = authResp.GetProperty("LoginResult").GetString();
         if (authResult != "OK" && authResult != "OK_CHANGED")
         {
-            _loginBackoffUntil[context.Id] = DateTime.UtcNow + LoginFailureBackoff;
+            _loginBackoffUntil[context.CacheKey] = DateTime.UtcNow + LoginFailureBackoff;
             _logger.LogWarning(
                 "Motorola HNAP {Name}: login authentication failed (result: {Result}). " +
                 "Suspending retries for {Minutes} minutes to avoid the modem's failed-login lockout",
@@ -365,7 +365,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             return null;
         }
 
-        _loginBackoffUntil.TryRemove(context.Id, out _);
+        _loginBackoffUntil.TryRemove(context.CacheKey, out _);
         _logger.LogDebug("Motorola HNAP {Name}: logged in successfully", context.Name);
         return session;
     }
