@@ -9,6 +9,10 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=1';
+
+// Storage scope for this tab's remembered time window.
+const WINDOW_TAB = 'starlink';
 
 const PALETTE = window.Apex?.colors || ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
@@ -351,6 +355,7 @@ function applyDragZoom(xaxis) {
 
 function selectPresetRange(container, hours) {
     currentRangeHours = hours;
+    saveWindowHours(WINDOW_TAB, hours);
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
@@ -406,11 +411,18 @@ export async function mount(elId) {
     deviceMeta = [];
     visibility = {};
     containerId = elId;
+    // Read before the await, so the decision is made against the URL this mount was called
+    // for. Null leaves this tab's own default standing.
+    const restoredHours = loadWindowHours(WINDOW_TAB);
+    if (restoredHours !== null) currentRangeHours = restoredHours;
+
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+
+    if (restoredHours !== null) markActiveRange(container, restoredHours);
 
     const powerEl = container.querySelector('.starlink-power-chart');
     const dropEl = container.querySelector('.starlink-drop-chart');

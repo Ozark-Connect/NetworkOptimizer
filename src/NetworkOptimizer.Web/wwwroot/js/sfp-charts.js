@@ -10,6 +10,10 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { awaitContainer } from './chart-mount.js?v=1';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=1';
+
+// Storage scope for this tab's remembered time window.
+const WINDOW_TAB = 'sfp';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -487,6 +491,7 @@ function applyDragZoom(xaxis) {
 
 function selectPresetRange(container, hours) {
     currentRangeHours = hours;
+    saveWindowHours(WINDOW_TAB, hours);
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
@@ -533,11 +538,18 @@ function shiftWindow(container, direction) {
 
 export async function mount(elId) {
     containerId = elId;
+    // Read before the await, so the decision is made against the URL this mount was called
+    // for. Null leaves this tab's own default standing.
+    const restoredHours = loadWindowHours(WINDOW_TAB);
+    if (restoredHours !== null) currentRangeHours = restoredHours;
+
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+
+    if (restoredHours !== null) markActiveRange(container, restoredHours);
 
     const powerEl = container.querySelector('.sfp-power-chart');
     const tempEl = container.querySelector('.sfp-temp-chart');
