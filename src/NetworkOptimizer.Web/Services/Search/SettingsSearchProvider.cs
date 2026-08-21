@@ -93,15 +93,24 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
     /// the markup: an anchor that no longer exists is a result that goes nowhere.</summary>
     internal static IEnumerable<AppSearchEntry> AllEntries => Index.Select(i => i.Entry);
 
+    /// <param name="anchor">
+    /// The card's element id, or null when the tab itself is the destination and there is nothing
+    /// to single out inside it - the Audit Log tab holds one panel and nothing else.
+    /// </param>
+    /// <param name="query">
+    /// Extra query state the target needs beyond its tab, for a card that already knows how to
+    /// present itself when asked. The Roles Reference expands and rings itself off roles=1, which
+    /// is a better arrival than scrolling to it collapsed.
+    /// </param>
     private static Indexed Entry(
-        string tab, string section, string anchor, string title,
-        string[] aliases, string[] keywords, Reach reach = Reach.Anyone) =>
+        string tab, string section, string? anchor, string title,
+        string[] aliases, string[] keywords, Reach reach = Reach.Anyone, string? query = null) =>
         new(new AppSearchEntry
         {
             Title = title,
             Area = SettingsArea,
             Section = section,
-            Route = $"/settings?tab={tab}",
+            Route = query is null ? $"/settings?tab={tab}" : $"/settings?tab={tab}&{query}",
             Anchor = anchor,
             Key = tab,
             Aliases = aliases,
@@ -280,11 +289,14 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "site operator", "site viewer", "everyone reaches every site",
              "restrict sites to members"]),
 
+        // roles=1 rather than the anchor: it is the route the Site role tooltips already use, and it
+        // opens the panel on the way in. The card is collapsed by default, so arriving by anchor
+        // would ring a closed header.
         Entry("identity", "Identity", "identity-roles",
             "Roles Reference",
             ["roles"],
             ["role", "admin", "operator", "viewer", "site admin", "site operator", "site viewer",
-             "what each role can do", "global role"]),
+             "what each role can do", "global role"], query: "roles=1"),
 
         // Users and Sign-In only render in the instance-wide Identity view, which is the main site's
         // global Admin. A site-scoped Identity tab shows Access and the roles reference and nothing else.
@@ -303,7 +315,9 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "create on first sign-in", "local sign-in", "assertion consumer service", "acs",
              "idp metadata url", "groups claim"], Reach.InstanceWide),
 
-        Entry("auditlog", "Audit Log", "audit-log",
+        // No anchor: the tab holds the log and nothing else, so selecting the tab has already
+        // arrived. Scrolling to a panel that fills the tab, and ringing it, is noise.
+        Entry("auditlog", "Audit Log", null,
             "Audit Log",
             ["activity log", "who did what"],
             ["audit events", "actor", "action", "target", "category", "outcome", "success",

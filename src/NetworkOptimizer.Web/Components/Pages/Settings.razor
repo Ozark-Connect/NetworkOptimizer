@@ -3909,7 +3909,6 @@
         ["data-management"] = "application",
         ["identity-users"] = "identity",
         ["identity-access"] = "identity",
-        ["identity-roles"] = "identity",
         ["identity-sign-in"] = "identity",
         ["multi-site"] = "multisite",
         ["site-agent-setup"] = "multisite",
@@ -4003,10 +4002,15 @@
         await UiHints.DismissAsync(UiHintKeys.MultiWanVantageSetup);
     }
 
-    private void SetActiveTab(string tab)
+    /// <param name="extraQuery">
+    /// Query state to carry alongside the tab, for a target that presents itself when asked
+    /// (roles=1). The tab alone cannot reproduce it, so it has to reach the URL.
+    /// </param>
+    private void SetActiveTab(string tab, string? extraQuery = null)
     {
         _activeTab = tab;
-        NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
+        var url = extraQuery is null ? "/settings?tab=" + tab : $"/settings?tab={tab}&{extraQuery}";
+        NavigationManager.NavigateTo(url, forceLoad: false, replace: false);
         _lastTabParam = tab;
         _ = EnsureKeyDeployStatusAsync();
 
@@ -4080,9 +4084,21 @@
     private async Task GoToSearchHitAsync(NetworkOptimizer.Web.Services.Search.AppSearchHit hit)
     {
         var tab = ResolveTab(hit.Entry.Key);
+
+        // A route carrying more than its tab carries the part a tab switch cannot reproduce: the
+        // Roles Reference opens and rings itself off roles=1, watching for the location change.
+        // Navigate even when that tab is already active, or the card never hears about it.
+        var ampersand = hit.Entry.Route.IndexOf('&');
+        if (ampersand >= 0)
+        {
+            SetActiveTab(tab, hit.Entry.Route[(ampersand + 1)..]);
+            return;
+        }
+
         if (_activeTab != tab)
             SetActiveTab(tab);
 
+        // No anchor means the tab itself is the destination, as it is for the Audit Log.
         if (!string.IsNullOrEmpty(hit.Entry.Anchor))
             await ScrollToAndHighlightAsync(hit.Entry.Anchor);
     }

@@ -42,7 +42,7 @@ public class SettingsSearchIndexTests
         {
             entry.Key.Should().NotBeNull();
             ValidTabs.Should().Contain(entry.Key!, $"'{entry.Title}' points at tab '{entry.Key}'");
-            entry.Route.Should().Be($"/settings?tab={entry.Key}");
+            entry.Route.Should().StartWith($"/settings?tab={entry.Key}");
             entry.Area.Should().Be("Settings");
             entry.Section.Should().NotBeNullOrWhiteSpace();
         }
@@ -52,6 +52,7 @@ public class SettingsSearchIndexTests
     public void Anchors_are_unique()
     {
         var duplicates = Entries
+            .Where(e => e.Anchor is not null)
             .GroupBy(e => e.Anchor, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
@@ -77,7 +78,7 @@ public class SettingsSearchIndexTests
     [InlineData("cable modem", "cable-modem")]
     [InlineData("starlink", "starlink")]
     [InlineData("guided tours", "guided-tours")]
-    [InlineData("audit log", "audit-log")]
+    [InlineData("audit log", "auditlog")]
     [InlineData("multi site", "multi-site")]
     [InlineData("licensing", "licensing")]
     // Typed what the thing is, not what the card is called.
@@ -111,7 +112,7 @@ public class SettingsSearchIndexTests
     [InlineData("cabl modm", "cable-modem")]
     [InlineData("adaptiv sqm", "sqm-monitor")]
     [InlineData("extrnal speed", "external-speedtest-settings")]
-    public void The_best_result_is_the_card_the_user_meant(string query, string expectedAnchor)
+    public void The_best_result_is_the_card_the_user_meant(string query, string expectedTarget)
     {
         var top = Entries
             .Select(e => (Entry: e, Score: AppSearchService.ScoreEntry(e, query)))
@@ -121,7 +122,27 @@ public class SettingsSearchIndexTests
             .FirstOrDefault();
 
         top.Entry.Should().NotBeNull($"'{query}' should match something");
-        top.Entry!.Anchor.Should().Be(expectedAnchor);
+
+        // Anchor identifies a card; an entry with no anchor is a whole tab, so its key names it.
+        (top.Entry!.Anchor ?? top.Entry.Key).Should().Be(expectedTarget);
+    }
+
+    [Fact]
+    public void The_Audit_Log_tab_is_its_own_destination()
+    {
+        // The tab holds the log and nothing else, so there is nothing to scroll to or ring inside
+        // it. AnchorTabMap deliberately maps #audit-log to the tab with no element behind it.
+        var auditLog = Entries.Single(e => e.Key == "auditlog");
+        auditLog.Anchor.Should().BeNull();
+    }
+
+    [Fact]
+    public void The_Roles_Reference_arrives_by_the_route_that_opens_it()
+    {
+        // The card is collapsed by default and already has a route that expands and rings it, used
+        // by the Site role tooltips. Arriving by anchor would ring a closed header instead.
+        var roles = Entries.Single(e => e.Title == "Roles Reference");
+        roles.Route.Should().Be("/settings?tab=identity&roles=1");
     }
 
     [Fact]
