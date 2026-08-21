@@ -289,32 +289,29 @@ async function refreshPonSection() {
         const errSeries = [], gemSeries = [], hostSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
-            const hec = ponPoints(m, 'hec');
-            const gemDrop = ponPoints(m, 'gemDrop');
-            errSeries.push(
-                { name: `${prefix}BIP`, data: ponPoints(m, 'bip') },
-                { name: `${prefix}HEC`, data: hec },
-                { name: `${prefix}HEC corrected`, data: ponPoints(m, 'hecCorr') },
-            );
+            const err = errSeriesFor(m, prefix);
+            const hec = err('hec', 'HEC');
+            const gemDrop = err('gemDrop', 'GEM drops');
+            const fec = err('fec', 'FEC'), fecCorr = err('fecCorr', 'FEC corrected');
+            errSeries.push(err('bip', 'BIP'), hec, err('hecCorr', 'HEC corrected'));
             // The FEC counters can only move while the OLT profile has FEC enabled, so on a link
             // where it is off they are two permanent zero lines. Test the whole window, not the
-            // latest sample: FEC switched off mid-window leaves real deltas behind it.
-            if ((m.pon || []).some(p => p.dsFec || p.usFec)) {
-                errSeries.push(
-                    { name: `${prefix}FEC`, data: ponPoints(m, 'fec') },
-                    { name: `${prefix}FEC corrected`, data: ponPoints(m, 'fecCorr') },
-                );
+            // latest sample: FEC switched off mid-window leaves real deltas behind it. The flags
+            // are optional in the contract, so counted errors are evidence in their own right.
+            if ((m.pon || []).some(p => p.dsFec || p.usFec)
+                || fec.data.some(p => p.y) || fecCorr.data.some(p => p.y)) {
+                errSeries.push(fec, fecCorr);
             }
             errSeries.push(
-                { name: `${prefix}BWmap`, data: ponPoints(m, 'bwmapUncorr') },
-                { name: `${prefix}BWmap corrected`, data: ponPoints(m, 'bwmapCorr') },
-                { name: `${prefix}Allocs lost`, data: ponPoints(m, 'allocLost') },
+                err('bwmapUncorr', 'BWmap'),
+                err('bwmapCorr', 'BWmap corrected'),
+                err('allocLost', 'Allocs lost'),
             );
             // Some ONTs report GEM drops off the same counter as uncorrectable HEC (every Lantiq
             // one does), which draws a second line exactly on top of HEC. Keep the series only
             // where the hardware really does count them separately.
-            if (!sameSeries(gemDrop, hec)) {
-                errSeries.push({ name: `${prefix}GEM drops`, data: gemDrop });
+            if (!sameSeries(gemDrop.data, hec.data)) {
+                errSeries.push(gemDrop);
             }
             gemSeries.push(
                 { name: `${prefix}RX frames`, data: ponPoints(m, 'gemRx') },
@@ -382,6 +379,21 @@ const PLOAM_LABELS = {
 // series rather than drawn as an empty one.
 function ponPoints(m, key) {
     return alignedPoints(m.pon || [], p => p[key]);
+}
+
+// Error-chart colors are pinned per metric, not left to series position. Two of these series come
+// and go - FEC only while the OLT profile has it on, GEM drops only where it is a separate counter -
+// and positional colors would re-color everything after the one that appeared. The module's slot
+// comes from the full PON list, so hiding a module never re-colors the ones that stay.
+const ERR_METRICS = ['bip', 'hec', 'hecCorr', 'fec', 'fecCorr', 'bwmapUncorr', 'bwmapCorr', 'allocLost', 'gemDrop'];
+
+function errSeriesFor(m, prefix) {
+    const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
+    return (key, name) => ({
+        name: `${prefix}${name}`,
+        data: ponPoints(m, key),
+        color: PALETTE[(slot * ERR_METRICS.length + ERR_METRICS.indexOf(key)) % PALETTE.length],
+    });
 }
 
 function sameSeries(a, b) {
