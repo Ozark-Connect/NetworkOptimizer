@@ -1936,7 +1936,7 @@ a.stat-card-link:active {
 .signal-hero {
     display: flex;
     align-items: center;
-    gap: 0.8rem;
+    gap: 1rem;
 }
 
 .signal-gauge {
@@ -1945,6 +1945,7 @@ a.stat-card-link:active {
     border-radius: 7px;
     position: relative;
     flex: none;
+    margin-left: 0.35rem;
     overflow: hidden;
 }
 
@@ -1963,7 +1964,7 @@ a.stat-card-link:active {
     right: 0;
     height: 2px;
     background: var(--bg-primary);
-    opacity: 0.85;
+    opacity: 0.4;
 }
 
 .signal-with-model .ont-rx-gauge {
@@ -2015,6 +2016,12 @@ a.stat-card-link:active {
     }
     .signal-with-model .cm-model {
         margin-left: auto;
+    }
+    .signal-hero {
+        gap: 0.8rem;
+    }
+    .signal-gauge {
+        margin-left: 0.15rem;
     }
     .signal-centered .modem-nav {
         position: static;

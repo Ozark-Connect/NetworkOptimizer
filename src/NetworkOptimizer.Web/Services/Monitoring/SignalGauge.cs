@@ -41,14 +41,20 @@ public static class SignalGauge
     }
 
     /// <summary>
-    /// Band track for optical Rx power: red at both ends, green through the good
-    /// band. The upper red is the point of the whole thing - it is what tells a
-    /// user their receiver is being overdriven rather than that it is doing well.
+    /// Band track for optical Rx power: red at both ends, peaking green at the
+    /// middle of the excellent band and easing out through good and fair either
+    /// side of it. The upper red is the point of the whole thing - it is what
+    /// tells a user their receiver is being overdriven rather than doing well.
+    ///
+    /// Green peaks at a point rather than holding flat across the whole excellent
+    /// band: the eye reads the taper as "how much room is left", which a plateau
+    /// hides.
     /// </summary>
     public static string OpticalTrack(OpticalBands bands)
     {
         var lo = bands.DomainLow;
         var hi = bands.DomainHigh;
+        var peak = (bands.ExcellentLow + bands.ExcellentHigh) / 2;
 
         double P(double v) => Position(v, lo, hi);
 
@@ -56,10 +62,11 @@ public static class SignalGauge
                $"{Poor} 0%, " +
                $"{Weak} {P(bands.FairLow):0.#}%, " +
                $"{Fair} {P(bands.GoodLow):0.#}%, " +
-               $"{Excellent} {P(bands.ExcellentLow):0.#}%, " +
-               $"{Excellent} {P(bands.ExcellentHigh):0.#}%, " +
-               $"{Good} {P(bands.GoodHigh):0.#}%, " +
-               $"{Fair} {P(bands.FairHigh):0.#}%, " +
+               $"{Good} {P(bands.ExcellentLow):0.#}%, " +
+               $"{Excellent} {P(peak):0.#}%, " +
+               $"{Good} {P(bands.ExcellentHigh):0.#}%, " +
+               $"{Fair} {P(bands.GoodHigh):0.#}%, " +
+               $"{Weak} {P(bands.FairHigh):0.#}%, " +
                $"{Poor} 100%)";
     }
 }
