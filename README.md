@@ -55,11 +55,34 @@ Coming Soon: Multi-WAN support for both Monitoring and ISP Health. The per-WAN s
 
 Track signal quality on your cable modem, fiber ONT, and cellular modems over time - the same InfluxDB time-series charting as the rest of your network monitoring data. Instead of logging into each device's admin page to spot-check levels, everything is polled automatically and charted with the same time range controls, filter badges, and dashboard panels as your LAN and WAN metrics.
 
-**Cable Modem (DOCSIS)** - Downstream/upstream power levels, SNR, and FEC error rates (correctable and uncorrectable) with per-channel charting. Supports Netgear CM (CM600, CM700, CM1000, CM1200), ARRIS Surfboard (SB8200, SB6183, S33/S34), Motorola (MB8611, MB8600, MB7621), and Xfinitiy / Cox (XB8 / XB10 and CGM4981).
+**Cable Modem (DOCSIS)** - Downstream/upstream power levels, SNR, and FEC error rates (correctable and uncorrectable) with per-channel charting.
 
-**Fiber ONT** - RX/TX optical power, temperature, voltage, and bias current for external and SFP ONTs. Supports AT&T residential gateways (BGW320, BGW210), Quantum Q1000K, Nokia XS-010X-Q, Realtek-based GPON sticks (ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657), Zyxel PMG3000-D20B GPON stick, and 8311 community firmware sticks (WAS-110, PRX126, Nokia G-010S-P). SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below and also has a custom ONT stats augmentation API you can code to.
+- **Netgear CM** - CM600, CM700, CM1000, CM1200, CM2050V
+- **ARRIS Surfboard** - SB8200, SB6183, T25, S33, S34
+- **Motorola** - MB8611, MB8600, MB7621
+- **Xfinity / Cox / Comcast Business** - XB8, XB10 (Sercomm), CGM4981, CGA4332 (Technicolor)
+- **Technicolor CGA series** - CGA437A, CGA4233VOO, CGA4322DE, CGA6444VF (shipped by VOO and Vodafone)
+- **Vodafone Station** - ARRIS TG3442DE
 
-**Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges. Supports Ubiquiti (U-LTE, U5G-Max, U5G-Backup), Netgear Nighthawk modems/hotspots, and GL-iNet/Quectel modems/routers. Dual-connectivity mode tracks LTE and NR5G bands separately for NSA setups.
+**Fiber ONT** - RX/TX optical power, temperature, voltage, and bias current for external and SFP ONTs.
+
+- **AT&T residential gateways** - BGW320 (500 / 505), BGW210
+- **Quantum Fiber** - Q1000K SmartNID (CenturyLink)
+- **Nokia** - XS-010X-Q (Alcatel-Lucent, ALCL). GPON siblings (G-010S-P, G-010G-Q) share the same GponForm API and may work - untested, reports welcome
+- **Deutsche Telekom** - Glasfaser-Modem 2 (FTTH bridge mode)
+- **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657
+- **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
+- **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
+
+SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below and also has a custom ONT stats augmentation API you can code to.
+
+**Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges.
+
+- **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup
+- **Netgear Nighthawk** - modems and hotspots
+- **GL-iNet / Quectel** - modems and routers
+
+Dual-connectivity mode tracks LTE and NR5G bands separately for NSA setups.
 
 ## New: Self-Hosted Network Monitoring
 
