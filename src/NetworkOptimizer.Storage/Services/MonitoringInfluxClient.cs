@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
@@ -1830,7 +1831,17 @@ from(bucket: ""{_bucket}"")
         public double? UploadBps { get; init; }
     }
 
-    /// <summary>Per-device CPU/memory/temperature trace.</summary>
+    // Flux literals must carry a decimal point or they parse as int and clash with the float
+    // fields in the same map. Sourced from TemperatureScale so the two paths can't drift.
+    private static readonly string FluxMillidegreeThreshold =
+        TemperatureScale.PlausibleMaxCelsius.ToString("F1", CultureInfo.InvariantCulture);
+    private static readonly string FluxMillidegreeDivisor =
+        TemperatureScale.MillidegreesPerDegree.ToString("F1", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Per-device CPU/memory/temperature trace. Temperature is normalized per point before the
+    /// mean: a window straddling the millidegree fix would otherwise average the two scales.
+    /// </summary>
     public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthAsync(
         string deviceMac,
         DateTime from,
@@ -1847,6 +1858,7 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
+  |> map(fn: (r) => ({{ r with _value: if r._field == ""temperature_c"" and float(v: r._value) > {FluxMillidegreeThreshold} then float(v: r._value) / {FluxMillidegreeDivisor} else float(v: r._value) }}))
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -1858,7 +1870,7 @@ from(bucket: ""{_bucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
-                TemperatureC = TemperatureScale.NormalizeCelsius(AsDoubleOrNull(record.GetValueByKey("temperature_c"))),
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
                 UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds")),
                 FanSpeedRpm = (int?)AsDoubleOrNull(record.GetValueByKey("fan_speed_rpm"))
             });
