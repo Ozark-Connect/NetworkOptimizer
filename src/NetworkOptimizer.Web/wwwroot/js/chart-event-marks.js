@@ -26,11 +26,6 @@ const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
 // cluster's tooltip.
 const MARK_COLLISION_PX = 24;
 
-// Set on the label once its tooltip is bound, so a redraw that replaced the nodes is visible by
-// counting rather than by tracking who redrew what. The label carries it whichever element
-// hitTarget bound the tooltip to.
-const TAGGED = 'data-mark-bound';
-
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s ?? ''; return _esc.innerHTML; }
 
@@ -151,21 +146,7 @@ export function createMarkLayer({ charts }) {
                 c.marks.length === 1 ? singleTooltip(c.marks[0]) : foldedTooltip(c.marks));
             target.setAttribute('data-tooltip-interactive', '');
             target.style.cursor = 'help';
-            label.setAttribute(TAGGED, '');
         });
-    }
-
-    // Any series redraw - a filter toggle, a poll - re-renders the chart, and ApexCharts rebuilds
-    // the annotation nodes from config when it does. The marks come back looking identical with
-    // nothing bound to them. The signature covers what the marks are drawn FROM, so it cannot see
-    // this, and a toggle that leaves the event set alone would strand every tooltip until the time
-    // range moved. Re-tagging is all it takes: the annotations themselves are already correct.
-    function retag(clusters) {
-        for (const [, el] of charts()) {
-            if (!el) continue;
-            if (el.querySelectorAll(`.apexcharts-xaxis-annotation-label[${TAGGED}]`).length
-                !== clusters.length) tag(el, clusters);
-        }
     }
 
     // The whole box is the target, not the glyph inside it. An SVG <text> only hit-tests against
@@ -209,7 +190,7 @@ export function createMarkLayer({ charts }) {
             // The signature covers what the marks are drawn FROM, so a new event, a filter
             // toggle or a resize still gets through.
             const signature = JSON.stringify([msPerPx(), clusters.map(c => [c.at, c.marks.length])]);
-            if (signature === lastSignature) { retag(clusters); return; }
+            if (signature === lastSignature) return;
             lastSignature = signature;
 
             const surface = chartSurfaceColor();
