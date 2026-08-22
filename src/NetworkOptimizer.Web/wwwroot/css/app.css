@@ -2014,7 +2014,7 @@ a.stat-card-link:active {
     }
     .signal-with-model .cm-model {
         margin-left: auto;
-        margin-right: 0;
+        margin-right: 0.25rem;
     }
     .signal-hero {
         gap: 0.8rem;
