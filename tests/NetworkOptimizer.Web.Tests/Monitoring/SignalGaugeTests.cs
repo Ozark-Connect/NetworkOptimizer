@@ -79,6 +79,41 @@ public class SignalGaugeTests
     }
 
     [Fact]
+    public void WindowEdges_LeaveALitBandOnTheReading()
+    {
+        var (above, below) = SignalGauge.WindowEdges(50, halfHeight: 9);
+
+        above.Should().Be(41);
+        below.Should().Be(41);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void WindowEdges_ClampAtTheEndsOfTheTrack(double position)
+    {
+        var (above, below) = SignalGauge.WindowEdges(position);
+
+        above.Should().BeGreaterThanOrEqualTo(0);
+        below.Should().BeGreaterThanOrEqualTo(0);
+        (above + below).Should().BeLessThan(100);
+    }
+
+    [Fact]
+    public void AGoodButLowReadingDoesNotLightTheBadEndOfTheTrack()
+    {
+        // -22.37 dBm grades good. Lighting from the bottom would show everything
+        // below it - the fair, weak and poor stretches - which reads as alarming.
+        var bands = OpticalBands.Pon;
+        var pos = SignalGauge.Position(-22.37, bands.DomainLow, bands.DomainHigh);
+        var (above, below) = SignalGauge.WindowEdges(pos);
+
+        bands.ClassFor(-22.37).Should().Be("signal-good");
+        below.Should().BeGreaterThan(10, "the poor end stays dimmed");
+        above.Should().BeGreaterThan(10, "the overdriven end stays dimmed too");
+    }
+
+    [Fact]
     public void ClassFor_IsEmptyWithoutAReading()
     {
         OpticalBands.Pon.ClassFor(null).Should().BeEmpty();

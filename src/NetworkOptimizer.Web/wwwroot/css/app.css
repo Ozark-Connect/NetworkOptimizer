@@ -1912,7 +1912,7 @@ a.stat-card-link:active {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.1rem;
     flex: 1;
 }
 
@@ -1956,7 +1956,12 @@ a.stat-card-link:active {
     right: 0;
     top: 0;
     background: var(--bg-card);
-    opacity: 0.72;
+    opacity: 0.8;
+}
+
+.signal-gauge .gauge-shade-low {
+    top: auto;
+    bottom: 0;
 }
 
 .signal-with-model .ont-rx-gauge {

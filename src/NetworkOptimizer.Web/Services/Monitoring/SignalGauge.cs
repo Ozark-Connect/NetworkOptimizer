@@ -18,6 +18,23 @@ public static class SignalGauge
     private const string Good = "var(--signal-good)";
     private const string Excellent = "var(--signal-excellent)";
 
+    /// <summary>
+    /// How much of a band track to dim above and below the reading, leaving a lit
+    /// window on it.
+    ///
+    /// A band track cannot be lit from the bottom the way the rising one is. Doing
+    /// that lights everything the reading has passed, so a perfectly good -22 dBm
+    /// shows a bar full of the red and orange below it, and an overdriven -5 shows
+    /// a bar full of green. Only the reading's own stretch of the track says
+    /// anything true about the reading.
+    /// </summary>
+    public static (double Above, double Below) WindowEdges(double position, double halfHeight = 9)
+    {
+        var above = Math.Clamp(100 - position - halfHeight, 0, 100);
+        var below = Math.Clamp(position - halfHeight, 0, 100);
+        return (above, below);
+    }
+
     /// <summary>Where a reading sits on its track, 0 (bottom) to 100 (top).</summary>
     public static double Position(double value, double domainLow, double domainHigh)
     {
