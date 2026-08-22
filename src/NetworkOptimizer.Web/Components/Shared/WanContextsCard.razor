@@ -34,9 +34,10 @@
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
-            Monitor another WAN by giving its targets their own vantage. A vantage names the WAN
-            and what probes it: an agent on the gateway reaches any WAN directly, or a separate
-            agent can be routed out that WAN in UniFi Network.
+            Monitor additional WAN connections by giving each one a Vantage. A Vantage pairs the WAN
+            connection with the box that probes it: an Agent on the Gateway reaches every WAN via
+            that WAN's own interface, with nothing else to set up. Any other kind of Agent needs a
+            Policy-Based Route in UniFi Network.
         </p>
 
         @if (_siteLoadBalances == true)
