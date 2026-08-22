@@ -29,6 +29,27 @@ public class CmModelLabelTests
     }
 
     [Theory]
+    [InlineData("CM600 - MyISP", "CM600")]
+    [InlineData("Living Room SB8200", "SB8200")]
+    [InlineData("MB8611 Primary", "MB8611")]
+    [InlineData("Basement CGA4332COM", "CGA4332COM")]
+    public void ABareVendorTakesTheModelNumberFromTheDeviceName(string deviceName, string expected)
+    {
+        SplitModel("Netgear", deviceName).Should().Be(("Netgear", expected));
+    }
+
+    [Theory]
+    [InlineData("Modem")]
+    [InlineData("Rack 4B")]
+    [InlineData("Upstairs modem 2")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ANameWithoutAModelNumberFallsBackToCm(string? deviceName)
+    {
+        SplitModel("Netgear", deviceName).Should().Be(("Netgear", "CM"));
+    }
+
+    [Theory]
     [InlineData("CM600")]
     [InlineData("cm1000")]
     public void AModelAlreadyCarryingCmIsNotMadeToSayItTwice(string model)
@@ -45,6 +66,6 @@ public class CmModelLabelTests
         SplitModel(model).Should().Be((model, null));
     }
 
-    private static (string Name, string? Number) SplitModel(string model) =>
-        CmStatsPanel.SplitModel(model);
+    private static (string Name, string? Number) SplitModel(string model, string? deviceName = null) =>
+        CmStatsPanel.SplitModel(model, deviceName);
 }

@@ -128,7 +128,7 @@
             </div>
             @if (!string.IsNullOrWhiteSpace(_stats.DeviceModel))
             {
-                var model = SplitModel(_stats.DeviceModel);
+                var model = SplitModel(_stats.DeviceModel, _stats.DeviceName);
                 <div class="cm-model">
                     <span class="cm-model-name">@model.Name</span>
                     @if (model.Number != null)
@@ -276,16 +276,24 @@
     private static readonly System.Text.RegularExpressions.Regex ModelWithNumber =
         new(@"^(.*?)\s*\((.+)\)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // A model number shape: a short prefix, digits, and sometimes a suffix -
+    // CM600, SB8200, MB8611, CGA4332COM. Two digits minimum so ordinary words
+    // with a number after them ("Rack 4B", "Modem 2") are not mistaken for one.
+    private static readonly System.Text.RegularExpressions.Regex ModelNumberInName =
+        new(@"\b[A-Za-z]{1,5}\d{2,}[A-Za-z]{0,4}\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <summary>
     /// Split a provider's device model into the name users know and the model
     /// number behind it, so "CBR (CGA4332COM)" stacks as two lines.
     ///
     /// A bare vendor word means the provider could not read a model off the device
-    /// and fell back to naming the maker ("Netgear", "Motorola"). Label those "CM"
-    /// so the second line still says what the thing is. Anything already carrying
-    /// CM in the name is left alone rather than made to say it twice.
+    /// and fell back to naming the maker ("Netgear", "Motorola"). Those take a model
+    /// number off the device's own name when it holds one - someone who calls it
+    /// "CM600 - MyISP" has already told us what it is - and "CM" when it does not.
+    /// Anything already carrying CM in the name is left alone rather than made to
+    /// say it twice.
     /// </summary>
-    internal static (string Name, string? Number) SplitModel(string model)
+    internal static (string Name, string? Number) SplitModel(string model, string? deviceName = null)
     {
         var trimmed = model.Trim();
 
@@ -296,7 +304,14 @@
         var vendorOnly = !trimmed.Contains(' ')
             && !trimmed.Contains("CM", StringComparison.OrdinalIgnoreCase);
 
-        return vendorOnly ? (trimmed, "CM") : (trimmed, null);
+        if (!vendorOnly)
+            return (trimmed, null);
+
+        var fromName = string.IsNullOrWhiteSpace(deviceName)
+            ? null
+            : ModelNumberInName.Match(deviceName).Value;
+
+        return (trimmed, string.IsNullOrEmpty(fromName) ? "CM" : fromName);
     }
 
     // Grade boundaries for downstream SNR, and the visible span around them.
