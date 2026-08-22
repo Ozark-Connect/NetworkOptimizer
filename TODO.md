@@ -514,6 +514,29 @@ One follow-up idea remains open (not built):
 - [ ] Confirm whether it works on Nokia's **SFP-form ONTs** (the SFP stick modules), which may expose a different web/telnet interface entirely.
 - [ ] If coverage is broader than one model, revisit the dropdown label ("Nokia XS-010X-Q (HTTP)") and the hardcoded `DeviceModel` so multi-model units aren't misreported.
 
+### Upstream discovery: the access ASN is unlearnable on a CGNAT'd WAN
+
+No `_accessAsn` means `InjectAccessIspFallbackAsync` returns immediately, so the curated access-ISP
+endpoint map never fires. `DetermineAccessAsn` needs either a public WAN IP or one attributable
+non-destination hop on some trace; an ICMP-silent first mile alone is survivable, CGNAT plus a first
+mile that surfaces nothing is not (`ResolveAsync` deliberately returns null for 100.64/10). Hits the
+AS6167 / AS22394 Verizon Wireless keys, which are CGNAT by default.
+
+Three possible closers, cheapest first, none investigated beyond reading the code:
+
+- [ ] **`UniFiSysInfo.public_ip` is parsed and has zero consumers** (`UniFiSysInfo.cs:156`;
+  `WanIpAddress` comes from the `wan1..wan6` descriptors, i.e. the interface address). If it holds
+  the console's externally-observed address it is the real egress, for free. **Settle what it
+  contains on a CGNAT'd site first - it decides whether the other two matter.**
+- [ ] **Widen ASN resolution to IPv6.** `ResolveAsync` gates on `PublicAddressClass.PublicIPv4` and
+  the enum has no v6 member, so v6 classifies as `Unknown` and is dropped before either backend -
+  both of which handle v6 fine. Better signal anyway: a CGNAT'd v4 site usually has native global v6
+  mapping straight to the carrier ASN. Belongs with `feature/ipv6-support`.
+- [ ] **External IP echo (icanhazip) as a last resort.** Strict parse, short timeout, failure means
+  no-signal. The landmine is binding, not availability: the tracer is source-bound via
+  `_binding?.Source`, a plain fetch egresses via the OS routing table, so multi-WAN would stamp
+  WAN2's targets with WAN1's ASN. Needs a source-bound `HttpClient`.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Agent SNMP Watchdog (detect wedged console snmpd, opt-in auto-restart)

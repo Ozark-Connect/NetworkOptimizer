@@ -1328,6 +1328,34 @@ public class AccessIspFallbackTests
     }
 
     [Fact]
+    public void AccessIspFallbackHosts_AS701_has_the_verified_verizon_pops()
+    {
+        // Spelled out rather than pattern-matched: a mistyped host fails silently at runtime
+        // (NXDOMAIN, skipped with a debug log), so the list itself is what needs pinning.
+        UpstreamTracerService.AccessIspFallbackHosts.Should().ContainKey(701);
+        UpstreamTracerService.AccessIspFallbackHosts[701].Should().BeEquivalentTo(new[]
+        {
+            "dllstx97-040205c-inet.vzbi.com",
+            "bstpmall-100207c-inet.vzbi.com",
+            "rvdlilbd-0011403f-inet.vzbi.com",
+            "dnvrco26-091505f-inet.vzbi.com",
+            "sccsnj75-010206e-inet.vzbi.com",
+            "miauflws-040102d-inet.vzbi.com",
+            "sttlwawb-000t08c-inet.vzbi.com",
+            "lsancakv-075715b-inet.vzbi.com",
+        });
+    }
+
+    [Fact]
+    public void AccessIspFallbackHosts_cellco_asns_share_the_AS701_pops()
+    {
+        // The PoPs all live in AS701; Cellco keys to them because its own first mile answers nothing.
+        var pops = UpstreamTracerService.AccessIspFallbackHosts[701];
+        UpstreamTracerService.AccessIspFallbackHosts[6167].Should().BeEquivalentTo(pops);
+        UpstreamTracerService.AccessIspFallbackHosts[22394].Should().BeEquivalentTo(pops);
+    }
+
+    [Fact]
     public void SelectLowestRtt_picks_the_lowest_rtt_candidate()
     {
         var probes = new[]
