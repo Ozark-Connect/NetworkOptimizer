@@ -5,6 +5,7 @@ using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
 
@@ -1857,7 +1858,7 @@ from(bucket: ""{_bucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
-                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
+                TemperatureC = TemperatureScale.NormalizeCelsius(AsDoubleOrNull(record.GetValueByKey("temperature_c"))),
                 UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds")),
                 FanSpeedRpm = (int?)AsDoubleOrNull(record.GetValueByKey("fan_speed_rpm"))
             });
@@ -1954,7 +1955,7 @@ from(bucket: ""{_bucket}"")
             Time = kv.Value,
             CpuPercent = cpu.TryGetValue(kv.Key, out var c) ? c : null,
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
-            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
+            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? TemperatureScale.NormalizeCelsius(t) : null,
             UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
             FanSpeedRpm = fan.TryGetValue(kv.Key, out var f) ? (int?)f : null,
         }).OrderBy(p => p.Time).ToList();
