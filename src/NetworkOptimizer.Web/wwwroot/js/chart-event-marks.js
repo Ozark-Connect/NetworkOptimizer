@@ -141,19 +141,36 @@ export function createMarkLayer({ charts }) {
         clusters.forEach((c, i) => {
             const label = el.querySelector(`.apexcharts-xaxis-annotation-label[rel='${i}']`);
             if (!label) return;
-            label.setAttribute('data-tooltip',
+            const target = hitTarget(label);
+            target.setAttribute('data-tooltip',
                 c.marks.length === 1 ? singleTooltip(c.marks[0]) : foldedTooltip(c.marks));
-            label.setAttribute('data-tooltip-interactive', '');
-            label.style.cursor = 'help';
+            target.setAttribute('data-tooltip-interactive', '');
+            target.style.cursor = 'help';
         });
+    }
+
+    // The whole box is the target, not the glyph inside it. An SVG <text> only hit-tests against
+    // the strokes it paints, so binding the tooltip to the label leaves an 11px arrow with holes
+    // in it - fine to hover by accident, near impossible to hit on purpose, and worse under a
+    // fingertip. ApexCharts draws the label's background as a bare <rect> inserted directly
+    // before the text, which is exactly the square the operator is aiming at.
+    function hitTarget(label) {
+        const box = label.previousElementSibling;
+        if (box?.tagName !== 'rect') return label;
+        // The text paints over the box, so it has to stay transparent to pointers or it punches
+        // a dead hole through the middle of the target it sits on.
+        label.style.pointerEvents = 'none';
+        return box;
     }
 
     // Each redraw replaces the label elements, so the Tippy instances bound to the outgoing ones
     // have to go with them - otherwise a 5s poll leaves an orphan per mark per tick.
     function untag(el) {
         if (!el) return;
-        el.querySelectorAll('.apexcharts-xaxis-annotation-label')
-            .forEach(label => label._tippy?.destroy());
+        el.querySelectorAll('.apexcharts-xaxis-annotation-label').forEach(label => {
+            label._tippy?.destroy();
+            label.previousElementSibling?._tippy?.destroy();
+        });
     }
 
     return {
@@ -189,9 +206,9 @@ export function createMarkLayer({ charts }) {
                         text: c.marks.length > 1 ? `${glyph}${c.marks.length}` : glyph,
                         borderColor: color,
                         // ApexCharts' own stylesheet puts pointer-events: none on every
-                        // annotation label, which would leave these unhoverable and the
-                        // tooltips dead. The class is concatenated onto theirs, not swapped
-                        // for it, so app.css can win on specificity without !important.
+                        // annotation label. The class lets app.css unlock it for the fallback
+                        // in hitTarget; it is concatenated onto theirs, not swapped for it,
+                        // so app.css can win on specificity without !important.
                         style: {
                             cssClass: 'chart-event-mark',
                             color,
