@@ -229,7 +229,16 @@ window.noTour = (function () {
 
         const body = document.createElement('div');
         body.className = 'tour-card-body';
-        renderInline(body, opts.body);
+        // A blank line starts a new paragraph. Text nodes collapse newlines to a space, so without
+        // this a body written in two parts silently renders as one run-on paragraph.
+        String(opts.body || '').split(/\n\s*\n/).forEach(part => {
+            const text = part.trim();
+            if (!text) return;
+            const para = document.createElement('p');
+            para.className = 'tour-card-para';
+            renderInline(para, text);
+            body.appendChild(para);
+        });
         card.appendChild(body);
 
         const actions = document.createElement('div');

@@ -20011,6 +20011,14 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 14px;
 }
 
+.tour-card-para {
+    margin: 0 0 8px;
+}
+
+.tour-card-para:last-child {
+    margin-bottom: 0;
+}
+
 .tour-card-actions {
     display: flex;
     align-items: center;

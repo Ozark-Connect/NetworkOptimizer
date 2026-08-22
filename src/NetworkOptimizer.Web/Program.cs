@@ -276,6 +276,14 @@ builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+
+// In-app search. Not a mutating service: it holds no state and returns only navigation metadata
+// compiled into the app. Each provider filters its own entries against the caller, so adding an
+// area to the search is a matter of registering another IAppSearchProvider here.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchService,
+    NetworkOptimizer.Web.Services.Search.AppSearchService>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchProvider,
+    NetworkOptimizer.Web.Services.Search.SettingsSearchProvider>();
 // The alert pipeline pins its scope to an event's originating site through this seam.
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(sp =>
     sp.GetRequiredService<SiteContextService>());
