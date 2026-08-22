@@ -170,7 +170,7 @@
                 {
                 <div class="wan-test-option @(_serverAvailable ? "" : "wan-test-option-unavailable")">
                     <div class="wan-test-option-header">
-                        <span class="wan-test-option-label">@(RunsOnAgent ? "On-site agent" : "Server")</span>
+                        <span class="wan-test-option-label">@(RunsOnAgent ? "On-Site Agent" : "Server")</span>
                         @if (!_serverAvailable && !_isRunning)
                         {
                             <span class="wan-test-option-badge" data-tooltip="@_serverUnavailableReason">Unavailable</span>
@@ -221,11 +221,11 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
+                            <text>Tests from @(RunsOnAgent ? "the On-Site Agent" : "this server") through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
                         }
                         else
                         {
-                            <text>Tests from @(RunsOnAgent ? "the on-site agent" : "this server") through the LAN. Includes LAN traversal overhead.</text>
+                            <text>Tests from @(RunsOnAgent ? "the On-Site Agent" : "this server") through the LAN. Includes LAN traversal overhead.</text>
                         }
                     </div>
                 </div>
@@ -736,10 +736,10 @@
     private System.Threading.Timer? _agentStatusTimer;
 
     private const string AgentOfflineReason =
-        "This site connects through its on-site agent, which isn't online. WAN speed tests can resume when it reconnects.";
+        "This site connects through its On-Site Agent, which isn't online. WAN speed tests can resume when it reconnects.";
 
     private const string NoAgentReason =
-        "WAN speed tests on a managed site run from its on-site agent, and this site has none online. " +
+        "WAN speed tests on a managed site run from its On-Site Agent, and this site has none online. " +
         "Set up the site's agent under Settings > Multi-Site to enable them.";
 
     // Progress interpolation for smooth bar during long phases
@@ -2059,7 +2059,7 @@
         if (_wanInterfaces.Count == 0)
         {
             _errorMessage = ConnectionService.IsAwaitingAgent
-                ? "Waiting for the on-site agent to connect. The gateway test needs the WAN interface list from this site's UniFi Console, which is reached through its agent."
+                ? "Waiting for the On-Site Agent to connect. The gateway test needs the WAN interface list from this site's UniFi Console, which is reached through its agent."
                 : "The UniFi Console is unreachable, so the WAN interface list isn't available for a gateway test.";
             StateHasChanged();
             return;

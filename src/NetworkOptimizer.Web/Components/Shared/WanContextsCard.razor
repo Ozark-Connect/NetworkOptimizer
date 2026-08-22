@@ -305,10 +305,10 @@
                     else if (!string.IsNullOrEmpty(_newAgentId))
                     {
                         <p>
-                            Probes reach @WanLabelFor(_newWanInterface) only when the gateway routes them there. In
+                            Probes reach @WanLabelFor(_newWanInterface) only when the Gateway routes them there. In
                             UniFi Network, go to Settings - Policy Table and add a Policy-Based Route
-                            with this WAN as the interface, this agent's Client Device as the source,
-                            and Any as the destination. The source is matched by MAC, so the agent
+                            with this WAN as the interface, this Agent's Client Device as the source,
+                            and Any as the destination. The source is matched by MAC, so the Agent
                             needs a MAC of its own: an LXC or VM has one, and a Docker container can
                             be given one with macvlan. A second address on a host already on the
                             network will not work.
@@ -317,7 +317,7 @@
                     else if (!string.IsNullOrWhiteSpace(_newSourceIp))
                     {
                         <p>
-                            Probes reach @WanLabelFor(_newWanInterface) only when the gateway routes them there. In
+                            Probes reach @WanLabelFor(_newWanInterface) only when the Gateway routes them there. In
                             UniFi Network, go to Settings - Policy Table and add a Policy-Based Route
                             with this WAN as the interface, this server as the source, and Any as the
                             destination. The source is matched by MAC, so the address needs a MAC of
@@ -543,7 +543,7 @@
     private string UnboundWarning(WanContext context) =>
         context.AgentId is int id && _bindCapableAgents.Contains(id)
             ? "No interface bound. Probes follow the default route and are still recorded against this WAN. Bind the WAN's interface."
-            : "No source address bound. The gateway cannot policy-route the probes, so they follow the default route and are still recorded against this WAN. Bind a source address.";
+            : "No source address bound. The Gateway cannot policy-route the probes, so they follow the default route and are still recorded against this WAN. Bind a source address.";
 
     /// <summary>
     /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
@@ -901,7 +901,7 @@
     /// here would carry this WAN's name and another WAN's numbers, which no binding can correct.
     /// </summary>
     private string MisroutedWarning(RoutePin pin) =>
-        $"A Policy-Based Route sends this agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
+        $"A Policy-Based Route sends this Agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
         + "while readings are recorded against this one. Point the route at this WAN, or change the vantage.";
 
     /// <summary>The policy route steering this vantage's agent, if one does.</summary>

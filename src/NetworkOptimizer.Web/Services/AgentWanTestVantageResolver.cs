@@ -109,49 +109,13 @@ public class AgentWanTestVantageResolver
             vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal, context.WanInterface));
         }
 
-        // Last, and so not the one selected by default. It reaches a WAN that has no vantage yet,
-        // which is the only thing it is for - a named WAN gives an attributed result where this
-        // gives an inferred one. Once every WAN is covered it offers nothing but that ambiguity, so
-        // it is dropped rather than left as a way to file one WAN's numbers under a guess.
-        if (!await EveryWanIsCoveredAsync(siteSlug, runnable, ct))
-        {
-            var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
-            vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
-        }
+        // Last, and so not the one selected by default: a named WAN gives an attributed result
+        // where this gives an inferred one. Kept even when every vantage looks covered, because
+        // nothing here knows the site's full WAN list - WanProfiles records only the WANs the app
+        // has seen, so "all covered" was answerable and wrong.
+        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
+        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
         return vantages;
-    }
-
-    /// <summary>
-    /// Whether the runnable vantages between them account for every WAN the site has. Answers false
-    /// on any doubt - an unreadable site database, or a site with no WAN profiles recorded yet - so
-    /// the fallback stays offered rather than being removed on a gap.
-    /// </summary>
-    private async Task<bool> EveryWanIsCoveredAsync(
-        string siteSlug, IReadOnlyCollection<WanContext> runnable, CancellationToken ct)
-    {
-        try
-        {
-            await using var db = _siteDbFactory.CreateForSite(
-                siteSlug, siteSlug == SiteManagementService.DefaultSiteSlug);
-            var wanKeys = await db.WanProfiles.AsNoTracking()
-                .Select(w => w.WanNetworkgroup).ToListAsync(ct);
-            var known = wanKeys
-                .Where(k => !string.IsNullOrEmpty(k))
-                .Select(k => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(k!))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (known.Count == 0) return false;
-
-            var covered = runnable
-                .Where(c => !string.IsNullOrEmpty(c.WanInterface))
-                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            return known.All(covered.Contains);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not read the WAN list for site {Slug}; keeping the default path option", siteSlug);
-            return false;
-        }
     }
 
     /// <summary>
@@ -251,7 +215,7 @@ public class AgentWanTestVantageResolver
 
             var fallback = connectedAgentIds.Where(capableAgentIds.Contains).OrderBy(id => id).ToList();
             return fallback.Count == 0
-                ? (null, "No connected agent at this site can run a WAN speed test.")
+                ? (null, "No connected Agent at this site can run a WAN speed test.")
                 : (new AgentWanTestVantage(fallback[0], null), null);
         }
 
@@ -260,16 +224,16 @@ public class AgentWanTestVantageResolver
             return (null, "The WAN this test was set up for no longer exists. Pick a WAN and save it again.");
 
         if (context.AgentId == null)
-            return (null, $"'{context.Name}' is measured by this server over a bound source address, not by an agent, so it has no agent to run a speed test on.");
+            return (null, $"'{context.Name}' is measured by this server over a bound source address, not by an Agent, so it has no Agent to run a speed test on.");
 
         if (!MeasuresItsOwnWan(context))
-            return (null, $"The agent for '{context.Name}' binds each probe to that WAN's interface rather than routing over it, so a speed test from it would measure whichever WAN its own route takes. Use the Gateway test for that WAN.");
+            return (null, $"The Agent for '{context.Name}' binds each probe to that WAN's interface rather than routing over it, so a speed test from it would measure whichever WAN its own route takes. Use the Gateway test for that WAN.");
 
         if (!connectedAgentIds.Contains(context.AgentId.Value))
-            return (null, $"The agent for '{context.Name}' is not connected. WAN speed tests on that WAN resume when it reconnects.");
+            return (null, $"The Agent for '{context.Name}' is not connected. WAN speed tests on that WAN resume when it reconnects.");
 
         if (!capableAgentIds.Contains(context.AgentId.Value))
-            return (null, $"The agent for '{context.Name}' runs on the gateway, which carries no speed test binary. Use the Gateway test for that WAN.");
+            return (null, $"The Agent for '{context.Name}' runs on the Gateway, which carries no speed test binary. Use the Gateway test for that WAN.");
 
         return (new AgentWanTestVantage(context.AgentId.Value, context), null);
     }

@@ -331,7 +331,7 @@ public class AgentWanTestVantageTests
             collectorAgentId: SpeedTestAgent);
 
         vantage.Should().BeNull();
-        refusal.Should().Contain("Cable").And.Contain("not by an agent");
+        refusal.Should().Contain("Cable").And.Contain("not by an Agent");
     }
 
     [Fact]

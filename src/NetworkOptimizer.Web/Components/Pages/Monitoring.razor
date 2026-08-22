@@ -1777,7 +1777,7 @@
                                 {
                                     <div class="form-value-line">
                                         <span class="status-indicator @(_siteAgent is not null && TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
-                                        <span>On-site agent: @AgentCollectionState</span>
+                                        <span>On-Site Agent: @AgentCollectionState</span>
                                     </div>
                                 }
                             }
@@ -3648,7 +3648,7 @@
             <span class="banner-icon">!</span>
             <div class="banner-text" style="flex: 1;">
                 <strong>No agent for this site</strong>
-                Probe-based monitoring needs an on-site agent. SNMP collection is unaffected.
+                Probe-based monitoring needs an On-Site Agent. SNMP collection is unaffected.
             </div>
             <div class="banner-actions">
                 <button class="btn btn-sm btn-primary" @onclick='() => NavigationManager.NavigateTo($"/settings?tab=multisite&configure={SiteCtx.Slug}")'>Set Up an Agent</button>
