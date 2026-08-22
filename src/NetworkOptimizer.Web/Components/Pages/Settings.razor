@@ -4087,7 +4087,15 @@
         // The result said which site, so this is not a surprise by the time it happens.
         if (hit.Entry.SiteSlug is { } slug && slug != SiteContext.Slug)
         {
-            await SiteSwitch.SwitchToAsync(slug, hit.Entry.Route);
+            // The switch is a full page load, so this arrives as a fresh visit with no memory of
+            // having been sent anywhere. The anchor has to ride along as a #fragment, which is what
+            // HandleFragmentNavigationAsync reads on first render to scroll and ring the card -
+            // without it the tab is right and nothing on it is picked out.
+            var target = string.IsNullOrEmpty(hit.Entry.Anchor)
+                ? hit.Entry.Route
+                : $"{hit.Entry.Route}#{hit.Entry.Anchor}";
+
+            await SiteSwitch.SwitchToAsync(slug, target);
             return;
         }
 

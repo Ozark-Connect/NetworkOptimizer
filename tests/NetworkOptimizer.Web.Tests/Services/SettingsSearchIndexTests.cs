@@ -214,6 +214,34 @@ public class SettingsSearchIndexTests
     }
 
     [Fact]
+    public void An_anchor_is_reachable_as_a_fragment_after_a_full_page_load()
+    {
+        // Crossing to another site is a full reload, so the anchor rides along as #fragment and
+        // Settings resolves it through AnchorTabMap. An anchor missing from that map arrives on the
+        // right tab with nothing picked out - unless the route carries its own state instead.
+        var mapped = AnchorTabMapKeys();
+
+        var unreachable = Entries
+            .Where(e => e.Anchor is not null && !mapped.Contains(e.Anchor) && !e.Route.Contains('&'))
+            .Select(e => $"{e.Title} -> #{e.Anchor}")
+            .ToList();
+
+        unreachable.Should().BeEmpty();
+    }
+
+    private static HashSet<string> AnchorTabMapKeys()
+    {
+        var settings = File.ReadAllText(
+            Path.Combine(FindWebProjectRoot(), "Components", "Pages", "Settings.razor"));
+        var map = settings[settings.IndexOf("AnchorTabMap = new", StringComparison.Ordinal)..];
+        map = map[..map.IndexOf("};", StringComparison.Ordinal)];
+
+        return Regex.Matches(map, @"\[""([a-z0-9-]+)""\]")
+            .Select(m => m.Groups[1].Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void A_main_site_copy_names_the_site_and_keeps_the_target()
     {
         var signIn = Entries.Single(e => e.Anchor == "identity-sign-in");
