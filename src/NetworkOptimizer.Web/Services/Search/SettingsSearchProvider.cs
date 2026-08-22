@@ -208,7 +208,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["Cable Modem", "CM Stats"],
             ["docsis", "snr", "error rates", "signal quality", "provider", "host", "status page path",
              "polling interval", "show the cm stats tab", "arris surfboard", "hnap", "motorola",
-             "netgear nighthawk cm", "technicolor cga", "vodafone station", "xfinity gateway", "cox"]),
+             "netgear nighthawk cm", "technicolor cga", "vodafone station", "xfinity gateway", "cox",
+             "comcast business", "cga4332", "xb8", "xb10", "cgm4981"]),
 
         Entry("monitoring", "Monitoring", "ont-monitoring",
             "ONT Device Monitoring",

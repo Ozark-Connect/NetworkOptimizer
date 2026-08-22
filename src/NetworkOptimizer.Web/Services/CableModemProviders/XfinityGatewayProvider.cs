@@ -150,10 +150,12 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             var dsCount = CountChannelsInTransposedTable(tables.Downstream);
             var usCount = CountChannelsInTransposedTable(tables.Upstream);
 
+            // "to {model}" rather than "({model})": the model is itself parenthesized
+            // ("CBR (CGA4332COM)"), and this matches the other providers' phrasing.
             var model = ExtractProductType(doc);
-            var modelSuffix = string.IsNullOrEmpty(model) ? "" : $" ({model})";
+            var target = string.IsNullOrEmpty(model) ? "" : $" to {model}";
 
-            return (true, $"Connected{modelSuffix} - {dsCount} downstream, {usCount} upstream channels detected");
+            return (true, $"Connected{target} - {dsCount} downstream, {usCount} upstream channels detected");
         }
         catch (Exception ex)
         {
