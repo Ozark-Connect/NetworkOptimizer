@@ -1,6 +1,7 @@
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Monitoring.Models
+@using NetworkOptimizer.Web.Services.Monitoring
 @using NetworkOptimizer.Web.Services
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
@@ -31,12 +32,15 @@ else if (IsShowingExternal && _externalOntStats != null)
         }
     </div>
 
-    <div class="signal-quality-section signal-centered">
-        <div class="ont-rx-gauge">
-            <span class="rx-power-value @ExternalRxClass()">
-                @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
-            </span>
-            <span class="rx-power-label">RX optical power</span>
+    <div class="signal-quality-section signal-with-model">
+        <div class="signal-hero">
+            @RxGauge(_externalOntStats.RxPowerDbm, OpticalBands.ExternalOnt)
+            <div class="ont-rx-gauge">
+                <span class="rx-power-value @ExternalRxClass()">
+                    @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
+                </span>
+                <span class="rx-power-label">RX optical power</span>
+            </div>
         </div>
         <div class="modem-nav">
             @if (TotalCount > 1)
@@ -46,20 +50,13 @@ else if (IsShowingExternal && _externalOntStats != null)
                 <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">&#x203A;</button>
             }
         </div>
+        @ModelBlock(_externalOntStats.VendorName, _externalOntStats.VendorPn)
     </div>
 
     <div class="cellular-metrics" style="margin-top: 0.75rem;">
         <div class="metric-box">
             <div class="metric-header">Connection</div>
             <div class="metric-content">
-                @{ var extModel = SfpModelLabel(_externalOntStats.VendorName, _externalOntStats.VendorPn); }
-                @if (!string.IsNullOrEmpty(extModel))
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Model:</span>
-                        <span class="metric-value ont-model-value">@extModel</span>
-                    </div>
-                }
                 @if (!string.IsNullOrEmpty(_externalOntStats.PonType))
                 {
                     <div class="metric-row">
@@ -132,10 +129,12 @@ else if (IsShowingExternal)
         </div>
     </div>
 
-    <div class="signal-quality-section signal-centered">
-        <div class="ont-rx-gauge">
-            <span class="rx-power-value">-</span>
-            <span class="rx-power-label">RX optical power</span>
+    <div class="signal-quality-section signal-with-model">
+        <div class="signal-hero">
+            <div class="ont-rx-gauge">
+                <span class="rx-power-value">-</span>
+                <span class="rx-power-label">RX optical power</span>
+            </div>
         </div>
         <div class="modem-nav">
             @if (TotalCount > 1)
@@ -228,12 +227,15 @@ else
         }
     </div>
 
-    <div class="signal-quality-section signal-centered">
-        <div class="ont-rx-gauge">
-            <span class="rx-power-value @rxClass">
-                @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
-            </span>
-            <span class="rx-power-label">RX optical power</span>
+    <div class="signal-quality-section signal-with-model">
+        <div class="signal-hero">
+            @RxGauge(stats?.RxPowerDbm, BandsFor(current.Category))
+            <div class="ont-rx-gauge">
+                <span class="rx-power-value @rxClass">
+                    @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
+                </span>
+                <span class="rx-power-label">RX optical power</span>
+            </div>
         </div>
         <div class="modem-nav">
             @if (TotalCount > 1)
@@ -243,6 +245,7 @@ else
                 <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">›</button>
             }
         </div>
+        @ModelBlock(current.SfpVendor, current.SfpPart)
     </div>
 
     var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus);
@@ -259,14 +262,6 @@ else
         <div class="metric-box">
             <div class="metric-header">Connection</div>
             <div class="metric-content">
-                @{ var model = SfpModelLabel(current.SfpVendor, current.SfpPart); }
-                @if (!string.IsNullOrEmpty(model))
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Model:</span>
-                        <span class="metric-value ont-model-value">@model</span>
-                    </div>
-                }
                 <div class="metric-row">
                     <span class="metric-label">Link Type:</span>
                     <span class="metric-value @(current.IsActiveEthernet ? "ont-ae-value" : "")">@LinkTypeLabel(current)</span>
@@ -369,9 +364,6 @@ else
         padding-top: 0.5rem;
     }
 
-    .metric-value.ont-model-value {
-        font-size: 0.95rem;
-    }
     .metric-value.ont-ae-value {
         font-size: 1.1rem;
     }
@@ -573,22 +565,52 @@ else
         return ponType;
     }
 
-    private static string OpticalHealthClass(double? rxDbm, SfpCategory category)
+    private static OpticalBands BandsFor(SfpCategory category) =>
+        category == SfpCategory.ActiveEthernet ? OpticalBands.ActiveEthernet : OpticalBands.Pon;
+
+    private static string OpticalHealthClass(double? rxDbm, SfpCategory category) =>
+        BandsFor(category).ClassFor(rxDbm);
+
+    /// <summary>
+    /// Rx power against its grading band. The track runs back to red above the band
+    /// as well as below it: a receiver getting too much light is a fault, not a good
+    /// reading, and a rising bar would say the opposite.
+    /// </summary>
+    private RenderFragment RxGauge(double? rxDbm, OpticalBands bands) => __builder =>
     {
-        if (!rxDbm.HasValue) return "";
-        var v = rxDbm.Value;
-        if (category == SfpCategory.ActiveEthernet)
+        if (rxDbm.HasValue)
         {
-            if (v >= -8 && v <= -1) return "signal-excellent";
-            if (v >= -10 && v <= 0) return "signal-good";
-            if (v >= -14 && v <= 1) return "signal-fair";
-            return "signal-poor";
+            var pos = SignalGauge.Position(rxDbm.Value, bands.DomainLow, bands.DomainHigh);
+            <div class="signal-gauge" style="background: @SignalGauge.OpticalTrack(bands)">
+                <div class="gauge-shade" style="height: @($"{100 - pos:0.#}")%"></div>
+                <div class="gauge-line" style="bottom: @($"{pos:0.#}")%"></div>
+            </div>
         }
-        if (v >= -22 && v <= -8) return "signal-excellent";
-        if (v >= -25 && v <= -6) return "signal-good";
-        if (v >= -28 && v <= -4) return "signal-fair";
-        return "signal-poor";
-    }
+    };
+
+    /// <summary>Vendor over part number, in the slot the Cellular card gives the device icon.</summary>
+    private RenderFragment ModelBlock(string? vendor, string? part) => __builder =>
+    {
+        var name = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(vendor);
+        var number = part?.Trim();
+
+        if (string.IsNullOrEmpty(name))
+        {
+            name = number;
+            number = null;
+        }
+
+        if (!string.IsNullOrEmpty(name))
+        {
+            <div class="cm-model">
+                <span class="cm-model-name">@name</span>
+                @if (!string.IsNullOrEmpty(number))
+                {
+                    <span class="cm-model-number">@number</span>
+                }
+            </div>
+        }
+    };
 
     private static string SfpModelLabel(string? vendor, string? part)
     {

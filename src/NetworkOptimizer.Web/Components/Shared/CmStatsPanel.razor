@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @inject ICableModemService CmService
+@using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 
 <div class="cellular-stats-panel">
@@ -102,11 +103,21 @@
         </div>
 
         <div class="signal-quality-section signal-with-model">
-            <div class="ont-rx-gauge">
-                <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
-                    @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
-                </span>
-                <span class="rx-power-label">Downstream SNR avg</span>
+            <div class="signal-hero">
+                @if (_stats.DownstreamSnrAvgDb.HasValue)
+                {
+                    var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
+                    <div class="signal-gauge" style="background: @SnrTrack">
+                        <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
+                        <div class="gauge-line" style="bottom: @($"{snrPos:0.#}")%"></div>
+                    </div>
+                }
+                <div class="ont-rx-gauge">
+                    <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
+                        @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
+                    </span>
+                    <span class="rx-power-label">Downstream SNR avg</span>
+                </div>
             </div>
             <div class="modem-nav">
                 @if (_configs.Count > 1)
@@ -279,12 +290,22 @@
             : (model.Trim(), null);
     }
 
+    // Grade boundaries for downstream SNR, and the visible span around them.
+    private const double SnrFair = 30;
+    private const double SnrGood = 33;
+    private const double SnrExcellent = 36;
+    private const double SnrDomainLow = 25;
+    private const double SnrDomainHigh = 45;
+
+    private static readonly string SnrTrack =
+        SignalGauge.SnrTrack(SnrDomainLow, SnrDomainHigh, SnrFair, SnrGood, SnrExcellent);
+
     private string GetSnrClass(double? snr)
     {
         if (!snr.HasValue) return "";
-        if (snr >= 36) return "signal-excellent";
-        if (snr >= 33) return "signal-good";
-        if (snr >= 30) return "signal-fair";
+        if (snr >= SnrExcellent) return "signal-excellent";
+        if (snr >= SnrGood) return "signal-good";
+        if (snr >= SnrFair) return "signal-fair";
         return "signal-poor";
     }
 
