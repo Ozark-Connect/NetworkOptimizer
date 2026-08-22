@@ -9,7 +9,8 @@ namespace NetworkOptimizer.Web.Services;
 /// <param name="Label">Display name for the selector.</param>
 /// <param name="Runnable">Whether a test started on this vantage right now would run.</param>
 /// <param name="Reason">Why it would not, when <paramref name="Runnable"/> is false.</param>
-public sealed record AgentWanVantage(int? ContextId, string Label, bool Runnable, string? Reason);
+/// <param name="WanKey">UniFi WAN key this measures, so a schedule can record which WAN it covers.</param>
+public sealed record AgentWanVantage(int? ContextId, string Label, bool Runnable, string? Reason, string? WanKey = null);
 
 /// <summary>The agent an agent-run WAN speed test will execute on, and the WAN it measures.</summary>
 /// <param name="AgentId">Agent to dispatch the run to.</param>
@@ -105,7 +106,7 @@ public class AgentWanTestVantageResolver
         foreach (var context in runnable)
         {
             var (_, refusal) = await ResolveAsync(siteSlug, context.Id, ct);
-            vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal));
+            vantages.Add(new AgentWanVantage(context.Id, context.Name, refusal == null, refusal, context.WanInterface));
         }
 
         // Last, and so not the one selected by default. It reaches a WAN that has no vantage yet,
