@@ -765,6 +765,30 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
+### Proxmox LXC
+
+If you deployed with the [Proxmox one-liner](../scripts/proxmox/README.md), the app inside the container is a normal Docker Compose stack. Update it from the **Proxmox VE host**:
+
+```bash
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d && docker image prune -f'
+```
+
+Or enter the container first:
+
+```bash
+pct enter <CT_ID>
+cd /opt/network-optimizer
+docker compose pull && docker compose up -d && docker image prune -f
+```
+
+The `docker image prune -f` matters here: Docker never reclaims the image an upgrade replaces, and LXC root disks are usually sized tight.
+
+If you enabled the Traefik HTTPS proxy during installation, it updates separately:
+
+```bash
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d && docker image prune -f'
+```
+
 ### Windows Installer
 
 Download the latest MSI from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) and run it. The installer upgrades in-place, preserving your database, settings, and encryption keys. The Network Optimizer service restarts automatically after the upgrade.
@@ -779,11 +803,46 @@ git pull
 
 The install script preserves your database, encryption keys, and `start.sh` configuration by backing them up before reinstalling. See the [macOS Installation Guide](../docs/MACOS-INSTALLATION.md) for details.
 
+### Linux Native (No Docker)
+
+For a bare-metal install built from source per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md):
+
+```bash
+# Stop service
+sudo systemctl stop network-optimizer
+
+# Backup database (optional)
+cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.backup
+
+# Update the .NET SDK (picks up runtime stability and security fixes)
+./dotnet-install.sh --channel 10.0
+
+# Pull latest from main and rebuild
+cd ~/NetworkOptimizer   # wherever you cloned it
+git fetch origin && git checkout main && git pull
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
+chmod +x /opt/network-optimizer/NetworkOptimizer.Web
+
+# Start service
+sudo systemctl start network-optimizer
+```
+
+On ARM64 hardware, publish with `-r linux-arm64` instead.
+
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
+
 ### Verify Update
 
 ```bash
 docker compose ps
 docker compose logs -f
+```
+
+For a native Linux install:
+
+```bash
+sudo systemctl status network-optimizer
+curl -s http://localhost:8042/api/health
 ```
 
 ## Migrating from Build-from-Source to Pre-Built Images

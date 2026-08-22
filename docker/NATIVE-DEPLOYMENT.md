@@ -416,6 +416,30 @@ journalctl -u network-optimizer -f
 - **Credentials:** `~/.local/share/NetworkOptimizer/.credential_key`
 - **Logs:** `/opt/network-optimizer/logs/`
 
+### Updating
+
+```bash
+# Stop service
+sudo systemctl stop network-optimizer
+
+# Backup database (optional)
+cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.backup
+
+# Update the .NET SDK (picks up runtime stability and security fixes)
+./dotnet-install.sh --channel 10.0
+
+# Pull latest from main and rebuild (use linux-arm64 on ARM64 hardware)
+cd ~/NetworkOptimizer
+git fetch origin && git checkout main && git pull
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
+chmod +x /opt/network-optimizer/NetworkOptimizer.Web
+
+# Start service
+sudo systemctl start network-optimizer
+```
+
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them when a release changes them.
+
 ---
 
 ## Windows Deployment
