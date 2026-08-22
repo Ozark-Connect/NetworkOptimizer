@@ -64,6 +64,8 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Technicolor CGA series** - CGA437A, CGA4233VOO, CGA4322DE, CGA6444VF (shipped by VOO and Vodafone)
 - **Vodafone Station** - ARRIS TG3442DE
 
+![Cable Modem Stats card with downstream SNR gauge, channel counts, power levels and FEC error counts](docs/images/cable-modem-stats.png)
+
 **Fiber ONT** - RX/TX optical power, temperature, voltage, and bias current for external and SFP ONTs.
 
 - **AT&T residential gateways** - BGW320 (500 / 505), BGW210
@@ -75,6 +77,8 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
 
 SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below and also has a custom ONT stats augmentation API you can code to.
+
+![ONT Stats card with RX optical power gauge, PON status and link rate, and SFP temperature, voltage and bias readings](docs/images/ont-stats.png)
 
 **Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges.
 
