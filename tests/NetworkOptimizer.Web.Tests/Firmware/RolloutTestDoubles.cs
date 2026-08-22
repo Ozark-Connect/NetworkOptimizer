@@ -588,6 +588,17 @@ internal sealed class RolloutHarness : IDisposable
         return plan;
     }
 
+    /// <summary>
+    /// Back-dates when a plan was created. The repository stamps that from the real clock, so a
+    /// test about how long ago a plan was booked has to set it against the harness's clock.
+    /// </summary>
+    public async Task BookedAtAsync(int planId, DateTime createdAt)
+    {
+        var plan = await Db.FirmwareRolloutPlans.FirstAsync(p => p.Id == planId);
+        plan.CreatedAt = createdAt;
+        await Db.SaveChangesAsync();
+    }
+
     /// <summary>Creates a finished plan that is waiting out its soak.</summary>
     public async Task<FirmwareRolloutPlan> SeedSoakingPlanAsync(
         RolloutPlanDocument document, DateTime startedAt, DateTime completedAt, params FirmwareRolloutStep[] steps)

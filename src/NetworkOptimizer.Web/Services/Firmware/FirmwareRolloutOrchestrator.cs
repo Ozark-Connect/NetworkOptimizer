@@ -69,6 +69,18 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public static readonly TimeSpan HealthPostponeWindow = TimeSpan.FromHours(24);
 
     /// <summary>
+    /// Fixed heads-up before a scheduled start, whatever lead the plan was booked with. Autopilot's
+    /// own alert goes out when the plan is built, which can be a week ahead of the run.
+    /// </summary>
+    public static readonly TimeSpan ReminderLead = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// A plan announced this recently before the reminder is not restated - the first alert is
+    /// still the one on screen.
+    /// </summary>
+    public static readonly TimeSpan ReminderSuppression = TimeSpan.FromHours(8);
+
+    /// <summary>
     /// How long the UniFi Network application gets to restart into its new build. Past this the
     /// rollout stops waiting and upgrades devices anyway.
     /// </summary>
@@ -263,6 +275,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             {
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
                     await BeginAsync(plan, overrideHealthGate: false, cancellationToken);
+                else
+                    await RemindOfImminentStartAsync(plan, cancellationToken);
                 return;
             }
 
@@ -695,6 +709,46 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             plan.PlanJson = JsonSerializer.Serialize(document);
             await PersistPlanAsync(plan, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// The fixed reminder ahead of a start that is nearly here. Autopilot announces a plan when it
+    /// books it, which is up to a week before the site reboots, and a manually scheduled plan is
+    /// never announced at all - so this is the alert that lands while there is still time to act on
+    /// it. Suppressed when the plan was booked inside <see cref="ReminderSuppression"/> of this
+    /// point, so a short-lead run is announced once rather than twice.
+    /// </summary>
+    private async Task RemindOfImminentStartAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)
+    {
+        if (plan.ScheduledStartAt is not DateTime start) return;
+
+        var now = Now;
+        if (start - now > ReminderLead) return;
+        if (start - plan.CreatedAt <= ReminderLead + ReminderSuppression) return;
+
+        var document = ParseDocument(plan);
+        if (document.ReminderSentForStartAt == start) return;
+
+        var devices = document.Waves.Sum(w => w.Steps.Count);
+
+        await PublishAsync(
+            RolloutAlerts.StartingSoon,
+            // Warning, like the announcement it restates: this is the last chance to postpone
+            // before an unattended rollout reboots the site.
+            AlertSeverity.Warning,
+            $"Firmware Rollout Starting Soon{_siteSuffix}",
+            $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(document, devices))} will be upgraded starting "
+                + $"{start.ToLocalTime():ddd MMM d, h:mm tt}{RolloutScopeCopy.SiteAside(document.TimeZoneId, start)}, "
+                + $"{RolloutScopeCopy.StartsIn(start - now)}. "
+                + "Open Firmware Rollout to postpone or stop it.",
+            null, null, cancellationToken);
+
+        document.ReminderSentForStartAt = start;
+        plan.PlanJson = JsonSerializer.Serialize(document);
+        await PersistPlanAsync(plan, cancellationToken);
+
+        _logger.LogInformation(
+            "Reminded site {Site} that firmware rollout {Id} starts at {When}", _siteSlug, plan.Id, start);
     }
 
     private async Task PostponeAsync(FirmwareRolloutPlan plan, string reason, CancellationToken cancellationToken)

@@ -208,32 +208,10 @@ public class RolloutAutopilot : IRolloutAutopilot
         return plan.Id;
     }
 
-    /// <summary>
-    /// The site's own reading of the start, for the one place it matters most: an alert is read out
-    /// of context, and whether a 3 AM reboot bothers anyone is a question about the site's hours.
-    /// Empty when the site keeps the server's, which is every single-site install.
-    /// </summary>
-    private static string SiteAside(QuietWindowProposal window, DateTime startAtUtc)
-    {
-        try
-        {
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(window.TimeZoneId);
-            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
-
-            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(startAtUtc, DateTimeKind.Utc), tz);
-            return $" ({at:h:mm tt} at-site)";
-        }
-        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            return string.Empty;
-        }
-    }
-
     private async Task AnnounceAsync(
         RolloutPlanResult result, QuietWindowProposal window, DateTime startAtUtc, CancellationToken cancellationToken)
     {
         var devices = RolloutPlanComposer.LiveStepCount(result);
-        var hours = Math.Max(0, (startAtUtc - Now).TotalHours);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -245,8 +223,8 @@ public class RolloutAutopilot : IRolloutAutopilot
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
                 $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(result.Document, devices))} will be upgraded starting "
-                + $"{startAtUtc.ToLocalTime():ddd MMM d, h:mm tt}{SiteAside(window, startAtUtc)}, "
-                + $"in about {hours:0} hour{(Math.Round(hours) == 1 ? "" : "s")} - chosen from {window.Basis}. "
+                + $"{startAtUtc.ToLocalTime():ddd MMM d, h:mm tt}{RolloutScopeCopy.SiteAside(window.TimeZoneId, startAtUtc)}, "
+                + $"{RolloutScopeCopy.StartsIn(startAtUtc - Now)} - chosen from {window.Basis}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             SourceUrl = RolloutAlerts.SourceUrl,
         }, cancellationToken);

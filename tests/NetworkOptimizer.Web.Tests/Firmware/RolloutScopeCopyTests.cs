@@ -53,6 +53,25 @@ public class RolloutScopeCopyTests
         RolloutScopeCopy.IncludesConsole(Doc()).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(0.2, "in under an hour")]
+    [InlineData(1, "in about 1 hour")]
+    [InlineData(12, "in about 12 hours")]
+    [InlineData(23.6, "in about 1 day")]
+    [InlineData(25, "in about 1 day and 1 hour")]
+    [InlineData(168, "in about 7 days")]
+    [InlineData(191, "in about 7 days and 23 hours")]
+    public void AWeekOutReadsAsAWeek_NotAsNearlyTwoHundredHours(double hours, string expected)
+    {
+        RolloutScopeCopy.StartsIn(TimeSpan.FromHours(hours)).Should().Be(expected);
+    }
+
+    [Fact]
+    public void AStartAlreadyBehindUs_ReadsAsImminentRatherThanNegative()
+    {
+        RolloutScopeCopy.StartsIn(TimeSpan.FromMinutes(-5)).Should().Be("in under an hour");
+    }
+
     [Fact]
     public void SentenceCapitalizesWithoutTouchingTheRest()
     {

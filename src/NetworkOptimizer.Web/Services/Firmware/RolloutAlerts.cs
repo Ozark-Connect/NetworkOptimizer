@@ -15,6 +15,12 @@ public static class RolloutAlerts
     /// <summary>A scheduled rollout is coming up (heads-up before an unattended run).</summary>
     public const string Upcoming = "rollout.upcoming";
 
+    /// <summary>
+    /// The fixed reminder ahead of a start that was booked far enough out for the first heads-up
+    /// to have gone stale.
+    /// </summary>
+    public const string StartingSoon = "rollout.starting_soon";
+
     /// <summary>A rollout has begun.</summary>
     public const string Started = "rollout.started";
 
