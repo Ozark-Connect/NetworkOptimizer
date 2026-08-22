@@ -26,6 +26,11 @@ const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
 // cluster's tooltip.
 const MARK_COLLISION_PX = 24;
 
+// Set on a label once its tooltip is bound, so a redraw that replaced the nodes can be spotted by
+// looking at them rather than by tracking who redrew what. The label carries it whichever element
+// hitTarget bound the tooltip to.
+const TAGGED = 'data-mark-bound';
+
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s ?? ''; return _esc.innerHTML; }
 
@@ -91,6 +96,9 @@ function foldedTooltip(marks) {
  */
 export function createMarkLayer({ charts }) {
     let lastSignature = null;
+    let lastClusters = [];
+    let healPending = false;
+    const watched = new WeakSet();
 
     // Milliseconds per pixel of plot, from the charts' own geometry rather than the requested
     // range: gridWidth excludes the y-axis gutter, and minX/maxX are the extents ApexCharts
@@ -146,7 +154,40 @@ export function createMarkLayer({ charts }) {
                 c.marks.length === 1 ? singleTooltip(c.marks[0]) : foldedTooltip(c.marks));
             target.setAttribute('data-tooltip-interactive', '');
             target.style.cursor = 'help';
+            label.setAttribute(TAGGED, '');
         });
+    }
+
+    // Any redraw of a chart rebuilds its annotation nodes from config, and the fresh ones carry no
+    // tooltip - the marks come back looking identical and hover nothing. This layer cannot be the
+    // last writer by arrangement: SFP Stats and ONT Stats both refresh their PON charts
+    // asynchronously AFTER the marks are drawn, which left every mark on those charts dead until
+    // something moved the time range. So it heals rather than being sequenced. Re-tagging is all it
+    // takes - the annotations themselves are already correct, and nothing needs redrawing.
+    //
+    // Counted against the labels actually drawn, not against the clusters: ApexCharts drops an
+    // annotation that falls outside the plotted x-range, so a chart holding a clipped mark would
+    // never balance and would re-tag on every frame forever.
+    function retag() {
+        for (const [, el] of charts()) {
+            if (!el) continue;
+            const labels = el.querySelectorAll('.apexcharts-xaxis-annotation-label').length;
+            const bound = el.querySelectorAll(`.apexcharts-xaxis-annotation-label[${TAGGED}]`).length;
+            if (labels && bound !== labels) tag(el, lastClusters);
+        }
+    }
+
+    // One observer per chart element, for the redraws this layer never hears about. Node changes
+    // only - tagging sets attributes, so it cannot re-trigger this - and coalesced to a frame, so a
+    // redraw storm costs one pass rather than one per mutation batch.
+    function watch(el) {
+        if (!el || watched.has(el)) return;
+        watched.add(el);
+        new MutationObserver(() => {
+            if (healPending) return;
+            healPending = true;
+            requestAnimationFrame(() => { healPending = false; retag(); });
+        }).observe(el, { childList: true, subtree: true });
     }
 
     // The whole box is the target, not the glyph inside it. An SVG <text> only hit-tests against
@@ -184,6 +225,8 @@ export function createMarkLayer({ charts }) {
             // Filtering here rather than server-side keeps the badge toggles instant: hiding a
             // series drops its marks without a refetch, the same way it drops its line.
             const clusters = cluster((events || []).filter(e => visibility[e.key] !== false));
+            lastClusters = clusters;
+            for (const [, el] of charts()) watch(el);
 
             // A poll usually returns the same events over the same geometry, and redrawing then
             // costs a full annotation teardown - and a Tippy rebuild - for no visible change.
