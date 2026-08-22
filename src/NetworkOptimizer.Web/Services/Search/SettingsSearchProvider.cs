@@ -164,7 +164,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("connection", "Connection", "gateway-ssh",
             "Gateway SSH (Optional)",
             ["Gateway SSH", "router"],
-            ["gateway host", "ip address", "ssh port", "username", "password", "private key path",
+            ["unifi gateway", "unifi os device", "gateway host", "ip address", "ssh port",
+             "username", "password", "private key path",
              "enable gateway ssh access", "test ssh connection", "iperf3 status", "start iperf3 server",
              "root", "control plane", "console ssh", "adaptive sqm", "gateway wan speed test", "uxg"]),
 

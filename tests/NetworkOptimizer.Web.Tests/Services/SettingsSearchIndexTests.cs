@@ -124,6 +124,8 @@ public class SettingsSearchIndexTests
     [InlineData("access control", "identity-access")]
     // Their own word for the hardware, not ours.
     [InlineData("router", "gateway-ssh")]
+    [InlineData("unifi gateway", "gateway-ssh")]
+    [InlineData("unifi os device", "gateway-ssh")]
     // The satellite layer is set here but seen on the Signal Map, so it gets called the wifi map.
     [InlineData("wifi map", "map")]
     [InlineData("wi-fi map", "map")]
@@ -253,6 +255,24 @@ public class SettingsSearchIndexTests
         fromElsewhere.Anchor.Should().Be(signIn.Anchor);
         fromElsewhere.Keywords.Should().BeEquivalentTo(signIn.Keywords);
         signIn.SiteSlug.Should().BeNull("the original must not be branded");
+    }
+
+    [Fact]
+    public void Unifi_finds_the_console_first_and_the_gateway_below_it()
+    {
+        // The card is for "your UniFi Gateway or UniFi OS Device", so it belongs in the answer -
+        // but the card with UniFi in its title is the one someone typing it is most likely after.
+        var ranked = Entries
+            .Select(e => (Entry: e, Score: AppSearchService.ScoreEntry(e, "unifi")))
+            .Where(x => x.Score >= NetworkOptimizer.Core.Helpers.FuzzyMatch.MinimumUsefulScore)
+            .OrderByDescending(x => x.Score)
+            .Select(x => x.Entry.Anchor)
+            .ToList();
+
+        ranked.Should().NotBeEmpty();
+        ranked[0].Should().Be("console-connection");
+        ranked.Should().Contain("gateway-ssh");
+        ranked.IndexOf("gateway-ssh").Should().BeGreaterThan(0, "the console outranks it");
     }
 
     [Fact]
