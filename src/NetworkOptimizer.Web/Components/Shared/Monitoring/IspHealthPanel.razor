@@ -1252,12 +1252,14 @@ else
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+            // A vantage that still exists answers outright; one since deleted falls through to the
+            // WAN group the schedule also records, rather than reading as uncovered.
             if (doc.RootElement.TryGetProperty("wanContextId", out var ctx)
-                && ctx.TryGetInt32(out var contextId))
+                && ctx.TryGetInt32(out var contextId)
+                && contextWans.TryGetValue(contextId, out var contextWan))
             {
-                return contextWans.TryGetValue(contextId, out var contextWan)
-                    && string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(contextWan),
-                        wanGroup, StringComparison.OrdinalIgnoreCase);
+                return string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(contextWan),
+                    wanGroup, StringComparison.OrdinalIgnoreCase);
             }
             if (!doc.RootElement.TryGetProperty("wanGroup", out var g) || g.ValueKind != System.Text.Json.JsonValueKind.String)
                 return wanIsPrimary;

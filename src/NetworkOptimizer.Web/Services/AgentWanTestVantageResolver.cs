@@ -35,6 +35,7 @@ public class AgentWanTestVantageResolver
     private readonly AgentTunnelRegistry _tunnels;
     private readonly AgentOnGatewayDetector _onGateway;
     private readonly AgentProbeResultSink _probeSink;
+    private readonly SiteConnectionRegistry _siteConnections;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly ILogger<AgentWanTestVantageResolver> _logger;
@@ -43,6 +44,7 @@ public class AgentWanTestVantageResolver
         AgentTunnelRegistry tunnels,
         AgentOnGatewayDetector onGateway,
         AgentProbeResultSink probeSink,
+        SiteConnectionRegistry siteConnections,
         SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         ILogger<AgentWanTestVantageResolver> logger)
@@ -50,6 +52,7 @@ public class AgentWanTestVantageResolver
         _tunnels = tunnels;
         _onGateway = onGateway;
         _probeSink = probeSink;
+        _siteConnections = siteConnections;
         _siteDbFactory = siteDbFactory;
         _mainDbFactory = mainDbFactory;
         _logger = logger;
@@ -113,9 +116,47 @@ public class AgentWanTestVantageResolver
         // where this gives an inferred one. Kept even when every vantage looks covered, because
         // nothing here knows the site's full WAN list - WanProfiles records only the WANs the app
         // has seen, so "all covered" was answerable and wrong.
-        var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
-        vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
+        // Last, and so not the one selected by default: a named WAN gives an attributed result
+        // where this gives an inferred one. Dropped once every WAN the console reports has a
+        // vantage, because then it can only re-run one of them and file the numbers under a guess.
+        if (!await EveryWanIsCoveredAsync(siteSlug, runnable, ct))
+        {
+            var (_, defaultPathRefusal) = await ResolveAsync(siteSlug, null, ct);
+            vantages.Add(new AgentWanVantage(null, DefaultPathLabel, defaultPathRefusal == null, defaultPathRefusal));
+        }
         return vantages;
+    }
+
+    /// <summary>
+    /// Whether the runnable vantages account for every WAN the site actually has. Asked of the
+    /// console, which is the only thing that knows: WanProfiles records only the WANs the app has
+    /// seen so far, and answering from it reported full coverage on a site with WANs it had never
+    /// recorded. Any doubt answers false, so the fallback stays offered rather than being removed
+    /// on a gap.
+    /// </summary>
+    private async Task<bool> EveryWanIsCoveredAsync(
+        string siteSlug, IReadOnlyCollection<WanContext> runnable, CancellationToken ct)
+    {
+        try
+        {
+            var networks = await _siteConnections.GetFor(siteSlug).GetNetworksAsync(ct);
+            var known = networks
+                .Where(n => n.IsWan && n.Enabled && !string.IsNullOrEmpty(n.WanNetworkgroup))
+                .Select(n => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(n.WanNetworkgroup!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (known.Count == 0) return false;
+
+            var covered = runnable
+                .Where(c => !string.IsNullOrEmpty(c.WanInterface))
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return known.All(covered.Contains);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the WAN list for site {Slug}; keeping the default path option", siteSlug);
+            return false;
+        }
     }
 
     /// <summary>
