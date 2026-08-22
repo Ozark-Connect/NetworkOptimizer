@@ -315,6 +315,10 @@ public class AgentWanTestVantageResolver
         return await _onGateway.IsAgentOnGatewayAsync(siteSlug, agentId, candidates, ct);
     }
 
+    /// <summary>The LAN address an agent is known by, for callers that resolved the agent already.</summary>
+    public Task<string?> AgentLanIpAsync(int agentId, CancellationToken ct = default) =>
+        LookupLanIpAsync(agentId, ct);
+
     private async Task<string?> LookupLanIpAsync(int agentId, CancellationToken ct)
     {
         try

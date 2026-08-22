@@ -32,6 +32,10 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     // agent path only; a local run measures whatever this host's route takes, whatever was asked
     // for. Runs serialize per site instance, so one field is enough.
     private WanContext? _runContext;
+
+    // The agent the in-flight run was dispatched to. The trace source must be THAT agent, not
+    // whichever one reported in last.
+    private int? _runAgentId;
     private readonly AgentEnrollmentService _agentEnrollment;
 
     protected override SpeedTestDirection Direction => SpeedTestDirection.UwnWan;
@@ -121,6 +125,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             return await RunViaAgentAsync(report, cancellationToken);
 
         _runContext = null;
+        _runAgentId = null;
         return await RunLocalAsync(report, cancellationToken);
     }
 
@@ -140,6 +145,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         if (vantage == null)
             throw new InvalidOperationException(refusal ?? "No agent is available to run this WAN speed test.");
         _runContext = vantage.Context;
+        _runAgentId = vantage.AgentId;
 
         Logger.LogInformation(
             "Dispatching UWN WAN speed test to site {Slug}'s agent {AgentId} ({Wan}, {Streams} streams, {Servers} servers)",
@@ -326,11 +332,13 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             Location: finalIsp ?? "",
             WanIp: finalWanIp));
 
-        // Local endpoint the test ran from, for path analysis. An agent run measures
-        // from the on-site agent, so the trace source is the agent's LAN IP on that
-        // site's topology; a local run uses this server's HOST_IP.
+        // Local endpoint the test ran from, for path analysis. An agent run measures from the agent
+        // it was DISPATCHED to, so the trace starts at that agent's LAN IP - asking the site for
+        // its most recently seen agent traced one WAN's test from another WAN's box.
         var serverIp = viaAgent
-            ? await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug)
+            ? (_runAgentId is int ranOn
+                ? await _vantageResolver.AgentLanIpAsync(ranOn, cancellationToken)
+                : await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug))
             : _configuration["HOST_IP"];
 
         var result = new Iperf3Result
