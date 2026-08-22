@@ -7485,10 +7485,11 @@ a.path-hop.hop-clickable:hover {
     max-width: 360px;
 }
 
-/* ApexCharts sets pointer-events: none on every annotation label, which leaves the event marks
-   unhoverable and their tooltips dead. Listed per container on purpose: ISP Health, latency and
-   the WAN live chart draw annotations too and must keep the library's behaviour, so a card earns
-   the unlock by being added here. The id also wins on specificity without !important. */
+/* ApexCharts sets pointer-events: none on every annotation label. The marks normally bind their
+   tooltip to the label's background box instead (see hitTarget in chart-event-marks.js), so this
+   only carries the fallback where that box is absent. Listed per container on purpose: ISP Health,
+   latency and the WAN live chart draw annotations too and must keep the library's behaviour, so a
+   card earns the unlock by being added here. The id also wins on specificity without !important. */
 #device-health-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
 #sfp-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark,
 #ont-charts-container .apexcharts-xaxis-annotation-label.chart-event-mark {
