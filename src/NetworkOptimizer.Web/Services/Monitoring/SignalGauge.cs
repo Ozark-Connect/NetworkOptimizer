@@ -116,11 +116,22 @@ public readonly record struct OpticalBands(
     /// </summary>
     public static readonly OpticalBands ExternalOnt = new(-22.5, -8, -25, -6, -27, -4, Peak: -18);
 
-    /// <summary>A little headroom past the last graded bound, so the ends are visible.</summary>
-    public double DomainLow => FairLow - 2;
+    /// <summary>
+    /// Half the track's span. Taken as the wider of the two sides so the domain is
+    /// symmetric about <see cref="Peak"/> and neither graded end gets clipped.
+    /// </summary>
+    private double HalfSpan => Math.Max(Peak - (FairLow - 2), (FairHigh + 2) - Peak);
 
-    /// <summary>A little headroom past the last graded bound, so the ends are visible.</summary>
-    public double DomainHigh => FairHigh + 2;
+    /// <summary>
+    /// Bottom of the track. Placed so the peak sits at dead centre: the graded bounds
+    /// are not symmetric around it (PON runs -28 to -4 either side of a -18 peak), and
+    /// deriving the ends from those bounds alone put the best reading below the middle
+    /// of the bar.
+    /// </summary>
+    public double DomainLow => Peak - HalfSpan;
+
+    /// <summary>Top of the track, the same distance past the peak as <see cref="DomainLow"/> is below it.</summary>
+    public double DomainHigh => Peak + HalfSpan;
 
     /// <summary>The signal-* class for a reading, or empty when there is none.</summary>
     public string ClassFor(double? rxDbm)

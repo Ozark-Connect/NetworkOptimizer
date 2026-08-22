@@ -113,6 +113,31 @@ public class SignalGaugeTests
         above.Should().BeGreaterThan(10, "the overdriven end stays dimmed too");
     }
 
+    [Theory]
+    [InlineData("pon")]
+    [InlineData("ae")]
+    [InlineData("external")]
+    public void ThePeakSitsAtTheCentreOfTheTrack(string which)
+    {
+        var bands = which switch
+        {
+            "ae" => OpticalBands.ActiveEthernet,
+            "external" => OpticalBands.ExternalOnt,
+            _ => OpticalBands.Pon,
+        };
+
+        SignalGauge.Position(bands.Peak, bands.DomainLow, bands.DomainHigh).Should().Be(50);
+    }
+
+    [Fact]
+    public void TheTrackStillCoversEveryGradedBound()
+    {
+        var bands = OpticalBands.Pon;
+
+        bands.DomainLow.Should().BeLessThan(bands.FairLow);
+        bands.DomainHigh.Should().BeGreaterThan(bands.FairHigh);
+    }
+
     [Fact]
     public void ClassFor_IsEmptyWithoutAReading()
     {
