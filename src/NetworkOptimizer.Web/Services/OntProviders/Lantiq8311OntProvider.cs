@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -10,9 +9,12 @@ using NetworkOptimizer.Web.Services.Monitoring;
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
-/// ONT provider for Lantiq/MaxLinear-based GPON/XGS-PON SFP sticks running
-/// 8311 community firmware (LuCI web UI). Covers WAS-110, PRX126, Nokia G-010S-P,
-/// and other sticks flashed with 8311 firmware by djGrrr.
+/// ONT provider for MaxLinear-based XGS-PON SFP sticks running 8311 community
+/// firmware (LuCI web UI). Covers the WAS-110 (PRX126 chipset), X-ONU-SFPP,
+/// WT-ONU-STICK, and other sticks flashed with 8311 firmware by djGrrr.
+///
+/// 8311 is XGS-PON only. A GPON stick such as the Nokia G-010S-P runs its own
+/// vendor image and is not reachable here, whatever its chipset.
 ///
 /// Uses the JSON endpoint at /cgi-bin/luci/admin/8311/gpon_status which returns
 /// pre-formatted DDM data. Auth via LuCI session cookie (sysauth).
