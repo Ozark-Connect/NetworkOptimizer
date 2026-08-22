@@ -5,7 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createMarkLayer } from './chart-event-marks.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=3';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
 import { syncIdentity } from './chart-sync.js?v=7';
@@ -225,13 +225,10 @@ function drawSeries() {
 }
 
 function updateVisibility() {
-    // Series first: a series redraw rebuilds the annotation nodes, so marking before it strands
-    // every tooltip on nodes that are about to be replaced.
-    //
+    applyAnnotations();
     // No single-ONT short-circuit: this is the draw path now, not just the toggle path, so the one
     // ONT on a single-ONT site would never be plotted at all.
     drawSeries();
-    applyAnnotations();
     // Fire-and-forget: it mounts the chart on first use. Kept off the synchronous path so a chart
     // error can never break chip re-rendering.
     updateErrorsChart().catch(() => {});
