@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -45,9 +46,13 @@ public static class UniFiDeviceHealthReader
 
     /// <summary>
     /// Reads a device's temperature from the UniFi API, handling the switch (general_temperature /
-    /// bare integer) and gateway (structured sensor array) shapes.
+    /// bare integer) and gateway (structured sensor array) shapes. Normalized to Celsius: some
+    /// models (UXG-Lite) report millidegrees here.
     /// </summary>
-    public static double? ParseDeviceTemperature(UniFiDeviceResponse device)
+    public static double? ParseDeviceTemperature(UniFiDeviceResponse device) =>
+        TemperatureScale.NormalizeCelsius(ReadDeviceTemperature(device));
+
+    private static double? ReadDeviceTemperature(UniFiDeviceResponse device)
     {
         // general_temperature: simple numeric field on switches (e.g., 72)
         if (device.GeneralTemperature.HasValue && device.GeneralTemperature.Value > 0)

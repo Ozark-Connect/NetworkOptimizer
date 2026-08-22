@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
 
@@ -1829,7 +1831,17 @@ from(bucket: ""{_bucket}"")
         public double? UploadBps { get; init; }
     }
 
-    /// <summary>Per-device CPU/memory/temperature trace.</summary>
+    // Flux literals must carry a decimal point or they parse as int and clash with the float
+    // fields in the same map. Sourced from TemperatureScale so the two paths can't drift.
+    private static readonly string FluxMillidegreeThreshold =
+        TemperatureScale.PlausibleMaxCelsius.ToString("F1", CultureInfo.InvariantCulture);
+    private static readonly string FluxMillidegreeDivisor =
+        TemperatureScale.MillidegreesPerDegree.ToString("F1", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Per-device CPU/memory/temperature trace. Temperature is normalized per point before the
+    /// mean: a window straddling the millidegree fix would otherwise average the two scales.
+    /// </summary>
     public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthAsync(
         string deviceMac,
         DateTime from,
@@ -1846,6 +1858,7 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
+  |> map(fn: (r) => ({{ r with _value: if r._field == ""temperature_c"" and float(v: r._value) > {FluxMillidegreeThreshold} then float(v: r._value) / {FluxMillidegreeDivisor} else float(v: r._value) }}))
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -1954,7 +1967,7 @@ from(bucket: ""{_bucket}"")
             Time = kv.Value,
             CpuPercent = cpu.TryGetValue(kv.Key, out var c) ? c : null,
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
-            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
+            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? TemperatureScale.NormalizeCelsius(t) : null,
             UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
             FanSpeedRpm = fan.TryGetValue(kv.Key, out var f) ? (int?)f : null,
         }).OrderBy(p => p.Time).ToList();
