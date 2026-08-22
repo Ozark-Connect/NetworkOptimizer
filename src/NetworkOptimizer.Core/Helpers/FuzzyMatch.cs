@@ -18,32 +18,76 @@ public static class FuzzyMatch
 
     private static readonly char[] TermSeparators = [' ', '\t', '\n', '\r'];
 
+    // Only ever applied to a query of more than three words. Deliberately function words and
+    // nothing else: anything that could name a setting has to survive.
+    private static readonly HashSet<string> Stopwords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "and", "are", "as", "at", "be", "can", "do", "does", "for", "from", "how", "i",
+        "in", "is", "it", "me", "my", "need", "of", "on", "or", "please", "the", "then", "this",
+        "to", "want", "we", "what", "when", "where", "why", "with", "you", "your",
+    };
+
     /// <summary>
     /// Scores <paramref name="query"/> against <paramref name="candidate"/>, higher being better,
-    /// or 0 when it does not match. A multi-word query requires every word to match somewhere in
-    /// the candidate, in any order; the result is the per-word average so a threshold holds
-    /// whatever the query's length.
+    /// or 0 when any word of the query fails to land. Use <see cref="Match"/> where a partial
+    /// answer beats none.
     /// </summary>
     public static int Score(string? candidate, string? query)
     {
-        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(query))
-            return 0;
+        var match = Match(candidate, query);
+        return match.IsComplete ? match.Score : 0;
+    }
 
-        var terms = query.ToLowerInvariant().Split(TermSeparators, StringSplitOptions.RemoveEmptyEntries);
+    /// <summary>
+    /// How well <paramref name="query"/> fits <paramref name="candidate"/>, word by word. The score
+    /// averages only the words that landed, so a long query is not dragged down by the ones that did
+    /// not, and <see cref="MatchResult.IsComplete"/> says whether any were left behind.
+    /// </summary>
+    public static MatchResult Match(string? candidate, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(query))
+            return default;
+
+        var terms = SignificantTerms(query);
         if (terms.Length == 0)
-            return 0;
+            return default;
 
         var text = candidate.ToLowerInvariant();
         var total = 0;
+        var matched = 0;
         foreach (var term in terms)
         {
             var score = ScoreTerm(text, term);
             if (score == 0)
-                return 0;
+                continue;
             total += score;
+            matched++;
         }
 
-        return total / terms.Length;
+        return matched == 0 ? default : new MatchResult(total / matched, matched, terms.Length);
+    }
+
+    /// <summary>
+    /// The words worth matching on. More than three words is someone typing a question rather than
+    /// a name, so the ones carrying no meaning alone come out - otherwise "how do I allow my apple
+    /// tv on the main network" fails on "how" and finds nothing at all. Short queries are left
+    /// alone: "log in" is two stopwords away from nothing.
+    /// </summary>
+    private static string[] SignificantTerms(string query)
+    {
+        var terms = query.ToLowerInvariant().Split(TermSeparators, StringSplitOptions.RemoveEmptyEntries);
+        if (terms.Length <= 3)
+            return terms;
+
+        var significant = terms.Where(t => !Stopwords.Contains(t)).ToArray();
+        return significant.Length > 0 ? significant : terms;
+    }
+
+    /// <summary>What a query matched against one candidate: its score, and how much of it landed.</summary>
+    public readonly record struct MatchResult(int Score, int Matched, int Terms)
+    {
+        /// <summary>True when every word of the query found something.</summary>
+        public bool IsComplete => Terms > 0 && Matched == Terms;
     }
 
     /// <summary>The best score <paramref name="query"/> reaches against any of the candidates.</summary>
@@ -102,8 +146,12 @@ public static class FuzzyMatch
             return 0;
 
         // Penalize the characters the term did not account for, so a short title beats a long one
-        // that happens to contain the same letters in the same order.
-        return Math.Max(1, score - (text.Length - term.Length) / 2);
+        // that happens to contain the same letters in the same order. Once that wipes the score out
+        // the match is not a weak one, it is nothing: any short word is a subsequence of a long
+        // enough haystack, and calling that a match let "stop flagging my printer" match every card
+        // on the page. Never floor this at 1.
+        var penalized = score - (text.Length - term.Length) / 2;
+        return penalized > 0 ? penalized : 0;
     }
 
     private static bool IsWordStart(string text, int index) =>

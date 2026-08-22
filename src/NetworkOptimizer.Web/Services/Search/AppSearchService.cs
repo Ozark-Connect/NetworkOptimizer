@@ -50,7 +50,7 @@ public sealed class AppSearchService : IAppSearchService
         if (string.IsNullOrWhiteSpace(query) || maxResults <= 0)
             return [];
 
-        var hits = new List<AppSearchHit>();
+        var hits = new List<(AppSearchHit Hit, FuzzyMatch.MatchResult Match)>();
 
         foreach (var provider in _providers)
         {
@@ -78,29 +78,63 @@ public sealed class AppSearchService : IAppSearchService
 
             foreach (var entry in entries)
             {
-                var score = ScoreEntry(entry, query);
-                if (score >= FuzzyMatch.MinimumUsefulScore)
-                    hits.Add(new AppSearchHit(entry, score));
+                var match = MatchEntry(entry, query);
+                if (match.Matched > 0 && match.Score >= FuzzyMatch.MinimumUsefulScore)
+                    hits.Add((new AppSearchHit(entry, match.Score), match));
             }
         }
 
-        return hits
-            .OrderByDescending(h => h.Score)
-            .ThenBy(h => h.Entry.Title, StringComparer.OrdinalIgnoreCase)
+        // Everything the query asked for, if anything answers all of it. Otherwise the best of what
+        // is left, most of the query first - someone typing "stop flagging my printer" is owed the
+        // Security Audit rather than an empty list, and only the words we know can get them there.
+        var complete = hits.Where(h => h.Match.IsComplete).ToList();
+        var chosen = complete.Count > 0 ? complete : hits;
+
+        return chosen
+            .OrderByDescending(h => h.Match.Matched)
+            .ThenByDescending(h => h.Match.Score)
+            .ThenBy(h => h.Hit.Entry.Title, StringComparer.OrdinalIgnoreCase)
             .Take(maxResults)
+            .Select(h => h.Hit)
             .ToList();
     }
 
     /// <summary>
     /// The entry's best showing across its fields, then across all of them at once so a query whose
-    /// words are split between them still lands.
+    /// words are split between them still lands. Best means most of the query matched first, and
+    /// only then the better score - a result that answers more of what was typed wins.
     /// </summary>
+    internal static FuzzyMatch.MatchResult MatchEntry(AppSearchEntry entry, string query)
+    {
+        var best = FuzzyMatch.Match(entry.Title, query);
+
+        foreach (var alias in entry.Aliases)
+            best = Better(best, Weighted(FuzzyMatch.Match(alias, query), AliasWeight));
+
+        foreach (var keyword in entry.Keywords)
+            best = Better(best, Weighted(FuzzyMatch.Match(keyword, query), KeywordWeight));
+
+        return Better(best, Weighted(FuzzyMatch.Match(entry.SearchText, query), CombinedWeight));
+    }
+
+    /// <summary>The strict score: 0 unless every word of the query landed on this entry.</summary>
     internal static int ScoreEntry(AppSearchEntry entry, string query)
     {
-        var best = FuzzyMatch.Score(entry.Title, query);
-        best = Math.Max(best, FuzzyMatch.ScoreBest(entry.Aliases, query) * AliasWeight / 100);
-        best = Math.Max(best, FuzzyMatch.ScoreBest(entry.Keywords, query) * KeywordWeight / 100);
-
-        return Math.Max(best, FuzzyMatch.Score(entry.SearchText, query) * CombinedWeight / 100);
+        var match = MatchEntry(entry, query);
+        return match.IsComplete ? match.Score : 0;
     }
+
+    private static FuzzyMatch.MatchResult Weighted(FuzzyMatch.MatchResult match, int weight) =>
+        match with { Score = match.Score * weight / 100 };
+
+    /// <summary>
+    /// Which of two readings of the same entry to keep. Matching more of the query wins, but only
+    /// among readings worth showing at all - otherwise a field that technically contains every word
+    /// and means none of them shadows the keyword that is the actual answer.
+    /// </summary>
+    private static FuzzyMatch.MatchResult Better(FuzzyMatch.MatchResult a, FuzzyMatch.MatchResult b) =>
+        (Useful(b), b.Matched, b.Score).CompareTo((Useful(a), a.Matched, a.Score)) > 0 ? b : a;
+
+    private static int Useful(FuzzyMatch.MatchResult match) =>
+        match.Score >= FuzzyMatch.MinimumUsefulScore ? 1 : 0;
 }

@@ -45,6 +45,34 @@ public sealed class AppSearchEntry
     public string? Key { get; init; }
 
     /// <summary>
+    /// The site this target lives on, when that is not the site being viewed. Set only for a result
+    /// that needs a site switch to reach; null means "wherever you are". Reaching it changes which
+    /// site the whole session is contexted to, so a result carrying this has to say so.
+    /// </summary>
+    public string? SiteSlug { get; init; }
+
+    /// <summary>How to label <see cref="SiteSlug"/> to someone reading the result.</summary>
+    public string? SiteName { get; init; }
+
+    /// <summary>
+    /// This entry as it would be presented from another site: same target, plus where it lives.
+    /// Hand-copied because the class is not a record - see the note above on why.
+    /// </summary>
+    internal AppSearchEntry OnSite(string slug, string name) => new()
+    {
+        Title = Title,
+        Area = Area,
+        Section = Section,
+        Route = Route,
+        Anchor = Anchor,
+        Aliases = Aliases,
+        Keywords = Keywords,
+        Key = Key,
+        SiteSlug = slug,
+        SiteName = name,
+    };
+
+    /// <summary>
     /// Every field as one string, so a query whose words are split across them still lands -
     /// "monitoring cable" is the section plus part of the title, and neither field holds both.
     /// Built once per entry rather than once per search: an index is static for the life of the

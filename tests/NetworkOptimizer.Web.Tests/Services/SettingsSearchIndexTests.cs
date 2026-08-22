@@ -176,6 +176,52 @@ public class SettingsSearchIndexTests
         entry.SearchText.Should().BeSameAs(first, "it is built once and reused");
     }
 
+    [Theory]
+    [InlineData("how do I allow my apple tv on the main network", "security-audit")]
+    [InlineData("where do I set the mapbox token", "map")]
+    [InlineData("how to monitor my cable modem", "cable-modem")]
+    [InlineData("I want to change the admin password", "admin-password")]
+    public void A_typed_question_finds_the_setting_it_is_asking_about(string question, string expected)
+    {
+        var top = Entries
+            .Select(e => (Entry: e, Match: AppSearchService.MatchEntry(e, question)))
+            .Where(x => x.Match.IsComplete && x.Match.Score >= NetworkOptimizer.Core.Helpers.FuzzyMatch.MinimumUsefulScore)
+            .OrderByDescending(x => x.Match.Score)
+            .FirstOrDefault();
+
+        top.Entry.Should().NotBeNull($"'{question}' should answer");
+        (top.Entry!.Anchor ?? top.Entry.Key).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_question_with_an_unknown_verb_still_gets_a_best_effort()
+    {
+        // Nothing matches all of "stop flagging my printer", but "printer" alone is enough to point
+        // somewhere useful, and an empty list would not be.
+        var best = Entries
+            .Select(e => (Entry: e, Match: AppSearchService.MatchEntry(e, "stop flagging my printer")))
+            .Where(x => x.Match.Matched > 0 && x.Match.Score >= NetworkOptimizer.Core.Helpers.FuzzyMatch.MinimumUsefulScore)
+            .OrderByDescending(x => x.Match.Matched).ThenByDescending(x => x.Match.Score)
+            .FirstOrDefault();
+
+        best.Entry.Should().NotBeNull();
+        best.Entry!.Anchor.Should().Be("security-audit");
+    }
+
+    [Fact]
+    public void A_main_site_copy_names_the_site_and_keeps_the_target()
+    {
+        var signIn = Entries.Single(e => e.Anchor == "identity-sign-in");
+        var fromElsewhere = signIn.OnSite("default", "Main Site");
+
+        fromElsewhere.SiteSlug.Should().Be("default");
+        fromElsewhere.SiteName.Should().Be("Main Site");
+        fromElsewhere.Route.Should().Be(signIn.Route);
+        fromElsewhere.Anchor.Should().Be(signIn.Anchor);
+        fromElsewhere.Keywords.Should().BeEquivalentTo(signIn.Keywords);
+        signIn.SiteSlug.Should().BeNull("the original must not be branded");
+    }
+
     [Fact]
     public void Nonsense_matches_nothing()
     {

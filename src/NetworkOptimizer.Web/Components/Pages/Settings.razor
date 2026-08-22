@@ -4083,6 +4083,14 @@
     /// </summary>
     private async Task GoToSearchHitAsync(NetworkOptimizer.Web.Services.Search.AppSearchHit hit)
     {
+        // Lives on another site: switching carries us there and lands on the target in one step.
+        // The result said which site, so this is not a surprise by the time it happens.
+        if (hit.Entry.SiteSlug is { } slug && slug != SiteContext.Slug)
+        {
+            await SiteSwitch.SwitchToAsync(slug, hit.Entry.Route);
+            return;
+        }
+
         var tab = ResolveTab(hit.Entry.Key);
 
         // A route carrying more than its tab carries the part a tab switch cannot reproduce: the

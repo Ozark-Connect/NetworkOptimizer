@@ -84,6 +84,33 @@ public class FuzzyMatchTests
         FuzzyMatch.Score("Adaptive SQM Monitor", "sqm")
             .Should().Be(FuzzyMatch.Score("adaptive sqm monitor", "SQM"));
 
+    [Theory]
+    [InlineData("how do I allow my apple tv on the main network", "allow apple tv main network")]
+    [InlineData("where do I set the mapbox token", "mapbox token")]
+    public void A_question_is_stripped_down_to_the_words_that_name_something(string sentence, string bare)
+    {
+        // Not equal scores - the same words survive, so the sentence finds what the bare query does.
+        FuzzyMatch.Match("Allow apple tv on main network", sentence).IsComplete
+            .Should().Be(FuzzyMatch.Match("Allow apple tv on main network", bare).IsComplete);
+    }
+
+    [Fact]
+    public void Short_queries_keep_their_stopwords()
+    {
+        // "log in" is two stopwords away from nothing, so the strip only applies past three words.
+        FuzzyMatch.Match("Sign-In", "log in").Terms.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_partial_match_reports_what_it_could_not_place()
+    {
+        var match = FuzzyMatch.Match("Cable Modem Monitoring", "cable starlink");
+        match.Matched.Should().Be(1);
+        match.Terms.Should().Be(2);
+        match.IsComplete.Should().BeFalse();
+        match.Score.Should().BeGreaterThan(0, "the score averages only what landed");
+    }
+
     [Fact]
     public void ScoreBest_takes_the_strongest_candidate()
     {

@@ -48,8 +48,41 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         cancellationToken.ThrowIfCancellationRequested();
         var multiSiteEnabled = await _siteManagement.IsMultiSiteEnabledAsync();
 
-        return Index.Where(i => CanReach(i.Reach, isAdmin, isDefaultSite, multiSiteEnabled))
+        var entries = Index.Where(i => CanReach(i.Reach, isAdmin, isDefaultSite, multiSiteEnabled))
             .Select(i => i.Entry)
+            .ToList();
+
+        entries.AddRange(await MainSiteEntriesAsync(context, isAdmin, isDefaultSite));
+        return entries;
+    }
+
+    /// <summary>
+    /// Settings that only exist on the main site, offered while standing on another one. Someone
+    /// searching for SSO or the Audit Log from a managed site is not wrong about where it lives,
+    /// only about where they are - so answer, and say which site the answer is on.
+    ///
+    /// Gated on access to the MAIN site, not to this one. Being Site Admin here says nothing about
+    /// there, and following one of these switches the session's whole site context.
+    /// </summary>
+    private async Task<IReadOnlyList<AppSearchEntry>> MainSiteEntriesAsync(
+        AppSearchContext context, bool isAdmin, bool isDefaultSite)
+    {
+        if (isDefaultSite || context.User is null)
+            return [];
+
+        // Instance-wide cards need global Admin, which does not depend on the site in context.
+        // The main-site-only ones have no admin gate, so they need Site Admin on the main site -
+        // which a managed site's own admin does not get for free.
+        var mainSlug = SiteManagementService.DefaultSiteSlug;
+        var canAdminMain = isAdmin
+            || (await _authorization.AuthorizeAsync(context.User, mainSlug, Policies.SiteAdmin)).Succeeded;
+
+        var reachable = Index.Where(i =>
+            (i.Reach == Reach.InstanceWide && isAdmin) ||
+            (i.Reach == Reach.DefaultSite && canAdminMain));
+
+        return reachable
+            .Select(i => i.Entry.OnSite(mainSlug, "Main Site"))
             .ToList();
     }
 

@@ -58,7 +58,15 @@
                             @onmousedown:preventDefault="true"
                             @onclick="@(() => SelectAsync(hit))">
                         <span class="app-search-result-title">@hit.Entry.Title</span>
-                        <span class="app-search-result-crumb">@Crumb(hit.Entry)</span>
+                        <span class="app-search-result-crumb">
+                            @Crumb(hit.Entry)
+                            @if (hit.Entry.SiteName is not null)
+                            {
+                                @* Following this changes which site the session is on, so it is
+                                   named on the result rather than discovered afterwards. *@
+                                <span class="app-search-result-site">@hit.Entry.SiteName</span>
+                            }
+                        </span>
                     </button>
                 }
             }
@@ -402,8 +410,18 @@
     }
 
     .app-search-result-crumb {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
         color: var(--text-muted);
         font-size: 0.75rem;
+    }
+
+    .app-search-result-site {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: 4px;
+        padding: 0 0.3rem;
     }
 
     .app-search-empty {
