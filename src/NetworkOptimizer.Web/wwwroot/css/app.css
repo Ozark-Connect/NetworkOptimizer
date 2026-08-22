@@ -17,6 +17,13 @@
     --accent-color: #E56B11;
     --accent-hover: #F08530;
 
+    /* Signal quality - five grades, used by .signal-* and the dashboard gauges */
+    --signal-excellent: #10b981;
+    --signal-good: #22c55e;
+    --signal-fair: #eab308;
+    --signal-weak: #f97316;
+    --signal-poor: #ef4444;
+
     /* Status Colors - refined for dark backgrounds */
     --success-color: #24bc70;
     --warning-color: #e79613;
@@ -1905,13 +1912,14 @@ a.stat-card-link:active {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.1rem;
     flex: 1;
 }
 
 .ont-rx-gauge .rx-power-value {
     font-size: 1.75rem;
     font-weight: 600;
+    line-height: 1.2;
 }
 
 .ont-rx-gauge .rx-power-label {
@@ -1924,6 +1932,63 @@ a.stat-card-link:active {
     align-items: center;
     gap: 0.5rem;
     margin-left: auto;
+}
+
+.signal-hero {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: 0.6rem;
+}
+
+.signal-gauge {
+    width: 14px;
+    height: 52px;
+    border-radius: 7px;
+    position: relative;
+    flex: none;
+    overflow: hidden;
+}
+
+.signal-gauge .gauge-shade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    background: var(--bg-card);
+    opacity: 0.8;
+}
+
+.signal-gauge .gauge-shade-low {
+    top: auto;
+    bottom: 0;
+}
+
+.signal-with-model .ont-rx-gauge {
+    align-items: flex-start;
+    flex: initial;
+}
+
+.cm-model {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+    text-align: right;
+    min-width: 0;
+}
+
+.cm-model-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.cm-model-number {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
 }
 
 .signal-centered {
@@ -1939,8 +2004,19 @@ a.stat-card-link:active {
     margin-left: 0;
 }
 @media (max-width: 768px) {
-    .signal-centered {
+    .signal-centered,
+    .signal-with-model {
         flex-wrap: wrap;
+    }
+    .signal-with-model .modem-nav {
+        margin-left: 0;
+    }
+    .signal-with-model .cm-model {
+        margin-left: auto;
+    }
+    .signal-hero {
+        gap: 0.8rem;
+        margin-left: 0.15rem;
     }
     .signal-centered .modem-nav {
         position: static;
@@ -13000,15 +13076,15 @@ a.path-hop.hop-clickable:hover {
 
 /* Signal quality classes */
 .power-stat-card.signal-excellent .power-stat-value,
-.signal-excellent { color: #10b981; }
+.signal-excellent { color: var(--signal-excellent); }
 .power-stat-card.signal-good .power-stat-value,
-.signal-good { color: #22c55e; }
+.signal-good { color: var(--signal-good); }
 .power-stat-card.signal-fair .power-stat-value,
-.signal-fair { color: #eab308; }
+.signal-fair { color: var(--signal-fair); }
 .power-stat-card.signal-weak .power-stat-value,
-.signal-weak { color: #f97316; }
+.signal-weak { color: var(--signal-weak); }
 .power-stat-card.signal-poor .power-stat-value,
-.signal-poor { color: #ef4444; }
+.signal-poor { color: var(--signal-poor); }
 
 /* WiFi Page Sections - Nested Card Colors */
 .wifi-sections .card {

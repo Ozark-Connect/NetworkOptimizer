@@ -150,6 +150,23 @@ public static class NetworkFormatHelpers
     };
 
     /// <summary>
+    /// Vendors that arrive in caps but are not branded that way. SFP DDM reports the
+    /// vendor from a fixed-width EEPROM field that modules routinely fill in upper
+    /// case, so the raw string shouts where the brand does not.
+    ///
+    /// An explicit allowlist, never a blanket title-case pass: plenty of vendors ARE
+    /// all caps (ZTE, FS, HPE, TP-LINK), and lower-casing those would be the same
+    /// mistake in the other direction. Add a row when someone spots one.
+    /// </summary>
+    private static readonly Dictionary<string, string> BrandCasing = new(StringComparer.Ordinal)
+    {
+        ["CALIX"] = "Calix",
+        ["NOKIA"] = "Nokia",
+        ["HUAWEI"] = "Huawei",
+        ["UBIQUITI"] = "Ubiquiti",
+    };
+
+    /// <summary>
     /// The storage-time ASN/org-name cleaner: strips industry suffixes (Communications, Telecom,
     /// Broadband, Networks, Services, Parent, Holdings ...) and legal forms (LLC, Inc, AB ...) off
     /// the tail ("Hisense Broadband Technologies Co Ltd" -> "Hisense", "Level 3 Parent, LLC" ->
@@ -178,6 +195,9 @@ public static class NetworkFormatHelpers
             }
         } while (changed && cleaned.Contains(' '));
         cleaned = cleaned.Trim();
-        return OrgAliases.TryGetValue(cleaned, out var alias) ? alias : cleaned;
+        if (OrgAliases.TryGetValue(cleaned, out var alias))
+            cleaned = alias;
+
+        return BrandCasing.TryGetValue(cleaned, out var cased) ? cased : cleaned;
     }
 }

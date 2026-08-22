@@ -9,6 +9,20 @@ public sealed record OntPollContext
     /// <summary>Configuration ID for caching keys and diagnostics.</summary>
     public required int Id { get; init; }
 
+    /// <summary>
+    /// Site this configuration belongs to. Providers are singletons shared by
+    /// every site, while <see cref="Id"/> only counts within one site's database,
+    /// so any provider-side cache must key on <see cref="CacheKey"/>, not Id.
+    /// </summary>
+    public string SiteSlug { get; init; } = "";
+
+    /// <summary>
+    /// Key for provider-side per-device caches (sessions, tokens, discovered
+    /// endpoints, last-seen counters). Never key such a cache on Id alone: the
+    /// first device added at every site has Id 1.
+    /// </summary>
+    public string CacheKey => $"{SiteSlug}/{Id}";
+
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 

@@ -499,6 +499,7 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
         return new StarlinkPollContext
         {
             Id = config.Id,
+            SiteSlug = _siteSlug,
             Name = config.Name,
             Host = host,
             ConfiguredHost = config.Host,

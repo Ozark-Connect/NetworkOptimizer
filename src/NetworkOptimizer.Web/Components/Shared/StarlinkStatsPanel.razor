@@ -122,18 +122,19 @@
 
         @if (stats != null)
         {
-            @if (stats.ActiveAlerts.Count > 0)
+            var notices = GetNotices();
+            @if (stats.ActiveAlerts.Count > 0 || notices.Count > 0)
             {
                 <div class="starlink-alerts">
                     @foreach (var alert in stats.ActiveAlerts)
                     {
-                        <span class="starlink-badge starlink-badge-warning">@HumanizeToken(alert)</span>
+                        <span class="starlink-badge starlink-badge-warning">@AlertLabel(alert)</span>
+                    }
+                    @foreach (var notice in notices)
+                    {
+                        <span class="starlink-notice">@notice</span>
                     }
                 </div>
-            }
-            @foreach (var notice in GetNotices())
-            {
-                <div class="starlink-notice">@notice</div>
             }
         }
 
@@ -257,7 +258,8 @@
     .starlink-alerts {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.35rem;
+        align-items: center;
+        gap: 0.35rem 0.6rem;
     }
 
     .starlink-badge {
@@ -565,6 +567,20 @@
     }
 
     /// <summary>"thermal_throttle" or "ThermalThrottle" -> "Thermal throttle".</summary>
+    /// <summary>
+    /// Alert names whose humanized form is not what the dish is actually telling
+    /// you. InstallPending reads as though something is waiting to be installed on
+    /// site; it means a software update is waiting. Add a row when another reads
+    /// wrong.
+    /// </summary>
+    private static readonly Dictionary<string, string> AlertLabels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["InstallPending"] = "Update pending",
+    };
+
+    private static string AlertLabel(string token) =>
+        AlertLabels.TryGetValue(token, out var label) ? label : HumanizeToken(token);
+
     private static string HumanizeToken(string token)
     {
         if (string.IsNullOrEmpty(token)) return token;

@@ -320,6 +320,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         return new CmPollContext
         {
             Id = config.Id,
+            SiteSlug = _siteSlug,
             Name = config.Name,
             Host = host,
             ConfiguredHost = config.Host,

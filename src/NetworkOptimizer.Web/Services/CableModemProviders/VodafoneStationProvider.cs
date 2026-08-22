@@ -44,7 +44,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(2);
 
     private readonly ILogger<VodafoneStationProvider> _logger;
-    private readonly ConcurrentDictionary<int, TgSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, TgSession> _sessions = new();
 
     public VodafoneStationProvider(ILogger<VodafoneStationProvider> logger)
     {
@@ -82,7 +82,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         }
         catch (Exception ex)
         {
-            _sessions.TryRemove(context.Id, out _);
+            _sessions.TryRemove(context.CacheKey, out _);
             _logger.LogWarning(ex, "Error polling Vodafone Station {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
         }
@@ -146,7 +146,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
 
     private async Task<TgSession?> EnsureSessionAsync(CmPollContext context, CancellationToken cancellationToken)
     {
-        if (_sessions.TryGetValue(context.Id, out var cached))
+        if (_sessions.TryGetValue(context.CacheKey, out var cached))
             return cached;
 
         return await LoginAsync(context, cancellationToken);
@@ -279,7 +279,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         await ApplyCredentialCookieAsync(authedClient, cookies, baseUrl, context, cancellationToken);
 
         session = session with { DeviceModel = await ReadDeviceModelAsync(authedClient, baseUrl, session.DeviceModel, cancellationToken) };
-        _sessions[context.Id] = session;
+        _sessions[context.CacheKey] = session;
 
         _logger.LogDebug("Vodafone Station {Name}: authenticated (p_status={Status})", context.Name, status);
         return session;
@@ -322,7 +322,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
 
     private async Task InvalidateSessionAsync(CmPollContext context, CancellationToken cancellationToken)
     {
-        if (!_sessions.TryRemove(context.Id, out var session))
+        if (!_sessions.TryRemove(context.CacheKey, out var session))
             return;
 
         var baseUrl = BuildBaseUrl(context);
