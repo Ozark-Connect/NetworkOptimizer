@@ -68,7 +68,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 
 - **AT&T residential gateways** - BGW320 (500 / 505), BGW210
 - **Quantum Fiber** - Q1000K SmartNID (CenturyLink)
-- **Nokia** - XS-010X-Q (Alcatel-Lucent, ALCL). GPON siblings (G-010S-P, G-010G-Q) share the same GponForm API and may work - untested, reports welcome
+- **Nokia** - XS-010X-Q (Alcatel-Lucent, ALCL). GPON siblings (G-010S-P, G-010G-Q) may share the same GponForm API - untested, reports welcome
 - **Deutsche Telekom** - Glasfaser-Modem 2 (FTTH bridge mode)
 - **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657
 - **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
