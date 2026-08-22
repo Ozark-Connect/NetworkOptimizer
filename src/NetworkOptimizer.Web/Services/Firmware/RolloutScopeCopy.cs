@@ -117,6 +117,52 @@ public static class RolloutScopeCopy
         return console == null ? deviceText : $"{deviceText} and {console}";
     }
 
+    /// <summary>
+    /// How far off a start is, for the alerts that announce one. Days and hours past a day, hours
+    /// alone below one: a plan booked into next weekend's quiet window is nearly 200 hours out, and
+    /// nobody reads that as a week.
+    /// </summary>
+    /// <param name="until">How long until the start.</param>
+    public static string StartsIn(TimeSpan until)
+    {
+        var hours = (int)Math.Round(Math.Max(0, until.TotalHours));
+        if (hours < 1) return "in under an hour";
+        if (hours < 24) return $"in about {Count(hours, "hour")}";
+
+        var days = hours / 24;
+        var rest = hours % 24;
+        return rest == 0
+            ? $"in about {Count(days, "day")}"
+            : $"in about {Count(days, "day")} and {Count(rest, "hour")}";
+    }
+
+    private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+    /// <summary>
+    /// The site's own reading of an instant, for the one place it matters most: an alert is read
+    /// out of context, and whether a 3 AM reboot bothers anyone is a question about the site's
+    /// hours. Empty when the site keeps the server's, which is every single-site install.
+    /// </summary>
+    /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
+    /// <param name="instantUtc">The instant to read at the site.</param>
+    public static string SiteAside(string? timeZoneId, DateTime instantUtc)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId)) return string.Empty;
+
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
+
+            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc), tz);
+            return $" ({at:h:mm tt} at-site)";
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return string.Empty;
+        }
+    }
+
     /// <summary>Capitalizes a phrase that starts a sentence.</summary>
     /// <param name="phrase">The phrase.</param>
     public static string Sentence(string phrase) =>

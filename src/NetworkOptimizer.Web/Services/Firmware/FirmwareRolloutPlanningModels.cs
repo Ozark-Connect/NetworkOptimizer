@@ -403,6 +403,13 @@ public class RolloutPlanDocument
     public int? WaitingApprovalWave { get; set; }
 
     /// <summary>
+    /// The start the fixed pre-start reminder has already gone out for. Keyed to the start rather
+    /// than a boolean so postponing re-arms it, and persisted because the reminder window is
+    /// crossed once but the tick that watches for it runs every 30 seconds.
+    /// </summary>
+    public DateTime? ReminderSentForStartAt { get; set; }
+
+    /// <summary>
     /// Image URLs for the versions devices were on BEFORE the rollout, resolved at plan time. The
     /// console catalog carries latest-only, so a rollback has nowhere else to read these from once
     /// the upgrade has happened. Entries with no URL record that the version was unresolvable.

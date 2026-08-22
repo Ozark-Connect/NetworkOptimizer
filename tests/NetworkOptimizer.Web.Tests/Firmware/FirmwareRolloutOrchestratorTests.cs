@@ -594,6 +594,57 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task PlanBookedAWeekOut_IsRemindedTwelveHoursBeforeItStarts()
+    {
+        using var harness = new RolloutHarness();
+        var start = RolloutHarness.Start.AddDays(7);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), start, Step(ApMac));
+        await harness.BookedAtAsync(plan.Id, RolloutHarness.Start);
+
+        await harness.TickAsync(TimeSpan.FromDays(6));
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.StartingSoon);
+
+        await harness.TickAsync(TimeSpan.FromHours(12));
+        var alert = harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.StartingSoon).Subject;
+        alert.Severity.Should().Be(AlertSeverity.Warning);
+        alert.Message.Should().Contain("in about 12 hours").And.Contain("postpone");
+
+        // The window is crossed once; the tick that watches for it runs every ten seconds.
+        await harness.TickAsync(TimeSpan.FromMinutes(1));
+        harness.Bus.Published.Count(e => e.EventType == RolloutAlerts.StartingSoon).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PlanBookedShortlyBeforeItsReminder_IsNotAnnouncedTwice()
+    {
+        using var harness = new RolloutHarness();
+        var start = RolloutHarness.Start.AddHours(19);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), start, Step(ApMac));
+        await harness.BookedAtAsync(plan.Id, RolloutHarness.Start);
+
+        await harness.TickAsync(TimeSpan.FromHours(7));
+
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.StartingSoon);
+    }
+
+    [Fact]
+    public async Task PostponingARemindedPlan_RemindsAgainBeforeTheNewStart()
+    {
+        using var harness = new RolloutHarness();
+        var start = RolloutHarness.Start.AddDays(7);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), start, Step(ApMac));
+        await harness.BookedAtAsync(plan.Id, RolloutHarness.Start);
+
+        await harness.TickAsync(TimeSpan.FromDays(6).Add(TimeSpan.FromHours(12)));
+        harness.Bus.Published.Count(e => e.EventType == RolloutAlerts.StartingSoon).Should().Be(1);
+
+        (await harness.Orchestrator.PostponeAsync(plan.Id)).Should().BeTrue();
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.HealthPostponeWindow);
+        harness.Bus.Published.Count(e => e.EventType == RolloutAlerts.StartingSoon).Should().Be(2);
+    }
+
+    [Fact]
     public async Task ScheduledStartOnAnUnhealthySite_PostponesOneWindowAndSaysWhy()
     {
         using var harness = new RolloutHarness();

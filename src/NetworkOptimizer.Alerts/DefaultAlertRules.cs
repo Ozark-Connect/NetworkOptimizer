@@ -587,6 +587,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Firmware Rollout: Starting Soon",
+            IsEnabled = true,
+            EventTypePattern = "rollout.starting_soon",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Started",
             IsEnabled = true,
             EventTypePattern = "rollout.started",
