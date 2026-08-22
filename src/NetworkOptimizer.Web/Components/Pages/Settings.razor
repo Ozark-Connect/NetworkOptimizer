@@ -908,7 +908,12 @@
     <!-- Monitoring Configuration -->
     <div class="card settings-tab-monitoring" id="monitoring">
         <div class="card-header">
-            <h2 class="card-title">Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Monitoring</h2>
+                <a href="/monitoring" class="settings-title-link" data-tooltip="Open Monitoring">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             @if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV2c || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV3Only || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Working)
             {
                 <span class="status-badge status-connected">@(_monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV2c ? "v2c" : _monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")</span>
@@ -1132,7 +1137,12 @@
     <!-- 5. Adaptive SQM Monitor -->
     <div class="card settings-tab-monitoring" id="sqm-monitor">
         <div class="card-header">
-            <h2 class="card-title">Adaptive SQM Monitor (Optional)</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Adaptive SQM Monitor (Optional)</h2>
+                <a href="/sqm" class="settings-title-link" data-tooltip="Open Adaptive SQM">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
         </div>
         <div class="card-body">
@@ -2140,7 +2150,12 @@
     <!-- 7. Speed Test Settings -->
     <div class="card settings-tab-speedtests" id="speed-test-settings">
         <div class="card-header">
-            <h2 class="card-title">Speed Test Settings</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">LAN Speed Test Settings</h2>
+                <a href="/speedtest" class="settings-title-link" data-tooltip="Open LAN Speed Test">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             @if (_multiSiteEnabled)
             {
                 <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
@@ -2198,7 +2213,12 @@
     <!-- 8. External Speed Test Servers -->
     <div class="card settings-tab-speedtests" id="external-speedtest-settings">
         <div class="card-header">
-            <h2 class="card-title">External Speed Test Servers</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">External Speed Test Servers</h2>
+                <a href="/wan-speedtest" class="settings-title-link" data-tooltip="Open WAN Speed Test">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             @if (_multiSiteEnabled)
             {
                 <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
@@ -2392,7 +2412,12 @@
     <!-- 11. Security Audit -->
     <div class="card settings-tab-security" id="security-audit">
         <div class="card-header">
-            <h2 class="card-title">Security Audit</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Security Audit</h2>
+                <a href="/audit" class="settings-title-link" data-tooltip="Open Security Audit">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -2506,7 +2531,12 @@
     <!-- Alert Channels Configuration -->
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
-            <h2 class="card-title">@(SiteContext.IsDefault ? "Alert Channels" : "Site-Specific Alert Channels")</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">@(SiteContext.IsDefault ? "Alert Channels" : "Site-Specific Alert Channels")</h2>
+                <a href="/alerts" class="settings-title-link" data-tooltip="Open Alerts &amp; Schedule">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             <div class="card-header-badges">
                 @if (_multiSiteEnabled && SiteContext.IsDefault)
                 {
@@ -2826,7 +2856,12 @@
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
-            <h2 class="card-title">Threat Intelligence</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Threat Intelligence</h2>
+                <a href="/threats" class="settings-title-link" data-tooltip="Open Threat Intelligence">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             @if (_multiSiteEnabled && SiteContext.IsDefault)
             {
                 <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
@@ -3304,14 +3339,14 @@
 
                 <div class="action-item">
                     <h4>Clear Cache</h4>
-                    <p>Clear audit history, dismissed issues, and speed test results</p>
+                    <p>Clear audit history, acknowledged issues, and speed test results</p>
                     @if (!showClearCacheConfirm)
                     {
                         <button class="btn btn-warning" @onclick="() => showClearCacheConfirm = true">Clear Cache</button>
                     }
                     else
                     {
-                        <div class="alert alert-warning" style="margin-bottom: 1rem;">This will permanently delete all audit history, dismissed issues, and speed test results.</div>
+                        <div class="alert alert-warning" style="margin-bottom: 1rem;">This will permanently delete all audit history, acknowledged issues, and speed test results.</div>
                         <div style="display: flex; gap: 0.5rem;">
                             <button class="btn btn-danger" @onclick="ClearCache" disabled="@isClearingCache">
                                 @if (isClearingCache)
