@@ -11,7 +11,7 @@
       "selector": "[data-tour=\"settings-search\"]",
       "title": "Settings search",
       "listLabel": "Find any setting without knowing its tab",
-      "body": "You no longer need to know which tab a setting lives on. Type what you are after and press **Enter**. It matches what a setting does as well as what it is called, so **docsis** finds **Cable Modem Monitoring** and **kiosk** finds **UI / Display Settings**.",
+      "body": "You no longer need to know which tab a setting lives on. Type what you are after and press **Enter**. It matches what a setting does as well as what it is called, so **docsis** finds **Cable Modem Monitoring** and **kiosk** finds **UI / Display Settings**.\n\nComing to the entire app soon.",
       "placement": "bottom",
       "optional": true
     }
