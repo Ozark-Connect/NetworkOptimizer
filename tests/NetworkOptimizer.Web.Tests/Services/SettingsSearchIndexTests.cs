@@ -117,6 +117,11 @@ public class SettingsSearchIndexTests
     [InlineData("login", "identity-sign-in")]
     [InlineData("passwords", "admin-password")]
     [InlineData("change password", "admin-password")]
+    // Authorization is who may do what, which is Access - not Sign-In, which is who you are.
+    [InlineData("rbac", "identity-access")]
+    [InlineData("authz", "identity-access")]
+    [InlineData("authorization", "identity-access")]
+    [InlineData("access control", "identity-access")]
     // Their own word for the hardware, not ours.
     [InlineData("router", "gateway-ssh")]
     // The satellite layer is set here but seen on the Signal Map, so it gets called the wifi map.

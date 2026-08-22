@@ -321,9 +321,10 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("identity", "Identity", "identity-access",
             "Access",
             ["site access", "permissions"],
-            ["site role", "grant", "membership", "who can reach which site", "site admin",
-             "site operator", "site viewer", "everyone reaches every site",
-             "restrict sites to members"]),
+            ["rbac", "authorization", "authz", "access control", "role-based access control",
+             "who can do what", "site role", "grant",
+             "membership", "who can reach which site", "site admin", "site operator", "site viewer",
+             "everyone reaches every site", "restrict sites to members"]),
 
         // roles=1 rather than the anchor: it is the route the Site role tooltips already use, and it
         // opens the panel on the way in. The card is collapsed by default, so arriving by anchor
@@ -331,8 +332,9 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("identity", "Identity", "identity-roles",
             "Roles Reference",
             ["roles"],
-            ["role", "admin", "operator", "viewer", "site admin", "site operator", "site viewer",
-             "what each role can do", "global role"], query: "roles=1"),
+            ["role", "rbac", "authorization", "role-based access control", "admin", "operator",
+             "viewer", "site admin", "site operator", "site viewer", "what each role can do",
+             "global role"], query: "roles=1"),
 
         // Users and Sign-In only render in the instance-wide Identity view, which is the main site's
         // global Admin. A site-scoped Identity tab shows Access and the roles reference and nothing else.
@@ -346,8 +348,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("identity", "Identity", "identity-sign-in",
             "Sign-In",
             ["SSO", "single sign-on", "sign in", "signin", "login", "log in",
-             "authentication", "MFA", "two-factor"],
-            ["auth", "identity provider", "federation", "federated", "oidc", "openid connect",
+             "auth", "authentication", "MFA", "two-factor"],
+            ["identity provider", "federation", "federated", "oidc", "openid connect",
              "saml", "unifi identity", "multi-factor authentication", "2fa", "authenticator app",
              "passkey", "authority", "client id", "client secret", "scopes", "claim mapping",
              "login button label", "create on first sign-in", "local sign-in",
