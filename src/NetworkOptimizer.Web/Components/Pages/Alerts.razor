@@ -2317,7 +2317,7 @@
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
-                _ = SetActiveTab(newTab, pushHistory: false);
+                _ = InvokeAsync(() => SetActiveTab(newTab, pushHistory: false));
         }
         _lastTabParam = TabParam;
     }
@@ -2373,6 +2373,10 @@
         }
 
         _loading = false;
+        // Arriving from the nav rather than the tab strip runs this detached from OnParametersSet,
+        // where no event follows to redraw. Without this the finished load sat unrendered and the
+        // tab spun until the 30s timer happened to paint it.
+        StateHasChanged();
     }
 
     // ========== Data Loading ==========
@@ -3784,15 +3788,13 @@
     {
         try
         {
-            // Load WAN networks from console. OnConnectionChanged handles the
-            // case where the console isn't ready yet at page load.
+            // OnConnectionChanged reloads this if the console is not ready yet.
             if (ConnectionService.IsConnected)
             {
                 try
                 {
                     var networks = await ConnectionService.GetNetworksAsync();
                     _dataUsageWanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-                    _wanNetworksFetched = true;
                 }
                 catch (Exception ex)
                 {
@@ -3800,10 +3802,9 @@
                 }
             }
 
-            // The spinner means "not looked yet", so the look counts however it went. Setting this
-            // only on success left a disconnected console - or a call that threw - spinning on
-            // "Connecting to UniFi Console..." with nothing to end it. The empty state says the
-            // same thing and stops, and OnConnectionChanged reloads the tab if the console returns.
+            // The spinner means "not looked yet", so the look counts however it went: a disconnected
+            // console or a call that threw lands on the empty state, which says the same thing and
+            // stops. Never inside the branch above, which is what left it spinning.
             _wanNetworksFetched = true;
 
             // Load live WAN up/down status from device API
