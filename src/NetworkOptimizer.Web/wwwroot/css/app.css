@@ -1964,8 +1964,8 @@ a.stat-card-link:active {
     left: 0;
     right: 0;
     height: 2px;
-    background: var(--bg-primary);
-    opacity: 0.4;
+    background: var(--text-primary);
+    opacity: 0.65;
 }
 
 .signal-with-model .ont-rx-gauge {
