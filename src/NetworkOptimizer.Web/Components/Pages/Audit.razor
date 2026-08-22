@@ -175,7 +175,7 @@
                     <button class="tab @(selectedFilter == "critical" ? "active" : "")" @onclick='() => selectedFilter = "critical"'>Critical (@criticalCount)</button>
                     <button class="tab @(selectedFilter == "recommended" ? "active" : "")" @onclick='() => selectedFilter = "recommended"'>Recommended (@warningCount)</button>
                     <button class="tab @(selectedFilter == "info" ? "active" : "")" @onclick='() => selectedFilter = "info"'>Info (@infoCount)</button>
-                    <button class="tab tab-muted @(selectedFilter == "dismissed" ? "active" : "")" @onclick='() => selectedFilter = "dismissed"'>Dismissed (@dismissedIssues.Count)</button>
+                    <button class="tab tab-muted @(selectedFilter == "dismissed" ? "active" : "")" @onclick='() => selectedFilter = "dismissed"'>Acknowledged (@dismissedIssues.Count)</button>
                 </div>
             </div>
             <div class="card-body">
@@ -240,7 +240,7 @@
                         @if (!dismissedIssues.Any())
                         {
                             <div class="no-issues">
-                                <p>No dismissed issues.</p>
+                                <p>No acknowledged issues.</p>
                             </div>
                         }
                     }
@@ -288,8 +288,8 @@
                                                     </span>
                                                 </span>
                                             }
-                                            <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                Dismiss
+                                            <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Acknowledge this issue - still scored">
+                                                Acknowledge
                                             </button></SiteAdminOnly>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
@@ -428,8 +428,8 @@
                                                                 {
                                                                     <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
                                                                 }
-                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                                    Dismiss
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Acknowledge this issue - still scored">
+                                                                    Acknowledge
                                                                 </button></SiteAdminOnly>
                                                             </div>
                                                         }
@@ -438,16 +438,16 @@
                                                             @* Non-device group: show description per item *@
                                                             <div class="issue-context">
                                                                 <span class="context-item issue-item-description">@FormatIssueText(issue.Description)</span>
-                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                                    Dismiss
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Acknowledge this issue - still scored">
+                                                                    Acknowledge
                                                                 </button></SiteAdminOnly>
                                                             </div>
                                                         }
                                                         else
                                                         {
                                                             <div class="issue-context">
-                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                                    Dismiss
+                                                                <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Acknowledge this issue - still scored">
+                                                                    Acknowledge
                                                                 </button></SiteAdminOnly>
                                                             </div>
                                                         }

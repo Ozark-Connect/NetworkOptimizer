@@ -227,9 +227,10 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "polling interval", "show the starlink stats tab"]),
 
         Entry("speedtests", "Speed Tests", "speed-test-settings",
-            "Speed Test Settings",
-            ["iperf3 settings"],
-            ["iperf3", "parallel streams by device type", "gateway", "unifi devices", "other devices",
+            "LAN Speed Test Settings",
+            ["LAN Speed Test", "LAN test", "iperf3 settings"],
+            ["iperf3", "lan speed test", "lan test", "lan speed", "local speed test",
+             "parallel streams by device type", "gateway", "unifi devices", "other devices",
              "test duration", "tcp streams", "throughput"]),
 
         Entry("speedtests", "Speed Tests", "external-speedtest-settings",
@@ -317,7 +318,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Data Management",
             ["backup", "restore", "export", "import"],
             ["back up", "full export", "settings only", "encrypted backup", ".nopt", "restore settings",
-             "apply import", "clear cache", "audit history", "dismissed issues", "speed test results",
+             "apply import", "clear cache", "audit history", "acknowledged issues", "dismissed issues", "speed test results",
              "reset all settings", "reset to defaults"], Reach.InstanceWide),
 
         Entry("identity", "Identity", "identity-access",
