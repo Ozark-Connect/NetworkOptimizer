@@ -284,27 +284,33 @@
 
     /// <summary>
     /// Split a provider's device model into the name users know and the model
-    /// number behind it, so "CBR (CGA4332COM)" stacks as two lines.
+    /// number behind it: "CBR (CGA4332COM)" and "ARRIS SB8200" both stack as two
+    /// lines, whether the provider parenthesized the number or just appended it.
     ///
     /// A bare vendor word means the provider could not read a model off the device
     /// and fell back to naming the maker ("Netgear", "Motorola"). Those take a model
     /// number off the device's own name when it holds one - someone who calls it
     /// "CM600 - MyISP" has already told us what it is - and "CM" when it does not.
-    /// Anything already carrying CM in the name is left alone rather than made to
-    /// say it twice.
+    ///
+    /// A model number standing on its own has no vendor to sit above it, so it stays
+    /// a single line rather than being made to say "CM" underneath itself.
     /// </summary>
     internal static (string Name, string? Number) SplitModel(string model, string? deviceName = null)
     {
         var trimmed = model.Trim();
 
-        var match = ModelWithNumber.Match(trimmed);
-        if (match.Success)
-            return (match.Groups[1].Value, match.Groups[2].Value);
+        var parenthesized = ModelWithNumber.Match(trimmed);
+        if (parenthesized.Success)
+            return (parenthesized.Groups[1].Value, parenthesized.Groups[2].Value);
 
-        var vendorOnly = !trimmed.Contains(' ')
-            && !trimmed.Contains("CM", StringComparison.OrdinalIgnoreCase);
+        var number = ModelNumberInName.Match(trimmed);
+        if (number.Success)
+        {
+            var vendor = trimmed[..number.Index].Trim();
+            return vendor.Length > 0 ? (vendor, number.Value) : (trimmed, null);
+        }
 
-        if (!vendorOnly)
+        if (trimmed.Contains(' '))
             return (trimmed, null);
 
         var fromName = string.IsNullOrWhiteSpace(deviceName)

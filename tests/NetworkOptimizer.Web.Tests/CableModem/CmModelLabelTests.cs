@@ -52,16 +52,25 @@ public class CmModelLabelTests
     [Theory]
     [InlineData("CM600")]
     [InlineData("cm1000")]
-    public void AModelAlreadyCarryingCmIsNotMadeToSayItTwice(string model)
+    [InlineData("SB8200")]
+    public void AModelNumberOnItsOwnHasNoVendorToStackAboveIt(string model)
     {
         SplitModel(model).Should().Be((model, null));
     }
 
     [Theory]
-    [InlineData("ARRIS SB8200")]
-    [InlineData("Motorola MB8611")]
+    [InlineData("ARRIS SB8200", "ARRIS", "SB8200")]
+    [InlineData("Motorola MB8611", "Motorola", "MB8611")]
+    [InlineData("Netgear CM1000", "Netgear", "CM1000")]
+    public void AnUnparenthesizedModelNumberStacksTheSameWay(string model, string name, string number)
+    {
+        SplitModel(model).Should().Be((name, number));
+    }
+
+    [Theory]
     [InlineData("Xfinity Gateway")]
-    public void AMultiWordModelStaysOnOneLine(string model)
+    [InlineData("ARRIS Surfboard HNAP")]
+    public void AModelWithNoNumberInItStaysOnOneLine(string model)
     {
         SplitModel(model).Should().Be((model, null));
     }
