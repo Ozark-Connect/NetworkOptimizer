@@ -468,6 +468,7 @@ location / {
     proxy_set_header Host $host;
 }
 ```
+**NPM** - supported, work from the nginx config above, or email tj@ozarkconnect.net and we'll send you instructions. 
 
 **Zoraxy** - supported, but the setup is GUI-driven and there is no written
 walkthrough yet. Email tj@ozarkconnect.net and we'll send you instructions.
