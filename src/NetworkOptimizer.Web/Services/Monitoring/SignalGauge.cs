@@ -123,7 +123,7 @@ public readonly record struct OpticalBands(
     private double HalfSpan => Math.Max(Peak - (FairLow - 2), (FairHigh + 2) - Peak);
 
     /// <summary>
-    /// Bottom of the track. Placed so the peak sits at dead centre: the graded bounds
+    /// Bottom of the track. Placed so the peak sits at dead center: the graded bounds
     /// are not symmetric around it (PON runs -28 to -4 either side of a -18 peak), and
     /// deriving the ends from those bounds alone put the best reading below the middle
     /// of the bar.
