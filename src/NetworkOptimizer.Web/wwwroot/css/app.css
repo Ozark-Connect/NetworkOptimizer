@@ -1919,6 +1919,7 @@ a.stat-card-link:active {
 .ont-rx-gauge .rx-power-value {
     font-size: 1.75rem;
     font-weight: 600;
+    line-height: 1.2;
 }
 
 .ont-rx-gauge .rx-power-label {
@@ -1937,6 +1938,7 @@ a.stat-card-link:active {
     display: flex;
     align-items: center;
     gap: 1rem;
+    margin-left: 0.35rem;
 }
 
 .signal-gauge {
@@ -1945,7 +1947,6 @@ a.stat-card-link:active {
     border-radius: 7px;
     position: relative;
     flex: none;
-    margin-left: 0.35rem;
     overflow: hidden;
 }
 
@@ -2019,8 +2020,6 @@ a.stat-card-link:active {
     }
     .signal-hero {
         gap: 0.8rem;
-    }
-    .signal-gauge {
         margin-left: 0.15rem;
     }
     .signal-centered .modem-nav {
