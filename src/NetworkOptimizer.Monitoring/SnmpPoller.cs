@@ -5,6 +5,7 @@ using Lextm.SharpSnmpLib;
 using Lextm.SharpSnmpLib.Messaging;
 using Lextm.SharpSnmpLib.Security;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Models;
 
 // SNMP v3 protocol requires supporting legacy authentication/encryption for device compatibility.
@@ -589,7 +590,7 @@ public class SnmpPoller : ISnmpPoller
 
         if (lmTemp > 0)
         {
-            metrics.Temperature = lmTemp / 1000.0;
+            metrics.Temperature = TemperatureScale.NormalizeCelsius(lmTemp);
         }
         else if (unifiTemp > 0 && unifiTemp < 200)
         {
