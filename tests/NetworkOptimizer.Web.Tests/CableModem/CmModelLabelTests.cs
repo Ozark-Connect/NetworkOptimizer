@@ -68,6 +68,16 @@ public class CmModelLabelTests
     }
 
     [Theory]
+    [InlineData("Hitron Technologies CODA5810", "Hitron Technologies", "CODA5810")]
+    [InlineData("Technicolor CGA4233VOO", "Technicolor", "CGA4233VOO")]
+    [InlineData("Sercomm Broadband RT2302", "Sercomm Broadband", "RT2302")]
+    public void AVendorNameOfAnyLengthKeepsTheWholeNameOnTheFirstLine(
+        string model, string name, string number)
+    {
+        SplitModel(model).Should().Be((name, number));
+    }
+
+    [Theory]
     [InlineData("Xfinity Gateway")]
     [InlineData("ARRIS Surfboard HNAP")]
     public void AModelWithNoNumberInItStaysOnOneLine(string model)
