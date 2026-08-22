@@ -35,11 +35,13 @@ public class AgentUwnService
     /// uwnspeedtest JSON stdout on success, or an error message otherwise.
     /// </summary>
     public async Task<(bool success, string output)> RunAsync(
-        string siteSlug, int streams, int servers, int durationSeconds, int timeoutSeconds, CancellationToken ct)
+        string siteSlug, int agentId, int streams, int servers, int durationSeconds, int timeoutSeconds, CancellationToken ct)
     {
-        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        // The caller has already chosen which agent measures which WAN, so this never falls back to
+        // another one: a substitute would measure a different WAN under the chosen WAN's name.
+        var agent = _registry.GetForSite(siteSlug).FirstOrDefault(c => c.AgentId == agentId);
         if (agent == null)
-            return (false, $"No agent is online for site '{siteSlug}' to run the WAN speed test");
+            return (false, $"The agent chosen to run the WAN speed test for site '{siteSlug}' is no longer connected");
 
         var id = Interlocked.Increment(ref _nextRequestId);
         var pending = new PendingRun(agent.AgentId);

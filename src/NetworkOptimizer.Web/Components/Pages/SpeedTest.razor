@@ -103,17 +103,17 @@
                 {
                     <strong>Site Agent Offline</strong>
                     <p>
-                        This site's LAN speed tests run through its on-site agent, which isn't
-                        connected right now. Tests can resume when the agent reconnects.
+                        This site's LAN speed tests run through its On-Site Agent, which isn't
+                        connected right now. Tests can resume when the Agent reconnects.
                     </p>
                 }
                 else
                 {
                     <strong>No Site Agent</strong>
                     <p>
-                        LAN speed tests on a managed site run from its on-site agent, and this
-                        site has none online. Set up the site's agent under
-                        <a href="/settings#multi-site">Settings</a> to enable them.
+                        LAN speed tests on a managed site run from its On-Site Agent, and this
+                        site has none online. Set up the site's Agent under
+                        <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a> to enable them.
                     </p>
                 }
             </div>
@@ -361,7 +361,7 @@
                 <div class="alert alert-info">
                     <strong>Agent on gateway:</strong> Device speed tests reach the site's devices over SSH through
                     the agent tunnel, which isn't enabled for this site. Turn on <strong>Reach this site's devices
-                    through the agent tunnel</strong> under Settings &gt; Multi-Site to run them.
+                    through the agent tunnel</strong> under <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a> to run them.
                 </div>
             }
             else

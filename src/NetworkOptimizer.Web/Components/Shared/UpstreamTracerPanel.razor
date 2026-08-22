@@ -57,9 +57,9 @@
         @if (!CanDiscover)
         {
             <div class="alert alert-info" style="margin-bottom: 0;">
-                <strong>Deploy an on-site agent first.</strong>
+                <strong>Deploy an On-Site Agent first.</strong>
                 Upstream discovery traces the path from inside this site's network, so it needs a
-                connected agent at the site. Enroll one from <a href="/settings?tab=multisite#multi-site">Settings</a>, then
+                connected Agent at the site. Enroll one from <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings &gt; Multi-Site</a>, then
                 run discovery here.
             </div>
         }

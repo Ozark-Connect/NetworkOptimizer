@@ -50,8 +50,8 @@
             @if (siteUsesAgent)
             {
                 <div class="alert alert-info">
-                    <strong>On-site agent:</strong> Speed tests for this site run against its on-site agent at <code>@serverHost</code>, so they measure this site's own network rather than the central server.
-                    <a href="/settings#multi-site" class="tooltip-icon settings-link" data-tooltip="You can reconfigure this site's speed test URL if needed" data-tooltip-hover-only>
+                    <strong>On-Site Agent:</strong> Speed tests for this site run against its On-Site Agent at <code>@serverHost</code>, so they measure this site's own network rather than the central server.
+                    <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="tooltip-icon settings-link" data-tooltip="You can reconfigure this site's speed test URL if needed" data-tooltip-hover-only>
                         <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
                 </div>
@@ -59,13 +59,13 @@
             else if (agentOnGateway)
             {
                 <div class="alert alert-info">
-                    <strong>Agent on gateway:</strong> This site's agent runs on the UniFi gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal agent on a separate box at the site (Settings &gt; Multi-Site).
+                    <strong>Agent on Gateway:</strong> This site's Agent runs on the UniFi Gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal Agent on a separate box at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
                 </div>
             }
             else if (agentSiteOffline)
             {
                 <div class="alert alert-warning">
-                    <strong>On-site agent offline:</strong> This site's agent isn't reporting in, so the targets below point at the central server and may be unreachable from the site's network. Start the site's agent to test against the site directly.
+                    <strong>On-Site Agent offline:</strong> This site's Agent isn't reporting in, so the targets below point at the central server and may be unreachable from the site's network. Start the site's Agent to test against the site directly.
                 </div>
             }
             @if (!agentOnGateway)
@@ -435,7 +435,7 @@
                 </ol>
 
                 <p class="form-help">
-                    <strong>Note:</strong> This tests the LAN speed between client devices and @(siteUsesAgent ? "the on-site agent" : "the Network Optimizer server").
+                    <strong>Note:</strong> This tests the LAN speed between client devices and @(siteUsesAgent ? "the On-Site Agent" : "the Network Optimizer server").
                     It's useful for identifying wireless bottlenecks, cable issues, switch problems, or network congestion.
                 </p>
             </div>
@@ -883,7 +883,7 @@
         agentSiteOffline = !SiteContext.IsDefault && siteTarget.AgentOffline;
         agentOnGateway = siteTarget.AgentOnGateway;
         siteUsesAgent = siteTarget.UsesAgent;
-        targetLabel = siteUsesAgent ? "the on-site agent" : "this server";
+        targetLabel = siteUsesAgent ? "the On-Site Agent" : "this server";
 
         if (siteUsesAgent)
         {
