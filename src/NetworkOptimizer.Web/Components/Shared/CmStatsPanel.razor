@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @inject ICableModemService CmService
+@using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 
 <div class="cellular-stats-panel">
@@ -20,7 +21,7 @@
             </div>
         </div>
 
-        <div class="signal-quality-section signal-centered">
+        <div class="signal-quality-section signal-with-model">
             <div class="ont-rx-gauge">
                 <span class="rx-power-value">-</span>
                 <span class="rx-power-label">Downstream SNR avg</span>
@@ -101,12 +102,21 @@
             </div>
         </div>
 
-        <div class="signal-quality-section signal-centered">
-            <div class="ont-rx-gauge">
-                <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
-                    @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
-                </span>
-                <span class="rx-power-label">Downstream SNR avg</span>
+        <div class="signal-quality-section signal-with-model">
+            <div class="signal-hero">
+                @if (_stats.DownstreamSnrAvgDb.HasValue)
+                {
+                    var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
+                    <div class="signal-gauge" style="background: @SnrTrack">
+                        <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
+                    </div>
+                }
+                <div class="ont-rx-gauge">
+                    <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
+                        @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
+                    </span>
+                    <span class="rx-power-label">Downstream SNR avg</span>
+                </div>
             </div>
             <div class="modem-nav">
                 @if (_configs.Count > 1)
@@ -116,6 +126,17 @@
                     <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
                 }
             </div>
+            @if (!string.IsNullOrWhiteSpace(_stats.DeviceModel))
+            {
+                var model = SplitModel(_stats.DeviceModel, _stats.DeviceName);
+                <div class="cm-model">
+                    <span class="cm-model-name">@model.Name</span>
+                    @if (model.Number != null)
+                    {
+                        <span class="cm-model-number">@model.Number</span>
+                    }
+                </div>
+            }
         </div>
 
         <div class="cellular-metrics" style="margin-top: 0.75rem;">
@@ -252,12 +273,69 @@
         if (_currentIndex < _configs.Count - 1) { _currentIndex++; await LoadStatsAsync(); }
     }
 
+    private static readonly System.Text.RegularExpressions.Regex ModelWithNumber =
+        new(@"^(.*?)\s*\((.+)\)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // A model number shape: a short prefix, digits, and sometimes a suffix -
+    // CM600, SB8200, MB8611, CGA4332COM. Two digits minimum so ordinary words
+    // with a number after them ("Rack 4B", "Modem 2") are not mistaken for one.
+    private static readonly System.Text.RegularExpressions.Regex ModelNumberInName =
+        new(@"\b[A-Za-z]{1,5}\d{2,}[A-Za-z]{0,4}\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Split a provider's device model into the name users know and the model
+    /// number behind it: "CBR (CGA4332COM)" and "ARRIS SB8200" both stack as two
+    /// lines, whether the provider parenthesized the number or just appended it.
+    ///
+    /// A bare vendor word means the provider could not read a model off the device
+    /// and fell back to naming the maker ("Netgear", "Motorola"). Those take a model
+    /// number off the device's own name when it holds one - someone who calls it
+    /// "CM600 - MyISP" has already told us what it is - and "CM" when it does not.
+    ///
+    /// A model number standing on its own has no vendor to sit above it, so it stays
+    /// a single line rather than being made to say "CM" underneath itself.
+    /// </summary>
+    internal static (string Name, string? Number) SplitModel(string model, string? deviceName = null)
+    {
+        var trimmed = model.Trim();
+
+        var parenthesized = ModelWithNumber.Match(trimmed);
+        if (parenthesized.Success)
+            return (parenthesized.Groups[1].Value, parenthesized.Groups[2].Value);
+
+        var number = ModelNumberInName.Match(trimmed);
+        if (number.Success)
+        {
+            var vendor = trimmed[..number.Index].Trim();
+            return vendor.Length > 0 ? (vendor, number.Value) : (trimmed, null);
+        }
+
+        if (trimmed.Contains(' '))
+            return (trimmed, null);
+
+        var fromName = string.IsNullOrWhiteSpace(deviceName)
+            ? null
+            : ModelNumberInName.Match(deviceName).Value;
+
+        return (trimmed, string.IsNullOrEmpty(fromName) ? "CM" : fromName);
+    }
+
+    // Grade boundaries for downstream SNR, and the visible span around them.
+    private const double SnrFair = 30;
+    private const double SnrGood = 33;
+    private const double SnrExcellent = 36;
+    private const double SnrDomainLow = 25;
+    private const double SnrDomainHigh = 45;
+
+    private static readonly string SnrTrack =
+        SignalGauge.SnrTrack(SnrDomainLow, SnrDomainHigh, SnrFair, SnrGood, SnrExcellent);
+
     private string GetSnrClass(double? snr)
     {
         if (!snr.HasValue) return "";
-        if (snr >= 36) return "signal-excellent";
-        if (snr >= 33) return "signal-good";
-        if (snr >= 30) return "signal-fair";
+        if (snr >= SnrExcellent) return "signal-excellent";
+        if (snr >= SnrGood) return "signal-good";
+        if (snr >= SnrFair) return "signal-fair";
         return "signal-poor";
     }
 

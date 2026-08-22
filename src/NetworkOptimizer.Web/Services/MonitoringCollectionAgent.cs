@@ -2526,6 +2526,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 var context = new OntPollContext
                 {
                     Id = config.Id,
+                    SiteSlug = _siteSlug,
                     Name = config.Name,
                     Host = host,
                     ConfiguredHost = config.Host,

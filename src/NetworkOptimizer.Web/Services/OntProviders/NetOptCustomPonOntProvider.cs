@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
@@ -30,9 +29,16 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
     /// <summary>
     /// Reference endpoints are one-shot listeners (a netcat accept loop) that serve a
     /// single connection at a time and re-gather stats per request, so requests to the
-    /// same endpoint must never overlap. Gated per (host, port) so distinct endpoints -
-    /// different devices, different sites - still poll in parallel (this is a shared
-    /// singleton across all sites).
+    /// same endpoint must never overlap. Gated per site and endpoint, so distinct
+    /// endpoints still poll in parallel.
+    ///
+    /// The site has to be in the key: this is a singleton shared by every site, and
+    /// host:port alone is not unique across them - each site reaches its own gateway at
+    /// the same name ("unifi:10420"), so two sites would serialize against each other
+    /// for no reason, each waiting out the other's 15 s timeout.
+    ///
+    /// Not keyed on the poll context's CacheKey: two configurations on one site may point
+    /// at the same endpoint, and those genuinely must not overlap.
     /// </summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _requestGates = new();
 
@@ -116,7 +122,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         var port = context.Port > 0 ? context.Port : DefaultPort;
         var url = $"http://{context.Host}:{port}/";
 
-        var gate = _requestGates.GetOrAdd($"{context.Host}:{port}", _ => new SemaphoreSlim(1, 1));
+        var gate = _requestGates.GetOrAdd($"{context.SiteSlug}/{context.Host}:{port}", _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
         try
         {

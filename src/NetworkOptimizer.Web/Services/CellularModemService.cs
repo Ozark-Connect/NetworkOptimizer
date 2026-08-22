@@ -224,6 +224,7 @@ public class CellularModemService : ICellularModemService
         return new ModemPollContext
         {
             Id = modem.Id,
+            SiteSlug = _siteSlug,
             Name = modem.Name,
             Host = host,
             ConfiguredHost = modem.Host,

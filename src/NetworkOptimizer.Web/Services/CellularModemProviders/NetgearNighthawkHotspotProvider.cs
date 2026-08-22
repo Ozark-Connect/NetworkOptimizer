@@ -134,7 +134,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             _logger.LogInformation(
                 "Netgear session for {Host} expired (302 to /sess_cd_tmp), rebuilding",
                 context.ConfiguredHost ?? context.Host);
-            InvalidateSession(context.Host);
+            InvalidateSession(context.CacheKey);
 
             session = await GetOrCreateSessionAsync(context, requireAuth, cancellationToken);
             if (session == null) return null;
@@ -198,14 +198,14 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         CancellationToken cancellationToken)
     {
         // Fast path: existing session that's still authenticated to the right level
-        if (_sessions.TryGetValue(context.Host, out var existing))
+        if (_sessions.TryGetValue(context.CacheKey, out var existing))
         {
             if (!requireAuth || existing.IsAuthenticated)
             {
                 return existing;
             }
             // We need auth but have an unauthenticated session - tear it down
-            InvalidateSession(context.Host);
+            InvalidateSession(context.CacheKey);
         }
 
         var session = CreateSession(context.Host);
@@ -231,7 +231,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             }
         }
 
-        _sessions[context.Host] = session;
+        _sessions[context.CacheKey] = session;
         return session;
     }
 
@@ -366,9 +366,9 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         };
     }
 
-    private void InvalidateSession(string host)
+    private void InvalidateSession(string cacheKey)
     {
-        if (_sessions.TryRemove(host, out var session))
+        if (_sessions.TryRemove(cacheKey, out var session))
         {
             session.Dispose();
         }
