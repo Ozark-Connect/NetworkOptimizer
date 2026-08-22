@@ -108,6 +108,24 @@ public class SettingsSearchIndexTests
     [InlineData("quantum fiber", "ont-monitoring")]
     [InlineData("quectel", "cellular-modem")]
     [InlineData("speed test", "speed-test-settings")]
+    // The words people reach for around identity, none of which are card titles.
+    [InlineData("auth", "identity-sign-in")]
+    [InlineData("federation", "identity-sign-in")]
+    [InlineData("federated", "identity-sign-in")]
+    [InlineData("signin", "identity-sign-in")]
+    [InlineData("log in", "identity-sign-in")]
+    [InlineData("login", "identity-sign-in")]
+    [InlineData("passwords", "admin-password")]
+    [InlineData("change password", "admin-password")]
+    // Their own word for the hardware, not ours.
+    [InlineData("router", "gateway-ssh")]
+    // The satellite layer is set here but seen on the Signal Map, so it gets called the wifi map.
+    [InlineData("wifi map", "map")]
+    [InlineData("wi-fi map", "map")]
+    // The audit's toggles are all "Allow <kind> on main network", so this is how people ask for them.
+    [InlineData("allow device", "security-audit")]
+    [InlineData("allow devices", "security-audit")]
+    [InlineData("exclude devices", "security-audit")]
     // Typed it badly.
     [InlineData("cabl modm", "cable-modem")]
     [InlineData("adaptiv sqm", "sqm-monitor")]
