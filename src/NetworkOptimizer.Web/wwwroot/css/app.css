@@ -1970,6 +1970,12 @@ a.stat-card-link:active {
     .signal-with-model {
         flex-wrap: wrap;
     }
+    .signal-with-model .modem-nav {
+        margin-left: 0;
+    }
+    .signal-with-model .cm-model {
+        margin-left: auto;
+    }
     .signal-centered .modem-nav {
         position: static;
         margin-left: 0;
