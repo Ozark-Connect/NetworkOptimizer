@@ -74,7 +74,7 @@
     <p class="page-description">Configure Network Optimizer connections and preferences</p>
 </div>
 
-<div class="wifi-view-tabs-wrapper">
+<div class="wifi-view-tabs-wrapper settings-tabs-wrapper">
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
     <div class="wifi-view-tabs">
         <button class="wifi-view-tab @(_activeTab == "connection" ? "active" : "")"
@@ -143,6 +143,10 @@
         </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+    @* Every tab renders at once and is shown by class, so a hit is already on the page - selection
+       switches tab and rings the card rather than navigating. *@
+    <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync"
+                  data-tour="settings-search" />
 </div>
 
 <div class="settings-container settings-tabbed active-@_activeTab">
@@ -3827,6 +3831,12 @@
 <SponsorshipBanner AlwaysShow="true" />
 
 <style>
+    @@media (max-width: 768px) {
+        .settings-tabs-wrapper {
+            flex-wrap: wrap;
+        }
+    }
+
     .mi-funnel {
         margin-top: 0.5rem;
         color: var(--text-secondary);
@@ -3992,10 +4002,15 @@
         await UiHints.DismissAsync(UiHintKeys.MultiWanVantageSetup);
     }
 
-    private void SetActiveTab(string tab)
+    /// <param name="extraQuery">
+    /// Query state to carry alongside the tab, for a target that presents itself when asked
+    /// (roles=1). The tab alone cannot reproduce it, so it has to reach the URL.
+    /// </param>
+    private void SetActiveTab(string tab, string? extraQuery = null)
     {
         _activeTab = tab;
-        NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
+        var url = extraQuery is null ? "/settings?tab=" + tab : $"/settings?tab={tab}&{extraQuery}";
+        NavigationManager.NavigateTo(url, forceLoad: false, replace: false);
         _lastTabParam = tab;
         _ = EnsureKeyDeployStatusAsync();
 
@@ -4060,6 +4075,48 @@
                     if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
+    }
+
+    /// <summary>
+    /// Takes a search result to its card. The entry's Key is the tab it lives on and its Anchor is
+    /// the card's id, so this is the same tab switch plus scroll-and-highlight a #anchor link gets.
+    /// </summary>
+    private async Task GoToSearchHitAsync(NetworkOptimizer.Web.Services.Search.AppSearchHit hit)
+    {
+        // Lives on another site: switching carries us there and lands on the target in one step.
+        // The result said which site, so this is not a surprise by the time it happens.
+        if (hit.Entry.SiteSlug is { } slug && slug != SiteContext.Slug)
+        {
+            // The switch is a full page load, so this arrives as a fresh visit with no memory of
+            // having been sent anywhere. The anchor has to ride along as a #fragment, which is what
+            // HandleFragmentNavigationAsync reads on first render to scroll and ring the card -
+            // without it the tab is right and nothing on it is picked out.
+            var target = string.IsNullOrEmpty(hit.Entry.Anchor)
+                ? hit.Entry.Route
+                : $"{hit.Entry.Route}#{hit.Entry.Anchor}";
+
+            await SiteSwitch.SwitchToAsync(slug, target);
+            return;
+        }
+
+        var tab = ResolveTab(hit.Entry.Key);
+
+        // A route carrying more than its tab carries the part a tab switch cannot reproduce: the
+        // Roles Reference opens and rings itself off roles=1, watching for the location change.
+        // Navigate even when that tab is already active, or the card never hears about it.
+        var ampersand = hit.Entry.Route.IndexOf('&');
+        if (ampersand >= 0)
+        {
+            SetActiveTab(tab, hit.Entry.Route[(ampersand + 1)..]);
+            return;
+        }
+
+        if (_activeTab != tab)
+            SetActiveTab(tab);
+
+        // No anchor means the tab itself is the destination, as it is for the Audit Log.
+        if (!string.IsNullOrEmpty(hit.Entry.Anchor))
+            await ScrollToAndHighlightAsync(hit.Entry.Anchor);
     }
 
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
