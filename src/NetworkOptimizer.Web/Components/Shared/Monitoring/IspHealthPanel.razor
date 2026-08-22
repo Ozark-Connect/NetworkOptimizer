@@ -1231,7 +1231,13 @@ else
                     System.Linq.Queryable.Where(db.ScheduledTasks,
                         t => t.Enabled && t.TaskType == "wan_speedtest"),
                     t => t.TargetConfig));
-            _wanHasSpeedTestSchedule = configs.Any(c => ScheduleCoversWan(c, wanGroup, isPrimary));
+            // An Agent-run schedule names its WAN by context id, so those are resolved to a WAN key
+            // here. Schedules made before that field existed carry neither, and still fall back to
+            // "the primary is what an unnamed test measures".
+            var contextWans = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToDictionaryAsync(
+                System.Linq.Queryable.Where(db.WanContexts, c => c.WanInterface != null && c.WanInterface != ""),
+                c => c.Id, c => c.WanInterface!);
+            _wanHasSpeedTestSchedule = configs.Any(c => ScheduleCoversWan(c, wanGroup, isPrimary, contextWans));
         }
         catch
         {
@@ -1239,12 +1245,22 @@ else
         }
     }
 
-    private static bool ScheduleCoversWan(string? targetConfig, string wanGroup, bool wanIsPrimary)
+    private static bool ScheduleCoversWan(
+        string? targetConfig, string wanGroup, bool wanIsPrimary, IReadOnlyDictionary<int, string> contextWans)
     {
         if (string.IsNullOrEmpty(targetConfig)) return wanIsPrimary;
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+            // A vantage that still exists answers outright; one since deleted falls through to the
+            // WAN group the schedule also records, rather than reading as uncovered.
+            if (doc.RootElement.TryGetProperty("wanContextId", out var ctx)
+                && ctx.TryGetInt32(out var contextId)
+                && contextWans.TryGetValue(contextId, out var contextWan))
+            {
+                return string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(contextWan),
+                    wanGroup, StringComparison.OrdinalIgnoreCase);
+            }
             if (!doc.RootElement.TryGetProperty("wanGroup", out var g) || g.ValueKind != System.Text.Json.JsonValueKind.String)
                 return wanIsPrimary;
             return (g.GetString() ?? "").Split('+')

@@ -82,6 +82,42 @@ public static class ScheduleExecutorRegistration
         return scope;
     }
 
+    /// <summary>
+    /// A WAN speed test schedule's stored config. Every field is absent-tolerant: a schedule made
+    /// before a field existed keeps the meaning it had when it was created, which for
+    /// <c>wanContextId</c> is the site's default path.
+    /// </summary>
+    internal static (string TestType, bool MaxMode, string? WanGroup, string? WanName, int? WanContextId, string[]? MultiInterfaces)
+        ParseWanTestConfig(string? targetConfig)
+    {
+        var testType = "gateway";
+        var maxMode = false;
+        string? wanGroup = null;
+        string? wanName = null;
+        int? wanContextId = null;
+        string[]? multiInterfaces = null;
+
+        if (!string.IsNullOrEmpty(targetConfig))
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("testType", out var tt))
+                testType = tt.GetString() ?? "gateway";
+            if (root.TryGetProperty("maxMode", out var mm))
+                maxMode = mm.GetBoolean();
+            if (root.TryGetProperty("wanContextId", out var wc) && wc.TryGetInt32(out var contextId))
+                wanContextId = contextId;
+            if (root.TryGetProperty("wanGroup", out var wg))
+                wanGroup = wg.GetString();
+            if (root.TryGetProperty("wanName", out var wn))
+                wanName = wn.GetString();
+            if (root.TryGetProperty("interfaces", out var ifaces) && ifaces.ValueKind == System.Text.Json.JsonValueKind.Array)
+                multiInterfaces = ifaces.EnumerateArray().Select(e => e.GetString()!).ToArray();
+        }
+
+        return (testType, maxMode, wanGroup, wanName, wanContextId, multiInterfaces);
+    }
+
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteWanSpeedTestAsync(
         IServiceProvider services, string siteKey, int taskId, string? targetId, string? targetConfig, CancellationToken ct)
     {
@@ -96,28 +132,8 @@ public static class ScheduleExecutorRegistration
 
         try
         {
-            // Parse config for test type, max mode, multi-WAN
-            var testType = "gateway";
-            var maxMode = false;
-            string? wanGroup = null;
-            string? wanName = null;
-            string[]? multiInterfaces = null;
-
-            if (!string.IsNullOrEmpty(targetConfig))
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("testType", out var tt))
-                    testType = tt.GetString() ?? "gateway";
-                if (root.TryGetProperty("maxMode", out var mm))
-                    maxMode = mm.GetBoolean();
-                if (root.TryGetProperty("wanGroup", out var wg))
-                    wanGroup = wg.GetString();
-                if (root.TryGetProperty("wanName", out var wn))
-                    wanName = wn.GetString();
-                if (root.TryGetProperty("interfaces", out var ifaces) && ifaces.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    multiInterfaces = ifaces.EnumerateArray().Select(e => e.GetString()!).ToArray();
-            }
+            var (testType, maxMode, wanGroup, wanName, wanContextId, multiInterfaces) =
+                ParseWanTestConfig(targetConfig);
 
             // Reconcile WAN metadata against live controller data before running the test.
             // Scheduled configs bake interface, group, and name at creation time; these go stale
@@ -153,7 +169,8 @@ public static class ScheduleExecutorRegistration
                 var serverService = scope.ServiceProvider.GetRequiredService<IUwnSpeedTestService>();
                 if (await serverService.IsRunningAsync())
                     return (false, null, "WAN speed test is already running");
-                result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
+                result = await serverService.RunTestAsync(
+                    maxMode: maxMode, wanContextId: wanContextId, cancellationToken: ct);
             }
             else
             {

@@ -662,6 +662,16 @@ public class AgentProbeResultSink
     internal static bool ShouldPushSiteCollectionConfig(bool agentIsSteeredToWan) => !agentIsSteeredToWan;
 
     /// <summary>
+    /// Whether this agent should poll SNMP. Steered agents stand down so the site's collector does
+    /// it once, but only when there IS another one to do it: on a site where every agent sits
+    /// behind its own WAN, the collector is necessarily a steered agent, and standing it down too
+    /// leaves the site with no poller at all. <see cref="SelectCollectorAgentId"/> already falls
+    /// back to one for that reason; this is what lets its answer reach the agent.
+    /// </summary>
+    internal static bool ShouldPushSnmpConfig(bool agentIsSteeredToWan, bool agentIsCollector) =>
+        !agentIsSteeredToWan || agentIsCollector;
+
+    /// <summary>
     /// Whether this agent sits ENTIRELY behind one WAN: a context names it and gives no interface
     /// to bind, so the box itself is policy-routed out that WAN. An agent whose contexts all name
     /// an interface binds per probe and still routes normally, so it is not steered. Answers false
@@ -777,7 +787,9 @@ public class AgentProbeResultSink
     {
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
         if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
-        if (!ShouldPushSiteCollectionConfig(await IsSteeredToWanAgentAsync(connection, ct)))
+        var steered = await IsSteeredToWanAgentAsync(connection, ct);
+        var isCollector = steered && await GetCollectorAgentIdAsync(connection.SiteSlug, ct) == connection.AgentId;
+        if (!ShouldPushSnmpConfig(steered, isCollector))
         {
             // Disabled rather than absent: an agent that polled before being assigned a context
             // keeps polling on its last config until a new one tells it to stop.

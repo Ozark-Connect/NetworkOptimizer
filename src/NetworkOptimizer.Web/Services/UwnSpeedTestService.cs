@@ -26,6 +26,16 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentUwnService _agentUwn;
+    private readonly AgentWanTestVantageResolver _vantageResolver;
+
+    // WAN context the in-flight agent run was pointed at, for attributing the result. Set by the
+    // agent path only; a local run measures whatever this host's route takes, whatever was asked
+    // for. Runs serialize per site instance, so one field is enough.
+    private WanContext? _runContext;
+
+    // The agent the in-flight run was dispatched to. The trace source must be THAT agent, not
+    // whichever one reported in last.
+    private int? _runAgentId;
     private readonly AgentEnrollmentService _agentEnrollment;
 
     protected override SpeedTestDirection Direction => SpeedTestDirection.UwnWan;
@@ -54,6 +64,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         SiteTunnelRouting tunnelRouting,
         SiteAgentCoverage agentCoverage,
         AgentUwnService agentUwn,
+        AgentWanTestVantageResolver vantageResolver,
         AgentEnrollmentService agentEnrollment,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         Licensing.LicenseStateService licenseState,
@@ -68,6 +79,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         _tunnelRouting = tunnelRouting;
         _agentCoverage = agentCoverage;
         _agentUwn = agentUwn;
+        _vantageResolver = vantageResolver;
         _agentEnrollment = agentEnrollment;
     }
 
@@ -112,6 +124,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         if (RunsOnAgent)
             return await RunViaAgentAsync(report, cancellationToken);
 
+        _runContext = null;
+        _runAgentId = null;
         return await RunLocalAsync(report, cancellationToken);
     }
 
@@ -124,16 +138,25 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
+        // Which agent, and which WAN it measures. A refusal here is the answer - it is never
+        // retried on another agent, because that agent is on another WAN and the result would be
+        // filed under the WAN the caller asked for.
+        var (vantage, refusal) = await _vantageResolver.ResolveAsync(SiteSlug, WanContextId, cancellationToken);
+        if (vantage == null)
+            throw new InvalidOperationException(refusal ?? "No agent is available to run this WAN speed test.");
+        _runContext = vantage.Context;
+        _runAgentId = vantage.AgentId;
+
         Logger.LogInformation(
-            "Dispatching UWN WAN speed test to site {Slug}'s agent ({Streams} streams, {Servers} servers)",
-            SiteSlug, Streams, ServerCount);
+            "Dispatching UWN WAN speed test to site {Slug}'s agent {AgentId} ({Wan}, {Streams} streams, {Servers} servers)",
+            SiteSlug, vantage.AgentId, vantage.Context?.Name ?? "default path", Streams, ServerCount);
         // The agent returns only the final JSON over the tunnel, so there's no live progress to
         // stream. Report the SAME phase boundaries the local run does and let the page interpolate
         // download (20->55) and upload (60->95) between them, so the bar climbs smoothly. Reporting
         // fine-grained steps here fights that interpolation and makes the bar jump. The local
         // (this-server) run keeps its accurate per-line stdout progress in RunLocalAsync.
         var agentTask = _agentUwn.RunAsync(
-            SiteSlug, Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds, cancellationToken);
+            SiteSlug, vantage.AgentId, Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds, cancellationToken);
         await WanSpeedTestProgressAnimator.AnimatePhasesAsync(agentTask, report, UwnDurationSeconds, cancellationToken);
         var (success, output) = await agentTask;
         if (!success)
@@ -309,11 +332,13 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             Location: finalIsp ?? "",
             WanIp: finalWanIp));
 
-        // Local endpoint the test ran from, for path analysis. An agent run measures
-        // from the on-site agent, so the trace source is the agent's LAN IP on that
-        // site's topology; a local run uses this server's HOST_IP.
+        // Local endpoint the test ran from, for path analysis. An agent run measures from the agent
+        // it was DISPATCHED to, so the trace starts at that agent's LAN IP - asking the site for
+        // its most recently seen agent traced one WAN's test from another WAN's box.
         var serverIp = viaAgent
-            ? await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug)
+            ? (_runAgentId is int ranOn
+                ? await _vantageResolver.AgentLanIpAsync(ranOn, cancellationToken)
+                : await _agentEnrollment.GetOnlineAgentLanIpAsync(SiteSlug))
             : _configuration["HOST_IP"];
 
         var result = new Iperf3Result
@@ -511,11 +536,15 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             // A vantage names the WAN its box probes over, which is the same box and the same
             // path this test took. Scoped to whoever ran it: a vantage bound to an agent says
             // nothing about a test this server ran, or the other way round. Only one candidate
-            // may answer - two agent-bound vantages are two boxes on two WANs, and we cannot
-            // tell from here which of them ran the test, so guessing would name a WAN at random.
+            // may answer - two agent-bound vantages are two boxes on two WANs, and without a
+            // chosen one we cannot tell which ran the test, so guessing would name a WAN at random.
             var vantages = await EntityFrameworkQueryableExtensions.ToListAsync(
                 db.WanContexts.AsNoTracking().Where(c => c.WanInterface != null && c.WanInterface != ""), ct);
-            var candidates = vantages.Where(c => viaAgent ? c.AgentId != null : c.AgentId == null).ToList();
+            // A run pointed at a context needs no inference: that context IS the answer, and
+            // narrowing to it rather than short-circuiting keeps one naming path for both cases.
+            var candidates = _runContext != null
+                ? vantages.Where(c => c.Id == _runContext.Id).ToList()
+                : vantages.Where(c => viaAgent ? c.AgentId != null : c.AgentId == null).ToList();
             if (candidates.Count > 1)
             {
                 Logger.LogDebug(

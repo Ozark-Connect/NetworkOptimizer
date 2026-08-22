@@ -153,7 +153,7 @@
             <div class="card-header-badges">
                 @if (_currentSiteConsoleViaAgent)
                 {
-                    <span class="status-badge badge-agent" data-tooltip="This site's console is reached through its on-site agent tunnel, not a direct connection from this server">Via Site Agent</span>
+                    <span class="status-badge badge-agent" data-tooltip="This site's console is reached through its On-Site Agent tunnel, not a direct connection from this server">Via Site Agent</span>
                 }
                 <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
             </div>
@@ -448,7 +448,7 @@
             <div class="card-header-badges">
                 @if (_currentSiteSshViaAgent)
                 {
-                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its on-site agent tunnel, not directly from this server">Via Site Agent</span>
+                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its On-Site Agent tunnel, not directly from this server">Via Site Agent</span>
                 }
                 <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
                     @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
@@ -624,7 +624,7 @@
             <div class="card-header-badges">
                 @if (_currentSiteSshViaAgent)
                 {
-                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its on-site agent tunnel, not directly from this server">Via Site Agent</span>
+                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its On-Site Agent tunnel, not directly from this server">Via Site Agent</span>
                 }
                 <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
                     @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
@@ -3648,7 +3648,7 @@
                                                             <p class="site-config-empty">
                                                                 @(site.IsDefault
                                                                     ? "This site is monitored directly by this server. Add an agent only if this server runs off-site."
-                                                                    : "No on-site agent for this site yet. Set one up to reach it without a VPN.")
+                                                                    : "No On-Site Agent for this site yet. Set one up to reach it without a VPN.")
                                                             </p>
                                                             <div class="site-agent-actions">
                                                                 @if (!site.IsDefault)
@@ -5059,13 +5059,13 @@
             if (target is not null)
             {
                 await ToggleAgents(target.Id);
-                // The panel rather than its row: the panel paints its own background over the
-                // whole row, so a row tint lands behind it and is never seen. Ringed with an
-                // explicit radius, which is what noHighlightTarget takes for a target that is
-                // not card-shaped.
+                // The panel, ringed on its inside edge (CSS). An outset ring cannot work anywhere
+                // here: .expand-content hides overflow for the animation and .table-responsive
+                // scrolls, so the sides and bottom get cut whichever element it is put on.
+                // Ringed rather than tinted - the panel paints its own background over the row.
                 await Task.Delay(300);
-                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}",
-                    "center", "var(--border-radius)");
+                await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{target.Id}", "center",
+                    "0 0 var(--border-radius-lg) var(--border-radius-lg)");
             }
         }
 

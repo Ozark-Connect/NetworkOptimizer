@@ -48,8 +48,8 @@
 @if (_siteAgentOffline)
 {
     <div class="alert alert-warning">
-        This site's probes run through its on-site agent, which isn't connected right now.
-        Ping, traceroute, and reading a gateway interface can resume when the agent reconnects.
+        This site's probes run through its On-Site Agent, which isn't connected right now.
+        Ping, traceroute, and reading a Gateway interface can resume when the Agent reconnects.
     </div>
 }
 
@@ -72,7 +72,7 @@
                 }
                 else
                 {
-                    <option value="server" selected="@(_fromKey == "server")">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
+                    <option value="server" selected="@(_fromKey == "server")">@(ExecutorFactory.ServerVantageIsAgent ? "On-Site Agent" : "Network Optimizer server")</option>
                 }
                 @foreach (var d in _devices)
                 {
@@ -92,7 +92,7 @@
                 <p class="page-description" style="margin-top: 0.5rem;">
                     @if (ExecutorFactory.ServerVantageIsAgent)
                     {
-                        @:Probes run from this site's on-site agent (on the site's own network), not the central server.
+                        @:Probes run from this site's On-Site Agent (on the site's own network), not the central server.
                     }
                     else
                     {
@@ -1551,7 +1551,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (vantageId.StartsWith("agent:"))
             return _probeVantages.FirstOrDefault(v => v.Key == vantageId)?.Label ?? vantageId;
         if (vantageId == "server")
-            return ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server";
+            return ExecutorFactory.ServerVantageIsAgent ? "On-Site Agent" : "Network Optimizer server";
         return vantageId;
     }
 

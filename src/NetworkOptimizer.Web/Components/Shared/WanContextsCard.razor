@@ -34,9 +34,10 @@
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
-            Monitor another WAN by giving its targets their own vantage. A vantage names the WAN
-            and what probes it: an agent on the gateway reaches any WAN directly, or a separate
-            agent can be routed out that WAN in UniFi Network.
+            Monitor additional WAN connections by giving each one a Vantage. A Vantage pairs the WAN
+            connection with the box that probes it: an Agent on the Gateway reaches every WAN via
+            that WAN's own interface, with nothing else to set up. Any other kind of Agent needs a
+            Policy-Based Route in UniFi Network.
         </p>
 
         @if (_siteLoadBalances == true)
@@ -67,7 +68,7 @@
                             The easiest way to monitor your other WANs is to deploy the agent on your
                             UniFi gateway. It reaches each WAN by that WAN's own interface, so there is
                             no routing policy to build. Set one up in
-                            <a href="/settings?tab=multisite#multi-site">Settings - Multi-Site</a>.
+                            <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>.
                         </p>
                     </div>
                     <button class="btn btn-sm btn-tertiary" @onclick="DismissGatewayAgentHintAsync">Dismiss</button>
@@ -110,13 +111,22 @@
                                           data-tooltip="This site is probed by its agent, so assign one to this WAN.">&#9888;</span>
                                 }
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
-                                else if (BindsNothing(wc))
+                                else if (PinMatches(wc))
                                 {
-                                    <span class="wc-orphan-warn"
-                                          data-tooltip="Nothing is bound, so probes leave by the default route - not this WAN. Edit to set the interface.">&#9888;</span>
-                                    <span class="text-muted">default route</span>
+                                    <span class="text-muted wc-probe-source" data-tooltip="@PinTooltip(wc)">Policy-Based Route</span>
                                 }
-                                else { <span class="text-muted">default route</span> }
+                                else
+                                {
+                                    @if (PinFor(wc) is RoutePin misrouted)
+                                    {
+                                        <span class="wc-orphan-warn" data-tooltip="@MisroutedWarning(misrouted)">&#9888;</span>
+                                    }
+                                    else if (BindsNothing(wc))
+                                    {
+                                        <span class="wc-orphan-warn" data-tooltip="@UnboundWarning(wc)">&#9888;</span>
+                                    }
+                                    <span class="text-muted">Default interface</span>
+                                }
                             </td>
                             <td>
                                 @if (wc.AgentId is int rowAgentId)
@@ -193,11 +203,11 @@
                             Assigned agent
                             @* Hover-only because the icon navigates - see App.razor's tooltip init. *@
                             <span class="tooltip-wrapper">
-                                <a href="/settings?tab=multisite#multi-site"
+                                <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")"
                                    class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
                                    data-tooltip-hover-only>?</a>
                                 <span class="tooltip-content">
-                                    Agents enroll under <a href="/settings?tab=multisite#multi-site">Settings - Multi-Site</a>; the ones connected to this site appear here.
+                                    Agents enroll under <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>; the ones connected to this site appear here.
                                 </span>
                             </span>
                         </label>
@@ -260,7 +270,7 @@
                             No agent on the gateway yet. That is the shortest path to probing another
                             WAN: an agent on the UniFi gateway reaches every WAN by its own interface,
                             with no source address to pick and no routing policy to build. The install
-                            command is in <a href="/settings?tab=multisite#multi-site">Settings -
+                            command is in <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings -
                             Multi-Site</a>. Everything below relies on the gateway routing the probe
                             out the WAN instead.
                         </p>
@@ -295,23 +305,24 @@
                     else if (!string.IsNullOrEmpty(_newAgentId))
                     {
                         <p>
-                            This agent reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In UniFi
-                            Network, go to Settings - Policy Table and add a Policy-Based Route with
-                            this WAN as the interface, this agent's Client Device as the source, and
-                            Any as the destination. The source is matched by MAC, so the agent needs an
-                            interface and MAC of its own - an LXC has one already, a VM or Docker
-                            container can be given one - not a second address on a host that's already
-                            on the network.
+                            Probes reach @WanLabelFor(_newWanInterface) only when the Gateway routes them there. In
+                            UniFi Network, go to Settings - Policy Table and add a Policy-Based Route
+                            with this WAN as the interface, this Agent's Client Device as the source,
+                            and Any as the destination. The source is matched by MAC, so the Agent
+                            needs a MAC of its own: an LXC or VM has one, and a Docker container can
+                            be given one with macvlan. A second address on a host already on the
+                            network will not work.
                         </p>
                     }
                     else if (!string.IsNullOrWhiteSpace(_newSourceIp))
                     {
                         <p>
-                            This server reaches @WanLabelFor(_newWanInterface) only if the gateway routes it there. In
+                            Probes reach @WanLabelFor(_newWanInterface) only when the Gateway routes them there. In
                             UniFi Network, go to Settings - Policy Table and add a Policy-Based Route
                             with this WAN as the interface, this server as the source, and Any as the
-                            destination. The source is matched by MAC, so the address has to sit on a
-                            NIC of its own - not a second address on the NIC this server already uses.
+                            destination. The source is matched by MAC, so the address needs a MAC of
+                            its own, which a macvlan interface provides. A plain second address, or a
+                            VLAN sub-interface that inherits the parent's MAC, will not work.
                         </p>
                     }
                 </div>
@@ -390,6 +401,11 @@
     .wc-orphan-warn {
         color: var(--warning-color);
         margin-right: 0.35rem;
+        cursor: pointer;
+    }
+
+    .wc-probe-source {
+        cursor: pointer;
     }
 
     .wc-targets-none {
@@ -458,12 +474,21 @@
     // Null until a connected compute has recorded the site's WAN roles: neither sentence below is
     // shown on a guess, because they prescribe opposite things.
     private bool? _siteLoadBalances;
+
+    /// <summary>The site's primary WAN key, for the vantages that need no binding to reach it.</summary>
+    private string? _primaryWanKey;
     private string? _primaryWanLabel;
     // Agents that both run on the gateway and told us they can bind a probe source. Interface
     // binding is only offered for those: an agent elsewhere on the network has no WAN interface to
     // bind, and one that cannot bind at all would fail every probe in the context.
     private HashSet<int> _bindCapableAgents = new();
     private HashSet<int> _sourceBindAgents = new();
+
+    /// <summary>What a policy route pins each agent's traffic to, keyed by agent id.</summary>
+    private Dictionary<int, RoutePin> _routePins = new();
+
+    /// <summary>A policy route steering one agent, in the terms this card shows.</summary>
+    private sealed record RoutePin(string WanKey, string? Description, bool KillSwitchEnabled);
     private HashSet<int> _connectedAgents = new();
     private Dictionary<int, int> _targetCounts = new();
     private bool _gatewayAgentHintAllowed;
@@ -511,16 +536,39 @@
     private bool IsOrphaned(WanContext context) => context.AgentId == null && !ServerProbesThisSite;
 
     /// <summary>
+    /// What an unbound vantage costs, in the terms of the binding its agent actually offers: a
+    /// gateway agent leaves by an interface, anything else by a source address the gateway
+    /// policy-routes. Both record against this WAN either way, which is the part worth saying.
+    /// </summary>
+    private string UnboundWarning(WanContext context) =>
+        context.AgentId is int id && _bindCapableAgents.Contains(id)
+            ? "No interface bound. Probes follow the default route and are still recorded against this WAN. Bind the WAN's interface."
+            : "No source address bound. The Gateway cannot policy-route the probes, so they follow the default route and are still recorded against this WAN. Bind a source address.";
+
+    /// <summary>
     /// A vantage whose agent CAN bind but which has nothing to bind to, so its probes leave by the
-    /// agent's default route and are filed under this WAN regardless. Reachable without anything
-    /// going wrong: save the vantage while the agent is too old to offer a binding, then update the
-    /// agent - the capability arrives, the empty configuration does not change, and nothing says so.
+    /// agent's own interface and are filed under this WAN regardless. Gated on the capability
+    /// because an agent that cannot bind has nothing to fix. Reachable without anything going
+    /// wrong: save the vantage while the agent is too old to offer a binding, then update the agent
+    /// - the capability arrives, the empty configuration does not change, and nothing says so.
     /// </summary>
     private bool BindsNothing(WanContext context) =>
         context.AgentId is int id
         && (_bindCapableAgents.Contains(id) || _sourceBindAgents.Contains(id))
         && string.IsNullOrEmpty(context.InterfaceName)
-        && string.IsNullOrEmpty(context.ProbeSourceIp);
+        && string.IsNullOrEmpty(context.ProbeSourceIp)
+        && !PrimaryPathIsEnough(context);
+
+    /// <summary>
+    /// A primary-WAN vantage on a site that fails over needs nothing bound: the agent's default
+    /// route already is that WAN, and there is no policy route to find because none is wanted.
+    /// Where the site load balances it does need one, because there the balancer picks per flow and
+    /// only a route or a bind says which WAN a probe took. An unknown answer reads as failover, the
+    /// shape of nearly every site.
+    /// </summary>
+    private bool PrimaryPathIsEnough(WanContext context) =>
+        _siteLoadBalances != true
+        && AgentProbeResultSink.IsPrimaryWanContext(context, _primaryWanKey);
 
     /// <summary>
     /// Whether the selected agent reports a version older than the release currently expected of
@@ -552,6 +600,7 @@
         await LoadWansAsync();
         LoadConnectedAgents();
         await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
         _gatewayAgentHintAllowed = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
     }
 
@@ -644,10 +693,25 @@
         // After the render that created it, not before - there is no element to scroll to until
         // the form is actually in the DOM. Scroll only, no ring: the user pressed the button that
         // opened this, so nothing needs pointing out to them.
-        if (!_revealForm) return;
-        _revealForm = false;
-        await JS.InvokeVoidAsync("noScrollTo", "wan-vantage-form", "center");
+        if (_revealForm)
+        {
+            _revealForm = false;
+            await JS.InvokeVoidAsync("noScrollTo", "wan-vantage-form", "center");
+        }
+
+        if (!firstRender) return;
+        // Both answers below are resolved once and then persist, but the FIRST resolve for an agent
+        // has nothing to fall back on - a card opened just after an agent connects renders before
+        // its answer exists, and nothing here re-asks. One late re-read rather than a poll: by then
+        // the verdict is recorded and every later load reads it directly.
+        await Task.Delay(RowStateSettleDelay);
+        await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
+        StateHasChanged();
     }
+
+    /// <summary>How long to wait before re-reading the row state that is unresolved on a cold ask.</summary>
+    private static readonly TimeSpan RowStateSettleDelay = TimeSpan.FromSeconds(3);
 
     private async Task EditContextAsync(WanContext context)
     {
@@ -692,6 +756,7 @@
         await LoadAgentsAsync();
         await LoadWansAsync();
         await LoadBindCapableAgentsAsync();
+        await LoadRoutePinsAsync();
     }
 
     /// <summary>
@@ -738,6 +803,9 @@
             await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var primary = await db.WanProfiles.AsNoTracking().FirstOrDefaultAsync(w => w.IsPrimary == true);
             _siteLoadBalances = primary?.SiteLoadBalances;
+            _primaryWanKey = string.IsNullOrEmpty(primary?.WanNetworkgroup)
+                ? null
+                : GatewayWanHelper.WanInterfaceKeyFromKey(primary!.WanNetworkgroup);
             if (_primaryWanLabel == null && primary != null)
             {
                 var key = GatewayWanHelper.WanInterfaceKeyFromKey(primary.WanNetworkgroup);
@@ -745,7 +813,7 @@
                     WanLabelFor(key), GatewayWanHelper.WanIndexFromKey(key));
             }
         }
-        catch { _siteLoadBalances = null; }
+        catch { _siteLoadBalances = null; _primaryWanKey = null; }
     }
 
     /// <summary>
@@ -756,6 +824,97 @@
     /// interface, so it binds one of its own addresses instead and the gateway policy-routes that
     /// address out the WAN.
     /// </summary>
+    /// <summary>
+    /// Which WAN a policy route steers each of this site's agents onto. Resolved once per load
+    /// rather than per row, since it costs a console round trip. A gateway-resident agent is
+    /// skipped: it binds its own probe source, so a route naming it steers nothing extra. Asked of
+    /// the durable per-agent verdict rather than the bind-capability set, which also requires the
+    /// agent to report source-bind support and so misses a gateway agent too old to say.
+    /// </summary>
+    private async Task LoadRoutePinsAsync()
+    {
+        var pins = new Dictionary<int, RoutePin>();
+        try
+        {
+            var api = Connection.Client;
+            if (api != null && _agents.Count > 0)
+            {
+                var routes = await api.GetTrafficRoutesAsync();
+                if (routes.Count > 0)
+                {
+                    var clients = await api.GetClientsAsync();
+                    var networks = await Connection.GetNetworksAsync();
+                    var connections = TunnelRegistry.GetForSite(SiteCtx.Slug);
+                    foreach (var agent in _agents)
+                    {
+                        var candidates = connections.FirstOrDefault(c => c.AgentId == agent.Id)?.HostAddresses;
+                        if (candidates is not { Count: > 0 })
+                            candidates = string.IsNullOrEmpty(agent.LanIp)
+                                ? Array.Empty<string>()
+                                : new[] { agent.LanIp! };
+                        if (await OnGatewayDetector.IsAgentOnGatewayAsync(SiteCtx.Slug, agent.Id, candidates)) continue;
+
+                        var mac = NetworkOptimizer.Web.Services.Monitoring.PinnedProbeContextBuilder
+                            .MacForAddress(clients, agent.LanIp);
+                        var pin = TrafficRouteWanPinning.ResolvePin(routes, mac);
+                        if (pin == null) continue;
+                        var network = networks.FirstOrDefault(n =>
+                            string.Equals(n.Id, pin.NetworkId, StringComparison.OrdinalIgnoreCase));
+                        if (network is not { IsWan: true } || string.IsNullOrEmpty(network.WanNetworkgroup)) continue;
+                        pins[agent.Id] = new RoutePin(
+                            GatewayWanHelper.WanInterfaceKeyFromKey(network.WanNetworkgroup),
+                            pin.Description,
+                            pin.KillSwitchEnabled);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best effort: with no answer every vantage reads as unrouted, which is what this card
+            // showed before it asked at all.
+            Log.LogDebug(ex, "Could not read policy routes for the vantage list");
+        }
+        _routePins = pins;
+    }
+
+    /// <summary>
+    /// What the route does for this vantage. The kill-switch sentence appears only when it is off,
+    /// which is most of the time and rightly so: a box that also does real work must not have its
+    /// traffic blackholed when a WAN drops. It is a consequence to know, not a fault to fix.
+    /// </summary>
+    private string PinTooltip(WanContext context)
+    {
+        var pin = PinFor(context);
+        // Tooltips render HTML, and the name comes from the console, so it is encoded before it
+        // goes anywhere near the markup that bolds it.
+        var named = string.IsNullOrWhiteSpace(pin?.Description)
+            ? "Steered by a Policy-Based Route."
+            : $"Steered by the Policy-Based Route <strong>{System.Net.WebUtility.HtmlEncode(pin!.Description)}</strong>.";
+        return pin is { KillSwitchEnabled: false }
+            ? named + " No kill switch, a WAN failover will send probe traffic over another WAN."
+            : named;
+    }
+
+    /// <summary>
+    /// A route steering this agent somewhere other than the WAN its vantage names. Every reading
+    /// here would carry this WAN's name and another WAN's numbers, which no binding can correct.
+    /// </summary>
+    private string MisroutedWarning(RoutePin pin) =>
+        $"A Policy-Based Route sends this Agent's traffic out {WanLabelFor(pin.WanKey)}, so probes take that WAN "
+        + "while readings are recorded against this one. Point the route at this WAN, or change the vantage.";
+
+    /// <summary>The policy route steering this vantage's agent, if one does.</summary>
+    private RoutePin? PinFor(WanContext context) =>
+        context.AgentId is int id && _routePins.TryGetValue(id, out var pin) ? pin : null;
+
+    /// <summary>Whether a policy route steers this vantage's agent onto the WAN the vantage names.</summary>
+    private bool PinMatches(WanContext context) =>
+        PinFor(context) is RoutePin pin
+        && !string.IsNullOrEmpty(context.WanInterface)
+        && string.Equals(pin.WanKey, GatewayWanHelper.WanInterfaceKeyFromKey(context.WanInterface),
+                         StringComparison.OrdinalIgnoreCase);
+
     private async Task LoadBindCapableAgentsAsync()
     {
         var byInterface = new HashSet<int>();
@@ -765,12 +924,14 @@
             foreach (var connection in TunnelRegistry.GetForSite(SiteCtx.Slug))
             {
                 if (connection.SupportsSourceBind != true) continue;
-                // TODO(#1106): use the durable per-agent overload
-                // IsAgentOnGatewayAsync(slug, agentId, candidates) instead. This resolves live and
-                // has no persisted verdict, so a console that is not up yet - the norm on an agent
-                // site, where it reconnects through the agent's own tunnel - reads as "not on the
-                // gateway" and offers source-address binding where interface binding belongs.
-                if (await OnGatewayDetector.MatchGatewayAddressAsync(SiteCtx.Slug, connection.HostAddresses) != null)
+                // #1106 fixed HERE, as the pattern for the rest: the durable per-agent overload
+                // seeds from a persisted verdict and keeps the last answer when the console cannot
+                // be reached. The live MatchGatewayAddressAsync this replaced answered "not on the
+                // gateway" whenever the console was not up yet - the norm on an agent site, where
+                // it reconnects through the agent's own tunnel - so the card offered source-address
+                // binding where interface binding belongs, and settled only on a second load.
+                if (await OnGatewayDetector.IsAgentOnGatewayAsync(
+                        SiteCtx.Slug, connection.AgentId, connection.HostAddresses))
                     byInterface.Add(connection.AgentId);
                 else
                     byAddress.Add(connection.AgentId);

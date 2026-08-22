@@ -27,6 +27,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject SiteAgentCoverage AgentCoverage
+@inject AgentWanTestVantageResolver AgentVantages
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ProbeExecutors
 @inject SiteTunnelRouting TunnelRouting
 @inject WanDataUsageService DataUsageService
@@ -1756,7 +1757,7 @@
                 <div>
                     <h4 class="event-type-group-header">On-Site Agent</h4>
                     <div class="event-type-key-list">
-                        <div @onclick='() => SelectEventType("agent.offline")'><code>agent.offline</code> <span>Site agent offline past the grace period</span></div>
+                        <div @onclick='() => SelectEventType("agent.offline")'><code>agent.offline</code> <span>Site Agent offline past the grace period</span></div>
                         <div @onclick='() => SelectEventType("agent.reconnected")'><code>agent.reconnected</code> <span>Site agent came back online</span></div>
                     </div>
                 </div>
@@ -1894,10 +1895,15 @@
     // so the Server WAN test can never succeed - hidden for new schedules. An
     // existing legacy Server schedule keeps its option while being edited so the
     // bound selection stays coherent.
-    private bool _agentOnGateway;
     private bool _wanTestViaAgent;
+
+    // Whether a "server" WAN test can be scheduled here at all: this server runs it, or an agent
+    // that can. A gateway agent carries no speed test binary, so it offers nothing to schedule.
+    private bool _serverTestOffered;
     private string _newWanTestType = "gateway";
     private string _newWanSelection = "0";
+    private List<AgentWanVantage> _agentVantages = new();
+    private string _newAgentVantage = "";
     private bool _newWanMaxMode;
     private TimeOnly _newWanStartTime = new(6, 0);
     private string? _newLanDevice;
@@ -1958,7 +1964,7 @@
     private int? _editingLanScheduleId;
     private string? _scheduleMessage;
     private string _scheduleMessageClass = "info";
-    private bool CanCreateWanSchedule => (_newWanTestType == "server" && !_agentOnGateway) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+    private bool CanCreateWanSchedule => (_newWanTestType == "server" && _serverTestOffered) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
     private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
 
     private RenderFragment WanScheduleForm => __builder =>
@@ -1981,12 +1987,24 @@
                             {
                                 <option value="gateway">Gateway (Direct)</option>
                             }
-                            @if (!_agentOnGateway || _newWanTestType == "server")
+                            @if (_serverTestOffered || _newWanTestType == "server")
                             {
                                 <option value="server">@ServerVantageLabel</option>
                             }
                         </select>
                     </div>
+                    @if (_newWanTestType == "server" && _agentVantages.Count > 0)
+                    {
+                        <div class="form-group schedule-field">
+                            <label>WAN / Path</label>
+                            <select class="form-control" @bind="_newAgentVantage">
+                                @foreach (var vantage in _agentVantages)
+                                {
+                                    <option value="@(vantage.ContextId?.ToString() ?? "")">@vantage.Label</option>
+                                }
+                            </select>
+                        </div>
+                    }
                     @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
                     {
                         <div class="form-group schedule-field">
@@ -2299,7 +2317,7 @@
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
-                _ = SetActiveTab(newTab, pushHistory: false);
+                _ = InvokeAsync(() => SetActiveTab(newTab, pushHistory: false));
         }
         _lastTabParam = TabParam;
     }
@@ -2355,6 +2373,10 @@
         }
 
         _loading = false;
+        // Arriving from the nav rather than the tab strip runs this detached from OnParametersSet,
+        // where no event follows to redraw. Without this the finished load sat unrendered and the
+        // tab spun until the 30s timer happened to paint it.
+        StateHasChanged();
     }
 
     // ========== Data Loading ==========
@@ -2396,15 +2418,26 @@
 
         try
         {
-            _agentOnGateway = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
-            _wanTestViaAgent = !_agentOnGateway && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _serverTestOffered = await AgentVantages.HasCapableAgentAsync(SiteContext.Slug)
+                || !AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _wanTestViaAgent = _serverTestOffered && AgentCoverage.AgentOwnsPathMeasurement(SiteContext.Slug);
+            _agentVantages = _wanTestViaAgent
+                ? await AgentVantages.ListVantagesAsync(SiteContext.Slug)
+                : new List<AgentWanVantage>();
+            // First entry is a WAN, so a schedule made without touching the field measures one
+            // rather than the unpinned path. Never while editing: an existing schedule's choice is
+            // its own, including the default path a deleted WAN falls back to.
+            if (_editingWanScheduleId == null && _agentVantages.Count > 0 && string.IsNullOrEmpty(_newAgentVantage))
+                _newAgentVantage = _agentVantages[0].ContextId?.ToString() ?? "";
         }
         catch
         {
-            _agentOnGateway = false;
+            // Keep offering it rather than removing the option on a transient read failure: a run
+            // that cannot happen says so with a specific reason, a missing option says nothing.
+            _serverTestOffered = true;
         }
 
-        if (!_gatewayAvailable && !_agentOnGateway)
+        if (!_gatewayAvailable && _serverTestOffered)
             _newWanTestType = "server";
 
         BuildWanSelectorOptions();
@@ -3178,7 +3211,23 @@
 
             if (_newWanTestType == "server")
             {
-                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+                var vantage = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _newAgentVantage);
+                if (vantage?.ContextId != null)
+                {
+                    config["wanContextId"] = vantage.ContextId.Value;
+                    // wanName for the row, wanGroup so anything asking which WANs have a schedule
+                    // finds this one. The executor reconciles both against the console for gateway
+                    // tests only, so neither is read back as a target here.
+                    config["wanName"] = vantage.Label;
+                    if (!string.IsNullOrEmpty(vantage.WanKey))
+                        config["wanGroup"] = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(vantage.WanKey!);
+                }
+                // The WAN goes in the name the way the gateway test does, so the row reads the same
+                // whichever runs it. Unnamed means the default path, which is what a single-WAN
+                // site and every schedule made before this always meant.
+                var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
+                var loadLabel = _newWanMaxMode ? ", Max Load" : "";
+                taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
             }
             else
             {
@@ -3235,6 +3284,7 @@
 
             await AlertConfig.CreateScheduleAsync(task);
             _newWanSelection = "0";
+            _newAgentVantage = "";
             _newWanMaxMode = false;
             _newWanFrequency = 1440;
             _newWanStartTime = new(6, 0);
@@ -3346,6 +3396,14 @@
             ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
             : new TimeOnly(6, 0);
 
+        // A schedule whose WAN was deleted falls back to the default path here rather than holding an
+        // id no option carries: the select would show the first option while the field still held
+        // the dead one, so what was displayed and what would be saved disagreed until it was touched.
+        var storedVantage = GetConfigValue(config, "wanContextId") ?? "";
+        _newAgentVantage = _agentVantages.Any(v => (v.ContextId?.ToString() ?? "") == storedVantage)
+            ? storedVantage
+            : "";
+
         // Try to match WAN selection from config
         if (_newWanTestType == "gateway")
         {
@@ -3379,6 +3437,7 @@
         _editingWanScheduleId = null;
         _newWanTestType = "gateway";
         _newWanSelection = "0";
+        _newAgentVantage = "";
         _newWanMaxMode = false;
         _newWanFrequency = 1440;
         _newWanStartTime = new(6, 0);
@@ -3404,7 +3463,23 @@
 
             if (_newWanTestType == "server")
             {
-                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+                var vantage = _agentVantages.FirstOrDefault(v => (v.ContextId?.ToString() ?? "") == _newAgentVantage);
+                if (vantage?.ContextId != null)
+                {
+                    config["wanContextId"] = vantage.ContextId.Value;
+                    // wanName for the row, wanGroup so anything asking which WANs have a schedule
+                    // finds this one. The executor reconciles both against the console for gateway
+                    // tests only, so neither is read back as a target here.
+                    config["wanName"] = vantage.Label;
+                    if (!string.IsNullOrEmpty(vantage.WanKey))
+                        config["wanGroup"] = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroupFromKey(vantage.WanKey!);
+                }
+                // The WAN goes in the name the way the gateway test does, so the row reads the same
+                // whichever runs it. Unnamed means the default path, which is what a single-WAN
+                // site and every schedule made before this always meant.
+                var wanLabel = vantage?.ContextId != null ? $", {vantage.Label}" : "";
+                var loadLabel = _newWanMaxMode ? ", Max Load" : "";
+                taskName = $"WAN Speed Test (Server{wanLabel}{loadLabel})";
             }
             else
             {
@@ -3625,7 +3700,9 @@
         var idx = name.IndexOf(marker);
         if (idx < 0) return (name, null);
         var baseName = name[..(idx + 4)]; // "... Test"
-        var detail = name[(idx + marker.Length)..].TrimEnd(')');
+        // One paren closes the name; a WAN label can carry its own, and TrimEnd would eat those too.
+        var detail = name[(idx + marker.Length)..];
+        if (detail.EndsWith(')')) detail = detail[..^1];
         return (baseName, detail);
     }
 
@@ -3711,15 +3788,13 @@
     {
         try
         {
-            // Load WAN networks from console. OnConnectionChanged handles the
-            // case where the console isn't ready yet at page load.
+            // OnConnectionChanged reloads this if the console is not ready yet.
             if (ConnectionService.IsConnected)
             {
                 try
                 {
                     var networks = await ConnectionService.GetNetworksAsync();
                     _dataUsageWanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-                    _wanNetworksFetched = true;
                 }
                 catch (Exception ex)
                 {
@@ -3727,10 +3802,9 @@
                 }
             }
 
-            // The spinner means "not looked yet", so the look counts however it went. Setting this
-            // only on success left a disconnected console - or a call that threw - spinning on
-            // "Connecting to UniFi Console..." with nothing to end it. The empty state says the
-            // same thing and stops, and OnConnectionChanged reloads the tab if the console returns.
+            // The spinner means "not looked yet", so the look counts however it went: a disconnected
+            // console or a call that threw lands on the empty state, which says the same thing and
+            // stops. Never inside the branch above, which is what left it spinning.
             _wanNetworksFetched = true;
 
             // Load live WAN up/down status from device API
