@@ -1938,7 +1938,7 @@ a.stat-card-link:active {
     display: flex;
     align-items: center;
     gap: 1rem;
-    margin-left: 0.35rem;
+    margin-left: 0.6rem;
 }
 
 .signal-gauge {
@@ -1957,15 +1957,6 @@ a.stat-card-link:active {
     top: 0;
     background: var(--bg-card);
     opacity: 0.72;
-}
-
-.signal-gauge .gauge-line {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--text-primary);
-    opacity: 0.65;
 }
 
 .signal-with-model .ont-rx-gauge {

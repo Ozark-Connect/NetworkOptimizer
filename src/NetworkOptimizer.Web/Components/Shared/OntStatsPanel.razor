@@ -583,7 +583,6 @@ else
             var pos = SignalGauge.Position(rxDbm.Value, bands.DomainLow, bands.DomainHigh);
             <div class="signal-gauge" style="background: @SignalGauge.OpticalTrack(bands)">
                 <div class="gauge-shade" style="height: @($"{100 - pos:0.#}")%"></div>
-                <div class="gauge-line" style="bottom: @($"{pos:0.#}")%"></div>
             </div>
         }
     };

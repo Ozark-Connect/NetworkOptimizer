@@ -68,6 +68,17 @@ public class SignalGaugeTests
     }
 
     [Fact]
+    public void PonPeaksWhereARealLinkRuns_NotAtTheBandMidpoint()
+    {
+        // The midpoint of -22..-8 is -15 dBm, which only shows up on an unusually
+        // low split ratio. The peak is stated so the gauge tops out where a normal
+        // link actually sits.
+        OpticalBands.Pon.Peak.Should().Be(-18);
+        OpticalBands.Pon.Peak.Should()
+            .BeLessThan((OpticalBands.Pon.ExcellentLow + OpticalBands.Pon.ExcellentHigh) / 2);
+    }
+
+    [Fact]
     public void ClassFor_IsEmptyWithoutAReading()
     {
         OpticalBands.Pon.ClassFor(null).Should().BeEmpty();

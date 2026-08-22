@@ -109,7 +109,6 @@
                     var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
                     <div class="signal-gauge" style="background: @SnrTrack">
                         <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
-                        <div class="gauge-line" style="bottom: @($"{snrPos:0.#}")%"></div>
                     </div>
                 }
                 <div class="ont-rx-gauge">
@@ -279,15 +278,25 @@
 
     /// <summary>
     /// Split a provider's device model into the name users know and the model
-    /// number behind it, so "CBR (CGA4332COM)" stacks as two lines. Models
-    /// reported as a single string stay on one.
+    /// number behind it, so "CBR (CGA4332COM)" stacks as two lines.
+    ///
+    /// A bare vendor word means the provider could not read a model off the device
+    /// and fell back to naming the maker ("Netgear", "Motorola"). Label those "CM"
+    /// so the second line still says what the thing is. Anything already carrying
+    /// CM in the name is left alone rather than made to say it twice.
     /// </summary>
-    private static (string Name, string? Number) SplitModel(string model)
+    internal static (string Name, string? Number) SplitModel(string model)
     {
-        var match = ModelWithNumber.Match(model.Trim());
-        return match.Success
-            ? (match.Groups[1].Value, match.Groups[2].Value)
-            : (model.Trim(), null);
+        var trimmed = model.Trim();
+
+        var match = ModelWithNumber.Match(trimmed);
+        if (match.Success)
+            return (match.Groups[1].Value, match.Groups[2].Value);
+
+        var vendorOnly = !trimmed.Contains(' ')
+            && !trimmed.Contains("CM", StringComparison.OrdinalIgnoreCase);
+
+        return vendorOnly ? (trimmed, "CM") : (trimmed, null);
     }
 
     // Grade boundaries for downstream SNR, and the visible span around them.

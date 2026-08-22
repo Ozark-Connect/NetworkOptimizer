@@ -54,7 +54,6 @@ public static class SignalGauge
     {
         var lo = bands.DomainLow;
         var hi = bands.DomainHigh;
-        var peak = (bands.ExcellentLow + bands.ExcellentHigh) / 2;
 
         double P(double v) => Position(v, lo, hi);
 
@@ -63,7 +62,7 @@ public static class SignalGauge
                $"{Weak} {P(bands.FairLow):0.#}%, " +
                $"{Fair} {P(bands.GoodLow):0.#}%, " +
                $"{Good} {P(bands.ExcellentLow):0.#}%, " +
-               $"{Excellent} {P(peak):0.#}%, " +
+               $"{Excellent} {P(bands.Peak):0.#}%, " +
                $"{Good} {P(bands.ExcellentHigh):0.#}%, " +
                $"{Fair} {P(bands.GoodHigh):0.#}%, " +
                $"{Weak} {P(bands.FairHigh):0.#}%, " +
@@ -75,23 +74,30 @@ public static class SignalGauge
 /// Optical Rx power grading bounds, in dBm. Every grade is a range with a floor
 /// and a ceiling: too much light is a fault in its own right.
 /// </summary>
+/// <param name="Peak">
+/// Where the gauge shows its best reading. Stated outright rather than taken as the
+/// middle of the excellent band: that middle is -15 dBm for PON, which would only be
+/// seen on an unusually low split ratio, so the gauge would have peaked well hotter
+/// than a normal link ever runs.
+/// </param>
 public readonly record struct OpticalBands(
     double ExcellentLow, double ExcellentHigh,
     double GoodLow, double GoodHigh,
-    double FairLow, double FairHigh)
+    double FairLow, double FairHigh,
+    double Peak)
 {
     /// <summary>PON and generic optics.</summary>
-    public static readonly OpticalBands Pon = new(-22, -8, -25, -6, -28, -4);
+    public static readonly OpticalBands Pon = new(-22, -8, -25, -6, -28, -4, Peak: -18);
 
-    /// <summary>Active Ethernet optics, which run far hotter than PON.</summary>
-    public static readonly OpticalBands ActiveEthernet = new(-8, -1, -10, 0, -14, 1);
+    /// <summary>Active Ethernet optics, which run far hotter than PON - no split loss to pay for.</summary>
+    public static readonly OpticalBands ActiveEthernet = new(-8, -1, -10, 0, -14, 1, Peak: -4.5);
 
     /// <summary>
     /// External ONT devices, which report against slightly tighter bounds than the
     /// gateway-attached optics. Kept separate so the track's color boundaries land
     /// exactly where OntStatsPanel.ExternalRxClass changes grade.
     /// </summary>
-    public static readonly OpticalBands ExternalOnt = new(-22.5, -8, -25, -6, -27, -4);
+    public static readonly OpticalBands ExternalOnt = new(-22.5, -8, -25, -6, -27, -4, Peak: -18);
 
     /// <summary>A little headroom past the last graded bound, so the ends are visible.</summary>
     public double DomainLow => FairLow - 2;
