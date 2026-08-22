@@ -494,6 +494,7 @@
         // Also watch for DOM changes (for dynamic content)
         const observer = new MutationObserver(function(mutations) {
             let shouldInit = false;
+            let shouldTabScroll = false;
             mutations.forEach(function(mutation) {
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(function(node) {
@@ -505,12 +506,21 @@
                                 node.querySelector?.('[data-tooltip]')) {
                                 shouldInit = true;
                             }
+                            // A tab bar that has just rendered, so the open tab is revealed on
+                            // arrival instead of after the next poll a second later.
+                            if (node.classList?.contains('wifi-view-tabs') ||
+                                node.querySelector?.('.wifi-view-tabs')) {
+                                shouldTabScroll = true;
+                            }
                         }
                     });
                 }
             });
             if (shouldInit) {
                 setTimeout(initTooltips, 50);
+            }
+            if (shouldTabScroll) {
+                requestAnimationFrame(updateTabScrollState);
             }
         });
         observer.observe(document.body, { childList: true, subtree: true });
@@ -524,6 +534,40 @@
                 wrapper.classList.toggle('has-overflow', hasOverflow);
                 wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
                 wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
+                revealActiveTab(tabs);
+            });
+        }
+
+        // A deep link can open a tab that sits off the end of the strip, which on a phone reads as
+        // the wrong tab being open - the bar shows the first few and the one in use is out of sight.
+        // Bring it into view when it CHANGES, which covers arriving on a link and leaves a reader
+        // who has scrolled the strip by hand alone: only a new tab moves it, never a stray render.
+        var tabScrollSeen = new WeakMap();
+        function revealActiveTab(tabs) {
+            var active = tabs.querySelector('.wifi-view-tab.active');
+            if (!active) return;
+            // Keyed by name, not by element: a re-render can hand back a new node for the same
+            // tab, and treating that as a change would haul a hand-scrolled strip back again.
+            var name = active.textContent.trim();
+            var seen = tabScrollSeen.get(tabs);
+            if (seen === name) return;
+            var arriving = seen === undefined;
+            tabScrollSeen.set(tabs, name);
+            if (tabs.scrollWidth <= tabs.clientWidth + 1) return;
+
+            // Measured from the boxes rather than offsetLeft: the buttons' offsetParent is the
+            // wrapper, whose scroll buttons sit outside the scroller and would skew every reading.
+            var strip = tabs.getBoundingClientRect();
+            var tab = active.getBoundingClientRect();
+            if (tab.left >= strip.left && tab.right <= strip.right) return;
+
+            // Centered, then clamped - which is what keeps the first and last tabs flush with their
+            // end of the strip instead of stranding a half-width of empty space beside them.
+            var centered = tabs.scrollLeft + (tab.left - strip.left) - (strip.width - tab.width) / 2;
+            var furthest = tabs.scrollWidth - tabs.clientWidth;
+            tabs.scrollTo({
+                left: Math.max(0, Math.min(centered, furthest)),
+                behavior: arriving ? 'auto' : 'smooth',
             });
         }
         // Update on scroll
