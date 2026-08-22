@@ -740,7 +740,7 @@
 
     private const string NoAgentReason =
         "WAN speed tests on a managed site run from its On-Site Agent, and this site has none online. " +
-        "Set up the site's agent under Settings > Multi-Site to enable them.";
+        "Set up the site's Agent under Settings > Multi-Site to enable them.";
 
     // Progress interpolation for smooth bar during long phases
     private DateTime _interpStart;
@@ -2059,7 +2059,7 @@
         if (_wanInterfaces.Count == 0)
         {
             _errorMessage = ConnectionService.IsAwaitingAgent
-                ? "Waiting for the On-Site Agent to connect. The gateway test needs the WAN interface list from this site's UniFi Console, which is reached through its agent."
+                ? "Waiting for the On-Site Agent to connect. The Gateway test needs the WAN interface list from this site's UniFi Console, which is reached through its Agent."
                 : "The UniFi Console is unreachable, so the WAN interface list isn't available for a gateway test.";
             StateHasChanged();
             return;
