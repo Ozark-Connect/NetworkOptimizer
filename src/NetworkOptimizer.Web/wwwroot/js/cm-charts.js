@@ -2,7 +2,7 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
@@ -235,18 +235,20 @@ function renderStatsTable(container, showAll) {
         const meta = deviceMeta.find(dm => dm.id === d.id);
         return { id: d.id, label: d.label, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
-            values: [dsPower?.mean, dsPower?.min, dsPower?.max, dsSnr?.mean, dsSnr?.min, dsSnr?.max,
-                usPower?.mean, usPower?.min, usPower?.max, uncorr?.mean, uncorr?.max, corr?.mean, corr?.max] };
+            values: [dsPower?.latest, dsPower?.mean, dsPower?.min, dsPower?.max,
+                dsSnr?.latest, dsSnr?.mean, dsSnr?.min, dsSnr?.max,
+                usPower?.latest, usPower?.mean, usPower?.min, usPower?.max,
+                uncorr?.total, uncorr?.mean, uncorr?.max, corr?.total, corr?.mean, corr?.max] };
     });
 
     renderTable(el, container, {
         nameHeader: 'Device', rows, showAllRows: showAll,
         columns: [
-            { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
-            { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
-            { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
-            { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
-            { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
+            { header: 'DS Pwr Latest', format: fmtDbmv }, { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
+            { header: 'DS SNR Latest', format: fmtDb }, { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
+            { header: 'US Pwr Latest', format: fmtDbmv }, { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
+            { header: 'Uncorr Total', format: fmtInt }, { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
+            { header: 'Corr Total', format: fmtInt }, { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

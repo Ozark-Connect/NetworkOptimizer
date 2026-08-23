@@ -2,7 +2,7 @@
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
@@ -244,17 +244,19 @@ function renderStatsTable(container, showAll) {
         const meta = modemMeta.find(mm => mm.id === m.id);
         return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
-            values: [rsrp?.mean, rsrp?.min, rsrp?.max, rsrq?.mean, rsrq?.min, rsrq?.max,
-                snr?.mean, snr?.min, snr?.max, quality?.mean, quality?.min, quality?.max] };
+            values: [rsrp?.latest, rsrp?.mean, rsrp?.min, rsrp?.max,
+                rsrq?.latest, rsrq?.mean, rsrq?.min, rsrq?.max,
+                snr?.latest, snr?.mean, snr?.min, snr?.max,
+                quality?.latest, quality?.mean, quality?.min, quality?.max] };
     });
 
     renderTable(el, container, {
         nameHeader: 'Modem', rows, showAllRows: showAll,
         columns: [
-            { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
-            { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
-            { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
-            { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
+            { header: 'RSRP Latest', format: fmtDbm }, { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
+            { header: 'RSRQ Latest', format: fmtDb }, { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
+            { header: 'SNR Latest', format: fmtDb }, { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
+            { header: 'Qual Latest', format: fmtPct }, { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
         ],
         filter: { meta: () => modemMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

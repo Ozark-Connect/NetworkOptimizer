@@ -3,7 +3,7 @@
 // Same control pattern as cellular-charts.js and cm-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
@@ -246,19 +246,21 @@ function renderStatsTable(container, showAll) {
         const meta = deviceMeta.find(mm => mm.id === d.id);
         return { id: d.id, label: d.label, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
-            values: [power?.mean, powerMax?.max, drop?.mean, dropMax?.max,
-                obstr?.mean, obstr?.max, outageSum, gps?.mean, align?.mean, align?.max] };
+            values: [power?.latest, power?.mean, powerMax?.max,
+                drop?.latest, drop?.mean, dropMax?.max,
+                obstr?.latest, obstr?.mean, obstr?.max, outageSum,
+                gps?.latest, gps?.mean, align?.latest, align?.mean, align?.max] };
     });
 
     renderTable(el, container, {
         nameHeader: 'Terminal', rows, showAllRows: showAll,
         columns: [
-            { header: 'Power Mean', format: fmtW }, { header: 'Power Max', format: fmtW },
-            { header: 'Drop Mean', format: fmtPct }, { header: 'Drop Max', format: fmtPct },
-            { header: 'Obstr Mean', format: fmtPct }, { header: 'Obstr Max', format: fmtPct },
+            { header: 'Power Latest', format: fmtW }, { header: 'Power Mean', format: fmtW }, { header: 'Power Max', format: fmtW },
+            { header: 'Drop Latest', format: fmtPct }, { header: 'Drop Mean', format: fmtPct }, { header: 'Drop Max', format: fmtPct },
+            { header: 'Obstr Latest', format: fmtPct }, { header: 'Obstr Mean', format: fmtPct }, { header: 'Obstr Max', format: fmtPct },
             { header: 'Outage Total', format: fmtSec },
-            { header: 'GPS Mean', format: fmtSats },
-            { header: 'Align Mean', format: fmtDeg }, { header: 'Align Max', format: fmtDeg },
+            { header: 'GPS Latest', format: fmtSats }, { header: 'GPS Mean', format: fmtSats },
+            { header: 'Align Latest', format: fmtDeg }, { header: 'Align Mean', format: fmtDeg }, { header: 'Align Max', format: fmtDeg },
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
