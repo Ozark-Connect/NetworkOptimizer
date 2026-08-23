@@ -255,12 +255,12 @@ function renderStatsTable(container, showAll) {
     renderTable(el, container, {
         nameHeader: 'Terminal', rows, showAllRows: showAll,
         columns: [
-            { header: 'Power Latest', format: fmtW }, { header: 'Power Mean', format: fmtW }, { header: 'Power Max', format: fmtW },
-            { header: 'Drop Latest', format: fmtPct }, { header: 'Drop Mean', format: fmtPct }, { header: 'Drop Max', format: fmtPct },
-            { header: 'Obstr Latest', format: fmtPct }, { header: 'Obstr Mean', format: fmtPct }, { header: 'Obstr Max', format: fmtPct },
-            { header: 'Outage Total', format: fmtSec },
-            { header: 'GPS Latest', format: fmtSats }, { header: 'GPS Mean', format: fmtSats },
-            { header: 'Align Latest', format: fmtDeg }, { header: 'Align Mean', format: fmtDeg }, { header: 'Align Max', format: fmtDeg },
+            { header: 'Power Latest', format: fmtW , cls: 'stats-lead' }, { header: 'Power Mean', format: fmtW }, { header: 'Power Max', format: fmtW },
+            { header: 'Drop Latest', format: fmtPct , cls: 'stats-lead' }, { header: 'Drop Mean', format: fmtPct }, { header: 'Drop Max', format: fmtPct },
+            { header: 'Obstr Latest', format: fmtPct , cls: 'stats-lead' }, { header: 'Obstr Mean', format: fmtPct }, { header: 'Obstr Max', format: fmtPct },
+            { header: 'Outage Total', format: fmtSec , cls: 'stats-lead' },
+            { header: 'GPS Latest', format: fmtSats , cls: 'stats-lead' }, { header: 'GPS Mean', format: fmtSats },
+            { header: 'Align Latest', format: fmtDeg , cls: 'stats-lead' }, { header: 'Align Mean', format: fmtDeg }, { header: 'Align Max', format: fmtDeg },
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

@@ -331,6 +331,7 @@ function renderStatsTable(container, showAll) {
     const customCols = [];
     for (const def of customFieldDefs) {
         customCols.push(
+            { header: `${def.description} Latest`, format: fmtCustom, cls: 'stats-lead' },
             { header: `${def.description} Mean`, format: fmtCustom },
             { header: `${def.description} Min`, format: fmtCustom },
             { header: `${def.description} Max`, format: fmtCustom },
@@ -339,6 +340,7 @@ function renderStatsTable(container, showAll) {
 
     const hasFanData = lastData.devices.some(d => (d.data || []).some(p => p.fan != null));
     const fanCols = hasFanData ? [
+        { header: 'Fan Latest', format: fmtRpm, cls: 'stats-lead' },
         { header: 'Fan Mean', format: fmtRpm }, { header: 'Fan Min', format: fmtRpm }, { header: 'Fan Max', format: fmtRpm },
     ] : [];
 
@@ -347,17 +349,19 @@ function renderStatsTable(container, showAll) {
         const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
         const cpu = computeStats(pts.map(p => p.cpu).filter(v => v != null));
         const mem = computeStats(pts.map(p => p.mem).filter(v => v != null));
-        const baseValues = [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max];
+        const baseValues = [temp?.latest, temp?.mean, temp?.min, temp?.max,
+            cpu?.latest, cpu?.mean, cpu?.min, cpu?.max,
+            mem?.latest, mem?.mean, mem?.min, mem?.max];
 
         if (hasFanData) {
             const fan = computeStats(pts.map(p => p.fan).filter(v => v != null));
-            baseValues.push(fan?.mean, fan?.min, fan?.max);
+            baseValues.push(fan?.latest, fan?.mean, fan?.min, fan?.max);
         }
 
         for (const def of customFieldDefs) {
             const vals = (d.custom?.[def.fieldName] || []).map(p => p.value).filter(v => v != null);
             const stats = computeStats(vals);
-            baseValues.push(stats?.mean, stats?.min, stats?.max);
+            baseValues.push(stats?.latest, stats?.mean, stats?.min, stats?.max);
         }
 
         return { id: d.mac, label: d.name, color: hashColor(d.name),
@@ -368,9 +372,9 @@ function renderStatsTable(container, showAll) {
     renderTable(el, container, {
         nameHeader: 'Device', rows, showAllRows: showAll,
         columns: [
-            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
-            { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
-            { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
+            { header: 'Temp Latest', format: fmtTemp, cls: 'stats-lead' }, { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+            { header: 'CPU Latest', format: fmtPct, cls: 'stats-lead' }, { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
+            { header: 'Mem Latest', format: fmtPct, cls: 'stats-lead' }, { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
             ...fanCols,
             ...customCols,
         ],

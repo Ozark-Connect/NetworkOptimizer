@@ -342,9 +342,9 @@ function renderStatsTable(container, showAll) {
     renderTable(el, container, {
         nameHeader: 'Device', rows, showAllRows: showAll,
         columns: [
-            { header: 'RX Latest', format: fmtDbm }, { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
-            { header: 'TX Latest', format: fmtDbm }, { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
-            { header: 'Temp Latest', format: fmtTemp }, { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+            { header: 'RX Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
+            { header: 'TX Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
+            { header: 'Temp Latest', format: fmtTemp , cls: 'stats-lead' }, { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

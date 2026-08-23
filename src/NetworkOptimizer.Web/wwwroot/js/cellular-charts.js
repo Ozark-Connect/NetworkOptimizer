@@ -253,10 +253,10 @@ function renderStatsTable(container, showAll) {
     renderTable(el, container, {
         nameHeader: 'Modem', rows, showAllRows: showAll,
         columns: [
-            { header: 'RSRP Latest', format: fmtDbm }, { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
-            { header: 'RSRQ Latest', format: fmtDb }, { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
-            { header: 'SNR Latest', format: fmtDb }, { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
-            { header: 'Qual Latest', format: fmtPct }, { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
+            { header: 'RSRP Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
+            { header: 'RSRQ Latest', format: fmtDb , cls: 'stats-lead' }, { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
+            { header: 'SNR Latest', format: fmtDb , cls: 'stats-lead' }, { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
+            { header: 'Qual Latest', format: fmtPct , cls: 'stats-lead' }, { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
         ],
         filter: { meta: () => modemMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

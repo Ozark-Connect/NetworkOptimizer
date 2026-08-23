@@ -2253,6 +2253,13 @@ a.stat-card-link:active {
     margin-bottom: 0.25rem;
 }
 
+/* The first column of each metric group. Same highlight the nav jump tints a row with, held on
+   and far weaker: this one is read against, not glanced at. */
+.data-table th.stats-lead,
+.data-table td.stats-lead {
+    background-color: color-mix(in srgb, var(--highlight-color) 10%, transparent);
+}
+
 .data-table {
     width: 100%;
     border-collapse: collapse;

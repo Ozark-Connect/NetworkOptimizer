@@ -244,11 +244,11 @@ function renderStatsTable(container, showAll) {
     renderTable(el, container, {
         nameHeader: 'Device', rows, showAllRows: showAll,
         columns: [
-            { header: 'DS Pwr Latest', format: fmtDbmv }, { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
-            { header: 'DS SNR Latest', format: fmtDb }, { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
-            { header: 'US Pwr Latest', format: fmtDbmv }, { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
-            { header: 'Uncorr Total', format: fmtInt }, { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
-            { header: 'Corr Total', format: fmtInt }, { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
+            { header: 'DS Pwr Latest', format: fmtDbmv , cls: 'stats-lead' }, { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
+            { header: 'DS SNR Latest', format: fmtDb , cls: 'stats-lead' }, { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
+            { header: 'US Pwr Latest', format: fmtDbmv , cls: 'stats-lead' }, { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
+            { header: 'Uncorr Total', format: fmtInt , cls: 'stats-lead' }, { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
+            { header: 'Corr Total', format: fmtInt , cls: 'stats-lead' }, { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
