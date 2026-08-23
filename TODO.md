@@ -1330,6 +1330,12 @@ Two providers already READ a version string and drop it:
 - [ ] `HostVersion` for UniFi modems: the U5G-Max / U-LTE / U5G-Backup device's own UniFi firmware,
   which comes from the console's device record, not from the modem over SSH. `SoftwareVersion` is
   already populated there from `--dms-get-revision`.
+- [ ] Netgear Nighthawk hotspots populate NONE of it - not `SoftwareVersion`, `HostVersion`,
+  `ModuleVendor` or `ModuleModel`. `NetgearModelJsonParser` reads `general.deviceName` for the
+  model and no version field of any kind, so the card shows the brand and product with no firmware
+  on hover while UniFi and GL.iNet both do. Whether `model.json` even carries a version is
+  unverified - no capture in the repo has one. Needs a `model.json` dump from a Nighthawk before
+  anything can be promised.
 
 ### ONT: the module is a layer of its own
 
