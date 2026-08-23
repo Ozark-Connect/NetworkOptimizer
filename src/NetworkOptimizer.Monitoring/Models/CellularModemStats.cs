@@ -57,6 +57,15 @@ public class CellularModemStats
     /// </summary>
     public string? HostVersion { get; set; }
 
+    /// <summary>
+    /// Maker of the radio module itself (Quectel, Sierra Wireless), which is not the brand
+    /// the owner bought - that is UniFi or GL.iNet, and comes from the provider.
+    /// </summary>
+    public string? ModuleVendor { get; set; }
+
+    /// <summary>Model of the radio module (RG650V-NA, EM9291). <see cref="SoftwareVersion"/> is its build.</summary>
+    public string? ModuleModel { get; set; }
+
     // Connection status
     public string RegistrationState { get; set; } = "";
     public string Carrier { get; set; } = "";

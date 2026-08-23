@@ -21,7 +21,8 @@ public sealed record GlModemEndpoint(
     string? Model = null,
     string? Vendor = null,
     string? SoftwareVersion = null,
-    string? HostVersion = null)
+    string? HostVersion = null,
+    string? Product = null)
 {
     /// <summary>Endpoint used when discovery finds nothing: let gl_modem pick the modem itself.</summary>
     public static readonly GlModemEndpoint Unknown = new(null, null);
@@ -216,6 +217,7 @@ public sealed class GlModemTransport
         sections.TryGetValue("USB", out var usb);
 
         var hostVersion = ParseHostVersion(sections);
+        var product = ParseProduct(sections);
 
         string? bus = null, model = null, vendor = null, software = null;
         int? sub = null;
@@ -243,18 +245,43 @@ public sealed class GlModemTransport
         }
 
         if (bus != null)
-            return new GlModemEndpoint(bus, sub ?? 1, model, vendor, software, hostVersion);
+            return new GlModemEndpoint(bus, sub ?? 1, model, vendor, software, hostVersion, product);
 
         if (!string.IsNullOrWhiteSpace(configuredBus))
-            return new GlModemEndpoint(configuredBus, null, HostVersion: hostVersion);
+            return new GlModemEndpoint(configuredBus, null, HostVersion: hostVersion, Product: product);
 
         var usbBus = (usb ?? "")
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .FirstOrDefault(d => Regex.IsMatch(d, @"^\d+-[\d.]+$"));
 
         return usbBus != null
-            ? new GlModemEndpoint(usbBus, null, HostVersion: hostVersion)
-            : GlModemEndpoint.Unknown with { HostVersion = hostVersion };
+            ? new GlModemEndpoint(usbBus, null, HostVersion: hostVersion, Product: product)
+            : GlModemEndpoint.Unknown with { HostVersion = hostVersion, Product = product };
+    }
+
+    /// <summary>
+    /// The router model the owner bought, from the board's model string
+    /// ("GL.iNet E5800, Qualcomm Technologies, Inc. SDXPINN IDP MBB" gives "E5800").
+    /// The brand is implied by the provider, so it is stripped rather than stored twice.
+    /// </summary>
+    private static string? ParseProduct(Dictionary<string, string> sections)
+    {
+        if (!sections.TryGetValue("BOARD", out var board) || !TryParseJson(board, out var doc))
+            return null;
+
+        using (doc)
+        {
+            var model = GetString(doc.RootElement, "model");
+            if (string.IsNullOrWhiteSpace(model))
+                return null;
+
+            var comma = model.IndexOf(',');
+            if (comma > 0)
+                model = model[..comma];
+
+            model = Regex.Replace(model.Trim(), @"^GL[.-]?iNet\s+", "", RegexOptions.IgnoreCase).Trim();
+            return model.Length > 0 ? model : null;
+        }
     }
 
     /// <summary>

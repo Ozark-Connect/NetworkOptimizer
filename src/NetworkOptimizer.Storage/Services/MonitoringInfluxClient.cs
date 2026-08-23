@@ -940,7 +940,9 @@ from(bucket: ""{_longtermBucket}"")
         int? neighborCount = null,
         bool? nsaAvailable = null,
         string? softwareVersion = null,
-        string? hostVersion = null)
+        string? hostVersion = null,
+        string? moduleVendor = null,
+        string? moduleModel = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("cellular")
@@ -977,6 +979,8 @@ from(bucket: ""{_longtermBucket}"")
         // whole point, and a tag would fork every modem's series the day it upgrades.
         if (!string.IsNullOrEmpty(softwareVersion)) point = point.Field("software_version", softwareVersion);
         if (!string.IsNullOrEmpty(hostVersion)) point = point.Field("host_version", hostVersion);
+        if (!string.IsNullOrEmpty(moduleVendor)) point = point.Field("module_vendor", moduleVendor);
+        if (!string.IsNullOrEmpty(moduleModel)) point = point.Field("module_model", moduleModel);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

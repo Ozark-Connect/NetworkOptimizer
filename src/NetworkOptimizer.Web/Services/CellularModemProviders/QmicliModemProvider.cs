@@ -120,7 +120,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
                 // Enrichment, and last in the chain, so its exit status would become the batch's:
                 // a modem without DMS revision support must not fail a poll that has signal data.
-                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
+                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true; " +
+                $"echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true; " +
+                $"echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
             if (!success || string.IsNullOrWhiteSpace(output))
@@ -129,7 +131,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 return;
             }
 
-            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO", "REVISION");
+            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO", "REVISION", "MODULE", "MAKER");
 
             if (sections.TryGetValue("TOWER", out var towerOutput) && towerOutput.Contains("\"result\""))
                 UiwwandParser.ParseCellTowerInfo(towerOutput, stats);
@@ -152,6 +154,12 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             {
                 _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
             }
+
+            if (sections.TryGetValue("MODULE", out var moduleOutput))
+                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput, "Device model");
+
+            if (sections.TryGetValue("MAKER", out var makerOutput))
+                stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);
         }
         catch (Exception ex)
         {
@@ -222,7 +230,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
                 $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
                 $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
-                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
+                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true; " +
+                $"echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true; " +
+                $"echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
 
@@ -233,7 +243,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                     SshFailureSummary.Describe(output, context.ConfiguredHost ?? context.Host));
             }
 
-            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION");
+            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION", "MODULE", "MAKER");
 
             if (sections.TryGetValue("REVISION", out var revisionOutput))
             {
@@ -246,6 +256,12 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             {
                 _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
             }
+
+            if (sections.TryGetValue("MODULE", out var moduleOutput))
+                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput, "Device model");
+
+            if (sections.TryGetValue("MAKER", out var makerOutput))
+                stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {

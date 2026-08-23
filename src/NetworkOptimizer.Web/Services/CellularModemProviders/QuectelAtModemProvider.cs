@@ -43,6 +43,13 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     {
         _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
 
+        // TEMPORARY REVIEW HARNESS - REMOVE BEFORE MERGING THIS BRANCH.
+        // A modem named "Test" renders GL.iNet sample data so the card can be reviewed
+        // without the hardware, which no test site has. Runs the real parser, so what it
+        // shows is what a real E5800 would produce.
+        if (context.Name == "Test")
+            return PollResult<CellularModemStats>.Ok(BuildSampleStats(context));
+
         var host = context.ConfiguredHost ?? context.Host;
         var connection = ToConnectionInfo(context);
         if (!connection.HasCredentials)
@@ -62,8 +69,10 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
                 return PollResult<CellularModemStats>.Failed(result.Error ?? $"{host} did not answer the AT command.");
             }
 
-            var model = string.IsNullOrWhiteSpace(result.Endpoint.Model) ? context.ModemType : result.Endpoint.Model!;
-            var stats = QuectelAtParser.Parse(result.For(ServingCellCommand), host, context.Name, model);
+            // The model is the router the owner bought, not the module inside it - the module
+            // is reported separately below.
+            var product = string.IsNullOrWhiteSpace(result.Endpoint.Product) ? context.ModemType : result.Endpoint.Product!;
+            var stats = QuectelAtParser.Parse(result.For(ServingCellCommand), host, context.Name, product);
 
             if (stats == null)
                 return PollResult<CellularModemStats>.Failed($"{host} answered over SSH but the modem returned no signal data.");
@@ -72,6 +81,8 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
             stats.Carrier = QuectelAtParser.ParseOperator(result.For(OperatorCommand)) ?? stats.Carrier;
             stats.SoftwareVersion = result.Endpoint.SoftwareVersion;
             stats.HostVersion = result.Endpoint.HostVersion;
+            stats.ModuleVendor = result.Endpoint.Vendor;
+            stats.ModuleModel = result.Endpoint.Model;
 
             _logger.LogInformation(
                 "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",
@@ -123,6 +134,26 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         {
             return (false, $"Connection failed: {ex.Message}");
         }
+    }
+
+    // TEMPORARY REVIEW HARNESS - REMOVE BEFORE MERGING THIS BRANCH.
+    private static CellularModemStats BuildSampleStats(ModemPollContext context)
+    {
+        const string servingCell = """
++QENG: "servingcell","NOCONN"
++QENG: "LTE","FDD",310,260,"0A1B2C3",438,975,2,4,4,"1234",-95,-7,-68,20,15,150,-
++QENG: "NR5G-NSA",310,260,46,-81,34,-10,502110,41,11,1
+
+OK
+""";
+
+        var stats = QuectelAtParser.Parse(servingCell, context.Host, context.Name, "E5800")!;
+        stats.Carrier = QuectelAtParser.ParseOperator("+COPS: 0,0,\"T-Mobile\",13") ?? "";
+        stats.SoftwareVersion = "QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005";
+        stats.HostVersion = "4.8.5";
+        stats.ModuleVendor = "Quectel";
+        stats.ModuleModel = "RG650V-NA";
+        return stats;
     }
 
     /// <summary>

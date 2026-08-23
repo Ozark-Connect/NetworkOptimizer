@@ -322,4 +322,39 @@ public static class QmicliParser
 
         return revision.Length > 0 ? revision : null;
     }
+
+    /// <summary>
+    /// Reads a single quoted value out of a qmicli response line
+    /// (<c>Model: 'EM9291'</c> for label "Device model").
+    /// </summary>
+    public static string? ParseQuotedValue(string? output, string label)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var match = Regex.Match(output, @"'([^']+)'");
+        if (!match.Success)
+            return null;
+
+        var value = match.Groups[1].Value.Trim();
+        return value.Length > 0 ? value : null;
+    }
+
+    /// <summary>
+    /// Module maker from <c>qmicli --dms-get-manufacturer</c>, trimmed to the name people use:
+    /// "Sierra Wireless, Incorporated" is the legal entity, "Sierra Wireless" is the brand.
+    /// </summary>
+    public static string? ParseVendor(string? output)
+    {
+        var value = ParseQuotedValue(output, "Manufacturer");
+        if (value == null)
+            return null;
+
+        var comma = value.IndexOf(',');
+        if (comma > 0)
+            value = value[..comma];
+
+        value = value.Trim();
+        return value.Length > 0 ? value : null;
+    }
 }
