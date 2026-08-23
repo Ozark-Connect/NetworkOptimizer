@@ -602,7 +602,7 @@ function renderDetails(container) {
     if (!el) return;
 
     el.innerHTML = detailsTableHtml(lastData?.devices || [], [
-        { header: 'Dish', cell: d => escapeHtml(d.label), always: true },
+        { header: 'Terminal', cell: d => escapeHtml(d.label), always: true },
         { header: 'Uptime', cell: d => fmtUptime(d.current?.uptimeSeconds) },
         { header: 'Ethernet', cell: d => d.current?.ethSpeedMbps != null ? `${d.current.ethSpeedMbps} Mbps` : null },
         { header: 'GPS Satellites', cell: d => d.current?.gpsSats ?? null },
