@@ -23,9 +23,10 @@
       "selector": "[data-tour=\"cellular-module\"]",
       "title": "Modem module and firmware",
       "listLabel": "See the module inside your cellular modem and what firmware it runs",
-      "body": "The **Cellular Stats (5G / LTE)** card now shows the **Module** inside your modem, with its firmware on hover. Hover the device name and icon above it for the modem or router's own firmware.",
+      "body": "The **Cellular Stats (5G / LTE)** card now shows the **Module** inside your modem. Hover or press it for the module firmware, and the device name and icon above it for the modem or router's own firmware.",
       "optional": true,
-      "requires": ["cellular"]
+      "requires": ["cellular"],
+      "alsoSelectors": ["[data-tour=\"cellular-identity\"]"]
     }
   ]
 }

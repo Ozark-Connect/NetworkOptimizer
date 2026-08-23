@@ -92,6 +92,14 @@ public class TourStep
     [JsonPropertyName("matchText")]
     public string? MatchText { get; set; }
 
+    /// <summary>
+    /// Extra elements to spotlight alongside <see cref="Selector"/>, for a step whose one idea
+    /// lives in two places on the page. Best-effort: the step still runs, spotlighting what it
+    /// found, if one of these is absent. The card is placed clear of all of them.
+    /// </summary>
+    [JsonPropertyName("alsoSelectors")]
+    public string[]? AlsoSelectors { get; set; }
+
     [JsonPropertyName("body")]
     public string Body { get; set; } = "";
 
