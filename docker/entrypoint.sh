@@ -15,8 +15,8 @@ chown -R app:app /app/data /app/logs /app/ssh-keys 2>/dev/null || true
 # Default: false (bind to all interfaces for direct network access)
 # Set to true when behind a reverse proxy on the same host
 if [ "${BIND_LOCALHOST_ONLY,,}" = "true" ]; then
-    export ASPNETCORE_URLS="http://127.0.0.1:8042"
-    echo "Binding to localhost only (127.0.0.1:8042)"
+    export ASPNETCORE_URLS="http://localhost:8042"
+    echo "Binding to localhost only (localhost:8042, 127.0.0.1 + ::1)"
 else
     export ASPNETCORE_URLS="http://*:8042"
     echo "Binding to all interfaces (*:8042, IPv4 + IPv6)"
