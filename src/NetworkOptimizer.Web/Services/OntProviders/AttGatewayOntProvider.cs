@@ -10,6 +10,10 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// fiber stats via unauthenticated HTTP pages. No login required.
 /// Tries port-based scheme first, falls back to the opposite with self-signed cert bypass.
 /// </summary>
+// TODO: what these gateways report, and what the Dashboard card already shows, is the SFP ONT
+// stick rather than the gateway holding it. That is the module/host split CellularModemStats
+// records as ModuleVendor/ModuleModel and SoftwareVersion/HostVersion, and SFP-based ONT gateways
+// are common enough to want it here too.
 public class AttGatewayOntProvider : IOntProvider
 {
     private readonly ILogger<AttGatewayOntProvider> _logger;
