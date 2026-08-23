@@ -333,11 +333,7 @@ public static class QmicliParser
         if (string.IsNullOrWhiteSpace(output))
             return null;
 
-        var match = Regex.Match(output, @"'([^']+)'");
-        if (!match.Success)
-            return null;
-
-        var value = match.Groups[1].Value.Trim();
+        var value = ExtractQuotedValue(output).Trim();
         return value.Length > 0 ? value : null;
     }
 
