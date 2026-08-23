@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
@@ -23,13 +24,13 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private readonly UniFiSshService _sshService;
 
     /// <summary>
-    /// Which module is fitted. Read once per modem: an EM9291 does not become something else,
-    /// so asking every poll buys nothing. Its FIRMWARE is deliberately not cached - see
-    /// <see cref="ModuleCommands"/>.
+    /// Which module is fitted. Read once per modem: an EM9291 does not become something else.
+    /// Its FIRMWARE is deliberately not cached - see <see cref="ModuleCommands"/>.
     /// </summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ModuleIdentity> _modules = new();
+    private readonly ConcurrentDictionary<string, ModuleIdentity> _modules = new();
 
-    private sealed record ModuleIdentity(string? Vendor, string? Model);
+    /// <summary>Also holds where it was read, so repointing a config at another device re-reads it.</summary>
+    private sealed record ModuleIdentity(string? Vendor, string? Model, string Host, string TransportPath);
 
     // Created per site by ModemMonitorRegistry with that site's device SSH
     // service, so qmicli commands reach the site's modem host (tunnel-routed
@@ -55,9 +56,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             ? PollResult<CellularModemStats>.Ok(stats)
             : await PollViaQmicliAsync(context);
 
-        // A firmware upgrade or rollback reboots the modem, so it reaches us as a failed poll.
-        // Forgetting the module on any failure is what keeps a cached version from outliving
-        // the firmware it names - the cache survives only an unbroken run of healthy polls.
+        // Covers a module swapped behind the same configuration. The firmware version is not
+        // cached at all, so it needs no eviction.
         if (!result.Success)
             _modules.TryRemove(context.CacheKey, out _);
 
@@ -213,7 +213,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     {
         var commands = $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
 
-        if (!_modules.ContainsKey(context.CacheKey))
+        if (KnownModule(context) == null)
         {
             commands += $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
                         $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
@@ -221,6 +221,14 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
         return commands;
     }
+
+    /// <summary>The cached module for this config, or null when it was read from a different device.</summary>
+    private ModuleIdentity? KnownModule(ModemPollContext context) =>
+        _modules.TryGetValue(context.CacheKey, out var identity)
+        && identity.Host == context.Host
+        && identity.TransportPath == context.TransportPath
+            ? identity
+            : null;
 
     /// <summary>
     /// Stamp the module and its firmware on this poll. The firmware is whatever this poll read;
@@ -232,25 +240,25 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         if (sections.TryGetValue("REVISION", out var revision))
             stats.SoftwareVersion = QmicliParser.ParseRevision(revision);
 
-        if (!_modules.TryGetValue(context.CacheKey, out var identity))
+        var identity = KnownModule(context);
+        if (identity == null)
         {
             sections.TryGetValue("MODULE", out var model);
             sections.TryGetValue("MAKER", out var maker);
 
-            identity = new ModuleIdentity(
-                QmicliParser.ParseVendor(maker),
-                QmicliParser.ParseQuotedValue(model));
+            var vendor = QmicliParser.ParseVendor(maker);
+            var name = QmicliParser.ParseQuotedValue(model);
 
-            if (identity.Vendor == null && identity.Model == null)
+            // Both or neither: a half answer stays uncached so the missing side is asked again.
+            if (vendor == null || name == null)
             {
                 _logger.LogDebug("Modem {Name} did not say which module is fitted", context.Name);
                 return;
             }
 
+            identity = new ModuleIdentity(vendor, name, context.Host, context.TransportPath);
             _modules[context.CacheKey] = identity;
-            _logger.LogInformation(
-                "Modem {Name} module: {Vendor} {Model}",
-                context.Name, identity.Vendor ?? "unknown", identity.Model ?? "unknown");
+            _logger.LogInformation("Modem {Name} module: {Vendor} {Model}", context.Name, vendor, name);
         }
 
         stats.ModuleVendor = identity.Vendor;
@@ -281,10 +289,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
                 $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
                 $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
-                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true; " +
-                $"echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true; " +
-                $"echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
 

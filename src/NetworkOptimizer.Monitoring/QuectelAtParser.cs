@@ -428,10 +428,14 @@ public static class QuectelAtParser
 
         foreach (var line in output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
+            // A modem that was just upgraded is a modem that just rebooted, so its boot notices
+            // (RDY, +CPIN: READY, +QUSIM) are most likely on exactly the poll this matters on.
+            // Every one of them is either "+"-prefixed or RDY; the bare answer is neither.
             if (line.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
                 line.Equals("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                line.Equals("RDY", StringComparison.OrdinalIgnoreCase) ||
                 line.StartsWith("AT+", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("+CME", StringComparison.OrdinalIgnoreCase))
+                (line.StartsWith('+') && !line.StartsWith("+CGMR:", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

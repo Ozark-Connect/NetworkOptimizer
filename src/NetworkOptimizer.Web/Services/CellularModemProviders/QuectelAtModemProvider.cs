@@ -25,11 +25,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     private const string ServingCellCommand = "AT+QENG=\"servingcell\"";
     private const string OperatorCommand = "AT+COPS?";
 
-    /// <summary>
-    /// The module's own firmware, asked on every poll rather than taken from the cached
-    /// discovery: firmware is the one field whose job is to change, and an upgrade that
-    /// completes between two polls would leave a cached version standing forever.
-    /// </summary>
+    /// <summary>The module's own firmware, asked every poll rather than taken from cached discovery.</summary>
     private const string RevisionCommand = "AT+CGMR";
 
     private readonly ILogger<QuectelAtModemProvider> _logger;

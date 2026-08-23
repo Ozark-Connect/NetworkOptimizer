@@ -340,6 +340,22 @@ OK
     }
 
     [Fact]
+    public void ParseRevisionResponse_IgnoresBootNoticesFromAJustRebootedModem()
+    {
+        var output = @"
+RDY
++CPIN: READY
++QUSIM: 1
+QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005
+
+OK
+";
+
+        QuectelAtParser.ParseRevisionResponse(output)
+            .Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
+    }
+
+    [Fact]
     public void ParseRevisionResponse_UnsupportedOrEmpty_ReturnsNull()
     {
         QuectelAtParser.ParseRevisionResponse(null).Should().BeNull();

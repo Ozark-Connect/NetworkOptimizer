@@ -1941,8 +1941,8 @@ a.stat-card-link:active {
     margin-left: 0.6rem;
 }
 
-/* The CM and ONT level bar. Scoped: Client Performance had .signal-gauge first, for its
-   dBm readout, and an unscoped rule here sizes that box to 14px and clips the value. */
+/* Scoped: Client Performance declares its own .signal-gauge for a dBm readout, and this
+   rule must never size that box. */
 .signal-with-model .signal-gauge {
     width: 14px;
     height: 52px;
