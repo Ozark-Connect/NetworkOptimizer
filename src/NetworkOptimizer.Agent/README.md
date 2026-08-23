@@ -668,10 +668,25 @@ host networking that is correct; if the agent can't see the real LAN address
 (Docker bridge mode, or a multi-NIC host picks the wrong interface), set
 `NO_AGENT_LAN_IP=<ip>` in its environment to override it.
 
-## Probe-only mode for multi-WAN monitoring
+## Monitoring additional WANs
 
-To monitor a secondary WAN, run an additional agent instance with its own IP
-(LXC, Docker macvlan, or a small VM) and bind its probes to that IP:
+Every WAN you want measured gets a Vantage, set up on Monitoring - Network
+Performance under Multi-WAN Monitoring - Vantages. A Vantage pairs the WAN with
+the Agent that probes it.
+
+The easiest Agent to pair is one running on the UniFi Gateway itself. It reaches
+every WAN by that WAN's own interface, so a single Agent covers all of them and
+there is no routing to build. Set one up in Settings - Multi-Site.
+
+Any other Agent needs its probes forced out the WAN you are measuring. Give the
+Vantage a source IP, then policy-route that address out that WAN in UniFi Network.
+Probes for that Vantage bind to the source (`ping -I` on Linux), so the latency
+and loss you get back describe that WAN rather than whichever one the routing
+table preferred. None of this is multi-site only: the default site takes Vantages
+the same way, and you enroll the extra Agent against it.
+
+An Agent can also carry a source IP of its own, used for any target that does not
+bring one from its Vantage:
 
 ```json
 {
@@ -682,11 +697,8 @@ To monitor a secondary WAN, run an additional agent instance with its own IP
 }
 ```
 
-Then policy-route `192.0.2.50` out the WAN you want measured on the gateway.
-Every probe binds to that source (`ping -I` on Linux), so its latency and loss
-reflect that WAN specifically. This works on the main site too - enroll the
-extra agent against the default site. Source binding needs the native ping
-binary, so probe-only agents should run on Linux or macOS.
+Source binding rides the native ping binary, so an Agent probing a WAN this way
+should run on Linux or macOS.
 
 Secrets at rest: the server stores only SHA-256 hashes of tokens and keys. If
 `agent.json` is lost, remove the old agent in the UI and enroll a new one.
