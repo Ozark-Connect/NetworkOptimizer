@@ -1331,6 +1331,23 @@ Two providers already READ a version string and drop it:
   which comes from the console's device record, not from the modem over SSH. `SoftwareVersion` is
   already populated there from `--dms-get-revision`.
 
+### ONT: the module is a layer of its own
+
+`ModuleVendor` / `ModuleModel` are not cellular-only. An SFP-form ONT is a module inside the gateway
+holding it, the same shape as a Quectel module inside a GL router, and SFP-based ONT gateways
+(BGW320 and its peers) are common rather than a corner case. Cable modems generally have no module
+and stay a two-layer device.
+
+What the ONT card renders today through `SfpModelLabel` is already the stick's vendor and part
+number, read on every poll and never stored - so this is mostly plumbing what we have rather than
+new collection. The gateway around it is then the `HostVersion` layer.
+
+- [ ] Investigate which ONT providers report the stick's identity and which report the gateway's.
+  They are different layers and today's providers do not distinguish them.
+- [ ] Normalize vendor and part strings before storing. `CleanOrgName` tidies the SFP EEPROM org
+  name for display; a stored value has to be stable enough to group and correlate on.
+- [ ] Add `ModuleVendor` / `ModuleModel` to `OntStats` once the two above settle.
+
 Written to InfluxDB as FIELDS on `cellular` (`software_version`, `host_version`) - correlating
 performance against firmware is the point of collecting them. Never as tags: a tag is part of the
 series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
