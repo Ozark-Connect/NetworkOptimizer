@@ -1302,7 +1302,7 @@ if (!agentTunnelBound)
     var multiSiteSetting = await tunnelBindDb.SystemSettings
         .FirstOrDefaultAsync(setting => setting.Key == SystemSettingKeys.MultiSiteEnabled);
     if (bool.TryParse(multiSiteSetting?.Value, out var multiSiteOn) && multiSiteOn)
-        Console.WriteLine(
+        app.Logger.LogWarning(
             "Agent tunnel not bound: ASPNETCORE_URLS contains bindings the tunnel listener cannot " +
             "co-exist with (HTTPS or non-port URLs). Agents stay on REST heartbeats.");
 }
