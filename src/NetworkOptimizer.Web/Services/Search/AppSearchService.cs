@@ -90,10 +90,16 @@ public sealed class AppSearchService : IAppSearchService
         var complete = hits.Where(h => h.Match.IsComplete).ToList();
         var chosen = complete.Count > 0 ? complete : hits;
 
+        // Ties break by the order providers listed their entries, which is the order the cards
+        // appear on the page: two cards whose titles both contain the query are equally good
+        // matches, and the first one is the one the tab leads with. Sorting them by title instead
+        // hands the query to whichever card happens to sort first - "speed test" scores identically
+        // against "LAN Speed Test Settings" and "External Speed Test Servers", and alphabetically
+        // the WAN server list wins. OrderBy is a stable sort, so leaving the tie unbroken here
+        // keeps the listed order.
         return chosen
             .OrderByDescending(h => h.Match.Matched)
             .ThenByDescending(h => h.Match.Score)
-            .ThenBy(h => h.Hit.Entry.Title, StringComparer.OrdinalIgnoreCase)
             .Take(maxResults)
             .Select(h => h.Hit)
             .ToList();
