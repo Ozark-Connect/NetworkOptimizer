@@ -45,6 +45,18 @@ public class CellularModemStats
     public string ModemName { get; set; } = "";
     public string ModemModel { get; set; } = "";
 
+    /// <summary>
+    /// The modem's own build, whatever its vendor calls it - "software version" and
+    /// "firmware version" are the same thing on this class of device, so they share one
+    /// field and the display picks the vendor's word. Null when the provider cannot read it.
+    ///
+    /// On a host-plus-module device (a GL.iNet router carrying a Quectel module) this is the
+    /// MODULE's firmware, not the router's: the modem is what is being monitored. Matches
+    /// StarlinkStats.SoftwareVersion, which is where this pair started; a HardwareVersion
+    /// belongs beside it if a provider ever reports one.
+    /// </summary>
+    public string? SoftwareVersion { get; set; }
+
     // Connection status
     public string RegistrationState { get; set; } = "";
     public string Carrier { get; set; } = "";

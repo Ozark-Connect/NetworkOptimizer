@@ -70,6 +70,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
             // AT+QENG reports only MCC/MNC, so the operator name comes from AT+COPS?.
             stats.Carrier = QuectelAtParser.ParseOperator(result.For(OperatorCommand)) ?? stats.Carrier;
+            stats.SoftwareVersion = result.Endpoint.Firmware;
 
             _logger.LogInformation(
                 "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",

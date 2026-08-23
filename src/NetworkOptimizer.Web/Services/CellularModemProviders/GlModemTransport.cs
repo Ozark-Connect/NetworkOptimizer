@@ -127,7 +127,10 @@ public sealed class GlModemTransport
             };
         }
 
-        if (!result.Success)
+        // A chain's exit status is only the last command's, so it cannot speak for the rest:
+        // judging the batch by it would let a failed enrichment command discard signal data
+        // already in hand. Transport failures still surface, having produced no stdout at all.
+        if (!result.Success && string.IsNullOrWhiteSpace(result.Output))
             return new GlModemAtResult { Success = false, Error = SshFailureSummary.Describe(combined, connection.Host) };
 
         return new GlModemAtResult
@@ -183,9 +186,9 @@ public sealed class GlModemTransport
             {
                 var endpoint = ParseDiscovery(result.Output ?? "", context.TransportPath);
                 _logger.LogInformation(
-                    "Resolved GL.iNet modem {Name} to bus {Bus} sub {Sub} ({Model})",
+                    "Resolved GL.iNet modem {Name} to bus {Bus} sub {Sub} ({Model}, firmware {Firmware})",
                     context.Name, endpoint.Bus ?? "auto", endpoint.Sub?.ToString() ?? "none",
-                    endpoint.Description ?? "unidentified");
+                    endpoint.Description ?? "unidentified", endpoint.Firmware ?? "unknown");
                 return endpoint;
             }
 

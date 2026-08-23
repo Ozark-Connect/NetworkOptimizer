@@ -1296,3 +1296,31 @@ the reference doc's "no internet" path for APs/switches.
   `TriggerUpgradeAsync` both fail, or after a device cycles back on the old version.
 - [ ] Investigate per-device-type command selection for the syswrapper path: APs/switches use
   `syswrapper.sh upgrade2 &`, gateways may differ. The reference doc covers both cases.
+
+## Monitored device firmware: fill in SoftwareVersion for the rest
+
+`CellularModemStats.SoftwareVersion` is the precedent, populated by the GL.iNet provider from GL's
+`cellular.modem info`. The field is deliberately one field for both words: "software version" and
+"firmware version" are the same thing on this class of device, so the model carries one value and
+the display uses whatever the vendor calls it. `HardwareVersion` stays separate, added only where a
+provider actually reports one (only Starlink does today).
+
+Two providers already READ a firmware string and drop it:
+
+- `QuantumQ1000kOntProvider` asks for `SoftwareVersion` and `HardwareVersion` in its query string
+  and parses them, with nowhere to put them.
+- The cable modem status pages expose it under varying labels (Arris "Software Version", Netgear
+  "Firmware Version").
+
+- [ ] Add `SoftwareVersion` to `CableModemStats` and `OntStats`, matching the shape on
+  `CellularModemStats` and `StarlinkStats`.
+- [ ] Populate from the providers that already have the value in hand, starting with
+  `QuantumQ1000kOntProvider`.
+- [ ] Surface it on the Cable Modem Stats, ONT Stats and Cellular Stats cards next to the model.
+  Label per the device's own wording, not the field name - a cable modem owner reads "Firmware
+  Version" on the modem's own page and expects that word on ours. Copy needs sign-off.
+- [ ] Decide whether the other cellular providers can source it (qmicli has `--dms-get-revision`).
+  Leaving it null where unavailable is fine and expected.
+
+Deliberately NOT written to InfluxDB: it is near-static, so a per-sample string field is waste.
+Revisit only if someone wants to correlate a fleet issue against firmware over time.
