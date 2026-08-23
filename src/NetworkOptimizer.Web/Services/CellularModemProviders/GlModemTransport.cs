@@ -120,6 +120,16 @@ public sealed class GlModemTransport
         CancellationToken cancellationToken)
     {
         var script = new StringBuilder();
+
+        // Module firmware is read in the same session as the readings it labels, never from the
+        // cached endpoint: an upgrade would otherwise leave the old version standing against new
+        // data. GL's ubus carries the fuller string, so it is asked first and AT+CGMR backs it up.
+        if (!string.IsNullOrWhiteSpace(endpoint.Bus))
+        {
+            script.Append($"echo '{FirmwareMarker}'; ubus call cellular.modem info ");
+            script.Append($"'{{\"bus\":\"{ValidBus(endpoint.Bus)}\"}}' 2>/dev/null; ");
+        }
+
         for (int i = 0; i < atCommands.Count; i++)
         {
             if (i > 0) script.Append("; ");
@@ -147,10 +157,14 @@ public sealed class GlModemTransport
         if (!result.Success && string.IsNullOrWhiteSpace(result.Output))
             return new GlModemAtResult { Success = false, Error = SshFailureSummary.Describe(combined, connection.Host) };
 
+        var sections = SplitAtSections(result.Output ?? "", atCommands);
+        sections.Remove(FirmwareSectionKey, out var firmwareJson);
+
         return new GlModemAtResult
         {
             Success = true,
-            Sections = SplitAtSections(result.Output ?? "", atCommands),
+            Sections = sections,
+            ModuleFirmware = ParseModuleFirmware(firmwareJson),
         };
     }
 
@@ -163,11 +177,7 @@ public sealed class GlModemTransport
         var sb = new StringBuilder("gl_modem");
 
         if (!string.IsNullOrWhiteSpace(endpoint.Bus))
-        {
-            if (!Regex.IsMatch(endpoint.Bus, @"^[0-9A-Za-z._:-]+$"))
-                throw new ArgumentException($"Invalid modem bus: {endpoint.Bus}");
-            sb.Append($" -B {endpoint.Bus}");
-        }
+            sb.Append($" -B {ValidBus(endpoint.Bus)}");
 
         if (endpoint.Sub.HasValue)
             sb.Append($" -U {endpoint.Sub.Value}");
@@ -175,6 +185,12 @@ public sealed class GlModemTransport
         sb.Append($" AT '{atCommand}'");
         return sb.ToString();
     }
+
+    /// <summary>A bus is interpolated into a shell command, so it may only look like a path.</summary>
+    private static string ValidBus(string bus) =>
+        Regex.IsMatch(bus, @"^[0-9A-Za-z._:-]+$")
+            ? bus
+            : throw new ArgumentException($"Invalid modem bus: {bus}");
 
     /// <summary>
     /// Find the modem's addressing. GL.iNet's own cellular ubus service answers for the
@@ -328,10 +344,25 @@ public sealed class GlModemTransport
 
     private static string SectionMarker(int index) => $"===AT{index}===";
 
+    // Never an AT command, so it cannot collide with a section keyed by one.
+    private const string FirmwareSectionKey = "firmware";
+    private const string FirmwareMarker = "===VER===";
+
     private static Dictionary<string, string> SplitAtSections(string output, IReadOnlyList<string> atCommands)
     {
-        var markers = atCommands.Select((cmd, i) => (Key: cmd, Marker: SectionMarker(i)));
+        var markers = atCommands.Select((cmd, i) => (Key: cmd, Marker: SectionMarker(i)))
+            .Prepend((Key: FirmwareSectionKey, Marker: FirmwareMarker));
         return SplitSections(output, markers);
+    }
+
+    /// <summary>The module's own firmware, from GL's ubus modem info. Internal for tests.</summary>
+    internal static string? ParseModuleFirmware(string? json)
+    {
+        if (!TryParseJson(json, out var doc))
+            return null;
+
+        using (doc)
+            return GetString(doc.RootElement, "version");
     }
 
     private static Dictionary<string, string> SplitNamedSections(string output, IReadOnlyList<string> keys)
@@ -418,6 +449,9 @@ public sealed record GlModemAtResult
 
     /// <summary>Output of each AT command, keyed by the command itself.</summary>
     public Dictionary<string, string> Sections { get; init; } = new();
+
+    /// <summary>Module firmware read in this same session, so it is never a cached value.</summary>
+    public string? ModuleFirmware { get; init; }
 
     public GlModemEndpoint Endpoint { get; init; } = GlModemEndpoint.Unknown;
 

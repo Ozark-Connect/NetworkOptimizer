@@ -33,6 +33,7 @@ public class GlModemTransportTests
 {
         "kernel": "5.15.170-perf",
         "hostname": "GL-E5800",
+        "model": "GL.iNet E5800, Qualcomm Technologies, Inc. SDXPINN IDP MBB",
         "board_name": "qcom,sdxpinn-idp",
         "release": {
                 "distribution": "OpenWrt",
@@ -69,6 +70,28 @@ public class GlModemTransportTests
         endpoint.Description.Should().Be("Quectel RG650V-NA");
         endpoint.SoftwareVersion.Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
         endpoint.HostVersion.Should().Be("4.8.5", "GL stamps their own firmware version, which is what the owner sees");
+        endpoint.Product.Should().Be("E5800", "the brand comes from the provider, so it is stripped from the model");
+    }
+
+    [Fact]
+    public void ParseModuleFirmware_ReadsTheModulesOwnBuild()
+    {
+        var json = @"{
+        ""bus"": ""cpu"",
+        ""name"": ""RG650V-NA"",
+        ""version"": ""QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005""
+}";
+
+        GlModemTransport.ParseModuleFirmware(json)
+            .Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
+    }
+
+    [Fact]
+    public void ParseModuleFirmware_NoUbusAnswer_ReturnsNull()
+    {
+        // Firmware without GL's cellular ubus answers nothing here, and AT+CGMR covers it.
+        GlModemTransport.ParseModuleFirmware("").Should().BeNull();
+        GlModemTransport.ParseModuleFirmware(null).Should().BeNull();
     }
 
     [Fact]

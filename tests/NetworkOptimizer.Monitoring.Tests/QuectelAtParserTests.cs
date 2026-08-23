@@ -316,16 +316,16 @@ OK
     [Fact]
     public void ParseRevisionResponse_ReturnsTheBareVersion()
     {
+        // Verbatim from a GL-E5800's RG650V-NA: no prefix, and a shorter string than the build
+        // GL's ubus reports for the same module, which is why the ubus one is preferred.
         var output = @"
-AT+CGMR
 
-QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005
+RG650VNA01ACR02A04G8G
 
 OK
 ";
 
-        QuectelAtParser.ParseRevisionResponse(output)
-            .Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
+        QuectelAtParser.ParseRevisionResponse(output).Should().Be("RG650VNA01ACR02A04G8G");
     }
 
     [Fact]
