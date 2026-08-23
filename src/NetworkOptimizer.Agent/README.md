@@ -673,7 +673,7 @@ host networking that is correct; if the agent can't see the real LAN address
 Probes leave by the default WAN unless something sends them elsewhere, so a
 second or third WAN goes unmeasured until you give it a Vantage. Vantages live on
 Monitoring - Network Performance, in the Multi-WAN Monitoring - Vantages card
-(hidden on single-WAN sites, where there is nothing to disambiguate). A Vantage
+(hidden on single-WAN sites). A Vantage
 pairs a WAN with the box that probes it, and the targets you assign to it are
 then measured over that WAN rather than whichever one the routing table
 preferred. None of this is multi-site only: the default site takes Vantages the
@@ -688,11 +688,13 @@ Any other Agent has to be forced out the WAN you are measuring. Give the Vantage
 a Probe source IP, then add a Policy-Based Route in UniFi Network that sends that
 address out that WAN. The server pushes the Vantage's source down with every
 target it assigns, and the Agent binds it per probe (`ping -I` on Linux, `-S` or
-`-b` on BSD), so the latency and loss coming back describe that WAN. One thing to
-settle before you build the route: UniFi matches the source by Client Device,
-which is a MAC, so the address needs an interface of its own. An LXC or VM has
-one, a Docker container can be given one with macvlan, and a plain second address
-on a host already on the network will not route differently.
+`-b` on BSD), so the latency and loss coming back describe that WAN.
+
+UniFi matches a route's source by Client Device, which is a MAC, so the address
+needs an interface of its own. An LXC or VM has one, a Docker container can be
+given one with macvlan, and a plain second address on a host already on the
+network will not route differently. WAN Steering matches on IP instead, so
+steering the Agent there sidesteps the interface requirement entirely.
 
 Source binding rides the native ping binary, so an Agent probing a WAN this way
 belongs on Linux or macOS. On Windows the managed path fails loudly rather than
