@@ -2,7 +2,7 @@
   "id": "2.7.2",
   "kind": "whats-new",
   "title": "What's new in v2.7.2",
-  "summary": "See the current readings in Monitoring right next to min/max/mean.",
+  "summary": "See the current readings in Monitoring right next to min/max/mean, and the module inside your cellular modem.",
   "steps": [
     {
       "id": "monitoring-stats-latest",
@@ -14,6 +14,18 @@
       "listLabel": "See the current reading for device / modem stats",
       "body": "Every stats table in Monitoring now has the **Latest** value shown for every stat. The **Latest** column is tinted to break up the columns in the stats table for easier scanning.",
       "optional": true
+    },
+    {
+      "id": "cellular-module",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/",
+      "selector": "[data-tour=\"cellular-module\"]",
+      "title": "Modem module and firmware",
+      "listLabel": "See the module inside your cellular modem and what firmware it runs",
+      "body": "The **Cellular Stats (5G / LTE)** card now shows the **Module** inside your modem, with its firmware on hover. Hover the device name and icon above it for the modem or router's own firmware.",
+      "optional": true,
+      "requires": ["cellular"]
     }
   ]
 }
