@@ -156,7 +156,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             }
 
             if (sections.TryGetValue("MODULE", out var moduleOutput))
-                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput, "Device model");
+                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput);
 
             if (sections.TryGetValue("MAKER", out var makerOutput))
                 stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);
@@ -258,7 +258,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             }
 
             if (sections.TryGetValue("MODULE", out var moduleOutput))
-                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput, "Device model");
+                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput);
 
             if (sections.TryGetValue("MAKER", out var makerOutput))
                 stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);

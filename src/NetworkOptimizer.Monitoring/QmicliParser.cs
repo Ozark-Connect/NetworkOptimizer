@@ -324,10 +324,11 @@ public static class QmicliParser
     }
 
     /// <summary>
-    /// Reads a single quoted value out of a qmicli response line
-    /// (<c>Model: 'EM9291'</c> for label "Device model").
+    /// Reads the single quoted value out of a one-value qmicli response
+    /// (<c>Model: 'EM9291'</c>). The device path in the header is bracketed, not quoted,
+    /// so the first quoted run is the value.
     /// </summary>
-    public static string? ParseQuotedValue(string? output, string label)
+    public static string? ParseQuotedValue(string? output)
     {
         if (string.IsNullOrWhiteSpace(output))
             return null;
@@ -346,7 +347,7 @@ public static class QmicliParser
     /// </summary>
     public static string? ParseVendor(string? output)
     {
-        var value = ParseQuotedValue(output, "Manufacturer");
+        var value = ParseQuotedValue(output);
         if (value == null)
             return null;
 
