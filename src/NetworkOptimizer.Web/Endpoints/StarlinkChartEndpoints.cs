@@ -54,10 +54,21 @@ public static class StarlinkChartEndpoints
             {
                 var name = nameMap[kvp.Key];
 
+                // Current state for the detail table, sent once per dish rather than per point.
+                var pts = kvp.Value;
+
                 return new
                 {
                     id = kvp.Key,
                     label = name,
+                    current = new
+                    {
+                        uptimeSeconds = pts.Select(p => p.UptimeS).LastOrDefault(v => v != null),
+                        ethSpeedMbps = pts.Select(p => p.EthSpeedMbps).LastOrDefault(v => v != null),
+                        gpsSats = pts.Select(p => p.GpsSats).LastOrDefault(v => v != null),
+                        obstructed = pts.Select(p => p.FractionObstructed).LastOrDefault(v => v != null),
+                        alertCount = pts.Select(p => p.AlertCount).LastOrDefault(v => v != null),
+                    },
                     data = kvp.Value.Select(p => new
                     {
                         time = p.Time.ToString("o"),

@@ -2247,6 +2247,10 @@ a.stat-card-link:active {
     -webkit-overflow-scrolling: touch;
 }
 
+.detail-table {
+    margin-bottom: 0.25rem;
+}
+
 .data-table {
     width: 100%;
     border-collapse: collapse;

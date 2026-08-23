@@ -10,6 +10,7 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
+import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'starlink';
@@ -217,6 +218,7 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
+        renderDetails(container);
         renderStatsTable(container);
     }
 }
@@ -592,4 +594,19 @@ export function unmount() {
     customTo = null;
     isInViewport = true;
     axisDate.reset();
+}
+
+// Current state under the charts. A column no dish fills is dropped.
+function renderDetails(container) {
+    const el = container.querySelector('.starlink-details');
+    if (!el) return;
+
+    el.innerHTML = detailsTableHtml(lastData?.devices || [], [
+        { header: 'Dish', cell: d => escapeHtml(d.label), always: true },
+        { header: 'Uptime', cell: d => fmtUptime(d.current?.uptimeSeconds) },
+        { header: 'Ethernet', cell: d => d.current?.ethSpeedMbps != null ? `${d.current.ethSpeedMbps} Mbps` : null },
+        { header: 'GPS Satellites', cell: d => d.current?.gpsSats ?? null },
+        { header: 'Obstruction', cell: d => d.current?.obstructed != null ? `${(d.current.obstructed * 100).toFixed(2)}%` : null },
+        { header: 'Active Alerts', cell: d => d.current?.alertCount ?? null },
+    ]);
 }

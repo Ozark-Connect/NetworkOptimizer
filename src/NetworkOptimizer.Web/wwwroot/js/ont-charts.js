@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=4';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';

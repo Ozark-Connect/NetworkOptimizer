@@ -9,6 +9,7 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
+import { detailsTableHtml } from './detail-table.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cm';
@@ -211,6 +212,7 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
+        renderDetails(container);
         renderStatsTable(container);
     }
 }
@@ -567,4 +569,21 @@ export function unmount() {
     customTo = null;
     isInViewport = true;
     axisDate.reset();
+}
+
+// Current state under the charts. A column no modem fills is dropped.
+function renderDetails(container) {
+    const el = container.querySelector('.cm-details');
+    if (!el) return;
+
+    el.innerHTML = detailsTableHtml(lastData?.devices || [], [
+        { header: 'Modem', cell: d => escapeHtml(d.label), always: true },
+        {
+            header: 'Locked Channels DS / US',
+            cell: d => {
+                const ds = d.current?.lockedDsChannels, us = d.current?.lockedUsChannels;
+                return ds == null && us == null ? null : `${ds ?? '-'} / ${us ?? '-'}`;
+            },
+        },
+    ]);
 }

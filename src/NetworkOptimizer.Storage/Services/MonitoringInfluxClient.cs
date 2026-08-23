@@ -2521,7 +2521,7 @@ from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""cellular"")
   {modemFilter}
-  |> filter(fn: (r) => r._field == ""rsrp"" or r._field == ""rsrq"" or r._field == ""snr"" or r._field == ""rssi"" or r._field == ""signal_quality"" or r._field == ""band"" or r._field == ""carrier"")
+  |> filter(fn: (r) => r._field == ""rsrp"" or r._field == ""rsrq"" or r._field == ""snr"" or r._field == ""rssi"" or r._field == ""signal_quality"" or r._field == ""band"" or r._field == ""carrier"" or r._field == ""bandwidth_mhz"" or r._field == ""cell_id"" or r._field == ""roaming"" or r._field == ""software_version"" or r._field == ""host_version"" or r._field == ""module_vendor"" or r._field == ""module_model"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -2548,6 +2548,13 @@ from(bucket: ""{_longtermBucket}"")
                 NetworkMode = mode,
                 Band = record.GetValueByKey("band") as string,
                 Carrier = record.GetValueByKey("carrier") as string,
+                BandwidthMhz = AsIntOrNull(record.GetValueByKey("bandwidth_mhz")),
+                CellId = AsLongOrNull(record.GetValueByKey("cell_id")),
+                IsRoaming = record.GetValueByKey("roaming") as bool?,
+                SoftwareVersion = record.GetValueByKey("software_version") as string,
+                HostVersion = record.GetValueByKey("host_version") as string,
+                ModuleVendor = record.GetValueByKey("module_vendor") as string,
+                ModuleModel = record.GetValueByKey("module_model") as string,
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -3855,6 +3862,13 @@ from(bucket: ""{_longtermBucket}"")
         public string? NetworkMode { get; init; }
         public string? Band { get; init; }
         public string? Carrier { get; init; }
+        public int? BandwidthMhz { get; init; }
+        public long? CellId { get; init; }
+        public bool? IsRoaming { get; init; }
+        public string? SoftwareVersion { get; init; }
+        public string? HostVersion { get; init; }
+        public string? ModuleVendor { get; init; }
+        public string? ModuleModel { get; init; }
     }
 
     public record CmPoint
