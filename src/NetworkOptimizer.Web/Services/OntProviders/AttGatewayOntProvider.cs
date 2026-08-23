@@ -11,9 +11,9 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// Tries port-based scheme first, falls back to the opposite with self-signed cert bypass.
 /// </summary>
 // TODO: what these gateways report, and what the Dashboard card already shows, is the SFP ONT
-// stick rather than the gateway holding it. That is the module/host split CellularModemStats
-// records as ModuleVendor/ModuleModel and SoftwareVersion/HostVersion, and SFP-based ONT gateways
-// are common enough to want it here too.
+// stick rather than the gateway holding it - the stick's vendor and part number are read today,
+// just never stored. That is the module/host split CellularModemStats records as
+// ModuleVendor/ModuleModel and SoftwareVersion/HostVersion.
 public class AttGatewayOntProvider : IOntProvider
 {
     private readonly ILogger<AttGatewayOntProvider> _logger;
