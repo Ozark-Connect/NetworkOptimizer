@@ -936,7 +936,7 @@
                                     <th class="hide-mobile">Device / IP</th>
                                     <th>Status</th>
                                     <th>Time</th>
-                                    <th class="hide-mobile"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -957,7 +957,7 @@
                                             </span>
                                         </td>
                                         <td>@FormatTime(alert.TriggeredAt)</td>
-                                        <td class="hide-mobile">
+                                        <td>
                                             @if (!string.IsNullOrEmpty(alert.SourceUrl))
                                             {
                                                 <a href="@alert.SourceUrl" class="btn btn-sm btn-outline-primary">View</a>
