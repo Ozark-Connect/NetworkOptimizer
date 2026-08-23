@@ -290,7 +290,7 @@ public class CellularModemService : ICellularModemService
 
             if (stats != null)
             {
-                if (await UpdateModemConfigAsync(modem.Id, null, success: true))
+                if (await UpdateModemConfigAsync(modem.Id, null, success: true, detectedModel: stats.ModemModel))
                 {
                     lock (_lock)
                     {
@@ -440,14 +440,14 @@ public class CellularModemService : ICellularModemService
         }
     }
 
-    private async Task<bool> UpdateModemConfigAsync(int modemId, string? error, bool success)
+    private async Task<bool> UpdateModemConfigAsync(int modemId, string? error, bool success, string? detectedModel = null)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
             return await repository.UpdateModemPollResultAsync(
-                modemId, success ? DateTime.UtcNow : (DateTime?)null, error);
+                modemId, success ? DateTime.UtcNow : (DateTime?)null, error, detectedModel);
         }
         catch (Exception ex)
         {

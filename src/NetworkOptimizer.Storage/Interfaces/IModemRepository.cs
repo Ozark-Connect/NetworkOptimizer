@@ -26,6 +26,10 @@ public interface IModemRepository
     /// LastError, and UpdatedAt - never Enabled. Skips (and returns false) when the config
     /// was disabled meanwhile, so an in-flight poll can neither resurrect a paused modem nor
     /// overwrite its frozen state. Returns true when the result was persisted.
+    ///
+    /// <paramref name="detectedModel"/> fills in ModemType when it still holds the
+    /// provider's generic placeholder, so a model the modem reports about itself replaces
+    /// a stand-in like "GL-iNet". A model the user typed is never overwritten.
     /// </summary>
-    Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, CancellationToken cancellationToken = default);
+    Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, string? detectedModel = null, CancellationToken cancellationToken = default);
 }

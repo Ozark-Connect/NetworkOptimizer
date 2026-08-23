@@ -7,12 +7,12 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
 /// <summary>
 /// Cellular modem provider for GL-iNet routers and other devices with Quectel modems.
-/// Uses per-modem SSH credentials (not the shared UniFi SSH service) to connect
-/// and run <c>gl_modem AT AT+QENG="servingcell"</c>, then parses the response
-/// with <see cref="QuectelAtParser"/>.
+/// Uses per-modem SSH credentials (not the shared UniFi SSH service) to run
+/// <c>gl_modem ... AT AT+QENG="servingcell"</c> and parse the response with
+/// <see cref="QuectelAtParser"/>.
 ///
-/// The TransportPath field stores the USB bus path (e.g. "1-1.2") used by
-/// gl_modem's <c>-B</c> flag. If empty, gl_modem auto-detects the first modem.
+/// <see cref="GlModemTransport"/> owns how gl_modem is addressed; the TransportPath
+/// field is only a user-supplied hint for hardware discovery cannot identify.
 /// </summary>
 public sealed class QuectelAtModemProvider : ICellularModemProvider
 {
@@ -22,15 +22,18 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     /// <inheritdoc/>
     public string DisplayName => "GL-iNet / Quectel modem (SSH)";
 
+    private const string ServingCellCommand = "AT+QENG=\"servingcell\"";
+    private const string OperatorCommand = "AT+COPS?";
+
     private readonly ILogger<QuectelAtModemProvider> _logger;
-    private readonly SshClientService _sshClient;
+    private readonly GlModemTransport _transport;
 
     public QuectelAtModemProvider(
         ILogger<QuectelAtModemProvider> logger,
-        SshClientService sshClient)
+        GlModemTransport transport)
     {
         _logger = logger;
-        _sshClient = sshClient;
+        _transport = transport;
     }
 
     /// <inheritdoc/>
@@ -50,19 +53,23 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
         try
         {
-            var command = BuildAtCommand(context.TransportPath);
-            var result = await _sshClient.ExecuteCommandAsync(connection, command, cancellationToken: cancellationToken);
+            var result = await _transport.RunAtAsync(
+                context, connection, new[] { ServingCellCommand, OperatorCommand }, cancellationToken);
 
             if (!result.Success)
             {
                 _logger.LogWarning("AT command failed on {Name}: {Error}", context.Name, result.Error);
-                return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(result.CombinedOutput, host));
+                return PollResult<CellularModemStats>.Failed(result.Error ?? $"{host} did not answer the AT command.");
             }
 
-            var stats = QuectelAtParser.Parse(result.Output, host, context.Name, context.ModemType);
+            var model = string.IsNullOrWhiteSpace(result.Endpoint.Model) ? context.ModemType : result.Endpoint.Model!;
+            var stats = QuectelAtParser.Parse(result.For(ServingCellCommand), host, context.Name, model);
 
             if (stats == null)
                 return PollResult<CellularModemStats>.Failed($"{host} answered over SSH but the modem returned no signal data.");
+
+            // AT+QENG reports only MCC/MNC, so the operator name comes from AT+COPS?.
+            stats.Carrier = QuectelAtParser.ParseOperator(result.For(OperatorCommand)) ?? stats.Carrier;
 
             _logger.LogInformation(
                 "Successfully polled GL-iNet modem {Name}: Signal Quality: {Quality}%",
@@ -88,41 +95,32 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
         try
         {
-            var command = BuildAtCommand(context.TransportPath);
-            var result = await _sshClient.ExecuteCommandAsync(connection, command, cancellationToken: cancellationToken);
+            var result = await _transport.RunAtAsync(
+                context, connection, new[] { ServingCellCommand }, cancellationToken);
 
-            if (result.Success && !string.IsNullOrWhiteSpace(result.Output) && result.Output.Contains("+QENG"))
+            var identity = result.Endpoint.Description;
+            var found = identity != null ? $"Found {identity}. " : "";
+
+            if (result.Success && result.For(ServingCellCommand).Contains("+QENG"))
+                return (true, $"{found}Connected and the modem responded to the AT command.");
+
+            if (result.RejectedCommandLine)
             {
-                return (true, "Connected and modem responded to AT command");
+                return (false, identity != null
+                    ? $"{found}Its gl_modem did not accept the command line, so no AT command reached the modem."
+                    : "The router's gl_modem did not accept the command line, and the modem could not be identified. " +
+                      "Check the Modem Bus field.");
             }
 
             if (result.Success)
-            {
-                return (false, $"SSH connected but modem did not respond. Output: {Truncate(result.Output, 200)}");
-            }
+                return (false, $"{found}SSH connected but the modem did not respond to AT+QENG.");
 
-            return (false, SshFailureSummary.Describe(result.CombinedOutput, context.ConfiguredHost ?? context.Host));
+            return (false, result.Error ?? "The AT command failed.");
         }
         catch (Exception ex)
         {
             return (false, $"Connection failed: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Build the AT command string. Uses gl_modem with optional bus path.
-    /// Validates the bus path to prevent shell injection.
-    /// </summary>
-    private static string BuildAtCommand(string? transportPath)
-    {
-        if (!string.IsNullOrWhiteSpace(transportPath))
-        {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(transportPath, @"^[0-9A-Za-z._:-]+$"))
-                throw new ArgumentException($"Invalid USB bus path: {transportPath}");
-            return $"gl_modem -B {transportPath} AT AT+QENG=\\\"servingcell\\\"";
-        }
-
-        return "gl_modem AT AT+QENG=\\\"servingcell\\\"";
     }
 
     /// <summary>
@@ -136,10 +134,4 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         Password = context.Password,
         PrivateKeyPath = context.PrivateKeyPath,
     };
-
-    private static string Truncate(string? s, int maxLength)
-    {
-        if (string.IsNullOrEmpty(s)) return "";
-        return s.Length <= maxLength ? s : s[..maxLength] + "...";
-    }
 }

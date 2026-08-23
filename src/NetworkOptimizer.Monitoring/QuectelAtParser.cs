@@ -118,7 +118,7 @@ public static class QuectelAtParser
                 RadioInterface = "5gnr",
                 BandClass = NormalizeBandClass(bandStr, "nr"),
                 Channel = ParseIntField(fields[9]) ?? 0,
-                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[11])),
+                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[11]), "nr"),
             };
         }
     }
@@ -178,7 +178,7 @@ public static class QuectelAtParser
                 RadioInterface = "lte",
                 BandClass = NormalizeBandClass(bandInd, "lte"),
                 Channel = ParseIntField(fields[lteIdx + 1 + 5]) ?? 0,
-                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[lteIdx + 1 + 8])), // DL_bandwidth
+                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[lteIdx + 1 + 8]), "lte"), // DL_bandwidth
             };
         }
     }
@@ -219,7 +219,7 @@ public static class QuectelAtParser
                 RadioInterface = "5gnr",
                 BandClass = NormalizeBandClass(bandStr, "nr"),
                 Channel = ParseIntField(fields[nsaIdx + 7]) ?? 0,
-                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[nsaIdx + 9])),
+                BandwidthMhz = ParseBandwidthMhz(Unquote(fields[nsaIdx + 9]), "nr"),
             };
         }
     }
@@ -296,19 +296,58 @@ public static class QuectelAtParser
         return bandStr;
     }
 
+    /// <summary>LTE DL/UL bandwidth enum from the Quectel AT manual, indexed by the reported value.</summary>
+    private static readonly int[] LteBandwidthMhz = { 1, 3, 5, 10, 15, 20 };
+
+    /// <summary>NR bandwidth enum from the Quectel AT manual, indexed by the reported value.</summary>
+    private static readonly int[] NrBandwidthMhz = { 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 200, 400 };
+
     /// <summary>
-    /// Parse bandwidth string to MHz. GL-iNet firmware reports the direct MHz value
-    /// (e.g. "5", "10", "20", "100").
+    /// Parse a bandwidth field to MHz. Quectel reports an index into the enum for its
+    /// RAT, not a MHz figure - an RG650V on band n41 at 90 MHz reports 11. Values past
+    /// the end of the enum are taken literally, because firmware that reports MHz
+    /// directly is only distinguishable by being out of range.
     /// </summary>
-    private static int? ParseBandwidthMhz(string? bwStr)
+    private static int? ParseBandwidthMhz(string? bwStr, string rat)
     {
         if (string.IsNullOrEmpty(bwStr))
             return null;
 
         bwStr = bwStr.Replace("MHz", "", StringComparison.OrdinalIgnoreCase).Trim();
 
-        if (int.TryParse(bwStr, out var val) && val > 0)
-            return val;
+        if (!int.TryParse(bwStr, out var val) || val < 0)
+            return null;
+
+        var table = rat == "nr" ? NrBandwidthMhz : LteBandwidthMhz;
+        if (val < table.Length)
+            return table[val];
+
+        return val > 0 ? val : null;
+    }
+
+    /// <summary>
+    /// Read the operator name out of an <c>AT+COPS?</c> response
+    /// (<c>+COPS: 0,0,"T-Mobile",13</c>). Returns null when the modem is not
+    /// registered, which it reports as a bare <c>+COPS: 0</c>.
+    /// </summary>
+    public static string? ParseOperator(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        foreach (var line in output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!line.StartsWith("+COPS:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var fields = SplitFields(line.Substring("+COPS:".Length).Trim());
+            if (fields.Length < 3)
+                continue;
+
+            var name = Unquote(fields[2]);
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+        }
 
         return null;
     }

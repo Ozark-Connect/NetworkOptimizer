@@ -211,4 +211,103 @@ OK
     }
 
     #endregion
+
+    #region Bandwidth enum (real device)
+
+    // Sample from a GL-E5800 with an SoC-integrated RG650V-NA. Cell identity is replaced
+    // with test values; signal and bandwidth fields are as reported. The router's own
+    // cellular ubus service called the NR leg 90 MHz, and AT+QCAINFO put the LTE anchor
+    // at 75 resource blocks, which is 15 MHz.
+    private const string Rg650vNsaOutput = @"
++QENG: ""servingcell"",""NOCONN""
++QENG: ""LTE"",""FDD"",310,260,""0A1B2C3"",438,975,2,4,4,""1234"",-95,-7,-68,20,15,150,-
++QENG: ""NR5G-NSA"",310,260,46,-81,34,-10,502110,41,11,1
+
+OK
+";
+
+    [Fact]
+    public void Parse_Nr5gNsa_MapsBandwidthIndexToMhz()
+    {
+        var stats = QuectelAtParser.Parse(Rg650vNsaOutput, TestHost, TestName, TestModel);
+
+        stats.Should().NotBeNull();
+        stats!.ActiveBand.Should().NotBeNull();
+        stats.ActiveBand!.BandClass.Should().Be("n41");
+        stats.ActiveBand.BandwidthMhz.Should().Be(90);
+    }
+
+    [Fact]
+    public void Parse_Lte_MapsBandwidthIndexToMhz()
+    {
+        // The NSA line overrides ActiveBand with the NR leg, so read the LTE anchor
+        // on its own to reach the LTE bandwidth field.
+        var lteOnly = @"
++QENG: ""servingcell"",""NOCONN""
++QENG: ""LTE"",""FDD"",310,260,""0A1B2C3"",438,975,2,4,4,""1234"",-95,-7,-68,20,15,150,-
+
+OK
+";
+
+        var stats = QuectelAtParser.Parse(lteOnly, TestHost, TestName, TestModel);
+
+        stats.Should().NotBeNull();
+        stats!.ActiveBand.Should().NotBeNull();
+        stats.ActiveBand!.BandClass.Should().Be("eutran-2");
+        stats.ActiveBand.BandwidthMhz.Should().Be(15);
+    }
+
+    [Fact]
+    public void Parse_Nr5gNsa_ReadsSignalFromBothLegs()
+    {
+        var stats = QuectelAtParser.Parse(Rg650vNsaOutput, TestHost, TestName, TestModel);
+
+        stats.Should().NotBeNull();
+        stats!.NetworkMode.Should().Be(CellularNetworkMode.Nr5gNsa);
+        stats.Lte!.Rsrp.Should().Be(-95);
+        stats.Lte.Rsrq.Should().Be(-7);
+        stats.Lte.Snr.Should().Be(20);
+        stats.Nr5g!.Rsrp.Should().Be(-81);
+        stats.Nr5g.Rsrq.Should().Be(-10);
+        stats.Nr5g.Snr.Should().Be(34);
+        stats.ServingCell!.PhysicalCellId.Should().Be(438);
+        stats.ServingCell.Earfcn.Should().Be(975);
+    }
+
+    #endregion
+
+    #region Operator name
+
+    [Fact]
+    public void ParseOperator_ReturnsCarrierName()
+    {
+        var output = @"
++COPS: 0,0,""T-Mobile"",13
+
+OK
+";
+
+        QuectelAtParser.ParseOperator(output).Should().Be("T-Mobile");
+    }
+
+    [Fact]
+    public void ParseOperator_NotRegistered_ReturnsNull()
+    {
+        var output = @"
++COPS: 0
+
+OK
+";
+
+        QuectelAtParser.ParseOperator(output).Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseOperator_NoResponse_ReturnsNull()
+    {
+        QuectelAtParser.ParseOperator("").Should().BeNull();
+        QuectelAtParser.ParseOperator("ERROR").Should().BeNull();
+    }
+
+    #endregion
 }
