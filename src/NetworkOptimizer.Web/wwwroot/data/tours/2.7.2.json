@@ -1,0 +1,19 @@
+{
+  "id": "2.7.2",
+  "kind": "whats-new",
+  "title": "What's new in v2.7.2",
+  "summary": "See the current readings in Monitoring right next to min/max/mean.",
+  "steps": [
+    {
+      "id": "monitoring-stats-latest",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/monitoring?tab=devices",
+      "selector": "[data-tour=\"monitoring-stats-table\"]",
+      "title": "Monitoring stats tables",
+      "listLabel": "See the current reading for device / modem stats",
+      "body": "Every stats table in Monitoring now has the **Latest** value shown for every stat. The **Latest** column is tinted to break up the columns in the stats table for easier scanning.",
+      "optional": true
+    }
+  ]
+}

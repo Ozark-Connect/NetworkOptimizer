@@ -327,6 +327,7 @@ const fmtRpm = v => v != null ? Math.round(v).toLocaleString() : '-';
 function renderStatsTable(container, showAll) {
     const el = container.querySelector('.health-stats-table');
     if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
+    el.dataset.tour = 'monitoring-stats-table';
 
     const customCols = [];
     for (const def of customFieldDefs) {
