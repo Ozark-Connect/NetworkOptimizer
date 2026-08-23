@@ -319,13 +319,15 @@ On first run it exchanges the one-time token for an agent key via
 `POST /api/public/agents/enrollments`, writes the key and site slug back into
 `agent.json`, and discards the token. It then holds a persistent gRPC tunnel to
 the server, heartbeating every 30 seconds; the Multi-Site tab and Sites page
-show it as Online. If the tunnel is unreachable (server-side tunnel not enabled,
-or the reverse-proxy gRPC route is missing), it falls back to
+show it as Online. If the tunnel is unreachable (the reverse-proxy gRPC route is
+missing, or the server could not bind its listener), it falls back to
 `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
-The tunnel listener (default port 8043, `AgentTunnel__Port` on the server) only
-starts when multi-site is enabled at server startup - enable multi-site, then
-restart the server once.
+The tunnel listener (default port 8043, `AgentTunnel__Port` on the server) binds
+at startup on every install, so enabling multi-site needs no restart. The one
+case it does not bind is a server serving its own HTTPS, where its ports cannot
+be re-bound alongside the tunnel; it says so at startup, and those installs stay
+on REST heartbeats. Put the server behind the reverse proxy instead.
 
 ### Run as a service (systemd)
 
@@ -666,10 +668,28 @@ host networking that is correct; if the agent can't see the real LAN address
 (Docker bridge mode, or a multi-NIC host picks the wrong interface), set
 `NO_AGENT_LAN_IP=<ip>` in its environment to override it.
 
-## Probe-only mode for multi-WAN monitoring
+## Monitoring additional WANs
 
-To monitor a secondary WAN, run an additional agent instance with its own IP
-(LXC, Docker macvlan, or a small VM) and bind its probes to that IP:
+Probes leave by the default WAN unless something sends them elsewhere, so a
+second or third WAN goes unmeasured until you give it a Vantage. Vantages live on
+Monitoring - Network Performance, in the Multi-WAN Monitoring - Vantages card. A
+Vantage pairs a WAN with the box that probes it, and the targets you assign to it
+are measured over that WAN.
+
+The easiest box to pair is an Agent on the UniFi Gateway itself. It reaches each
+WAN by that WAN's own interface, so one Agent covers all of them with no routing
+to build. Set one up in Settings - Multi-Site.
+
+Any other Agent has to be forced out the WAN you are measuring. Give the Vantage a
+Probe source IP, then add a Policy-Based Route in UniFi Network sending that
+address out that WAN. UniFi matches a route's source by Client Device, which is a
+MAC, so the address needs an interface of its own (an LXC, a VM, or a Docker
+container on macvlan). WAN Steering matches on IP instead, so steering the Agent
+there sidesteps that entirely.
+
+Source binding rides the native ping binary (`ping -I` on Linux), so an Agent
+probing a WAN this way belongs on Linux or macOS. It can also carry a source of
+its own, used for any target that arrives without one:
 
 ```json
 {
@@ -679,12 +699,6 @@ To monitor a secondary WAN, run an additional agent instance with its own IP
   "probeSourceIp": "192.0.2.50"
 }
 ```
-
-Then policy-route `192.0.2.50` out the WAN you want measured on the gateway.
-Every probe binds to that source (`ping -I` on Linux), so its latency and loss
-reflect that WAN specifically. This works on the main site too - enroll the
-extra agent against the default site. Source binding needs the native ping
-binary, so probe-only agents should run on Linux or macOS.
 
 Secrets at rest: the server stores only SHA-256 hashes of tokens and keys. If
 `agent.json` is lost, remove the old agent in the UI and enroll a new one.
