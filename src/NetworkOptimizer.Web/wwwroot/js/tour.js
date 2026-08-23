@@ -4,7 +4,7 @@
 window.noTour = (function () {
     'use strict';
 
-    let active = null; // { dotNetRef, overlay, hole, card, target, cleanup: [] }
+    let active = null; // { dotNetRef, overlay, spots: [{el, hole}], card, target, cleanup: [] }
     let modalEsc = null;
     // Monotonic token: a showStep whose waitFor outlives a newer showStep or an end()
     // must not build a zombie overlay for a tour that already moved on.
@@ -164,12 +164,23 @@ window.noTour = (function () {
         // closed on purpose from springing back.
         revealCollapsedAncestors(active.target, active.opened);
         const pad = 6;
-        const r = active.target.getBoundingClientRect();
-        const hole = active.hole;
-        hole.style.left = (r.left - pad) + 'px';
-        hole.style.top = (r.top - pad) + 'px';
-        hole.style.width = (r.width + pad * 2) + 'px';
-        hole.style.height = (r.height + pad * 2) + 'px';
+        // The card is placed against every spotlight at once, so it cannot land on top of one
+        // of them. With a single target the union is that target's own rect, as it always was.
+        let box = null;
+        for (const spot of active.spots) {
+            const b = spot.el.getBoundingClientRect();
+            spot.hole.style.left = (b.left - pad) + 'px';
+            spot.hole.style.top = (b.top - pad) + 'px';
+            spot.hole.style.width = (b.width + pad * 2) + 'px';
+            spot.hole.style.height = (b.height + pad * 2) + 'px';
+            box = box ? {
+                left: Math.min(box.left, b.left), top: Math.min(box.top, b.top),
+                right: Math.max(box.right, b.right), bottom: Math.max(box.bottom, b.bottom),
+            } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+        }
+        if (!box) return;
+        const r = { left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+            width: box.right - box.left, height: box.bottom - box.top };
 
         const card = active.card;
         const cw = card.offsetWidth, ch = card.offsetHeight;
@@ -301,15 +312,29 @@ window.noTour = (function () {
             const overlay = document.createElement('div');
             overlay.className = 'tour-overlay';
 
-            const hole = document.createElement('div');
-            hole.className = 'tour-hole';
-            overlay.appendChild(hole);
+            const addHole = () => {
+                const hole = document.createElement('div');
+                hole.className = 'tour-hole';
+                overlay.appendChild(hole);
+                return hole;
+            };
+
+            // Secondary spotlights are best-effort and never waited for: the primary target is
+            // what decides whether the step runs at all, and one missing companion should dim a
+            // second element rather than fail the step.
+            const spots = [{ el, hole: addHole() }];
+            for (const sel of (opts.alsoSelectors || [])) {
+                document.querySelectorAll(sel).forEach(extra => {
+                    if (extra !== el && extra.offsetParent !== null && !spots.some(s => s.el === extra))
+                        spots.push({ el: extra, hole: addHole() });
+                });
+            }
 
             const { card, next } = buildCard(opts);
             overlay.appendChild(card);
             document.body.appendChild(overlay);
 
-            active = { dotNetRef, overlay, hole, card, target: el, placement: opts.placement, opened, cleanup: [] };
+            active = { dotNetRef, overlay, spots, card, target: el, placement: opts.placement, opened, cleanup: [] };
 
             const onKey = e => {
                 if (e.key === 'Escape') { e.stopPropagation(); invoke('escape'); }
@@ -326,14 +351,18 @@ window.noTour = (function () {
             const clearDim = () => overlay.classList.add('tour-overlay-clear');
             const onEnter = () => { if (!dwell) dwell = setTimeout(clearDim, 250); };
             const onLeave = () => { clearTimeout(dwell); dwell = null; };
-            el.addEventListener('mouseenter', onEnter);
-            el.addEventListener('mouseleave', onLeave);
-            el.addEventListener('pointerdown', clearDim);
+            for (const spot of spots) {
+                spot.el.addEventListener('mouseenter', onEnter);
+                spot.el.addEventListener('mouseleave', onLeave);
+                spot.el.addEventListener('pointerdown', clearDim);
+            }
             active.cleanup.push(() => {
                 clearTimeout(dwell);
-                el.removeEventListener('mouseenter', onEnter);
-                el.removeEventListener('mouseleave', onLeave);
-                el.removeEventListener('pointerdown', clearDim);
+                for (const spot of spots) {
+                    spot.el.removeEventListener('mouseenter', onEnter);
+                    spot.el.removeEventListener('mouseleave', onLeave);
+                    spot.el.removeEventListener('pointerdown', clearDim);
+                }
             });
 
             const onMove = () => position();
