@@ -416,4 +416,35 @@ public static class QuectelAtParser
 
         return int.TryParse(field, out var val) ? val : null;
     }
+
+    /// <summary>
+    /// The firmware revision from <c>AT+CGMR</c>, which answers with the bare version on a line
+    /// of its own. Returns null when the modem echoed nothing usable.
+    /// </summary>
+    public static string? ParseRevisionResponse(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        foreach (var line in output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                line.Equals("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("AT+", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("+CME", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Some firmware prefixes the value; most answers are bare.
+            var value = line.StartsWith("+CGMR:", StringComparison.OrdinalIgnoreCase)
+                ? line["+CGMR:".Length..].Trim()
+                : line;
+
+            if (value.Length > 0)
+                return value;
+        }
+
+        return null;
+    }
 }

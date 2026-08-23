@@ -23,13 +23,13 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private readonly UniFiSshService _sshService;
 
     /// <summary>
-    /// What the module says about itself. Read once per modem, not per poll: it changes only
-    /// when the hardware is replaced or its firmware is upgraded, and keeping the DMS queries
-    /// out of the routine chain keeps them from ever delaying a signal read.
+    /// Which module is fitted. Read once per modem: an EM9291 does not become something else,
+    /// so asking every poll buys nothing. Its FIRMWARE is deliberately not cached - see
+    /// <see cref="ModuleCommands"/>.
     /// </summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ModuleIdentity> _modules = new();
 
-    private sealed record ModuleIdentity(string? Vendor, string? Model, string? SoftwareVersion);
+    private sealed record ModuleIdentity(string? Vendor, string? Model);
 
     // Created per site by ModemMonitorRegistry with that site's device SSH
     // service, so qmicli commands reach the site's modem host (tunnel-routed
@@ -51,11 +51,17 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
         // Try uiwwand first - available on all modern UniFi cellular modems
         var stats = await TryPollViaUiwwandAsync(context);
-        if (stats != null)
-            return PollResult<CellularModemStats>.Ok(stats);
+        var result = stats != null
+            ? PollResult<CellularModemStats>.Ok(stats)
+            : await PollViaQmicliAsync(context);
 
-        // Fall back to raw qmicli commands
-        return await PollViaQmicliAsync(context);
+        // A firmware upgrade or rollback reboots the modem, so it reaches us as a failed poll.
+        // Forgetting the module on any failure is what keeps a cached version from outliving
+        // the firmware it names - the cache survives only an unbroken run of healthy polls.
+        if (!result.Success)
+            _modules.TryRemove(context.CacheKey, out _);
+
+        return result;
     }
 
     /// <summary>
@@ -195,54 +201,60 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <summary>
-    /// The DMS queries, or nothing once the module has already identified itself. Each is
-    /// guarded: a chain reports only its last command's exit status, so an unsupported query
-    /// here must not speak for the signal commands ahead of it.
+    /// The DMS queries for this poll. The revision runs every time: firmware is the one field
+    /// whose job is to change, and Firmware Rollout changes it from inside this app - an upgrade
+    /// that completes between two polls would otherwise leave a cached version standing forever.
+    /// Which module is fitted is asked only until it answers.
+    ///
+    /// Each is guarded: a chain reports only its last command's exit status, so an unsupported
+    /// query here must not speak for the signal commands ahead of it.
     /// </summary>
     private string ModuleCommands(string qmiDevice, ModemPollContext context)
     {
-        if (_modules.ContainsKey(context.CacheKey))
-            return "";
+        var commands = $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
 
-        return $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true" +
-               $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
-               $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+        if (!_modules.ContainsKey(context.CacheKey))
+        {
+            commands += $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
+                        $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+        }
+
+        return commands;
     }
 
     /// <summary>
-    /// Remember what the module reported, and stamp it on this poll's stats. Cached only when
-    /// something came back, so a modem that answers nothing is asked again next time.
+    /// Stamp the module and its firmware on this poll. The firmware is whatever this poll read;
+    /// which module is fitted is remembered once it answers, so later polls stop asking.
     /// </summary>
     private void ApplyModuleIdentity(
         ModemPollContext context, Dictionary<string, string> sections, CellularModemStats stats)
     {
+        if (sections.TryGetValue("REVISION", out var revision))
+            stats.SoftwareVersion = QmicliParser.ParseRevision(revision);
+
         if (!_modules.TryGetValue(context.CacheKey, out var identity))
         {
-            sections.TryGetValue("REVISION", out var revision);
             sections.TryGetValue("MODULE", out var model);
             sections.TryGetValue("MAKER", out var maker);
 
             identity = new ModuleIdentity(
                 QmicliParser.ParseVendor(maker),
-                QmicliParser.ParseQuotedValue(model),
-                QmicliParser.ParseRevision(revision));
+                QmicliParser.ParseQuotedValue(model));
 
-            if (identity.Vendor == null && identity.Model == null && identity.SoftwareVersion == null)
+            if (identity.Vendor == null && identity.Model == null)
             {
-                _logger.LogDebug("Modem {Name} reported no module identity", context.Name);
+                _logger.LogDebug("Modem {Name} did not say which module is fitted", context.Name);
                 return;
             }
 
             _modules[context.CacheKey] = identity;
             _logger.LogInformation(
-                "Modem {Name} module: {Vendor} {Model} on {Software}",
-                context.Name, identity.Vendor ?? "unknown", identity.Model ?? "unknown",
-                identity.SoftwareVersion ?? "unknown");
+                "Modem {Name} module: {Vendor} {Model}",
+                context.Name, identity.Vendor ?? "unknown", identity.Model ?? "unknown");
         }
 
         stats.ModuleVendor = identity.Vendor;
         stats.ModuleModel = identity.Model;
-        stats.SoftwareVersion = identity.SoftwareVersion;
     }
 
     /// <summary>

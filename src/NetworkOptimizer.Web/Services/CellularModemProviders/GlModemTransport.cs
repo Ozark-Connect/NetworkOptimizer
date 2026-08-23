@@ -61,6 +61,13 @@ public sealed class GlModemTransport
     }
 
     /// <summary>
+    /// Drop what we know about this modem, so the next poll rediscovers it. Called whenever a
+    /// poll fails: a firmware upgrade or rollback reboots the router, and the cached endpoint
+    /// carries its versions, which must not outlive the firmware they name.
+    /// </summary>
+    public void Forget(string cacheKey) => _endpoints.TryRemove(cacheKey, out _);
+
+    /// <summary>
     /// Run one or more AT commands in a single SSH session. Results come back keyed by
     /// the command that produced them.
     /// </summary>

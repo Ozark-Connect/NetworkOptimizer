@@ -25,6 +25,13 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     private const string ServingCellCommand = "AT+QENG=\"servingcell\"";
     private const string OperatorCommand = "AT+COPS?";
 
+    /// <summary>
+    /// The module's own firmware, asked on every poll rather than taken from the cached
+    /// discovery: firmware is the one field whose job is to change, and an upgrade that
+    /// completes between two polls would leave a cached version standing forever.
+    /// </summary>
+    private const string RevisionCommand = "AT+CGMR";
+
     private readonly ILogger<QuectelAtModemProvider> _logger;
     private readonly GlModemTransport _transport;
 
@@ -54,11 +61,12 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         try
         {
             var result = await _transport.RunAtAsync(
-                context, connection, new[] { ServingCellCommand, OperatorCommand }, cancellationToken);
+                context, connection, new[] { ServingCellCommand, OperatorCommand, RevisionCommand }, cancellationToken);
 
             if (!result.Success)
             {
                 _logger.LogWarning("AT command failed on {Name}: {Error}", context.Name, result.Error);
+                _transport.Forget(context.CacheKey);
                 return PollResult<CellularModemStats>.Failed(result.Error ?? $"{host} did not answer the AT command.");
             }
 
@@ -71,11 +79,15 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
             var stats = QuectelAtParser.Parse(result.For(ServingCellCommand), host, context.Name, product);
 
             if (stats == null)
+            {
+                _transport.Forget(context.CacheKey);
                 return PollResult<CellularModemStats>.Failed($"{host} answered over SSH but the modem returned no signal data.");
+            }
 
             // AT+QENG reports only MCC/MNC, so the operator name comes from AT+COPS?.
             stats.Carrier = QuectelAtParser.ParseOperator(result.For(OperatorCommand)) ?? stats.Carrier;
-            stats.SoftwareVersion = result.Endpoint.SoftwareVersion;
+            stats.SoftwareVersion = QuectelAtParser.ParseRevisionResponse(result.For(RevisionCommand))
+                ?? result.Endpoint.SoftwareVersion;
             stats.HostVersion = result.Endpoint.HostVersion;
             stats.ModuleVendor = result.Endpoint.Vendor;
             stats.ModuleModel = result.Endpoint.Model;
@@ -89,6 +101,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error polling GL-iNet modem {Name}", context.Name);
+            _transport.Forget(context.CacheKey);
             return PollResult<CellularModemStats>.Failed(SshFailureSummary.Describe(ex.Message, host));
         }
     }

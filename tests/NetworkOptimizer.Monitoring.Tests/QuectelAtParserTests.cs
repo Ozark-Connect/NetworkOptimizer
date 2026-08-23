@@ -310,4 +310,45 @@ OK
     }
 
     #endregion
+
+    #region Module firmware (AT+CGMR)
+
+    [Fact]
+    public void ParseRevisionResponse_ReturnsTheBareVersion()
+    {
+        var output = @"
+AT+CGMR
+
+QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005
+
+OK
+";
+
+        QuectelAtParser.ParseRevisionResponse(output)
+            .Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
+    }
+
+    [Fact]
+    public void ParseRevisionResponse_StripsThePrefixWhenFirmwareUsesOne()
+    {
+        var output = @"+CGMR: EG25GGBR07A08M2G
+
+OK
+";
+
+        QuectelAtParser.ParseRevisionResponse(output).Should().Be("EG25GGBR07A08M2G");
+    }
+
+    [Fact]
+    public void ParseRevisionResponse_UnsupportedOrEmpty_ReturnsNull()
+    {
+        QuectelAtParser.ParseRevisionResponse(null).Should().BeNull();
+        QuectelAtParser.ParseRevisionResponse("").Should().BeNull();
+        QuectelAtParser.ParseRevisionResponse(@"
+ERROR
+").Should().BeNull();
+        QuectelAtParser.ParseRevisionResponse("+CME ERROR: 4").Should().BeNull();
+    }
+
+    #endregion
 }
