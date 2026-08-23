@@ -178,71 +178,48 @@ builder.Services.AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(
 builder.Services.AddSingleton(new NetworkOptimizer.Storage.Services.SiteDatabasePaths(dbPath));
 builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.SiteDbContextFactory>();
 
-// ---- Multi-site agent tunnel listener ----
+// ---- Agent tunnel listener ----
 // The agent tunnel is gRPC, which needs HTTP/2. The main port stays HTTP/1.1
 // (reverse proxies, browsers), so the tunnel gets its own HTTP/2 listener,
 // served over TLS with an ephemeral self-signed cert (see
 // CreateSelfSignedTunnelCert) so the reverse-proxy-to-app hop is encrypted even
 // across a box boundary. Explicit Kestrel Listen calls override URL-based configuration,
-// so when the tunnel is active the main HTTP port(s) are re-bound explicitly
-// alongside it. Single-site installs never take this branch: no new port, no
-// binding changes. The flag is read with raw SQLite because Kestrel must be
-// configured before the service provider (and EF) exist.
+// so the main HTTP port(s) are re-bound explicitly alongside it.
+// Bound whenever it can be, never gated on multi-site: that flag lives in the database,
+// so gating on it deferred the bind to the next restart and left enabled installs with
+// agents dialing a dead port. An idle listener holds no valid agent keys.
 var agentTunnelPort = builder.Configuration.GetValue("AgentTunnel:Port", 8043);
-var agentTunnelEnabled = false;
-try
+// Null means a custom HTTPS or non-port URL configuration we cannot faithfully re-bind.
+// Reported once the app is built, where multi-site is readable and the warning can be
+// aimed at the installs that actually have agents.
+var mainBindings = StartupHelpers.ResolveHttpBindings();
+var agentTunnelBound = mainBindings != null;
+if (agentTunnelBound)
 {
-    if (File.Exists(dbPath))
+    builder.WebHost.ConfigureKestrel(options =>
     {
-        using var flagConnection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-        flagConnection.Open();
-        using var flagCommand = flagConnection.CreateCommand();
-        flagCommand.CommandText = "SELECT Value FROM SystemSettings WHERE Key = @key";
-        flagCommand.Parameters.AddWithValue("@key", NetworkOptimizer.Storage.Models.SystemSettingKeys.MultiSiteEnabled);
-        agentTunnelEnabled = bool.TryParse(flagCommand.ExecuteScalar() as string, out var multiSiteFlag) && multiSiteFlag;
-    }
-}
-catch
-{
-    // Fresh install or pre-multi-site schema: tunnel stays off until enabled + restart.
-}
-
-if (agentTunnelEnabled)
-{
-    var mainBindings = StartupHelpers.ResolveHttpBindings();
-    if (mainBindings == null)
-    {
-        // Custom HTTPS or non-port URL configuration we can't safely re-bind.
-        Console.WriteLine("Agent tunnel disabled: ASPNETCORE_URLS contains bindings the tunnel listener cannot co-exist with (HTTPS or non-port URLs)");
-        agentTunnelEnabled = false;
-    }
-    else
-    {
-        builder.WebHost.ConfigureKestrel(options =>
+        foreach (var (host, port) in mainBindings!)
         {
-            foreach (var (host, port) in mainBindings)
-            {
-                if (host == "localhost")
-                    options.ListenLocalhost(port);
-                else if (System.Net.IPAddress.TryParse(host, out var ip))
-                    options.Listen(ip, port);
-                else
-                    options.ListenAnyIP(port);
-            }
-            options.ListenAnyIP(agentTunnelPort, listen =>
-            {
-                listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-                // TLS on the tunnel port so the reverse-proxy-to-app hop is
-                // encrypted even when the proxy runs on a separate box (the
-                // agent key and pushed SNMP credentials would otherwise cross
-                // that LAN segment in cleartext h2c). The proxy is configured to
-                // skip verification, so an ephemeral self-signed cert suffices.
-                listen.UseHttps(StartupHelpers.CreateSelfSignedTunnelCert());
-            });
+            if (host == "localhost")
+                options.ListenLocalhost(port);
+            else if (System.Net.IPAddress.TryParse(host, out var ip))
+                options.Listen(ip, port);
+            else
+                options.ListenAnyIP(port);
+        }
+        options.ListenAnyIP(agentTunnelPort, listen =>
+        {
+            listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+            // TLS on the tunnel port so the reverse-proxy-to-app hop is
+            // encrypted even when the proxy runs on a separate box (the
+            // agent key and pushed SNMP credentials would otherwise cross
+            // that LAN segment in cleartext h2c). The proxy is configured to
+            // skip verification, so an ephemeral self-signed cert suffices.
+            listen.UseHttps(StartupHelpers.CreateSelfSignedTunnelCert());
         });
-    }
+    });
 }
-builder.Services.AddSingleton(new AgentTunnelOptions(agentTunnelEnabled, agentTunnelPort));
+builder.Services.AddSingleton(new AgentTunnelOptions(agentTunnelBound, agentTunnelPort));
 builder.Services.AddGrpc();
 builder.Services.AddSingleton<AgentTunnelRegistry>();
 builder.Services.AddSingleton<AgentProbeResultSink>();
@@ -1300,7 +1277,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
     // so the redirect middleware adopts that port and sends every request to an HTTP/2-only gRPC
     // listener holding a self-signed cert. The tunnel binds only when the app itself is HTTP-only
     // (ResolveHttpBindings rejects an https URL), so there is never a correct port to redirect to.
-    if (!agentTunnelEnabled)
+    if (!agentTunnelBound)
         app.UseHttpsRedirection();
 
     app.UseHsts();
@@ -1313,6 +1290,22 @@ await ieeeOuiDb.InitializeAsync();
 // Warm the agent-coverage flags before collection starts, so no synchronous gate answers
 // "not covered" for a site that is while the cache fills.
 await app.Services.GetRequiredService<SiteAgentCoverage>().WarmAsync();
+
+// An install whose bindings could not be re-bound has no tunnel listener, so its agents
+// dial a port nothing serves and fall back to REST heartbeats. Warned here rather than at
+// bind time: the multi-site flag is only readable once the app is built, and without it
+// every single-site install on an HTTPS binding would see this too.
+if (!agentTunnelBound)
+{
+    await using var tunnelBindDb = await app.Services
+        .GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>().CreateDbContextAsync();
+    var multiSiteSetting = await tunnelBindDb.SystemSettings
+        .FirstOrDefaultAsync(setting => setting.Key == SystemSettingKeys.MultiSiteEnabled);
+    if (bool.TryParse(multiSiteSetting?.Value, out var multiSiteOn) && multiSiteOn)
+        Console.WriteLine(
+            "Agent tunnel not bound: ASPNETCORE_URLS contains bindings the tunnel listener cannot " +
+            "co-exist with (HTTPS or non-port URLs). Agents stay on REST heartbeats.");
+}
 
 // Log admin auth startup configuration
 using (var startupScope = app.Services.CreateScope())
