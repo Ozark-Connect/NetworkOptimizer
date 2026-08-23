@@ -1621,7 +1621,10 @@ static partial class StartupHelpers
                 if (colon < 0 || !int.TryParse(hostPort[(colon + 1)..], out var port))
                     return null;
                 var host = hostPort[..colon];
-                bindings.Add((host is "*" or "+" or "0.0.0.0" ? "*" : host, port));
+                if (host.Length == 0)
+                    return null;
+                // "0.0.0.0" stays literal: Kestrel binds it IPv4-only, unlike * / + (dual-stack).
+                bindings.Add((host is "*" or "+" ? "*" : host, port));
             }
         }
         else if (!string.IsNullOrWhiteSpace(httpPorts))
