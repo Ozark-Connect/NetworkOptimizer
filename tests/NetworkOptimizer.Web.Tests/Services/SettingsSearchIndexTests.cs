@@ -139,11 +139,11 @@ public class SettingsSearchIndexTests
     [InlineData("extrnal speed", "external-speedtest-settings")]
     public void The_best_result_is_the_card_the_user_meant(string query, string expectedTarget)
     {
+        // Ties keep index order, matching how AppSearchService ranks them.
         var top = Entries
             .Select(e => (Entry: e, Score: AppSearchService.ScoreEntry(e, query)))
             .Where(x => x.Score >= NetworkOptimizer.Core.Helpers.FuzzyMatch.MinimumUsefulScore)
             .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.Entry.Title, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
         top.Entry.Should().NotBeNull($"'{query}' should match something");
