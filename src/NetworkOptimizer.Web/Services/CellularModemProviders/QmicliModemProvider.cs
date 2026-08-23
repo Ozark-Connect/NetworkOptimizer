@@ -142,7 +142,16 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             }
 
             if (sections.TryGetValue("REVISION", out var revisionOutput))
+            {
                 stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
+                _logger.LogDebug(
+                    "Modem {Name} module firmware: {Software} (from {Bytes} bytes of revision output)",
+                    context.Name, stats.SoftwareVersion ?? "unreadable", revisionOutput.Length);
+            }
+            else
+            {
+                _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
+            }
         }
         catch (Exception ex)
         {
@@ -227,7 +236,16 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION");
 
             if (sections.TryGetValue("REVISION", out var revisionOutput))
+            {
                 stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
+                _logger.LogDebug(
+                    "Modem {Name} module firmware: {Software} (from {Bytes} bytes of revision output)",
+                    context.Name, stats.SoftwareVersion ?? "unreadable", revisionOutput.Length);
+            }
+            else
+            {
+                _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
+            }
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {

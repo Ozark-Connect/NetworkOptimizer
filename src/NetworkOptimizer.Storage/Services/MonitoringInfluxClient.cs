@@ -938,7 +938,9 @@ from(bucket: ""{_longtermBucket}"")
         int? cellId = null,
         int? tac = null,
         int? neighborCount = null,
-        bool? nsaAvailable = null)
+        bool? nsaAvailable = null,
+        string? softwareVersion = null,
+        string? hostVersion = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("cellular")
@@ -970,6 +972,11 @@ from(bucket: ""{_longtermBucket}"")
         // Whether the serving cell offers EN-DC. Charting it dates the moment the anchor
         // went bad, rather than leaving it to be noticed days later.
         if (nsaAvailable.HasValue) point = point.Field("nsa_available", nsaAvailable.Value);
+
+        // Versions as fields, never tags: correlating performance against firmware is the
+        // whole point, and a tag would fork every modem's series the day it upgrades.
+        if (!string.IsNullOrEmpty(softwareVersion)) point = point.Field("software_version", softwareVersion);
+        if (!string.IsNullOrEmpty(hostVersion)) point = point.Field("host_version", hostVersion);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

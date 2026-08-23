@@ -1323,12 +1323,15 @@ Two providers already READ a version string and drop it:
   `QuantumQ1000kOntProvider`.
 - [ ] Populate `HostVersion` for GL.iNet from the router's own build - one more ubus call in
   `GlModemTransport`'s discovery.
-- [ ] Surface on the Cable Modem Stats, ONT Stats and Cellular Stats cards next to the model. Label
-  per the device's own wording, not the field name - a cable modem owner reads "Firmware Version"
-  on the modem's own page and expects that word on ours. Copy needs sign-off.
+- [ ] Surface on the Cable Modem Stats and ONT Stats cards as a tooltip on the make/model badge
+  (`.cm-model`), matching what Cellular Stats does - the versions are reference data, not something
+  worth a permanent row. Label per the device's own wording, not the field name: a cable modem owner
+  reads "Firmware Version" on the modem's own page and expects that word on ours. Copy needs sign-off.
 - [ ] `HostVersion` for UniFi modems: the U5G-Max / U-LTE / U5G-Backup device's own UniFi firmware,
   which comes from the console's device record, not from the modem over SSH. `SoftwareVersion` is
   already populated there from `--dms-get-revision`.
 
-Deliberately NOT written to InfluxDB: near-static, so a per-sample string field is waste. Revisit
-only to correlate a fleet issue against version over time.
+Written to InfluxDB as FIELDS on `cellular` (`software_version`, `host_version`) - correlating
+performance against firmware is the point of collecting them. Never as tags: a tag is part of the
+series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
+modem and ONT measurements when their fields land.

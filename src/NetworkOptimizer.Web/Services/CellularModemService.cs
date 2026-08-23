@@ -493,7 +493,9 @@ public class CellularModemService : ICellularModemService
                 signalQuality: stats.SignalQuality,
                 signalBars: stats.Nr5g.Bars,
                 isRoaming: stats.IsRoaming,
-                timestamp: stats.Timestamp);
+                timestamp: stats.Timestamp,
+                softwareVersion: stats.SoftwareVersion,
+                hostVersion: stats.HostVersion);
         }
 
         // Write LTE signal (always present in LTE-only and NSA modes)
@@ -528,7 +530,9 @@ public class CellularModemService : ICellularModemService
                 cellId: ParseCellNumber(cell?.GlobalCellId),
                 tac: ParseCellNumber(cell?.Tac),
                 neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null,
-                nsaAvailable: stats.Is5gNsaAvailable);
+                nsaAvailable: stats.Is5gNsaAvailable,
+                softwareVersion: stats.SoftwareVersion,
+                hostVersion: stats.HostVersion);
         }
     }
 
