@@ -31,10 +31,7 @@ public sealed record GlModemEndpoint(
     public string? Description =>
         string.IsNullOrWhiteSpace(Model) ? null
         : string.IsNullOrWhiteSpace(Vendor) ? Model
-        : $"{Capitalize(Vendor!)} {Model}";
-
-    private static string Capitalize(string s) =>
-        s.Length > 0 && char.IsLower(s[0]) ? char.ToUpperInvariant(s[0]) + s[1..] : s;
+        : $"{Vendor} {Model}";
 }
 
 /// <summary>
@@ -51,7 +48,9 @@ public sealed class GlModemTransport
 {
     private readonly ILogger<GlModemTransport> _logger;
     private readonly SshClientService _sshClient;
-    private readonly ConcurrentDictionary<string, GlModemEndpoint> _endpoints = new();
+    // Keyed on CacheKey, holding the configured bus the entry was resolved under so editing
+    // Modem Bus in Settings takes effect on the next poll instead of waiting for a restart.
+    private readonly ConcurrentDictionary<string, (GlModemEndpoint Endpoint, string ConfiguredBus)> _endpoints = new();
 
     private const string UsageMarker = "Usage: gl_modem";
 
@@ -77,9 +76,10 @@ public sealed class GlModemTransport
                 throw new ArgumentException($"Unsupported characters in AT command: {at}");
         }
 
-        var wasCached = _endpoints.TryGetValue(context.CacheKey, out var cached);
+        var wasCached = _endpoints.TryGetValue(context.CacheKey, out var cached)
+                        && cached.ConfiguredBus == context.TransportPath;
         var endpoint = wasCached
-            ? cached!
+            ? cached.Endpoint
             : await DiscoverAsync(context, connection, cancellationToken);
 
         var result = await ExecuteAsync(endpoint, connection, atCommands, cancellationToken);
@@ -95,8 +95,13 @@ public sealed class GlModemTransport
             result = await ExecuteAsync(endpoint, connection, atCommands, cancellationToken);
         }
 
-        if (result.Success)
-            _endpoints[context.CacheKey] = endpoint;
+        // Cache only what the modem actually answered on. The section markers echo whether or
+        // not gl_modem produced anything, so Success alone would pin a wrong bus in place and
+        // every later poll would report no data.
+        if (result.Success && result.Sections.Values.Any(v => !string.IsNullOrWhiteSpace(v)))
+            _endpoints[context.CacheKey] = (endpoint, context.TransportPath);
+        else
+            _endpoints.TryRemove(context.CacheKey, out _);
 
         return result with { Endpoint = endpoint };
     }
@@ -177,7 +182,6 @@ public sealed class GlModemTransport
         const string command =
             "echo '===INFO==='; ubus call cellular.modem info '{\"bus\":\"cpu\"}' 2>/dev/null; " +
             "echo '===STATUS==='; ubus call cellular.modem status '{\"bus\":\"cpu\"}' 2>/dev/null; " +
-            "echo '===USB==='; ls /sys/bus/usb/devices 2>/dev/null; " +
             "echo '===GLVER==='; cat /etc/glversion 2>/dev/null; " +
             "echo '===BOARD==='; ubus call system board 2>/dev/null";
 
@@ -213,11 +217,10 @@ public sealed class GlModemTransport
     /// <summary>Parse the discovery script's sections. Internal for tests.</summary>
     internal static GlModemEndpoint ParseDiscovery(string output, string? configuredBus)
     {
-        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "USB", "GLVER", "BOARD" });
+        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "GLVER", "BOARD" });
 
         sections.TryGetValue("INFO", out var info);
         sections.TryGetValue("STATUS", out var status);
-        sections.TryGetValue("USB", out var usb);
 
         var hostVersion = ParseHostVersion(sections);
         var product = ParseProduct(sections);
@@ -232,7 +235,7 @@ public sealed class GlModemTransport
                 var root = infoDoc.RootElement;
                 bus = GetString(root, "bus");
                 model = GetString(root, "name");
-                vendor = GetString(root, "vendor");
+                vendor = Capitalize(GetString(root, "vendor"));
                 software = GetString(root, "version");
             }
         }
@@ -242,8 +245,7 @@ public sealed class GlModemTransport
         {
             using (statusDoc)
             {
-                if (int.TryParse(GetString(statusDoc.RootElement, "current_sim_slot"), out var slot))
-                    sub = slot;
+                sub = GetIntFlexible(statusDoc.RootElement, "current_sim_slot");
             }
         }
 
@@ -253,13 +255,10 @@ public sealed class GlModemTransport
         if (!string.IsNullOrWhiteSpace(configuredBus))
             return new GlModemEndpoint(configuredBus, null, HostVersion: hostVersion, Product: product);
 
-        var usbBus = (usb ?? "")
-            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(d => Regex.IsMatch(d, @"^\d+-[\d.]+$"));
-
-        return usbBus != null
-            ? new GlModemEndpoint(usbBus, null, HostVersion: hostVersion, Product: product)
-            : GlModemEndpoint.Unknown with { HostVersion = hostVersion, Product = product };
+        // No bus rather than a guess from USB enumeration: `ls` sorts lexically, so a modem
+        // behind a hub loses to the hub, and gl_modem auto-detects the plug-in modules this
+        // would have been guessing for. Never re-add it: forcing -B is worse than omitting it.
+        return GlModemEndpoint.Unknown with { HostVersion = hostVersion, Product = product };
     }
 
     /// <summary>
@@ -374,6 +373,23 @@ public sealed class GlModemTransport
             return false;
         }
     }
+
+    /// <summary>Reads a property that firmware may encode as either a JSON string or a number.</summary>
+    private static int? GetIntFlexible(JsonElement element, string property)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(property, out var value))
+            return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var n) => n,
+            JsonValueKind.String when int.TryParse(value.GetString(), out var s) => s,
+            _ => null,
+        };
+    }
+
+    private static string? Capitalize(string? s) =>
+        string.IsNullOrEmpty(s) || !char.IsLower(s[0]) ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     private static string? GetString(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object &&

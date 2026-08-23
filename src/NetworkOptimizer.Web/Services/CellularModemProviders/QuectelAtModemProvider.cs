@@ -64,7 +64,10 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
             // The model is the router the owner bought, not the module inside it - the module
             // is reported separately below.
-            var product = string.IsNullOrWhiteSpace(result.Endpoint.Product) ? context.ModemType : result.Endpoint.Product!;
+            // "GL-iNet" is the placeholder the Settings form writes, not a model. Leaving it
+            // empty shows the brand alone rather than "GL.iNet GL-iNet".
+            var product = result.Endpoint.Product
+                ?? (context.ModemType == "GL-iNet" ? "" : context.ModemType);
             var stats = QuectelAtParser.Parse(result.For(ServingCellCommand), host, context.Name, product);
 
             if (stats == null)

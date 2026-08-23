@@ -27,7 +27,6 @@ public class GlModemTransportTests
         "current_sim_slot": "1",
         "slot_switch_count": 0
 }
-===USB===
 ===GLVER===
 4.8.5
 ===BOARD===
@@ -47,10 +46,6 @@ public class GlModemTransportTests
     private const string UsbOnlyDiscovery = """
 ===INFO===
 ===STATUS===
-===USB===
-1-1
-1-1.2
-usb1
 ===GLVER===
 ===BOARD===
 {
@@ -70,7 +65,7 @@ usb1
         endpoint.Bus.Should().Be("cpu");
         endpoint.Sub.Should().Be(1);
         endpoint.Model.Should().Be("RG650V-NA");
-        endpoint.Vendor.Should().Be("quectel");
+        endpoint.Vendor.Should().Be("Quectel", "GL reports it lowercase; the stats and Test Connection must agree");
         endpoint.Description.Should().Be("Quectel RG650V-NA");
         endpoint.SoftwareVersion.Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
         endpoint.HostVersion.Should().Be("4.8.5", "GL stamps their own firmware version, which is what the owner sees");
@@ -110,11 +105,11 @@ usb1
     }
 
     [Fact]
-    public void ParseDiscovery_NoUbusNoConfiguredBus_TakesFirstUsbPath()
+    public void ParseDiscovery_NoUbusNoConfiguredBus_LeavesTheBusToGlModem()
     {
         var endpoint = GlModemTransport.ParseDiscovery(UsbOnlyDiscovery, configuredBus: "");
 
-        endpoint.Bus.Should().Be("1-1");
+        endpoint.Bus.Should().BeNull("forcing -B at a guessed USB path addresses the hub a modem sits behind");
         endpoint.Sub.Should().BeNull();
     }
 
