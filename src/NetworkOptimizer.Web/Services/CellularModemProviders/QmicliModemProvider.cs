@@ -22,6 +22,15 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private readonly ILogger<QmicliModemProvider> _logger;
     private readonly UniFiSshService _sshService;
 
+    /// <summary>
+    /// What the module says about itself. Read once per modem, not per poll: it changes only
+    /// when the hardware is replaced or its firmware is upgraded, and keeping the DMS queries
+    /// out of the routine chain keeps them from ever delaying a signal read.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ModuleIdentity> _modules = new();
+
+    private sealed record ModuleIdentity(string? Vendor, string? Model, string? SoftwareVersion);
+
     // Created per site by ModemMonitorRegistry with that site's device SSH
     // service, so qmicli commands reach the site's modem host (tunnel-routed
     // when the site's devices are reached via agent).
@@ -117,12 +126,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         {
             var combinedCommand =
                 "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
-                // Enrichment, and last in the chain, so its exit status would become the batch's:
-                // a modem without DMS revision support must not fail a poll that has signal data.
-                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true; " +
-                $"echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true; " +
-                $"echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
             if (!success || string.IsNullOrWhiteSpace(output))
@@ -143,23 +148,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 stats.IsDcnrRestricted = dcnrRestricted;
             }
 
-            if (sections.TryGetValue("REVISION", out var revisionOutput))
-            {
-                stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
-                _logger.LogDebug(
-                    "Modem {Name} module firmware: {Software} (from {Bytes} bytes of revision output)",
-                    context.Name, stats.SoftwareVersion ?? "unreadable", revisionOutput.Length);
-            }
-            else
-            {
-                _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
-            }
-
-            if (sections.TryGetValue("MODULE", out var moduleOutput))
-                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput);
-
-            if (sections.TryGetValue("MAKER", out var makerOutput))
-                stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);
+            ApplyModuleIdentity(context, sections, stats);
         }
         catch (Exception ex)
         {
@@ -206,6 +195,57 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <summary>
+    /// The DMS queries, or nothing once the module has already identified itself. Each is
+    /// guarded: a chain reports only its last command's exit status, so an unsupported query
+    /// here must not speak for the signal commands ahead of it.
+    /// </summary>
+    private string ModuleCommands(string qmiDevice, ModemPollContext context)
+    {
+        if (_modules.ContainsKey(context.CacheKey))
+            return "";
+
+        return $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true" +
+               $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
+               $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+    }
+
+    /// <summary>
+    /// Remember what the module reported, and stamp it on this poll's stats. Cached only when
+    /// something came back, so a modem that answers nothing is asked again next time.
+    /// </summary>
+    private void ApplyModuleIdentity(
+        ModemPollContext context, Dictionary<string, string> sections, CellularModemStats stats)
+    {
+        if (!_modules.TryGetValue(context.CacheKey, out var identity))
+        {
+            sections.TryGetValue("REVISION", out var revision);
+            sections.TryGetValue("MODULE", out var model);
+            sections.TryGetValue("MAKER", out var maker);
+
+            identity = new ModuleIdentity(
+                QmicliParser.ParseVendor(maker),
+                QmicliParser.ParseQuotedValue(model),
+                QmicliParser.ParseRevision(revision));
+
+            if (identity.Vendor == null && identity.Model == null && identity.SoftwareVersion == null)
+            {
+                _logger.LogDebug("Modem {Name} reported no module identity", context.Name);
+                return;
+            }
+
+            _modules[context.CacheKey] = identity;
+            _logger.LogInformation(
+                "Modem {Name} module: {Vendor} {Model} on {Software}",
+                context.Name, identity.Vendor ?? "unknown", identity.Model ?? "unknown",
+                identity.SoftwareVersion ?? "unknown");
+        }
+
+        stats.ModuleVendor = identity.Vendor;
+        stats.ModuleModel = identity.Model;
+        stats.SoftwareVersion = identity.SoftwareVersion;
+    }
+
+    /// <summary>
     /// Poll via raw qmicli commands. Fallback path when uiwwand is unavailable.
     /// </summary>
     private async Task<PollResult<CellularModemStats>> PollViaQmicliAsync(ModemPollContext context)
@@ -245,23 +285,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
             var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION", "MODULE", "MAKER");
 
-            if (sections.TryGetValue("REVISION", out var revisionOutput))
-            {
-                stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
-                _logger.LogDebug(
-                    "Modem {Name} module firmware: {Software} (from {Bytes} bytes of revision output)",
-                    context.Name, stats.SoftwareVersion ?? "unreadable", revisionOutput.Length);
-            }
-            else
-            {
-                _logger.LogDebug("Modem {Name} returned no revision section", context.Name);
-            }
-
-            if (sections.TryGetValue("MODULE", out var moduleOutput))
-                stats.ModuleModel = QmicliParser.ParseQuotedValue(moduleOutput);
-
-            if (sections.TryGetValue("MAKER", out var makerOutput))
-                stats.ModuleVendor = QmicliParser.ParseVendor(makerOutput);
+            ApplyModuleIdentity(context, sections, stats);
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {
