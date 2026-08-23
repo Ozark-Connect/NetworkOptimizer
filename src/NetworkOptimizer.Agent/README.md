@@ -670,23 +670,34 @@ host networking that is correct; if the agent can't see the real LAN address
 
 ## Monitoring additional WANs
 
-Every WAN you want measured gets a Vantage, set up on Monitoring - Network
-Performance under Multi-WAN Monitoring - Vantages. A Vantage pairs the WAN with
-the Agent that probes it.
+Probes leave by the default WAN unless something sends them elsewhere, so a
+second or third WAN goes unmeasured until you give it a Vantage. Vantages live on
+Monitoring - Network Performance, in the Multi-WAN Monitoring - Vantages card
+(hidden on single-WAN sites, where there is nothing to disambiguate). A Vantage
+pairs a WAN with the box that probes it, and the targets you assign to it are
+then measured over that WAN rather than whichever one the routing table
+preferred. None of this is multi-site only: the default site takes Vantages the
+same way, and you enroll the extra Agent against it.
 
-The easiest Agent to pair is one running on the UniFi Gateway itself. It reaches
-every WAN by that WAN's own interface, so a single Agent covers all of them and
-there is no routing to build. Set one up in Settings - Multi-Site.
+The easiest box to pair is an Agent running on the UniFi Gateway itself. It
+reaches each WAN by that WAN's own interface, so one Agent covers all of them,
+there is no routing policy to build, and the Vantage's Interface fills in from
+the WAN you select. Set one up in Settings - Multi-Site.
 
-Any other Agent needs its probes forced out the WAN you are measuring. Give the
-Vantage a source IP, then policy-route that address out that WAN in UniFi Network.
-Probes for that Vantage bind to the source (`ping -I` on Linux), so the latency
-and loss you get back describe that WAN rather than whichever one the routing
-table preferred. None of this is multi-site only: the default site takes Vantages
-the same way, and you enroll the extra Agent against it.
+Any other Agent has to be forced out the WAN you are measuring. Give the Vantage
+a Probe source IP, then add a Policy-Based Route in UniFi Network that sends that
+address out that WAN. The server pushes the Vantage's source down with every
+target it assigns, and the Agent binds it per probe (`ping -I` on Linux, `-S` or
+`-b` on BSD), so the latency and loss coming back describe that WAN. One thing to
+settle before you build the route: UniFi matches the source by Client Device,
+which is a MAC, so the address needs an interface of its own. An LXC or VM has
+one, a Docker container can be given one with macvlan, and a plain second address
+on a host already on the network will not route differently.
 
-An Agent can also carry a source IP of its own, used for any target that does not
-bring one from its Vantage:
+Source binding rides the native ping binary, so an Agent probing a WAN this way
+belongs on Linux or macOS. On Windows the managed path fails loudly rather than
+quietly measuring the wrong WAN. An Agent can also carry a source address of its
+own, used only for a target that arrives without one from its Vantage:
 
 ```json
 {
@@ -696,9 +707,6 @@ bring one from its Vantage:
   "probeSourceIp": "192.0.2.50"
 }
 ```
-
-Source binding rides the native ping binary, so an Agent probing a WAN this way
-should run on Linux or macOS.
 
 Secrets at rest: the server stores only SHA-256 hashes of tokens and keys. If
 `agent.json` is lost, remove the old agent in the UI and enroll a new one.
