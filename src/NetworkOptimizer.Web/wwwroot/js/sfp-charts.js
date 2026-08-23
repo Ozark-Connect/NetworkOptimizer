@@ -2,13 +2,13 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=4';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=2';
+import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -384,15 +384,16 @@ function renderStatsTable(container, showAll) {
         const meta = moduleMeta.find(mm => mm.id === m.id);
         return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
-            values: [rx?.mean, rx?.min, rx?.max, tx?.mean, tx?.min, tx?.max, temp?.mean, temp?.min, temp?.max] };
+            values: [rx?.latest, rx?.mean, rx?.min, rx?.max, tx?.latest, tx?.mean, tx?.min, tx?.max,
+                     temp?.latest, temp?.mean, temp?.min, temp?.max] };
     });
 
     renderTable(el, container, {
         nameHeader: 'Module', rows, showAllRows: showAll,
         columns: [
-            { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
-            { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
-            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+            { header: 'RX Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
+            { header: 'TX Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
+            { header: 'Temp Latest', format: fmtTemp , cls: 'stats-lead' }, { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
         ],
         filter: { meta: () => moduleMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

@@ -300,4 +300,58 @@ public static class QmicliParser
         }
         return false;
     }
+
+    /// <summary>
+    /// Reads the module firmware version out of <c>qmicli --dms-get-revision</c>
+    /// (<c>Revision: 'SWIX65C_03.04.10.01 00b8ca jenkins 2025/06/18 05:56:16'</c>).
+    /// Only the leading token is the version; the rest is the vendor's build metadata.
+    /// </summary>
+    public static string? ParseRevision(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var match = Regex.Match(output, @"Revision:\s*'([^']+)'");
+        if (!match.Success)
+            return null;
+
+        var revision = match.Groups[1].Value.Trim();
+        var space = revision.IndexOf(' ');
+        if (space > 0)
+            revision = revision[..space];
+
+        return revision.Length > 0 ? revision : null;
+    }
+
+    /// <summary>
+    /// Reads the single quoted value out of a one-value qmicli response
+    /// (<c>Model: 'EM9291'</c>). The device path in the header is bracketed, not quoted,
+    /// so the first quoted run is the value.
+    /// </summary>
+    public static string? ParseQuotedValue(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var value = ExtractQuotedValue(output).Trim();
+        return value.Length > 0 ? value : null;
+    }
+
+    /// <summary>
+    /// Module maker from <c>qmicli --dms-get-manufacturer</c>, trimmed to the name people use:
+    /// "Sierra Wireless, Incorporated" is the legal entity, "Sierra Wireless" is the brand.
+    /// </summary>
+    public static string? ParseVendor(string? output)
+    {
+        var value = ParseQuotedValue(output);
+        if (value == null)
+            return null;
+
+        var comma = value.IndexOf(',');
+        if (comma > 0)
+            value = value[..comma];
+
+        value = value.Trim();
+        return value.Length > 0 ? value : null;
+    }
 }

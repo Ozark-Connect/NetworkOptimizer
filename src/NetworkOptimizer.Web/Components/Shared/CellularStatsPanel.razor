@@ -122,8 +122,23 @@
                     <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 }
             </div>
-            <div class="device-icon">
-                <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
+            <div class="modem-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide>
+                @if (DeviceBrand() != null)
+                {
+                    <div class="cm-model">
+                        <span class="cm-model-name">@DeviceBrand()</span>
+                        @if (!string.IsNullOrWhiteSpace(modemStats.ModemModel))
+                        {
+                            <span class="cm-model-number">@modemStats.ModemModel</span>
+                        }
+                    </div>
+                }
+                @if (IsUniFiModem())
+                {
+                    <div class="device-icon">
+                        <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
+                    </div>
+                }
             </div>
         </div>
 
@@ -235,6 +250,13 @@
                         <span class="info-value">@modemStats.ActiveBand.BandClass (@modemStats.ActiveBand.RadioInterface)</span>
                     </div>
                 }
+                @if (ModuleName() != null)
+                {
+                    <div class="info-item">
+                        <span class="info-label">Module:</span>
+                        <span class="info-value" data-tooltip="@ModuleTooltip()" data-tooltip-wide>@ModuleName()</span>
+                    </div>
+                }
                 @if (modemStats.ServingCell != null)
                 {
                     <div class="info-item">
@@ -302,6 +324,11 @@
         display: flex;
         flex-direction: column;
         gap: 1rem;
+    }
+
+    .modem-identity {
+        display: flex;
+        align-items: center;
     }
 
     .device-icon {
@@ -747,6 +774,43 @@
             }
         }
     }
+
+    /// <summary>Provider key of the modem being shown, which decides the brand and the icon.</summary>
+    private string? CurrentProvider =>
+        configuredModems.Count > 0 && currentModemIndex < configuredModems.Count
+            ? configuredModems[currentModemIndex].Provider
+            : null;
+
+    private bool IsUniFiModem() => CurrentProvider == "qmicli";
+
+    /// <summary>
+    /// The brand the owner bought, which is not the module maker inside it. Taken from the
+    /// provider rather than the model string, which carries no brand on any of them.
+    /// </summary>
+    private string? DeviceBrand() => CurrentProvider switch
+    {
+        "qmicli" => "UniFi",
+        "quectel-at" => "GL.iNet",
+        "netgear-nighthawk-hotspot" => "Netgear",
+        _ => null,
+    };
+
+    private string? DeviceTooltip() =>
+        string.IsNullOrWhiteSpace(modemStats?.HostVersion) ? null : $"Device firmware {modemStats.HostVersion}";
+
+    private string? ModuleName()
+    {
+        var vendor = modemStats?.ModuleVendor;
+        var model = modemStats?.ModuleModel;
+
+        if (string.IsNullOrWhiteSpace(model))
+            return string.IsNullOrWhiteSpace(vendor) ? null : vendor;
+
+        return string.IsNullOrWhiteSpace(vendor) ? model : $"{vendor} {model}";
+    }
+
+    private string? ModuleTooltip() =>
+        string.IsNullOrWhiteSpace(modemStats?.SoftwareVersion) ? null : $"Module firmware {modemStats.SoftwareVersion}";
 
     private string? GetDeviceIconPath()
     {

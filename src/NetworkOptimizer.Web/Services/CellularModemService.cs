@@ -290,7 +290,10 @@ public class CellularModemService : ICellularModemService
 
             if (stats != null)
             {
-                if (await UpdateModemConfigAsync(modem.Id, null, success: true))
+                if (string.IsNullOrWhiteSpace(stats.HostVersion))
+                    await TryFillHostVersionFromConsoleAsync(modem, stats);
+
+                if (await UpdateModemConfigAsync(modem.Id, null, success: true, detectedModel: stats.ModemModel))
                 {
                     lock (_lock)
                     {
@@ -440,14 +443,37 @@ public class CellularModemService : ICellularModemService
         }
     }
 
-    private async Task<bool> UpdateModemConfigAsync(int modemId, string? error, bool success)
+    /// <summary>
+    /// A UniFi modem's own firmware, which the console knows and the modem does not report over
+    /// SSH, matched on the configured host address. Best effort: a miss leaves it unset. Skipped
+    /// for providers that already read the host build off the device itself.
+    /// </summary>
+    private async Task TryFillHostVersionFromConsoleAsync(ModemConfiguration modem, CellularModemStats stats)
+    {
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync();
+            var device = devices.FirstOrDefault(d =>
+                string.Equals(d.IpAddress, modem.Host, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(d.LanIpAddress, modem.Host, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(device?.Firmware))
+                stats.HostVersion = device.Firmware;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the console firmware for modem {Name}", modem.Name);
+        }
+    }
+
+    private async Task<bool> UpdateModemConfigAsync(int modemId, string? error, bool success, string? detectedModel = null)
     {
         try
         {
             using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
             return await repository.UpdateModemPollResultAsync(
-                modemId, success ? DateTime.UtcNow : (DateTime?)null, error);
+                modemId, success ? DateTime.UtcNow : (DateTime?)null, error, detectedModel);
         }
         catch (Exception ex)
         {
@@ -493,7 +519,11 @@ public class CellularModemService : ICellularModemService
                 signalQuality: stats.SignalQuality,
                 signalBars: stats.Nr5g.Bars,
                 isRoaming: stats.IsRoaming,
-                timestamp: stats.Timestamp);
+                timestamp: stats.Timestamp,
+                softwareVersion: stats.SoftwareVersion,
+                hostVersion: stats.HostVersion,
+                moduleVendor: stats.ModuleVendor,
+                moduleModel: stats.ModuleModel);
         }
 
         // Write LTE signal (always present in LTE-only and NSA modes)
@@ -528,7 +558,11 @@ public class CellularModemService : ICellularModemService
                 cellId: ParseCellNumber(cell?.GlobalCellId),
                 tac: ParseCellNumber(cell?.Tac),
                 neighborCount: hasTowerInfo ? stats.NeighborCells.Count : null,
-                nsaAvailable: stats.Is5gNsaAvailable);
+                nsaAvailable: stats.Is5gNsaAvailable,
+                softwareVersion: stats.SoftwareVersion,
+                hostVersion: stats.HostVersion,
+                moduleVendor: stats.ModuleVendor,
+                moduleModel: stats.ModuleModel);
         }
     }
 

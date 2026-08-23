@@ -62,12 +62,30 @@ public static class CellularChartEndpoints
                     ? $"{modemName} ({mode})"
                     : modemName;
 
+                // Current state, sent once per modem rather than on every point: these fields
+                // change rarely and the detail table only ever shows the latest.
+                var pts = kvp.Value;
+                string? Latest(Func<MonitoringInfluxClient.CellularPoint, string?> pick) =>
+                    pts.Select(pick).LastOrDefault(v => !string.IsNullOrWhiteSpace(v));
+
                 return new
                 {
                     id = kvp.Key,
                     modemId = rawModemId,
                     label,
                     mode,
+                    current = new
+                    {
+                        carrier = Latest(p => p.Carrier),
+                        band = Latest(p => p.Band),
+                        bandwidthMhz = pts.Select(p => p.BandwidthMhz).LastOrDefault(v => v != null),
+                        cellId = pts.Select(p => p.CellId).LastOrDefault(v => v != null),
+                        roaming = pts.Select(p => p.IsRoaming).LastOrDefault(v => v != null),
+                        moduleVendor = Latest(p => p.ModuleVendor),
+                        moduleModel = Latest(p => p.ModuleModel),
+                        softwareVersion = Latest(p => p.SoftwareVersion),
+                        hostVersion = Latest(p => p.HostVersion),
+                    },
                     data = kvp.Value.Select(p => new
                     {
                         time = p.Time.ToString("o"),

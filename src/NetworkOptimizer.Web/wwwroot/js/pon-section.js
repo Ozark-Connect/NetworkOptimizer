@@ -5,9 +5,7 @@
 // groups and event marks stay with each tab, which owns its own layout.
 
 import { alignedPoints } from './chart-tooltip.js?v=15';
-
-const _esc = document.createElement('span');
-function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+import { detailsTableHtml, escapeHtml, fmtUptime } from './detail-table.js?v=1';
 
 // Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.
 export const PLOAM_LABELS = {
@@ -92,11 +90,9 @@ export function updatePonCard(container, cardSelector, chart, series, prepare = 
 /// The details table. `labelHeader` names the first column, `extras` appends tab-specific ones.
 /// A column no ONT fills is dropped rather than printed as a row of dashes.
 export function ponDetailsHtml(items, labelHeader, extras = []) {
-    const fmtUp = s => s == null ? null
-        : `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
     const lastOf = item => [...item.pon].reverse().find(p => p.state != null) || item.pon[item.pon.length - 1];
 
-    const columns = [
+    return detailsTableHtml(items, [
         { header: escapeHtml(labelHeader), cell: item => escapeHtml(item.label), always: true },
         { header: 'PLOAM State', cell: item => { const l = lastOf(item); return l.state == null ? null : escapeHtml(PLOAM_LABELS[l.state] || l.state); } },
         { header: 'ONU ID', cell: item => lastOf(item).onuId },
@@ -111,16 +107,7 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
         },
         // Module uptime where the ONT reports it, link uptime where it reports that instead.
         // No provider serves both, so the column never has to choose between them.
-        { header: 'ONT Uptime', cell: item => fmtUp(lastOf(item).uptime ?? item.linkUptime) },
+        { header: 'ONT Uptime', cell: item => fmtUptime(lastOf(item).uptime ?? item.linkUptime) },
         ...extras,
-    ];
-
-    const values = items.map(item => columns.map(c => c.cell(item)));
-    const shown = columns.filter((c, i) => c.always || values.some(row => row[i] != null));
-    const head = shown.map(c => `<th>${c.header}</th>`).join('');
-    const rows = values.map(row =>
-        `<tr>${shown.map(c => `<td>${row[columns.indexOf(c)] ?? '-'}</td>`).join('')}</tr>`).join('');
-    return `<div class="table-responsive"><table class="data-table">
-        <thead><tr>${head}</tr></thead>
-        <tbody>${rows}</tbody></table></div>`;
+    ]);
 }

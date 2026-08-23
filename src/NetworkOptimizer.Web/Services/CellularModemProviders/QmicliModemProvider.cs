@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
@@ -22,6 +23,15 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private readonly ILogger<QmicliModemProvider> _logger;
     private readonly UniFiSshService _sshService;
 
+    /// <summary>
+    /// Which module is fitted. Read once per modem: an EM9291 does not become something else.
+    /// Its FIRMWARE is deliberately not cached - see <see cref="ModuleCommands"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ModuleIdentity> _modules = new();
+
+    /// <summary>Also holds where it was read, so repointing a config at another device re-reads it.</summary>
+    private sealed record ModuleIdentity(string? Vendor, string? Model, string Host, string TransportPath);
+
     // Created per site by ModemMonitorRegistry with that site's device SSH
     // service, so qmicli commands reach the site's modem host (tunnel-routed
     // when the site's devices are reached via agent).
@@ -42,11 +52,16 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
         // Try uiwwand first - available on all modern UniFi cellular modems
         var stats = await TryPollViaUiwwandAsync(context);
-        if (stats != null)
-            return PollResult<CellularModemStats>.Ok(stats);
+        var result = stats != null
+            ? PollResult<CellularModemStats>.Ok(stats)
+            : await PollViaQmicliAsync(context);
 
-        // Fall back to raw qmicli commands
-        return await PollViaQmicliAsync(context);
+        // Covers a module swapped behind the same configuration. The firmware version is not
+        // cached at all, so it needs no eviction.
+        if (!result.Success)
+            _modules.TryRemove(context.CacheKey, out _);
+
+        return result;
     }
 
     /// <summary>
@@ -117,7 +132,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         {
             var combinedCommand =
                 "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
             if (!success || string.IsNullOrWhiteSpace(output))
@@ -126,7 +142,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 return;
             }
 
-            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO");
+            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO", "REVISION", "MODULE", "MAKER");
 
             if (sections.TryGetValue("TOWER", out var towerOutput) && towerOutput.Contains("\"result\""))
                 UiwwandParser.ParseCellTowerInfo(towerOutput, stats);
@@ -137,6 +153,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 stats.Is5gNsaAvailable = nsaAvailable;
                 stats.IsDcnrRestricted = dcnrRestricted;
             }
+
+            ApplyModuleIdentity(context, sections, stats);
         }
         catch (Exception ex)
         {
@@ -183,6 +201,71 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <summary>
+    /// The DMS queries for this poll. The revision runs every time: firmware is the one field
+    /// whose job is to change, and Firmware Rollout changes it from inside this app - an upgrade
+    /// that completes between two polls would otherwise leave a cached version standing forever.
+    /// Which module is fitted is asked only until it answers.
+    ///
+    /// Each is guarded: a chain reports only its last command's exit status, so an unsupported
+    /// query here must not speak for the signal commands ahead of it.
+    /// </summary>
+    private string ModuleCommands(string qmiDevice, ModemPollContext context)
+    {
+        var commands = $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
+
+        if (KnownModule(context) == null)
+        {
+            commands += $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
+                        $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+        }
+
+        return commands;
+    }
+
+    /// <summary>The cached module for this config, or null when it was read from a different device.</summary>
+    private ModuleIdentity? KnownModule(ModemPollContext context) =>
+        _modules.TryGetValue(context.CacheKey, out var identity)
+        && identity.Host == context.Host
+        && identity.TransportPath == context.TransportPath
+            ? identity
+            : null;
+
+    /// <summary>
+    /// Stamp the module and its firmware on this poll. The firmware is whatever this poll read;
+    /// which module is fitted is remembered once it answers, so later polls stop asking.
+    /// </summary>
+    private void ApplyModuleIdentity(
+        ModemPollContext context, Dictionary<string, string> sections, CellularModemStats stats)
+    {
+        if (sections.TryGetValue("REVISION", out var revision))
+            stats.SoftwareVersion = QmicliParser.ParseRevision(revision);
+
+        var identity = KnownModule(context);
+        if (identity == null)
+        {
+            sections.TryGetValue("MODULE", out var model);
+            sections.TryGetValue("MAKER", out var maker);
+
+            var vendor = QmicliParser.ParseVendor(maker);
+            var name = QmicliParser.ParseQuotedValue(model);
+
+            // Both or neither: a half answer stays uncached so the missing side is asked again.
+            if (vendor == null || name == null)
+            {
+                _logger.LogDebug("Modem {Name} did not say which module is fitted", context.Name);
+                return;
+            }
+
+            identity = new ModuleIdentity(vendor, name, context.Host, context.TransportPath);
+            _modules[context.CacheKey] = identity;
+            _logger.LogInformation("Modem {Name} module: {Vendor} {Model}", context.Name, vendor, name);
+        }
+
+        stats.ModuleVendor = identity.Vendor;
+        stats.ModuleModel = identity.Model;
+    }
+
+    /// <summary>
     /// Poll via raw qmicli commands. Fallback path when uiwwand is unavailable.
     /// </summary>
     private async Task<PollResult<CellularModemStats>> PollViaQmicliAsync(ModemPollContext context)
@@ -206,7 +289,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
                 $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
                 $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
 
@@ -217,7 +301,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                     SshFailureSummary.Describe(output, context.ConfiguredHost ?? context.Host));
             }
 
-            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO");
+            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION", "MODULE", "MAKER");
+
+            ApplyModuleIdentity(context, sections, stats);
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {
@@ -253,6 +339,20 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 var (nsaAvailable, dcnrRestricted) = QmicliParser.ParseSystemInfo(sysInfoOutput);
                 stats.Is5gNsaAvailable = nsaAvailable;
                 stats.IsDcnrRestricted = dcnrRestricted;
+            }
+
+            // The section markers are echoed whether or not their command produced anything, and
+            // the chain's exit status belongs to the last command, so neither proves the modem
+            // answered. Empty radio sections mean it did not - which is not the same as a modem
+            // that answered and has no coverage, and must not read as a good poll.
+            var answered = new[] { "SIGNAL", "SERVING", "CELL", "BAND" }
+                .Any(key => sections.TryGetValue(key, out var body) && !string.IsNullOrWhiteSpace(body));
+
+            if (!answered)
+            {
+                _logger.LogWarning("Modem {Name} returned no qmicli output", context.Name);
+                return PollResult<CellularModemStats>.Failed(
+                    $"{context.ConfiguredHost ?? context.Host} answered over SSH but the modem returned no data.");
             }
 
             _logger.LogDebug(

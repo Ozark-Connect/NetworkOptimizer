@@ -485,4 +485,34 @@ LTE:
     }
 
     #endregion
+
+    #region Module firmware revision
+
+    [Fact]
+    public void ParseRevision_KeepsTheVersionAndDropsBuildMetadata()
+    {
+        var output = @"[/dev/wwan0qmi0] Device revision retrieved:
+        Revision: 'SWIX65C_03.04.10.01 00b8ca jenkins 2025/06/18 05:56:16'";
+
+        QmicliParser.ParseRevision(output).Should().Be("SWIX65C_03.04.10.01");
+    }
+
+    [Fact]
+    public void ParseRevision_BareVersion_ReturnsItWhole()
+    {
+        var output = "        Revision: 'EM9291_01.02.03'";
+
+        QmicliParser.ParseRevision(output).Should().Be("EM9291_01.02.03");
+    }
+
+    [Fact]
+    public void ParseRevision_UnsupportedOrEmpty_ReturnsNull()
+    {
+        QmicliParser.ParseRevision(null).Should().BeNull();
+        QmicliParser.ParseRevision("").Should().BeNull();
+        QmicliParser.ParseRevision("error: couldn't get revision: QMI protocol error").Should().BeNull();
+        QmicliParser.ParseRevision("qmicli: unrecognized option '--dms-get-revision'").Should().BeNull();
+    }
+
+    #endregion
 }

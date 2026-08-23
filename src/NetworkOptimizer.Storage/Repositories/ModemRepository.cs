@@ -178,7 +178,14 @@ public class ModemRepository : IModemRepository
         }
     }
 
-    public async Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Placeholders safe to replace with a model the modem reports about itself. Only the
+    /// GL-iNet one qualifies: its model comes from the router's cellular service, whereas
+    /// a Netgear hotspot reports a user-settable device name in the same field.
+    /// </summary>
+    private static readonly string[] PlaceholderModemTypes = { "GL-iNet" };
+
+    public async Task<bool> UpdateModemPollResultAsync(int id, DateTime? lastPolled, string? lastError, string? detectedModel = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -191,6 +198,14 @@ public class ModemRepository : IModemRepository
             if (lastPolled.HasValue)
                 config.LastPolled = lastPolled.Value;
             config.LastError = lastError;
+
+            if (!string.IsNullOrWhiteSpace(detectedModel) &&
+                detectedModel != config.ModemType &&
+                (string.IsNullOrWhiteSpace(config.ModemType) || PlaceholderModemTypes.Contains(config.ModemType)))
+            {
+                config.ModemType = detectedModel;
+            }
+
             config.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);

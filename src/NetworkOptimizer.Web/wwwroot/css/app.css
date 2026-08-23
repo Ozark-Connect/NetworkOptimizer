@@ -1941,7 +1941,9 @@ a.stat-card-link:active {
     margin-left: 0.6rem;
 }
 
-.signal-gauge {
+/* Scoped: Client Performance declares its own .signal-gauge for a dBm readout, and this
+   rule must never size that box. */
+.signal-with-model .signal-gauge {
     width: 14px;
     height: 52px;
     border-radius: 7px;
@@ -2245,6 +2247,17 @@ a.stat-card-link:active {
 .table-responsive {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+}
+
+.detail-table {
+    margin-bottom: 0.25rem;
+}
+
+/* The first column of each metric group. Same highlight the nav jump tints a row with, held on
+   and far weaker: this one is read against, not glanced at. */
+.data-table th.stats-lead,
+.data-table td.stats-lead {
+    background-color: color-mix(in srgb, var(--highlight-color) 10%, transparent);
 }
 
 .data-table {
