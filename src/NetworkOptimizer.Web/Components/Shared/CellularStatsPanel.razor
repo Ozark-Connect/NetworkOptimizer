@@ -122,10 +122,10 @@
                     <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 }
             </div>
-            <div class="modem-identity">
+            <div class="modem-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide>
                 @if (DeviceBrand() != null)
                 {
-                    <div class="cm-model" data-tooltip="@DeviceTooltip()">
+                    <div class="cm-model">
                         <span class="cm-model-name">@DeviceBrand()</span>
                         @if (!string.IsNullOrWhiteSpace(modemStats.ModemModel))
                         {
@@ -254,7 +254,7 @@
                 {
                     <div class="info-item">
                         <span class="info-label">Module:</span>
-                        <span class="info-value" data-tooltip="@ModuleTooltip()">@ModuleName()</span>
+                        <span class="info-value" data-tooltip="@ModuleTooltip()" data-tooltip-wide>@ModuleName()</span>
                     </div>
                 }
                 @if (modemStats.ServingCell != null)
