@@ -319,13 +319,15 @@ On first run it exchanges the one-time token for an agent key via
 `POST /api/public/agents/enrollments`, writes the key and site slug back into
 `agent.json`, and discards the token. It then holds a persistent gRPC tunnel to
 the server, heartbeating every 30 seconds; the Multi-Site tab and Sites page
-show it as Online. If the tunnel is unreachable (server-side tunnel not enabled,
-or the reverse-proxy gRPC route is missing), it falls back to
+show it as Online. If the tunnel is unreachable (the reverse-proxy gRPC route is
+missing, or the server could not bind its listener), it falls back to
 `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
-The tunnel listener (default port 8043, `AgentTunnel__Port` on the server) only
-starts when multi-site is enabled at server startup - enable multi-site, then
-restart the server once.
+The tunnel listener (default port 8043, `AgentTunnel__Port` on the server) binds
+at startup on every install, so enabling multi-site needs no restart. The one
+case it does not bind is a server serving its own HTTPS, where its ports cannot
+be re-bound alongside the tunnel; it says so at startup, and those installs stay
+on REST heartbeats. Put the server behind the reverse proxy instead.
 
 ### Run as a service (systemd)
 
