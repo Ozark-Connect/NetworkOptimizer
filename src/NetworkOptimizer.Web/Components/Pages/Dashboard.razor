@@ -1045,22 +1045,35 @@
     private List<string> GetStackableCards(string hostCardId)
     {
         if (_layout == null) return new();
-        var allStacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
-        // Can't stack: stats-row, cards already stacked, the host itself
+        var host = _layout.Cards.Find(c => c.Id == hostCardId);
+        if (host == null) return new();
+
+        // A card in another stack can be taken from it, so only this stack's own children and
+        // the stats row are excluded. The offer appears under top-level cards only, which is
+        // what keeps a stack one level deep however the cards are moved around.
         return _layout.Cards
             .Where(c => c.Id != hostCardId
                 && c.Id != DashboardCards.StatsRow
-                && !allStacked.Contains(c.Id)
-                && c.StackedCards.Count == 0) // can't stack a host card
+                && !host.StackedCards.Contains(c.Id))
             .Select(c => c.Id)
             .ToList();
     }
 
     private void StackCard(string hostId, string childId)
     {
-        if (_layout == null) return;
+        if (_layout == null || hostId == childId) return;
         var host = _layout.Cards.Find(c => c.Id == hostId);
-        host?.StackedCards.Add(childId);
+        var child = _layout.Cards.Find(c => c.Id == childId);
+        if (host == null || child == null) return;
+
+        // Joining a stack means leaving the one it was in, and anything it was hosting returns
+        // to the top level rather than becoming a grandchild the renderer would never draw.
+        foreach (var other in _layout.Cards)
+            other.StackedCards.Remove(childId);
+        child.StackedCards.Clear();
+
+        if (!host.StackedCards.Contains(childId))
+            host.StackedCards.Add(childId);
     }
 
     private void UnstackCard(string hostId, string childId)
