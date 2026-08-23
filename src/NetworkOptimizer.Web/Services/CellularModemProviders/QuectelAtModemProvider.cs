@@ -82,7 +82,10 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
             // AT+QENG reports only MCC/MNC, so the operator name comes from AT+COPS?.
             stats.Carrier = QuectelAtParser.ParseOperator(result.For(OperatorCommand)) ?? stats.Carrier;
-            stats.SoftwareVersion = QuectelAtParser.ParseRevisionResponse(result.For(RevisionCommand))
+            // GL's ubus reports the fuller build string (AT+CGMR answers with a short revision
+            // that reads like a model number), and both are read fresh, so the richer one wins.
+            stats.SoftwareVersion = result.ModuleFirmware
+                ?? QuectelAtParser.ParseRevisionResponse(result.For(RevisionCommand))
                 ?? result.Endpoint.SoftwareVersion;
             stats.HostVersion = result.Endpoint.HostVersion;
             stats.ModuleVendor = result.Endpoint.Vendor;
