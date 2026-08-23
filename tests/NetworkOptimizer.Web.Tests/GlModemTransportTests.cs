@@ -162,4 +162,21 @@ usb1
 
         act.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public void ParseDiscovery_BoardQueryUnsupported_StillResolvesTheModem()
+    {
+        // A GL device that answers about its modem but not its board: the sections that did
+        // come back must still be used.
+        var output = IntegratedModemDiscovery[..IntegratedModemDiscovery.IndexOf("===GLVER===")]
+                     + "===GLVER===\n===BOARD===\n";
+
+        var endpoint = GlModemTransport.ParseDiscovery(output, configuredBus: "");
+
+        endpoint.Bus.Should().Be("cpu");
+        endpoint.Sub.Should().Be(1);
+        endpoint.Model.Should().Be("RG650V-NA");
+        endpoint.HostVersion.Should().BeNull();
+        endpoint.Product.Should().BeNull();
+    }
 }

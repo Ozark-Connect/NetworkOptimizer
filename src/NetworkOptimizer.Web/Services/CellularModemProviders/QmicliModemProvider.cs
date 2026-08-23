@@ -299,6 +299,20 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 stats.IsDcnrRestricted = dcnrRestricted;
             }
 
+            // The section markers are echoed whether or not their command produced anything, and
+            // the chain's exit status belongs to the last command, so neither proves the modem
+            // answered. Empty radio sections mean it did not - which is not the same as a modem
+            // that answered and has no coverage, and must not read as a good poll.
+            var answered = new[] { "SIGNAL", "SERVING", "CELL", "BAND" }
+                .Any(key => sections.TryGetValue(key, out var body) && !string.IsNullOrWhiteSpace(body));
+
+            if (!answered)
+            {
+                _logger.LogWarning("Modem {Name} returned no qmicli output", context.Name);
+                return PollResult<CellularModemStats>.Failed(
+                    $"{context.ConfiguredHost ?? context.Host} answered over SSH but the modem returned no data.");
+            }
+
             _logger.LogDebug(
                 "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);

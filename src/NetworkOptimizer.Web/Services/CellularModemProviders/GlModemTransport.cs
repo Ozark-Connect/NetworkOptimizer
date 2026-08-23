@@ -186,7 +186,10 @@ public sealed class GlModemTransport
             var result = await _sshClient.ExecuteCommandAsync(
                 connection, command, cancellationToken: cancellationToken);
 
-            if (result.Success)
+            // Judged on output, not exit status: the chain ends with the board query, so a
+            // device that answers about its modem but not its board would otherwise have
+            // perfectly good discovery thrown away.
+            if (!string.IsNullOrWhiteSpace(result.Output))
             {
                 var endpoint = ParseDiscovery(result.Output ?? "", context.TransportPath);
                 _logger.LogInformation(
@@ -197,7 +200,7 @@ public sealed class GlModemTransport
                 return endpoint;
             }
 
-            _logger.LogDebug("Modem discovery command failed on {Name}", context.Name);
+            _logger.LogDebug("Modem discovery returned nothing on {Name}", context.Name);
         }
         catch (Exception ex)
         {
