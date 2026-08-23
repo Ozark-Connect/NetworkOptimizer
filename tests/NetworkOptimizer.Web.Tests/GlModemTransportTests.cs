@@ -28,6 +28,20 @@ public class GlModemTransportTests
         "slot_switch_count": 0
 }
 ===USB===
+===GLVER===
+4.8.5
+===BOARD===
+{
+        "kernel": "5.15.170-perf",
+        "hostname": "GL-E5800",
+        "board_name": "qcom,sdxpinn-idp",
+        "release": {
+                "distribution": "OpenWrt",
+                "version": "23.05.4",
+                "target": "sdx75/generic",
+                "description": "OpenWrt 23.05.4 r24012-d8dd03c46f"
+        }
+}
 """;
 
     private const string UsbOnlyDiscovery = """
@@ -37,6 +51,15 @@ public class GlModemTransportTests
 1-1
 1-1.2
 usb1
+===GLVER===
+===BOARD===
+{
+        "release": {
+                "distribution": "OpenWrt",
+                "version": "23.05.4",
+                "description": "OpenWrt 23.05.4 r24012-d8dd03c46f"
+        }
+}
 """;
 
     [Fact]
@@ -49,6 +72,24 @@ usb1
         endpoint.Model.Should().Be("RG650V-NA");
         endpoint.Vendor.Should().Be("quectel");
         endpoint.Description.Should().Be("Quectel RG650V-NA");
+        endpoint.SoftwareVersion.Should().Be("QRM650VNA01ACR02A04G8G_OCPU_RGH_01.005.01.005");
+        endpoint.HostVersion.Should().Be("4.8.5", "GL stamps their own firmware version, which is what the owner sees");
+    }
+
+    [Fact]
+    public void ParseDiscovery_NoGlVersionFile_FallsBackToTheOpenWrtBase()
+    {
+        var endpoint = GlModemTransport.ParseDiscovery(UsbOnlyDiscovery, configuredBus: "");
+
+        endpoint.HostVersion.Should().Be("OpenWrt 23.05.4 r24012-d8dd03c46f");
+    }
+
+    [Fact]
+    public void ParseDiscovery_NeitherSource_LeavesHostVersionUnset()
+    {
+        var endpoint = GlModemTransport.ParseDiscovery("===INFO===\n===STATUS===\n===USB===\n", configuredBus: "");
+
+        endpoint.HostVersion.Should().BeNull();
     }
 
     [Fact]

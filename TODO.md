@@ -1326,7 +1326,9 @@ Two providers already READ a version string and drop it:
 - [ ] Surface on the Cable Modem Stats, ONT Stats and Cellular Stats cards next to the model. Label
   per the device's own wording, not the field name - a cable modem owner reads "Firmware Version"
   on the modem's own page and expects that word on ours. Copy needs sign-off.
-- [ ] Decide whether the other cellular providers can source it (qmicli has `--dms-get-revision`).
+- [ ] `HostVersion` for UniFi modems: the U5G-Max / U-LTE / U5G-Backup device's own UniFi firmware,
+  which comes from the console's device record, not from the modem over SSH. `SoftwareVersion` is
+  already populated there from `--dms-get-revision`.
 
 Deliberately NOT written to InfluxDB: near-static, so a per-sample string field is waste. Revisit
 only to correlate a fleet issue against version over time.

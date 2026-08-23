@@ -117,7 +117,10 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         {
             var combinedCommand =
                 "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
+                // Enrichment, and last in the chain, so its exit status would become the batch's:
+                // a modem without DMS revision support must not fail a poll that has signal data.
+                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
             if (!success || string.IsNullOrWhiteSpace(output))
@@ -126,7 +129,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 return;
             }
 
-            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO");
+            var sections = ParseCombinedOutput(output, "TOWER", "SYSINFO", "REVISION");
 
             if (sections.TryGetValue("TOWER", out var towerOutput) && towerOutput.Contains("\"result\""))
                 UiwwandParser.ParseCellTowerInfo(towerOutput, stats);
@@ -137,6 +140,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 stats.Is5gNsaAvailable = nsaAvailable;
                 stats.IsDcnrRestricted = dcnrRestricted;
             }
+
+            if (sections.TryGetValue("REVISION", out var revisionOutput))
+                stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
         }
         catch (Exception ex)
         {
@@ -206,7 +212,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
                 $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
                 $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info";
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info; " +
+                $"echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
 
             var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
 
@@ -217,7 +224,10 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                     SshFailureSummary.Describe(output, context.ConfiguredHost ?? context.Host));
             }
 
-            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO");
+            var sections = ParseCombinedOutput(output, "SIGNAL", "SERVING", "CELL", "BAND", "SYSINFO", "REVISION");
+
+            if (sections.TryGetValue("REVISION", out var revisionOutput))
+                stats.SoftwareVersion = QmicliParser.ParseRevision(revisionOutput);
 
             if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {

@@ -300,4 +300,26 @@ public static class QmicliParser
         }
         return false;
     }
+
+    /// <summary>
+    /// Reads the module firmware version out of <c>qmicli --dms-get-revision</c>
+    /// (<c>Revision: 'SWIX65C_03.04.10.01 00b8ca jenkins 2025/06/18 05:56:16'</c>).
+    /// Only the leading token is the version; the rest is the vendor's build metadata.
+    /// </summary>
+    public static string? ParseRevision(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var match = Regex.Match(output, @"Revision:\s*'([^']+)'");
+        if (!match.Success)
+            return null;
+
+        var revision = match.Groups[1].Value.Trim();
+        var space = revision.IndexOf(' ');
+        if (space > 0)
+            revision = revision[..space];
+
+        return revision.Length > 0 ? revision : null;
+    }
 }

@@ -20,7 +20,8 @@ public sealed record GlModemEndpoint(
     int? Sub,
     string? Model = null,
     string? Vendor = null,
-    string? Firmware = null)
+    string? SoftwareVersion = null,
+    string? HostVersion = null)
 {
     /// <summary>Endpoint used when discovery finds nothing: let gl_modem pick the modem itself.</summary>
     public static readonly GlModemEndpoint Unknown = new(null, null);
@@ -175,7 +176,9 @@ public sealed class GlModemTransport
         const string command =
             "echo '===INFO==='; ubus call cellular.modem info '{\"bus\":\"cpu\"}' 2>/dev/null; " +
             "echo '===STATUS==='; ubus call cellular.modem status '{\"bus\":\"cpu\"}' 2>/dev/null; " +
-            "echo '===USB==='; ls /sys/bus/usb/devices 2>/dev/null";
+            "echo '===USB==='; ls /sys/bus/usb/devices 2>/dev/null; " +
+            "echo '===GLVER==='; cat /etc/glversion 2>/dev/null; " +
+            "echo '===BOARD==='; ubus call system board 2>/dev/null";
 
         try
         {
@@ -186,9 +189,10 @@ public sealed class GlModemTransport
             {
                 var endpoint = ParseDiscovery(result.Output ?? "", context.TransportPath);
                 _logger.LogInformation(
-                    "Resolved GL.iNet modem {Name} to bus {Bus} sub {Sub} ({Model}, firmware {Firmware})",
+                    "Resolved GL.iNet modem {Name} to bus {Bus} sub {Sub} ({Model} {Software}, host {Host})",
                     context.Name, endpoint.Bus ?? "auto", endpoint.Sub?.ToString() ?? "none",
-                    endpoint.Description ?? "unidentified", endpoint.Firmware ?? "unknown");
+                    endpoint.Description ?? "unidentified", endpoint.SoftwareVersion ?? "unknown",
+                    endpoint.HostVersion ?? "unknown");
                 return endpoint;
             }
 
@@ -205,13 +209,15 @@ public sealed class GlModemTransport
     /// <summary>Parse the discovery script's sections. Internal for tests.</summary>
     internal static GlModemEndpoint ParseDiscovery(string output, string? configuredBus)
     {
-        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "USB" });
+        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "USB", "GLVER", "BOARD" });
 
         sections.TryGetValue("INFO", out var info);
         sections.TryGetValue("STATUS", out var status);
         sections.TryGetValue("USB", out var usb);
 
-        string? bus = null, model = null, vendor = null, firmware = null;
+        var hostVersion = ParseHostVersion(sections);
+
+        string? bus = null, model = null, vendor = null, software = null;
         int? sub = null;
 
         if (TryParseJson(info, out var infoDoc))
@@ -222,7 +228,7 @@ public sealed class GlModemTransport
                 bus = GetString(root, "bus");
                 model = GetString(root, "name");
                 vendor = GetString(root, "vendor");
-                firmware = GetString(root, "version");
+                software = GetString(root, "version");
             }
         }
 
@@ -237,16 +243,46 @@ public sealed class GlModemTransport
         }
 
         if (bus != null)
-            return new GlModemEndpoint(bus, sub ?? 1, model, vendor, firmware);
+            return new GlModemEndpoint(bus, sub ?? 1, model, vendor, software, hostVersion);
 
         if (!string.IsNullOrWhiteSpace(configuredBus))
-            return new GlModemEndpoint(configuredBus, null);
+            return new GlModemEndpoint(configuredBus, null, HostVersion: hostVersion);
 
         var usbBus = (usb ?? "")
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .FirstOrDefault(d => Regex.IsMatch(d, @"^\d+-[\d.]+$"));
 
-        return usbBus != null ? new GlModemEndpoint(usbBus, null) : GlModemEndpoint.Unknown;
+        return usbBus != null
+            ? new GlModemEndpoint(usbBus, null, HostVersion: hostVersion)
+            : GlModemEndpoint.Unknown with { HostVersion = hostVersion };
+    }
+
+    /// <summary>
+    /// The router's own build. GL stamps their firmware version in /etc/glversion - the number
+    /// their UI shows and the one an owner quotes - so it wins over the OpenWrt base underneath.
+    /// </summary>
+    private static string? ParseHostVersion(Dictionary<string, string> sections)
+    {
+        if (sections.TryGetValue("GLVER", out var glVersion))
+        {
+            var trimmed = glVersion.Trim();
+            if (trimmed.Length > 0)
+                return trimmed;
+        }
+
+        if (sections.TryGetValue("BOARD", out var board) && TryParseJson(board, out var boardDoc))
+        {
+            using (boardDoc)
+            {
+                if (boardDoc.RootElement.ValueKind == JsonValueKind.Object &&
+                    boardDoc.RootElement.TryGetProperty("release", out var release))
+                {
+                    return GetString(release, "description") ?? GetString(release, "version");
+                }
+            }
+        }
+
+        return null;
     }
 
     private static GlModemEndpoint FallbackEndpoint(string? configuredBus) =>
