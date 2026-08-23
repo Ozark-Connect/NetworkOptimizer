@@ -2,13 +2,14 @@
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=7';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
+import { detailsTableHtml } from './detail-table.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cellular';
@@ -184,8 +185,46 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
+        renderDetails(container);
         renderStatsTable(container);
     }
+}
+
+// Current state under the charts. One row per modem in the series, and a column no modem
+// fills is dropped - a single-SIM LTE modem shows far fewer than a 5G one.
+function renderDetails(container) {
+    const el = container.querySelector('.cellular-details');
+    if (!el) return;
+
+    // One row per modem, not per band series: an NSA modem draws an LTE and an NR line off
+    // the same hardware, and the state below is the hardware's.
+    const seen = new Set();
+    const modems = (lastData?.modems || []).filter(m => {
+        if (seen.has(m.modemId)) return false;
+        seen.add(m.modemId);
+        return true;
+    });
+
+    el.innerHTML = detailsTableHtml(modems, [
+        { header: 'Modem', cell: m => escapeHtml(m.label), always: true },
+        { header: 'Carrier', cell: m => m.current?.carrier ? escapeHtml(m.current.carrier) : null },
+        { header: 'Band', cell: m => m.current?.band ? escapeHtml(m.current.band) : null },
+        { header: 'Bandwidth', cell: m => m.current?.bandwidthMhz != null ? `${m.current.bandwidthMhz} MHz` : null },
+        { header: 'Cell ID', cell: m => m.current?.cellId ?? null },
+        { header: 'Roaming', cell: m => m.current?.roaming == null ? null : (m.current.roaming ? 'Yes' : 'No') },
+        {
+            header: 'Module',
+            cell: m => {
+                const v = m.current?.moduleVendor, model = m.current?.moduleModel;
+                if (!v && !model) return null;
+                const text = escapeHtml([v, model].filter(Boolean).join(' '));
+                return m.current?.softwareVersion
+                    ? `<span data-tooltip="Module firmware ${escapeHtml(m.current.softwareVersion)}" data-tooltip-wide>${text}</span>`
+                    : text;
+            },
+        },
+        { header: 'Device Firmware', cell: m => m.current?.hostVersion ? escapeHtml(m.current.hostVersion) : null },
+    ]);
 }
 
 const fmtDbm = v => v != null ? v.toFixed(2) : '-';
@@ -205,17 +244,19 @@ function renderStatsTable(container, showAll) {
         const meta = modemMeta.find(mm => mm.id === m.id);
         return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
             visible: meta && visibility[meta.id] !== false,
-            values: [rsrp?.mean, rsrp?.min, rsrp?.max, rsrq?.mean, rsrq?.min, rsrq?.max,
-                snr?.mean, snr?.min, snr?.max, quality?.mean, quality?.min, quality?.max] };
+            values: [rsrp?.latest, rsrp?.mean, rsrp?.min, rsrp?.max,
+                rsrq?.latest, rsrq?.mean, rsrq?.min, rsrq?.max,
+                snr?.latest, snr?.mean, snr?.min, snr?.max,
+                quality?.latest, quality?.mean, quality?.min, quality?.max] };
     });
 
     renderTable(el, container, {
         nameHeader: 'Modem', rows, showAllRows: showAll,
         columns: [
-            { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
-            { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
-            { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
-            { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
+            { header: 'RSRP Latest', format: fmtDbm , cls: 'stats-lead' }, { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
+            { header: 'RSRQ Latest', format: fmtDb , cls: 'stats-lead' }, { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
+            { header: 'SNR Latest', format: fmtDb , cls: 'stats-lead' }, { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
+            { header: 'Qual Latest', format: fmtPct , cls: 'stats-lead' }, { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
         ],
         filter: { meta: () => modemMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },

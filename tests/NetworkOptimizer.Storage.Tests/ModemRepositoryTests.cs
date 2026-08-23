@@ -220,4 +220,52 @@ public class ModemRepositoryTests : IDisposable
     {
         (await _repository.UpdateModemPollResultAsync(9999, DateTime.UtcNow, null)).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_DetectedModel_ReplacesTheProviderPlaceholder()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "Cellular Backup", Host = "192.0.2.20", Enabled = true, ModemType = "GL-iNet",
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.UpdateModemPollResultAsync(modem.Id, DateTime.UtcNow, null, "RG650V-NA");
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.ModemType.Should().Be("RG650V-NA");
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_DetectedModel_LeavesAModelTheUserChose()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "Cellular Backup", Host = "192.0.2.20", Enabled = true, ModemType = "Spare unit in the garage",
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.UpdateModemPollResultAsync(modem.Id, DateTime.UtcNow, null, "RG650V-NA");
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.ModemType.Should().Be("Spare unit in the garage");
+    }
+
+    [Fact]
+    public async Task UpdateModemPollResultAsync_NoDetectedModel_LeavesModemTypeAlone()
+    {
+        var modem = new ModemConfiguration
+        {
+            Name = "Cellular Backup", Host = "192.0.2.20", Enabled = true, ModemType = "GL-iNet",
+        };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.UpdateModemPollResultAsync(modem.Id, DateTime.UtcNow, null);
+
+        var reloaded = await _repository.GetModemConfigurationAsync(modem.Id);
+        reloaded!.ModemType.Should().Be("GL-iNet");
+    }
 }

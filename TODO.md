@@ -1296,3 +1296,42 @@ the reference doc's "no internet" path for APs/switches.
   `TriggerUpgradeAsync` both fail, or after a device cycles back on the old version.
 - [ ] Investigate per-device-type command selection for the syswrapper path: APs/switches use
   `syswrapper.sh upgrade2 &`, gateways may differ. The reference doc covers both cases.
+
+## Monitored device versions: fill in SoftwareVersion / HostVersion for the rest
+
+`CellularModemStats` carries the pair, with the GL.iNet provider populating `SoftwareVersion` from
+GL's `cellular.modem info`. The split is by LAYER, not by vendor wording - firmware is software, so
+there is no separate FirmwareVersion:
+
+- `SoftwareVersion` - the build of the thing being monitored (the modem, the ONT, the cable modem,
+  the dish). `StarlinkStats.SoftwareVersion` already holds exactly this.
+- `HostVersion` - the device it sits inside, when that is a separate device: the GL router around a
+  Quectel module, the Starlink router in front of a dish. Rarely populated; null is normal.
+
+`HardwareVersion` stays its own concern, added only where a provider reports one (Starlink today).
+
+Two providers already READ a version string and drop it:
+
+- `QuantumQ1000kOntProvider` asks for `SoftwareVersion` and `HardwareVersion` in its query string
+  and parses them, with nowhere to put them.
+- The cable modem status pages expose it under varying labels (Arris "Software Version", Netgear
+  "Firmware Version") - both are `SoftwareVersion` under the layer rule.
+
+- [ ] Add `SoftwareVersion` and `HostVersion` to `CableModemStats` and `OntStats`, and `HostVersion`
+  to `StarlinkStats` (its router, when not in bypass).
+- [ ] Populate from the providers that already have the value in hand, starting with
+  `QuantumQ1000kOntProvider`.
+- [ ] Populate `HostVersion` for GL.iNet from the router's own build - one more ubus call in
+  `GlModemTransport`'s discovery.
+- [ ] Surface on the Cable Modem Stats and ONT Stats cards as a tooltip on the make/model badge
+  (`.cm-model`), matching what Cellular Stats does - the versions are reference data, not something
+  worth a permanent row. Label per the device's own wording, not the field name: a cable modem owner
+  reads "Firmware Version" on the modem's own page and expects that word on ours. Copy needs sign-off.
+- [ ] `HostVersion` for UniFi modems: the U5G-Max / U-LTE / U5G-Backup device's own UniFi firmware,
+  which comes from the console's device record, not from the modem over SSH. `SoftwareVersion` is
+  already populated there from `--dms-get-revision`.
+
+Written to InfluxDB as FIELDS on `cellular` (`software_version`, `host_version`) - correlating
+performance against firmware is the point of collecting them. Never as tags: a tag is part of the
+series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
+modem and ONT measurements when their fields land.

@@ -15,12 +15,18 @@ export function percentile(sorted, p) {
 export function computeStats(values) {
     if (!values || values.length === 0) return null;
     const sorted = [...values].sort((a, b) => a - b);
+    const total = values.reduce((s, v) => s + v, 0);
     return {
-        mean: values.reduce((s, v) => s + v, 0) / values.length,
+        mean: total / values.length,
         min: sorted[0],
         max: sorted[sorted.length - 1],
         p95: percentile(sorted, 95),
         p99: percentile(sorted, 99),
+        // Callers pass values in series order with the gaps filtered out, so the last one is
+        // the newest reading - not the same as max, and the only "right now" figure on the tab.
+        latest: values[values.length - 1],
+        // Only meaningful where the series is a per-interval delta: a window's error count.
+        total,
     };
 }
 

@@ -53,10 +53,18 @@ public static class CmChartEndpoints
             {
                 var name = nameMap[kvp.Key];
 
+                // Current state for the detail table, sent once per modem rather than per point.
+                var pts = kvp.Value;
+
                 return new
                 {
                     id = kvp.Key,
                     label = name,
+                    current = new
+                    {
+                        lockedDsChannels = pts.Select(p => p.LockedDsChannels).LastOrDefault(v => v != null),
+                        lockedUsChannels = pts.Select(p => p.LockedUsChannels).LastOrDefault(v => v != null),
+                    },
                     data = kvp.Value.Select(p => new
                     {
                         time = p.Time.ToString("o"),

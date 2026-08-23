@@ -15,6 +15,7 @@ using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.CableModemProviders;
+using NetworkOptimizer.Web.Services.CellularModemProviders;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.Licensing;
@@ -330,6 +331,10 @@ builder.Services.AddScoped<SiteSpeedTestTargetResolver>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
+
+// gl_modem addressing for GL.iNet routers. Singleton so the resolved bus and SIM slot
+// survive the per-site modem provider instances the registry rebuilds.
+builder.Services.AddSingleton<GlModemTransport>();
 
 // Gateway SSH per site: the registry owns one GatewaySshService per site (settings
 // from that site's DB, host fallback from that site's console). Scoped resolution of

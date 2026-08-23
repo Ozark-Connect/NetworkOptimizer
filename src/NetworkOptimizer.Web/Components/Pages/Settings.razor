@@ -1435,9 +1435,9 @@
                                     <input type="password" class="form-control" @bind="editingModem.Password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
-                                    <label class="form-label">USB Bus Path (optional)</label>
+                                    <label class="form-label">Modem Bus (optional)</label>
                                     <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="e.g. 1-1.2" />
-                                    <small class="form-help">Leave empty to auto-detect. Run <code>gl_modem -l</code> on the router to list modem paths.</small>
+                                    <small class="form-help">Leave empty to auto-detect. Set this only if detection fails: <code>cpu</code> for a modem built into the router, or a USB path like 1-1.2 for a plug-in module.</small>
                                 </div>
                             </div>
                         }
@@ -6833,7 +6833,7 @@
             }
         }
 
-        // GL-iNet modems use the TransportPath for USB bus path, not QMI device
+        // GL-iNet modems use the TransportPath for the gl_modem bus, not a QMI device
         if (isQuectelProvider)
         {
             if (string.IsNullOrEmpty(editingModem.ModemType) ||
