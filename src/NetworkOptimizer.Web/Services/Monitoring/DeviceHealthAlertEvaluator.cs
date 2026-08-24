@@ -13,6 +13,11 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 ///
 /// Temperature is evaluated for gateways and switches against a user-configurable
 /// high threshold (per device type, falling back to <see cref="DefaultDeviceTempHighC"/>).
+///
+/// WARNING: the Message format strings below are parsed by
+/// <c>DeviceHealthChartEndpoints.AlertReading</c> to extract the metric value for the
+/// collapsed chart tooltip. If you change a Message format or add a new health alert type,
+/// update AlertReading to match.
 /// </summary>
 public class DeviceHealthAlertEvaluator
 {
