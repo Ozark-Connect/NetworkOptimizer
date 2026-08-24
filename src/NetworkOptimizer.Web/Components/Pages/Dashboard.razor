@@ -222,6 +222,17 @@
             </div>
         }
 
+        @if (!_editMode)
+        {
+            <SiteAdminOnly>
+                <div class="dashboard-card-wrapper">
+                    <div class="card add-card-placeholder" @onclick="EnterEditMode" data-tooltip="Add widgets or edit layout">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    </div>
+                </div>
+            </SiteAdminOnly>
+        }
+
         @* Hidden + stacked cards at the bottom in edit mode *@
         @if (_editMode)
         {
