@@ -651,7 +651,7 @@ else
                 }
                 <div class="table-responsive">
                     <table class="data-table">
-                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th class="hide-mobile">CPU</th><th>Outcome</th></tr></thead>
+                        <thead><tr><th>Device</th><th>Model</th><th class="hide-mobile">From</th><th>To</th><th>Downtime</th><th class="hide-mobile">CPU</th><th class="hide-mobile">Mem</th><th>Outcome</th></tr></thead>
                         <tbody>
                             @foreach (var row in rep.Rows)
                             {
@@ -662,6 +662,7 @@ else
                                     <td>@(FirmwareVersionFormat.ShortOrNull(row.ToVersion) ?? "-")</td>
                                     <td>@(row.DowntimeSeconds is int d ? Duration(d) : "-")</td>
                                     <td class="hide-mobile">@(row.CpuBeforeMean is { } rcb && row.CpuAfterMean is { } rca ? $"{rcb:0}% → {rca:0}%" : "-")</td>
+                                    <td class="hide-mobile">@(row.MemBeforeMean is { } rmb && row.MemAfterMean is { } rma ? $"{rmb:0}% → {rma:0}%" : "-")</td>
                                     <td>
                                         <span class="firmware-rollout-chip @OutcomeChipClass(row.Outcome)">@row.Outcome</span>
                                         @if (row.Issue != null)
