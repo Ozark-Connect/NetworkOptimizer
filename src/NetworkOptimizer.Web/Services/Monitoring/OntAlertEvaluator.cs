@@ -155,7 +155,7 @@ public class OntAlertEvaluator
                 Source = "ont",
                 Severity = AlertSeverity.Warning,
                 Title = $"{ontName} temperature high{_siteSuffix}",
-                Message = $"ONT {ontName} temperature {tempC:0.#} C is above {tempHighC:0} C threshold.",
+                Message = $"ONT {ontName} temperature {tempC:0.#} °C is above {tempHighC:0} °C threshold.",
                 DeviceName = ontName,
                 MetricValue = tempC,
                 ThresholdValue = tempHighC,

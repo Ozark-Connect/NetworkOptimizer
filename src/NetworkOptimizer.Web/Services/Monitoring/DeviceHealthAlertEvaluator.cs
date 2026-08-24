@@ -21,6 +21,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class DeviceHealthAlertEvaluator
 {
+    internal const string HighCpuEventType = "device.gateway_high_cpu";
+    internal const string HighMemoryEventType = "device.gateway_high_memory";
+    internal const string HighTemperatureEventType = "device.high_temperature";
 
     private const int CpuWindowSize = 5;
     private const double CpuHighThresholdPercent = 70.0;
@@ -86,7 +89,7 @@ public class DeviceHealthAlertEvaluator
 
                     await _eventBus.PublishAsync(new AlertEvent
                     {
-                        EventType = "device.gateway_high_cpu",
+                        EventType = HighCpuEventType,
                         Source = "device",
                         Severity = AlertSeverity.Warning,
                         Title = $"{label} CPU usage high{_siteSuffix}",
@@ -121,7 +124,7 @@ public class DeviceHealthAlertEvaluator
 
                 await _eventBus.PublishAsync(new AlertEvent
                 {
-                    EventType = "device.gateway_high_memory",
+                    EventType = HighMemoryEventType,
                     Source = "device",
                     Severity = AlertSeverity.Warning,
                     Title = $"{label} memory usage high{_siteSuffix}",
@@ -159,11 +162,11 @@ public class DeviceHealthAlertEvaluator
 
                 await _eventBus.PublishAsync(new AlertEvent
                 {
-                    EventType = "device.high_temperature",
+                    EventType = HighTemperatureEventType,
                     Source = "device",
                     Severity = AlertSeverity.Warning,
                     Title = $"{label} temperature high{_siteSuffix}",
-                    Message = $"{typeLabel} {label} temperature at {temperatureC.Value:0.#} C, exceeding the {threshold:0.#} C threshold.",
+                    Message = $"{typeLabel} {label} temperature at {temperatureC.Value:0.#} °C, exceeding the {threshold:0.#} °C threshold.",
                     DeviceId = deviceMac,
                     DeviceName = deviceName,
                     MetricValue = temperatureC.Value,
