@@ -840,7 +840,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // is exactly "the gateway step has settled" - and is also the right point on a plan that
         // has no gateway step at all.
         if (document.UniFiOsUpdate is { Triggered: true, Settled: false } && settings.SuppressStandardAlerts)
+        {
             _suppression.RefreshConsoleCycle(_siteSlug, Now);
+            _suppression.RefreshOsCycle(_siteSlug, Now);
+        }
 
         if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
             return;

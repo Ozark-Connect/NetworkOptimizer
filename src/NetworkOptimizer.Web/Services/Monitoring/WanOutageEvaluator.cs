@@ -51,6 +51,7 @@ public class WanOutageEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<WanOutageEvaluator> _logger;
     private readonly WanOutageContextSource _contextSource;
+    private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly TimeProvider _time;
     private readonly string _siteSlug;
     private readonly string _siteSuffix;
@@ -71,11 +72,13 @@ public class WanOutageEvaluator
     public WanOutageEvaluator(IAlertEventBus eventBus, ILogger<WanOutageEvaluator> logger,
         WanOutageContextSource contextSource,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Firmware.RolloutSuppressionRegistry? rolloutWindows = null,
         TimeProvider? timeProvider = null)
     {
         _eventBus = eventBus;
         _logger = logger;
         _contextSource = contextSource;
+        _rolloutWindows = rolloutWindows;
         _time = timeProvider ?? TimeProvider.System;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _siteSuffix = _siteSlug == SiteManagementService.DefaultSiteSlug ? "" : $" (site {_siteSlug})";
@@ -185,8 +188,15 @@ public class WanOutageEvaluator
         // fire. A WAN that already opened its own alert is folded in - the rollup event resolves
         // the per-WAN alerts it supersedes - so the worst case is one alert then the rollup,
         // rather than one per WAN.
+        // A UniFi OS update reboots the gateway, taking WAN with it. The outage is expected
+        // and the rollout's own alerts cover it, so no WAN alert opens while it is in progress.
+        // Network app updates do NOT suppress: the gateway stays up, so a WAN outage during
+        // one is real. Recovery always flows so a pre-existing alert can close.
+        var osCycling = _rolloutWindows?.IsOsCycling(_siteSlug, now) == true;
+
         var totalEverywhere = byWan.Keys.All(k => GetWanState(k).TotalConfirmedAt != null);
         if (!_rollupOpen
+            && !osCycling
             && byWan.Count >= 2
             && totalEverywhere
             && now - byWan.Keys.Min(k => GetWanState(k).TotalConfirmedAt!.Value)
@@ -210,17 +220,12 @@ public class WanOutageEvaluator
             var info = WanInfo(wanKey);
             switch (kind)
             {
-                case WanVerdictKind.Total when !state.CoveredByRollup && state.OpenKind != WanVerdictKind.Total:
-                    // Opens fresh, or supersedes an open partial: publishing the total closes
-                    // the partial downstream (AlertProcessingService resolves it), so the two
-                    // never stack.
+                case WanVerdictKind.Total when !state.CoveredByRollup && !osCycling && state.OpenKind != WanVerdictKind.Total:
                     state.OpenKind = WanVerdictKind.Total;
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
 
-                case WanVerdictKind.Partial when !state.CoveredByRollup && state.OpenKind == WanVerdictKind.None:
-                    // A partial never downgrades an open total; the total stays open until
-                    // recovery closes it.
+                case WanVerdictKind.Partial when !state.CoveredByRollup && !osCycling && state.OpenKind == WanVerdictKind.None:
                     state.OpenKind = WanVerdictKind.Partial;
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
