@@ -86,6 +86,17 @@ func collectInterfaces() []InterfaceInfo {
 	return out
 }
 
+// managementMAC is the AP identity a payload carries, taken from the interface the listener is
+// bound to so a collector fanning out over a fleet can tell the answers apart.
+func managementMAC(ifaces []InterfaceInfo, name string) string {
+	for _, ifi := range ifaces {
+		if ifi.Name == name && ifi.MAC != "" {
+			return strings.ToLower(ifi.MAC)
+		}
+	}
+	return ""
+}
+
 // mcaSummary is the shape assertion for mca-dump: enough to prove the payload is what we expect
 // without depending on any single field's name surviving a firmware bump.
 type mcaSummary struct {
@@ -96,13 +107,20 @@ type mcaSummary struct {
 	RadioNames []string `json:"-"`
 }
 
+type mcaNamedRadio struct {
+	Name string `json:"name"`
+}
+
 type mcaRaw struct {
-	Version    string `json:"version"`
-	Model      string `json:"model"`
-	RadioTable *[]struct {
-		Name string `json:"name"`
-	} `json:"radio_table"`
-	VapTable *[]json.RawMessage `json:"vap_table"`
+	Version    string           `json:"version"`
+	Model      string           `json:"model"`
+	RadioTable *[]mcaNamedRadio `json:"radio_table"`
+	// The dedicated scan radio is in scan_radio_table, not radio_table. Reading only radio_table
+	// drops a real radio, which then never gets health counters collected for it.
+	ScanRadioTable *[]mcaNamedRadio `json:"scan_radio_table"`
+	VapTable       *[]struct {
+		RadioName string `json:"radio_name"`
+	} `json:"vap_table"`
 }
 
 // parseMcaDump asserts radio_table is present, which is the documented shape check.
@@ -115,14 +133,25 @@ func parseMcaDump(data []byte) (mcaSummary, error) {
 		return mcaSummary{}, fmt.Errorf("mca-dump JSON has no radio_table")
 	}
 	s := mcaSummary{Version: raw.Version, Model: raw.Model, RadioCount: len(*raw.RadioTable)}
-	for _, r := range *raw.RadioTable {
+	rows := append([]mcaNamedRadio(nil), *raw.RadioTable...)
+	if raw.ScanRadioTable != nil {
+		rows = append(rows, *raw.ScanRadioTable...)
+	}
+	for _, r := range rows {
 		if r.Name != "" {
 			s.RadioNames = append(s.RadioNames, r.Name)
 		}
 	}
 	if raw.VapTable != nil {
 		s.VapCount = len(*raw.VapTable)
+		// A VAP names its parent radio, which catches a radio missing from both tables.
+		for _, v := range *raw.VapTable {
+			if v.RadioName != "" {
+				s.RadioNames = append(s.RadioNames, v.RadioName)
+			}
+		}
 	}
+	s.RadioNames = mergeRadios(s.RadioNames, nil)
 	return s, nil
 }
 

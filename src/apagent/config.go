@@ -21,6 +21,20 @@ const (
 	defaultSyslogTailBytes = 256 * 1024
 	defaultMemoryLimitMB   = 64
 	defaultProbeInterval   = 300
+
+	// The three collection tiers are paced by how fast the underlying data actually changes.
+	// Membership is pushed and costs nothing; RF metrics cost ~5 ms per VAP; identity comes from
+	// mca-dump, which costs ~300 ms and is the reason the slow tier exists at all.
+	defaultFastIntervalMs      = 1000
+	defaultSlowIntervalSeconds = 30
+	minFastIntervalMs          = 200
+	maxFastIntervalMs          = 10000
+	minSlowIntervalSeconds     = 10
+	maxSlowIntervalSeconds     = 600
+
+	defaultEventBufferSize   = 1024
+	defaultClientTTLSeconds  = 120
+	defaultMaxTrackedClients = 512
 	// defaultInstallDir is tmpfs. The AP agent is ephemeral by design: the config partition behind
 	// /etc/persistent is 1 MB, so a Go binary cannot live there, and controller provisioning wipes
 	// crontab, so there is no durable auto-run hook either. The server redeploys on every boot and
@@ -48,6 +62,12 @@ type Config struct {
 	ProbeInterval   int    `json:"probe_interval_seconds"`
 	BoardInfoPath   string `json:"board_info_path"`
 	FirmwarePath    string `json:"firmware_path"`
+
+	FastIntervalMs      int `json:"fast_interval_ms"`
+	SlowIntervalSeconds int `json:"slow_interval_seconds"`
+	EventBufferSize     int `json:"event_buffer_size"`
+	ClientTTLSeconds    int `json:"client_ttl_seconds"`
+	MaxTrackedClients   int `json:"max_tracked_clients"`
 }
 
 // Overrides are the flag values that win over the config file when set.
@@ -58,6 +78,8 @@ type Overrides struct {
 	TokenFile       string
 	HostapdDir      string
 	SyslogPath      string
+	FastIntervalMs  int
+	SlowInterval    int
 }
 
 func loadConfig(path string, ov Overrides) (*Config, error) {
@@ -108,6 +130,12 @@ func applyOverrides(cfg *Config, ov Overrides) {
 	if ov.SyslogPath != "" {
 		cfg.SyslogPath = ov.SyslogPath
 	}
+	if ov.FastIntervalMs != 0 {
+		cfg.FastIntervalMs = ov.FastIntervalMs
+	}
+	if ov.SlowInterval != 0 {
+		cfg.SlowIntervalSeconds = ov.SlowInterval
+	}
 }
 
 func applyDefaults(cfg *Config) {
@@ -137,6 +165,21 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.FirmwarePath == "" {
 		cfg.FirmwarePath = "/usr/lib/version"
+	}
+	if cfg.FastIntervalMs <= 0 {
+		cfg.FastIntervalMs = defaultFastIntervalMs
+	}
+	if cfg.SlowIntervalSeconds <= 0 {
+		cfg.SlowIntervalSeconds = defaultSlowIntervalSeconds
+	}
+	if cfg.EventBufferSize <= 0 {
+		cfg.EventBufferSize = defaultEventBufferSize
+	}
+	if cfg.ClientTTLSeconds <= 0 {
+		cfg.ClientTTLSeconds = defaultClientTTLSeconds
+	}
+	if cfg.MaxTrackedClients <= 0 {
+		cfg.MaxTrackedClients = defaultMaxTrackedClients
 	}
 }
 
@@ -174,6 +217,18 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.ListenAddress == "" && cfg.ListenInterface == "" {
 		return fmt.Errorf("one of listen_address or listen_interface is required")
+	}
+	// The cadence is refused rather than clamped: a busy AP is turned down deliberately, and a
+	// silently corrected value would hide a typo in a deployed config.
+	if cfg.FastIntervalMs < minFastIntervalMs || cfg.FastIntervalMs > maxFastIntervalMs {
+		return fmt.Errorf("fast_interval_ms %d is outside %d to %d", cfg.FastIntervalMs, minFastIntervalMs, maxFastIntervalMs)
+	}
+	if cfg.SlowIntervalSeconds < minSlowIntervalSeconds || cfg.SlowIntervalSeconds > maxSlowIntervalSeconds {
+		return fmt.Errorf("slow_interval_seconds %d is outside %d to %d", cfg.SlowIntervalSeconds, minSlowIntervalSeconds, maxSlowIntervalSeconds)
+	}
+	if cfg.ClientTTLSeconds < cfg.SlowIntervalSeconds {
+		return fmt.Errorf("client_ttl_seconds %d is below slow_interval_seconds %d, which would expire clients between passes",
+			cfg.ClientTTLSeconds, cfg.SlowIntervalSeconds)
 	}
 	return nil
 }

@@ -56,6 +56,8 @@ func run() int {
 	tokenFile := flag.String("token-file", "", "File holding the bearer token")
 	hostapdDir := flag.String("hostapd-dir", "", "hostapd control socket directory (default /var/run/hostapd)")
 	syslogPath := flag.String("syslog", "", "Syslog file to probe for stahtd (default /var/log/messages)")
+	fastInterval := flag.Int("fast-interval-ms", 0, "Fast RF poll interval in milliseconds (default 1000)")
+	slowInterval := flag.Int("slow-interval", 0, "Slow identity poll interval in seconds (default 30)")
 	ignoreFatal := flag.Bool("ignore-fatal-probes", false, "Start even when a fatal probe fails (off-device testing only)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	showBinaryVersion := flag.Bool("binary-version", false, "Print the agent contract version (integer) and exit")
@@ -92,6 +94,8 @@ func run() int {
 		TokenFile:       *tokenFile,
 		HostapdDir:      *hostapdDir,
 		SyslogPath:      *syslogPath,
+		FastIntervalMs:  *fastInterval,
+		SlowInterval:    *slowInterval,
 	})
 	if err != nil {
 		slog.Error("configuration failed", "error", err)
@@ -114,6 +118,11 @@ func run() int {
 	}
 
 	state := NewState(time.Now().UTC(), platform)
+
+	table := NewTable(cfg.MaxTrackedClients, time.Duration(cfg.ClientTTLSeconds)*time.Second)
+	ring := NewEventRing(cfg.EventBufferSize)
+	collector := NewCollector(cfg, table, ring)
+	state.AttachTelemetry(table, ring, collector)
 
 	probes := runProbes(ctx, cfg)
 	state.SetProbes(probes)
@@ -151,6 +160,7 @@ func run() int {
 
 	// Advertise what was actually bound; the configured port is not proof of the bound port.
 	boundHost, boundPortStr, _ := net.SplitHostPort(ln.Addr().String())
+	table.SetApMAC(managementMAC(ifaces, cfg.ListenInterface))
 	boundPort, _ := strconv.Atoi(boundPortStr)
 	state.SetListener(ListenerInfo{
 		Interface: cfg.ListenInterface,
@@ -159,6 +169,11 @@ func run() int {
 		TLS:       false,
 		Auth:      "bearer",
 	})
+
+	collectCtx, stopCollectors := context.WithCancel(ctx)
+	defer stopCollectors()
+	collector.Apply(collectCtx, probes)
+	collector.Start(collectCtx)
 
 	srv := newServer(state, cfg.Token)
 	serveErr := make(chan error, 1)
@@ -177,6 +192,9 @@ func run() int {
 		"vaps", len(probes.Vaps),
 		"radios", len(probes.Radios),
 		"memory_limit_mb", cfg.MemoryLimitMB,
+		"fast_interval_ms", cfg.FastIntervalMs,
+		"slow_interval_seconds", cfg.SlowIntervalSeconds,
+		"event_buffer", cfg.EventBufferSize,
 	)
 
 	probeTicker := time.NewTicker(time.Duration(cfg.ProbeInterval) * time.Second)
@@ -190,9 +208,11 @@ func run() int {
 		case sig := <-sigCh:
 			// An AP is doing a job that matters more than our telemetry, so a stop is immediate.
 			slog.Info("shutdown signal received", "signal", sig.String())
+			stopCollectors()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			srv.Shutdown(shutdownCtx)
 			cancel()
+			collector.Wait()
 			return 0
 
 		case err := <-serveErr:
@@ -201,8 +221,11 @@ func run() int {
 
 		case <-probeTicker.C:
 			// A firmware upgrade or a provision cycle can change what resolves under a running
-			// agent, so capabilities are re-probed rather than fixed at startup.
-			state.SetProbes(runProbes(ctx, cfg))
+			// agent, so capabilities are re-probed rather than fixed at startup. VAP names change
+			// with it, which is why the collector is handed the new set rather than its own.
+			refreshed := runProbes(ctx, cfg)
+			state.SetProbes(refreshed)
+			collector.Apply(collectCtx, refreshed)
 		}
 	}
 }

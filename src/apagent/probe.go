@@ -216,13 +216,15 @@ func probeAthstats(ctx context.Context, radios []string, now time.Time) ProbeRes
 			return r
 		}
 	}
-	if out, err := runCommand(ctx, 10*time.Second, "apstats", "-R"); err == nil {
+	// apstats needs a LEVEL flag: bare -R is AP level and carries no cycle counters at all, which
+	// answers successfully with nothing useful rather than failing.
+	if out, err := runCommand(ctx, 10*time.Second, "apstats", "-r", "-i", radio); err == nil {
 		if found := matchedRadioCounters(out); len(found) > 0 {
 			r.Available = true
-			r.Detail = fmt.Sprintf("apstats -R: %s", strings.Join(found, ", "))
+			r.Detail = fmt.Sprintf("apstats -r -i %s: %s", radio, strings.Join(found, ", "))
 			return r
 		}
 	}
-	r.Detail = fmt.Sprintf("neither athstats -i %s nor apstats -R returned known counters", radio)
+	r.Detail = fmt.Sprintf("neither athstats -i %s nor apstats -r -i %s returned known counters", radio, radio)
 	return r
 }

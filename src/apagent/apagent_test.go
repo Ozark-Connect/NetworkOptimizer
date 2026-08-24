@@ -125,7 +125,7 @@ func TestDiscoverVaps(t *testing.T) {
 
 func TestParseWlanconfigHeader(t *testing.T) {
 	out := "ADDR               AID CHAN TXRATE RXRATE RSSI MINRSSI MAXRSSI IDLE  TXSEQ  RXSEQ  CAPS ACAPS ERP    STATE MAXRATE(DOT11) HTCAPS ASSOCTIME    IEs   MODE PSMODE RXNSS TXNSS\n" +
-		"10:a2:d3:1f:ec:32    1  149  1200M  1080M   -54      -60     -48    0      0      0   EPS    0    0        0              0     A     00:12:34    WME  11BE     0     2     2\n"
+		"aa:bb:cc:dd:ee:ff    1  149  1200M  1080M   -54      -60     -48    0      0      0   EPS    0    0        0              0     A     00:12:34    WME  11BE     0     2     2\n"
 	cols, ok := parseWlanconfigHeader(out)
 	if !ok {
 		t.Fatal("measured wlanconfig header must validate")
@@ -535,16 +535,9 @@ func newTestServer(t *testing.T) (*httptest.Server, *State) {
 		Vaps:     []string{"wifi2ap10"},
 		ProbedAt: time.Now().UTC(),
 	})
-	srv := httptest.NewServer(authMiddleware(state, testToken, testMux(state)))
+	srv := httptest.NewServer(authMiddleware(state, testToken, newMux(state)))
 	t.Cleanup(srv.Close)
 	return srv, state
-}
-
-func testMux(state *State) *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/capabilities", jsonHandler(func() any { return state.Capabilities() }))
-	mux.HandleFunc("/health", jsonHandler(func() any { return state.Health() }))
-	return mux
 }
 
 func doRequest(t *testing.T, srv *httptest.Server, method, path, auth string) *http.Response {
@@ -612,8 +605,8 @@ func TestServerServesBothEndpoints(t *testing.T) {
 		t.Errorf("health binary version = %d", health.BinaryVersion)
 	}
 
-	if resp := doRequest(t, srv, http.MethodGet, "/clients", auth); resp.StatusCode != http.StatusNotFound {
-		t.Errorf("/clients is W5 and must not exist yet, got %d", resp.StatusCode)
+	if resp := doRequest(t, srv, http.MethodGet, "/nope", auth); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("an unrouted path got %d, want 404", resp.StatusCode)
 	}
 	if resp := doRequest(t, srv, http.MethodPost, "/health", auth); resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("POST /health got %d, want 405", resp.StatusCode)

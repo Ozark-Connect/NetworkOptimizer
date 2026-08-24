@@ -1,0 +1,18 @@
+ADDR               AID CHAN TXRATE RXRATE RSSI MINRSSI MAXRSSI IDLE  TXSEQ  RXSEQ  CAPS XCAPS    STATE MAXRATE(DOT11) DHCP TIME_TO_IP HTCAPS   VHTCAPS ASSOCTIME    IEs   MODE RXNSS TXNSS                   PSMODE
+02:aa:bb:00:00:11    1  101 2161M   1814M  -57     -77     -50   17      0   65535   EPR  EBOR    4000013        2401900  ACK          0               Q              00 05:54:07     RSN WME IEEE80211_MODE_11AXA_HE160  2 2   1  
+      LM NR BRT 
+ RSSI is combined over chains in dBm
+ Minimum Tx Power		: 242
+ Maximum Tx Power		: 18
+ HT Capability			: No
+ VHT Capability			: No
+ MU capable			: No
+ SNR				: 35
+ Operating band			: 6GHz
+ Current Operating class	: 0
+ Supported Rates(Mbps)		: 6  9  12  18  24  36  48  54 
+ Channels supported		: 5945  5965  5985  6005  6025  6045  6065  6085  6105  6125  6145  6165  6185  6205  6225  6245  6265  6285  6305  6325  6345  6365  6385  6405  6425  6445  6465  6485  6505  6525  6545  6565  6585  6605  6625  6645  6665  6685  6705  6725  6745  6765  6785  6805  6825  6845  6865  6885  6905  6925  6945  6965  6985  7005  7025  7045  7065  7085  7105 
+ Cur STA phymode		: IEEE80211_MODE_11AXA_HE160 
+ Max STA phymode		: IEEE80211_MODE_11AXA_HE160 
+ MLO				: No 
+

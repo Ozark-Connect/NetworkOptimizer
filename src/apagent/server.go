@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,14 +14,24 @@ import (
 
 func processID() int { return os.Getpid() }
 
-// newServer wires the two phase 0 endpoints behind bearer authentication.
-func newServer(state *State, token string) *http.Server {
+// newMux registers every endpoint. Each one reads the in-memory table and never triggers a
+// collection: N pollers would otherwise cost N times the collection.
+func newMux(state *State) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/capabilities", jsonHandler(func() any { return state.Capabilities() }))
 	mux.HandleFunc("/health", jsonHandler(func() any { return state.Health() }))
+	mux.HandleFunc("/clients", jsonRequestHandler(state.clientsPayload))
+	mux.HandleFunc("/client/", jsonRequestHandler(state.clientPayload))
+	mux.HandleFunc("/vaps", jsonRequestHandler(state.vapsPayload))
+	mux.HandleFunc("/radios", jsonRequestHandler(state.radiosPayload))
+	mux.HandleFunc("/events", jsonRequestHandler(state.eventsPayload))
+	return mux
+}
 
+// newServer puts every endpoint behind bearer authentication.
+func newServer(state *State, token string) *http.Server {
 	return &http.Server{
-		Handler:           authMiddleware(state, token, mux),
+		Handler:           authMiddleware(state, token, newMux(state)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -29,17 +40,36 @@ func newServer(state *State, token string) *http.Server {
 }
 
 func jsonHandler(payload func() any) http.HandlerFunc {
+	return jsonRequestHandler(func(*http.Request) (any, error) { return payload(), nil })
+}
+
+// jsonRequestHandler is the same contract for endpoints that read the query or the path. A refusal
+// carries a JSON body too, so a collector never has to parse an HTML error page.
+func jsonRequestHandler(payload func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+
+		body, err := payload(r)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
+
+		if err != nil {
+			status := http.StatusInternalServerError
+			var he httpError
+			if errors.As(err, &he) {
+				status = he.status
+			}
+			w.WriteHeader(status)
+			body = map[string]string{"error": err.Error()}
+		}
+
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(payload()); err != nil {
+		if err := enc.Encode(body); err != nil {
 			slog.Error("failed to encode response", "path", r.URL.Path, "error", err)
 		}
 	}

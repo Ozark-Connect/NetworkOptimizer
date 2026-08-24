@@ -44,6 +44,14 @@ type ProbeHealth struct {
 	CheckedAt time.Time `json:"checked_at"`
 }
 
+// TableHealth is the in-memory table's shape. Links rather than clients, because an MLO client
+// holds several and the memory cost follows links.
+type TableHealth struct {
+	Links      int `json:"links"`
+	Clients    int `json:"clients"`
+	MaxTracked int `json:"max_tracked"`
+}
+
 // Health is the GET /health payload.
 type Health struct {
 	Version       string                 `json:"version"`
@@ -58,6 +66,9 @@ type Health struct {
 	ProbeFailures uint64                 `json:"probe_failures"`
 	Requests      uint64                 `json:"requests"`
 	AuthFailures  uint64                 `json:"auth_failures"`
+	Tiers         TierStatus             `json:"tiers"`
+	Table         TableHealth            `json:"table"`
+	Events        EventStats             `json:"events"`
 	CollectedAt   time.Time              `json:"collected_at"`
 }
 
@@ -78,10 +89,37 @@ type State struct {
 	listener  ListenerInfo
 	probes    ProbeSet
 	counters  Counters
+
+	table     *Table
+	ring      *EventRing
+	collector *Collector
 }
 
 func NewState(startedAt time.Time, platform PlatformInfo) *State {
-	return &State{startedAt: startedAt, platform: platform}
+	return &State{
+		startedAt: startedAt,
+		platform:  platform,
+		table:     NewTable(defaultMaxTrackedClients, defaultClientTTLSeconds*time.Second),
+		ring:      NewEventRing(defaultEventBufferSize),
+	}
+}
+
+// AttachTelemetry hands the state the tiers built from config, replacing the defaults NewState
+// created so /capabilities and /health are servable before the collector exists.
+func (s *State) AttachTelemetry(table *Table, ring *EventRing, collector *Collector) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.table = table
+	s.ring = ring
+	s.collector = collector
+}
+
+// telemetry reads the tiers under the lock. AttachTelemetry can replace them after NewState, so
+// the handlers must not reach the fields directly.
+func (s *State) telemetry() (*Table, *EventRing) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.table, s.ring
 }
 
 func (s *State) SetListener(l ListenerInfo) {
@@ -134,6 +172,12 @@ func (s *State) Health() Health {
 	unavailable := s.probes.Unavailable()
 	now := time.Now().UTC()
 
+	table := TableHealth{Links: s.table.Size(), Clients: len(s.table.Clients(now)), MaxTracked: s.table.maxSize}
+	events := EventStats{Ring: s.ring.Stats()}
+	if s.collector != nil {
+		events = s.collector.EventStats()
+	}
+
 	return Health{
 		Version:       version,
 		BinaryVersion: binaryVersion(),
@@ -147,6 +191,9 @@ func (s *State) Health() Health {
 		ProbeFailures: s.counters.ProbeFailures.Load(),
 		Requests:      s.counters.Requests.Load(),
 		AuthFailures:  s.counters.AuthFailures.Load(),
+		Tiers:         s.table.Tiers(),
+		Table:         table,
+		Events:        events,
 		CollectedAt:   now,
 	}
 }
