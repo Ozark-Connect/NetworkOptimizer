@@ -142,6 +142,7 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         var ripeness = await EvaluateRipenessAsync(inputs.Context.Devices, settings.MinReleaseAgeDays, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings, ripeness.UnripeMacs);
+        result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         result.Document.Notes.AddRange(ripeness.Notes);
 
         // A console update is reason enough to run. On a Cloud Gateway the console's own UniFi OS
