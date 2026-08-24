@@ -399,7 +399,12 @@ builder.Services.AddMutatingService<ICellularModemService>(sp => sp.GetRequiredS
 // AP Agent deployment is per site: one instance per site owns that site's access points, its
 // retry backoff, and its subscription to the site's reboot tracker. The registry doubles as the
 // supervision loop, so an enabled site is checked without anyone opening its Settings page.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHealthClient>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryClient>();
+// The telemetry collector is driven by the monitoring agent's tier loop rather than a loop of its
+// own, so the registry is a plain per-site holder with no hosted service behind it.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryRegistry>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
     NetworkOptimizer.Web.Services.ApAgent.SftpApAgentBinaryTransfer>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,

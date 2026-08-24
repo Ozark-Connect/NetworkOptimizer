@@ -241,3 +241,36 @@ public sealed class ApAgentFleetEntry
     /// <summary>Consecutive failures behind the current backoff delay.</summary>
     public int ConsecutiveFailures { get; set; }
 }
+
+/// <summary>One probe from an AP Agent's GET /capabilities: a telemetry source, resolved by behavior.</summary>
+/// <param name="Name">Stable probe name, e.g. "wlanconfig". The agent keys on these across releases.</param>
+/// <param name="Available">Whether the probe resolved on this access point.</param>
+/// <param name="Fatal">True for the one probe the agent cannot run without.</param>
+/// <param name="Detail">What the probe found, or why it failed.</param>
+/// <param name="Degrades">What the agent loses while this probe is unavailable.</param>
+public sealed record ApAgentCapabilityProbe(
+    string Name,
+    bool Available,
+    bool Fatal,
+    string? Detail,
+    string? Degrades);
+
+/// <summary>
+/// An AP Agent's capability report, from its GET /capabilities. The agent probes what the access
+/// point can provide at startup, so this is per-AP: sources vary by model and firmware.
+/// </summary>
+/// <param name="Version">Agent release version.</param>
+/// <param name="Model">The AP's model as the agent read it.</param>
+/// <param name="Firmware">The AP's firmware string.</param>
+/// <param name="Vaps">Serving VAP interfaces the agent enumerated.</param>
+/// <param name="Radios">Radio interfaces the agent enumerated.</param>
+/// <param name="Probes">Every telemetry source the agent probed.</param>
+/// <param name="ProbedAt">When the agent last ran its probes.</param>
+public sealed record ApAgentCapabilityReport(
+    string? Version,
+    string? Model,
+    string? Firmware,
+    IReadOnlyList<string> Vaps,
+    IReadOnlyList<string> Radios,
+    IReadOnlyList<ApAgentCapabilityProbe> Probes,
+    DateTime ProbedAt);

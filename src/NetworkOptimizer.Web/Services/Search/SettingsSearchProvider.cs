@@ -226,6 +226,13 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["dish", "grpc", "power draw", "obstruction", "outages", "alignment", "terminal",
              "polling interval", "show the starlink stats tab"]),
 
+        Entry("aptelemetry", "AP Telemetry", "ap-telemetry",
+            "AP Telemetry",
+            ["AP Agent", "access point agent"],
+            ["wi-fi telemetry", "deploy", "redeploy", "repair", "capability report", "per-client signal",
+             "roam events", "radio airtime", "hostapd", "wlanconfig", "firmware update", "armv7l",
+             "access points", "device ssh"]),
+
         Entry("speedtests", "Speed Tests", "speed-test-settings",
             "LAN Speed Test Settings",
             ["LAN Speed Test", "LAN test", "iperf3 settings"],

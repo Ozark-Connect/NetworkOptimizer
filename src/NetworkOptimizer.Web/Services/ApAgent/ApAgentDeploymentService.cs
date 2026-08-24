@@ -181,6 +181,17 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <inheritdoc />
+    public async Task<ApAgentCapabilityReport?> GetCapabilitiesAsync(string deviceMac, CancellationToken ct = default)
+    {
+        var ap = await FindAccessPointAsync(deviceMac, ct);
+        if (ap == null) return null;
+
+        var record = await GetOrCreateRecordAsync(NormalizeMac(ap.Mac), ap.Name, ct);
+        return await _healthClient.GetCapabilitiesAsync(
+            _siteSlug, ap.DisplayIpAddress, ResolveToken(record), HealthTimeout, ct);
+    }
+
+    /// <inheritdoc />
     public async Task<ApAgentOperationResult> DeployAsync(
         string deviceMac, IProgress<string>? progress = null, CancellationToken ct = default)
     {

@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text.Json;
 
@@ -15,20 +14,20 @@ public sealed class ApAgentHealthClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly SiteTunnelRouting _tunnelRouting;
+    /// <summary>A health body is small; anything larger is not one and must not be buffered.</summary>
+    private const long MaxHealthBytes = 256 * 1024;
+
+    private readonly ApAgentHttpTransport _transport;
     private readonly AgentTunnelProxyService? _tunnelProxy;
     private readonly ILogger<ApAgentHealthClient> _logger;
 
     /// <summary>Creates the health client.</summary>
     public ApAgentHealthClient(
-        IHttpClientFactory httpClientFactory,
-        SiteTunnelRouting tunnelRouting,
+        ApAgentHttpTransport transport,
         ILogger<ApAgentHealthClient> logger,
         AgentTunnelProxyService? tunnelProxy = null)
     {
-        _httpClientFactory = httpClientFactory;
-        _tunnelRouting = tunnelRouting;
+        _transport = transport;
         _logger = logger;
         _tunnelProxy = tunnelProxy;
     }
@@ -63,26 +62,13 @@ public sealed class ApAgentHealthClient
                 ExpectedBinaryVersion: expectedBinaryVersion);
         }
 
-        var (host, port) = await _tunnelRouting.RouteAsync(siteSlug, apHost, ApAgentPaths.AgentPort);
-
-        using var client = _httpClientFactory.CreateClient();
-        client.Timeout = timeout;
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{host}:{port}/health");
-        if (!string.IsNullOrEmpty(token))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var (host, port) = await _transport.RouteAsync(siteSlug, apHost);
 
         try
         {
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
-            var status = (int)response.StatusCode;
-
-            ApAgentHealthPayload? payload = null;
-            if (response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(ct);
-                payload = ParseHealth(body);
-            }
+            var result = await _transport.SendAsync(host, port, token, "/health", timeout, MaxHealthBytes, ct);
+            var status = result.Status;
+            var payload = result.IsUsable ? ParseHealth(result.Body) : null;
 
             return new ApAgentObservation(ApAgentReach.Answered, status,
                 DeviceOnline: true,
@@ -103,6 +89,86 @@ public sealed class ApAgentHealthClient
                 SupportedArchitecture: true,
                 ExpectedBinaryVersion: expectedBinaryVersion,
                 Detail: detail);
+        }
+    }
+
+    /// <summary>
+    /// Fetches one AP Agent's GET /capabilities, routed the same way the health probe is. Returns
+    /// null when the agent did not answer with a usable report; the health probe is the place that
+    /// diagnoses why, so this deliberately does not.
+    /// </summary>
+    /// <param name="siteSlug">Site the AP belongs to.</param>
+    /// <param name="apHost">The AP's management address.</param>
+    /// <param name="token">Bearer token the AP's agent was deployed with.</param>
+    /// <param name="timeout">How long to wait before giving up.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<ApAgentCapabilityReport?> GetCapabilitiesAsync(
+        string siteSlug, string apHost, string? token, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var (host, port) = await _transport.RouteAsync(siteSlug, apHost);
+
+        try
+        {
+            var result = await _transport.SendAsync(host, port, token, "/capabilities", timeout, MaxHealthBytes, ct);
+            return result.IsUsable ? ParseCapabilities(result.Body) : null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent capability fetch from {Host}:{Port} failed", apHost, port);
+            return null;
+        }
+    }
+
+    /// <summary>Reads a GET /capabilities body. Returns null when the body is not one.</summary>
+    public static ApAgentCapabilityReport? ParseCapabilities(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (!root.TryGetProperty("probes", out var probesEl) || probesEl.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var probes = new List<ApAgentCapabilityProbe>();
+            foreach (var p in probesEl.EnumerateArray())
+            {
+                if (p.ValueKind != JsonValueKind.Object) continue;
+                probes.Add(new ApAgentCapabilityProbe(
+                    p.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                    p.TryGetProperty("available", out var a) && a.ValueKind == JsonValueKind.True,
+                    p.TryGetProperty("fatal", out var f) && f.ValueKind == JsonValueKind.True,
+                    p.TryGetProperty("detail", out var d) ? d.GetString() : null,
+                    p.TryGetProperty("degrades", out var g) ? g.GetString() : null));
+            }
+
+            string? version = null;
+            if (root.TryGetProperty("agent", out var agent) && agent.ValueKind == JsonValueKind.Object
+                && agent.TryGetProperty("version", out var v))
+                version = v.GetString();
+
+            string? model = null;
+            string? firmware = null;
+            if (root.TryGetProperty("platform", out var platform) && platform.ValueKind == JsonValueKind.Object)
+            {
+                if (platform.TryGetProperty("model", out var m)) model = m.GetString();
+                if (platform.TryGetProperty("firmware", out var fw)) firmware = fw.GetString();
+            }
+
+            return new ApAgentCapabilityReport(
+                version, model, firmware,
+                ReadStrings(root, "vaps"),
+                ReadStrings(root, "radios"),
+                probes,
+                ReadUtc(root, "probed_at"));
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

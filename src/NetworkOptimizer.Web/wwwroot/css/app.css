@@ -462,6 +462,7 @@ h1:focus {
 
 .settings-tabbed.active-connection > .settings-tab-connection,
 .settings-tabbed.active-monitoring > .settings-tab-monitoring,
+.settings-tabbed.active-aptelemetry > .settings-tab-aptelemetry,
 .settings-tabbed.active-speedtests > .settings-tab-speedtests,
 .settings-tabbed.active-security > .settings-tab-security,
 .settings-tabbed.active-application > .settings-tab-application,
@@ -21167,4 +21168,143 @@ a.firmware-rollout-version-badge:hover {
     height: 5px;
     border-radius: 50%;
     background: currentColor;
+}
+
+/* ============================================
+   Settings - AP Telemetry (AP Agent fleet)
+   ============================================ */
+
+/* Muted second line under a status, name, or version: the cause or the next step. */
+.ap-agent-note {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.15rem;
+    white-space: normal;
+}
+
+/* Fixed layout for the same reason as .sites-table: the expanded panel row spans every column, so
+   under auto layout its content would resize the headers the moment it appears. */
+.ap-agent-table {
+    table-layout: fixed;
+}
+
+.ap-agent-table th:nth-child(1) { width: 20%; }
+.ap-agent-table th:nth-child(2) { width: 15%; }
+.ap-agent-table th:nth-child(3) { width: 27%; }
+.ap-agent-table th:nth-child(4) { width: 12%; }
+.ap-agent-table th:nth-child(5) { width: 26%; }
+
+/* Inset panel for the expanded capability report row; data-table cells have their own padding. */
+.ap-agent-cap-panel {
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 1rem;
+    margin: 0.25rem 0;
+}
+
+.ap-agent-cap-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 0.15rem;
+}
+
+.ap-agent-cap-list {
+    margin: 0.75rem 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.5rem 2rem;
+}
+
+.ap-agent-cap-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.ap-agent-cap-row .status-dot {
+    flex-shrink: 0;
+    position: relative;
+    top: -1px;
+}
+
+.ap-agent-cap-name {
+    color: var(--text-primary);
+}
+
+.ap-agent-cap-row.cap-unavailable .ap-agent-cap-name {
+    color: var(--text-secondary);
+}
+
+.ap-agent-cap-src {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    margin-left: auto;
+}
+
+/* Bordered footer inside the panel: the opt-out toggle at the start, actions at the end. */
+.ap-agent-cap-footer {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.ap-agent-cap-footer .checkbox-toggle {
+    margin-right: auto;
+}
+
+@media (max-width: 768px) {
+    .table-responsive:has(> .ap-agent-table) {
+        margin: 0 -0.25rem;
+    }
+
+    /* Same two-line phone layout as .sites-table: an AP's name and status, then its buttons across
+       the full width, with the header, the fixed layout, and the 500px floor all stopped. */
+    .ap-agent-table,
+    .ap-agent-table > tbody,
+    .ap-agent-table > tbody > tr.site-config-row,
+    .ap-agent-table > tbody > tr.site-config-row > td {
+        display: block;
+        min-width: 0;
+    }
+
+    .ap-agent-table > thead {
+        display: none;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td {
+        padding: 0.75rem 0.5rem;
+        border-bottom: 0;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:not(:last-child) {
+        flex: 1 1 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    /* The status cell carries the explanatory note, so it takes twice the name's share. */
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:nth-child(3) {
+        flex: 2 1 0;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:last-child {
+        flex-basis: 100%;
+        padding-top: 0;
+    }
 }

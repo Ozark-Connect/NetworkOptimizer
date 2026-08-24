@@ -29,6 +29,10 @@ public interface IApAgentDeploymentService
     [RequireRole(Roles.Viewer)]
     Task<ApAgentAssessment> CheckHealthAsync(string deviceMac, CancellationToken ct = default);
 
+    /// <summary>One AP Agent's capability report, or null when the agent did not answer.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<ApAgentCapabilityReport?> GetCapabilitiesAsync(string deviceMac, CancellationToken ct = default);
+
     /// <summary>The agent contract version this server ships.</summary>
     [RequireRole(Roles.Viewer)]
     Task<int> GetExpectedBinaryVersionAsync();

@@ -61,6 +61,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _ontAlertEvaluator;
     private readonly Dictionary<string, ISfpSupplementalOntProvider> _supplementalOntProviders;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly ApAgent.ApAgentTelemetryCollector _apAgentTelemetry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -167,6 +168,7 @@ public class MonitoringCollectionAgent : BackgroundService
         Licensing.LicenseStateService licenseState,
         IEnumerable<IOntProvider> ontProviders,
         SiteTunnelRouting tunnelRouting,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetryRegistry,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -195,6 +197,7 @@ public class MonitoringCollectionAgent : BackgroundService
             .OfType<ISfpSupplementalOntProvider>()
             .ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
         _tunnelRouting = tunnelRouting;
+        _apAgentTelemetry = apAgentTelemetryRegistry.GetFor(_siteSlug);
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -337,6 +340,14 @@ public class MonitoringCollectionAgent : BackgroundService
             WifiClientTierCollectAsync,
             TimeSpan.FromSeconds(30),
             stoppingToken);
+        // AP Agent telemetry, on a shorter cadence than it writes. The access point measures far
+        // faster than 30 s, so sampling here and folding min/max/avg gives a richer point without
+        // multiplying the write volume on wifi_client.
+        var apAgentTask = RunTierAsync("apagent",
+            _ => TimeSpan.FromSeconds(10),
+            (_, ct) => _apAgentTelemetry.SampleAsync(ct),
+            TimeSpan.FromSeconds(35),
+            stoppingToken);
         // SNMP credential self-heal on its own short cadence. It must NOT ride the fast
         // tier's cycle: when every SNMP call is timing out (the exact failure it exists to
         // detect), a fast cycle stretches to minutes of stacked timeouts and an end-of-cycle
@@ -348,7 +359,7 @@ public class MonitoringCollectionAgent : BackgroundService
             TimeSpan.FromSeconds(12),
             stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, selfHealTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, apAgentTask, selfHealTask);
         _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 
@@ -1362,6 +1373,12 @@ public class MonitoringCollectionAgent : BackgroundService
                 LastUpdate = now
             };
             _liveStats.RecordWifiClient(snapshot);
+
+            // Per AP, not per site: an access point served by its own AP Agent has its wifi_client
+            // points written from that agent, and every other access point keeps the console's.
+            // The live snapshot above stays console-sourced for ALL of them on purpose, so a mixed
+            // fleet reads the same way on Live View.
+            if (_apAgentTelemetry.CoversAp(apMac)) continue;
 
             if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
             {

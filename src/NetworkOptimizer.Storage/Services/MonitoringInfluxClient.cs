@@ -564,7 +564,16 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? txThroughputBps,
         double? rxThroughputBps,
         bool? isMlo,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? txRetries = null,
+        long? txAttempts = null,
+        long? txDropped = null,
+        double? latencyAvgMs = null,
+        double? latencyMaxMs = null,
+        long? tcpStalls = null,
+        double? tcpLatAvgMs = null,
+        int? ccq = null,
+        int? nss = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("wifi_client")
@@ -586,6 +595,20 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
         if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
         if (isMlo.HasValue) point = point.Field("is_mlo", isMlo.Value);
+
+        // Additive fields, written only by the AP Agent path: the console's stat/sta does not
+        // report any of them. The tag set is deliberately unchanged - device_mac and band stay the
+        // tags and client_mac stays a field, because promoting it would explode the series count on
+        // a measurement whose per-client queries already cost 33 s.
+        if (txRetries.HasValue) point = point.Field("tx_retries", txRetries.Value);
+        if (txAttempts.HasValue) point = point.Field("tx_attempts", txAttempts.Value);
+        if (txDropped.HasValue) point = point.Field("tx_dropped", txDropped.Value);
+        if (latencyAvgMs.HasValue) point = point.Field("latency_avg_ms", latencyAvgMs.Value);
+        if (latencyMaxMs.HasValue) point = point.Field("latency_max_ms", latencyMaxMs.Value);
+        if (tcpStalls.HasValue) point = point.Field("tcp_stalls", tcpStalls.Value);
+        if (tcpLatAvgMs.HasValue) point = point.Field("tcp_lat_avg_ms", tcpLatAvgMs.Value);
+        if (ccq.HasValue) point = point.Field("ccq", ccq.Value);
+        if (nss.HasValue) point = point.Field("nss", nss.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;

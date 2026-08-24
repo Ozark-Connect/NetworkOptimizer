@@ -18,8 +18,8 @@ public class SettingsSearchIndexTests
     // The tab ids Settings.razor accepts. An entry pointing at anything else lands on Connection.
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite",
-        "auditlog",
+        "connection", "monitoring", "aptelemetry", "speedtests", "security", "application", "identity",
+        "multisite", "auditlog",
     };
 
     [Fact]
