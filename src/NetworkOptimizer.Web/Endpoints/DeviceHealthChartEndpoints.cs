@@ -188,6 +188,7 @@ public static class DeviceHealthChartEndpoints
                     : string.IsNullOrWhiteSpace(reboot.Detail)
                         ? $"Firmware {reboot.FirmwareVersion}"
                         : $"{reboot.Detail}. Firmware {reboot.FirmwareVersion}",
+                firmware = reboot.FirmwareVersion,
             }));
         }
 
@@ -320,6 +321,8 @@ public static class DeviceHealthChartEndpoints
     {
         "device.offline" => "Offline",
         "device.recovered" => "Recovered",
+        "monitoring.target_offline" => "Device offline",
+        "monitoring.target_recovered" => "Device back online",
         "device.gateway_high_cpu" => "High CPU",
         "device.gateway_high_memory" => "High memory",
         "device.high_temperature" => "High temperature",
