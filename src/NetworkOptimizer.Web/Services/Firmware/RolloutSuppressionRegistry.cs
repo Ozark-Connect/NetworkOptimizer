@@ -27,6 +27,7 @@ public class RolloutSuppressionRegistry
 
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _windowRefreshedAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _osCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
 
     /// <summary>
@@ -39,6 +40,21 @@ public class RolloutSuppressionRegistry
     /// <summary>Ends the console-cycle window for a site.</summary>
     public void ClearConsoleCycle(string siteSlug) =>
         _consoleCyclingAt.TryRemove(NormalizeSite(siteSlug), out _);
+
+    /// <summary>
+    /// Marks the site as cycling a UniFi OS update. The gateway reboots during these, taking
+    /// WAN connectivity with it, so WAN outage alerts are suppressed in addition to the
+    /// device/target alerts that <see cref="RefreshConsoleCycle"/> already covers.
+    /// </summary>
+    public void RefreshOsCycle(string siteSlug, DateTime observedAt) =>
+        _osCyclingAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>Whether the site's gateway is mid-UniFi OS update (WAN expected to be down).</summary>
+    public bool IsOsCycling(string siteSlug, DateTime now)
+    {
+        var site = NormalizeSite(siteSlug);
+        return _osCyclingAt.TryGetValue(site, out var at) && now.ToUniversalTime() - at <= WindowFreshness;
+    }
 
     /// <summary>
     /// Marks the site as having an active rollout. Any device reboot during a rollout can
@@ -110,6 +126,7 @@ public class RolloutSuppressionRegistry
         var site = NormalizeSite(siteSlug);
         _siteActiveAt.TryRemove(site, out _);
         _consoleCyclingAt.TryRemove(site, out _);
+        _osCyclingAt.TryRemove(site, out _);
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
     }

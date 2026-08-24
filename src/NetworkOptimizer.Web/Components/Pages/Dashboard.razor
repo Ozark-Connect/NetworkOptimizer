@@ -226,7 +226,7 @@
         {
             <SiteAdminOnly>
                 <div class="dashboard-card-wrapper">
-                    <div class="card add-card-placeholder" @onclick="EnterEditMode" data-tooltip="Add widgets or edit layout">
+                    <div class="card add-card-placeholder" @onclick="EnterEditModeFromPlaceholder" data-tooltip="Add widgets or edit layout">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                     </div>
                 </div>
@@ -268,6 +268,11 @@
                     @RenderCard(stacked.ChildId)
                 </div>
             }
+
+            <div class="edit-bottom-actions card-span-2" id="edit-bottom">
+                <button class="btn btn-sm btn-primary" @onclick="ExitEditMode">Done</button>
+                <button class="btn btn-sm btn-secondary" @onclick="CancelEditMode">Cancel</button>
+            </div>
         }
     }
 </div>
@@ -933,6 +938,15 @@
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
+    }
+
+    private async Task EnterEditModeFromPlaceholder()
+    {
+        EnterEditMode();
+        StateHasChanged();
+        await Task.Yield();
+        await JS.InvokeVoidAsync("eval",
+            "document.getElementById('edit-bottom')?.scrollIntoView({ behavior: 'smooth', block: 'end' })");
     }
 
     private async Task ExitEditMode()

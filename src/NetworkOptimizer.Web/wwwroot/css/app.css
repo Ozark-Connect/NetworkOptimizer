@@ -1185,6 +1185,13 @@ a.stat-card-link:active {
     color: var(--primary-color);
 }
 
+.edit-bottom-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 4px 0;
+}
+
 .dashboard-card-editing {
     position: relative;
 }
