@@ -329,7 +329,7 @@ public static class DeviceHealthChartEndpoints
         _ => title,
     };
 
-    private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|C)\b", RegexOptions.Compiled);
+    private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|C)(?!\w)", RegexOptions.Compiled);
 
     /// <summary>
     /// Extracts a short metric reading from the alert message for the collapsed chart tooltip
