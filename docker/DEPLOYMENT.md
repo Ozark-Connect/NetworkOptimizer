@@ -847,6 +847,45 @@ sudo systemctl status network-optimizer
 curl -s http://localhost:8042/api/health
 ```
 
+## Joining the Preview Channel
+
+Preview builds ship early access to features before the next release. The `:preview` tag receives every preview AND every release, so you never fall behind - when a release ships, `:preview` gets it too.
+
+### Docker / Proxmox
+
+Change `:latest` to `:preview` in your `docker-compose.yml`:
+
+```yaml
+image: ghcr.io/ozark-connect/network-optimizer:preview
+image: ghcr.io/ozark-connect/speedtest:preview
+```
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+On Proxmox:
+
+```bash
+pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && sed -i -e "s#network-optimizer:latest#network-optimizer:preview#" -e "s#speedtest:latest#speedtest:preview#" docker-compose.yml && docker compose pull && docker compose up -d && docker image prune -a -f'
+```
+
+### macOS Native
+
+Check out the `release/2.7` branch instead of `main`:
+
+```bash
+cd NetworkOptimizer && git fetch && git checkout release/2.7 && git pull && ./scripts/install-macos-native.sh
+```
+
+### Windows
+
+Download the preview MSI from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) and install it over the top.
+
+### Going back
+
+Switch your Docker tag back to `:latest` (or `git checkout main` on macOS) and pull. You'll land on the latest release.
+
 ## Migrating from Build-from-Source to Pre-Built Images
 
 If you've been building from source and want to switch to the pre-built Docker images:
