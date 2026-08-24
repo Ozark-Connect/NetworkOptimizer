@@ -51,7 +51,9 @@ public class RolloutSuppressionRegistry
     public bool IsSiteActiveRollout(string siteSlug, DateTime now)
     {
         var site = NormalizeSite(siteSlug);
-        return _siteActiveAt.TryGetValue(site, out var at) && now.ToUniversalTime() - at <= WindowFreshness;
+        var utcNow = now.ToUniversalTime();
+        return (_siteActiveAt.TryGetValue(site, out var at) && utcNow - at <= WindowFreshness)
+            || (_consoleCyclingAt.TryGetValue(site, out var cycleAt) && utcNow - cycleAt <= WindowFreshness);
     }
 
     /// <summary>
