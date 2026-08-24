@@ -4,6 +4,7 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.Firmware;
 using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
 
@@ -83,12 +84,13 @@ public class WanOutageEvaluatorTests
         _evaluator = BuildEvaluator(BuildContext());
     }
 
-    private MonitoringAlertEvaluator BuildEvaluator(WanOutageContext context)
+    private MonitoringAlertEvaluator BuildEvaluator(WanOutageContext context,
+        RolloutSuppressionRegistry? rolloutWindows = null)
     {
         var wanOutages = new WanOutageEvaluator(_bus, NullLogger<WanOutageEvaluator>.Instance,
-            new FakeContextSource(context), timeProvider: _time);
+            new FakeContextSource(context), rolloutWindows: rolloutWindows, timeProvider: _time);
         return new MonitoringAlertEvaluator(_bus, NullLogger<MonitoringAlertEvaluator>.Instance,
-            new DeviceTransitionTracker(), wanOutages);
+            new DeviceTransitionTracker(), wanOutages, rolloutWindows: rolloutWindows);
     }
 
     #region Per-WAN outages
@@ -296,6 +298,93 @@ public class WanOutageEvaluatorTests
         await RoundsAsync(RoundsToConfirm, failing: NoTargets, passing: Wan2Targets);
 
         _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A UniFi OS update reboots the gateway, which takes WAN with it. The outage is expected
+    /// and the rollout's own alerts cover it. WAN alerts must stay quiet.
+    /// </summary>
+    [Fact]
+    public async Task WanOutageDuringOsCycle_IsSuppressed()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+        registry.RefreshOsCycle("main", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            registry.RefreshOsCycle("main", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A Network app update restarts the console but the gateway stays up. WAN outages during
+    /// one are real and must NOT be suppressed.
+    /// </summary>
+    [Fact]
+    public async Task WanOutageDuringConsoleCycleOnly_IsNotSuppressed()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+        registry.RefreshConsoleCycle("main", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            registry.RefreshConsoleCycle("main", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().ContainSingle()
+            .Which.EventType.Should().Be("monitoring.wan_outage");
+    }
+
+    /// <summary>
+    /// If a WAN outage was already open before the OS update started, its recovery must still
+    /// close it. Suppression gates opens, never closes.
+    /// </summary>
+    [Fact]
+    public async Task WanRecoveryDuringOsCycle_StillFlows()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().ContainSingle()
+            .Which.EventType.Should().Be("monitoring.wan_outage");
+
+        registry.RefreshOsCycle("main", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            registry.RefreshOsCycle("main", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Select(e => e.EventType).Should()
+            .Equal("monitoring.wan_outage", "monitoring.wan_recovered");
     }
 
     #endregion
