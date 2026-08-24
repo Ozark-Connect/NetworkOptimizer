@@ -105,6 +105,113 @@ public class RolloutSuppressionRegistryTests
         registry.IsInRolloutWindow(Site, Mac, Now).Should().BeFalse();
     }
 
+    // --- Console cycling (Network app or UniFi OS restart) ------------------------------------
+
+    [Fact]
+    public void ConsoleCycleSuppressesEveryDeviceOnTheSite()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, "ff:ff:ff:ff:ff:ff", Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, null, Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConsoleCycleImpliesSiteActiveRollout()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+
+        registry.IsSiteActiveRollout(Site, Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConsoleCycleLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+
+        var expired = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        registry.IsInRolloutWindow(Site, Mac, expired).Should().BeFalse();
+        registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearSiteDropsConsoleCycle()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+        registry.ClearSite(Site);
+
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeFalse();
+        registry.IsSiteActiveRollout(Site, Now).Should().BeFalse();
+    }
+
+    // --- OS cycling (UniFi OS update specifically) --------------------------------------------
+
+    [Fact]
+    public void OsCycleIsTrackedSeparately()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshOsCycle(Site, Now);
+
+        registry.IsOsCycling(Site, Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConsoleCycleAloneDoesNotImplyOsCycling()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+
+        registry.IsOsCycling(Site, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void OsCycleLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshOsCycle(Site, Now);
+
+        var expired = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        registry.IsOsCycling(Site, expired).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearSiteDropsOsCycle()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshOsCycle(Site, Now);
+        registry.ClearSite(Site);
+
+        registry.IsOsCycling(Site, Now).Should().BeFalse();
+    }
+
+    // --- Site-active rollout (device steps in flight) -----------------------------------------
+
+    [Fact]
+    public void SiteActiveRolloutFromDeviceSteps()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshSiteActive(Site, Now);
+
+        registry.IsSiteActiveRollout(Site, Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SiteActiveRolloutLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshSiteActive(Site, Now);
+
+        var expired = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
+    }
+
+    // --- Evaluator integration ----------------------------------------------------------------
+
     [Fact]
     public async Task DeviceOfflineIsNotAnnouncedForADeviceTheRolloutIsUpgrading()
     {
