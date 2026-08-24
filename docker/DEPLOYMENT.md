@@ -875,7 +875,7 @@ pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer && sed -i -e "s#network-o
 Check out the `release/2.7` branch instead of `main`:
 
 ```bash
-cd NetworkOptimizer && git fetch && git checkout release/2.7 && git pull && ./scripts/install-macos-native.sh
+cd NetworkOptimizer && git fetch && git checkout dev && git pull && ./scripts/install-macos-native.sh
 ```
 
 ### Windows
