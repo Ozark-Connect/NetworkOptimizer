@@ -441,7 +441,19 @@ func (s *EventSource) attachAndRead(ctx context.Context, vap string) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", remote, err)
 	}
+	// Close on cancellation so a blocked Read returns at once. Without this, shutdown waits out
+	// the keepalive deadline on every idle VAP, and the server stops and starts these constantly.
+	readDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.SetReadDeadline(time.Now())
+		case <-readDone:
+		}
+	}()
+
 	defer func() {
+		close(readDone)
 		// Best effort: a hostapd that has already gone will not answer, and that is the common exit.
 		_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
 		_, _ = conn.Write([]byte("DETACH"))
