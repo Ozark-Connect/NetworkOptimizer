@@ -1,4 +1,4 @@
-namespace NetworkOptimizer.Storage.Models.Identity;
+﻿namespace NetworkOptimizer.Storage.Models.Identity;
 
 /// <summary>
 /// A single append-only audit record. Stored in the main DB (not per-site DBs) with
@@ -152,6 +152,12 @@ public static class AuditActions
     public const string FirmwareRolloutAborted = "firmware_rollout.aborted";
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+
+    // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)
+    public const string ApAgentDeployed = "ap_agent.deployed";
+    public const string ApAgentRemoved = "ap_agent.removed";
+    public const string ApAgentRestarted = "ap_agent.restarted";
+    public const string ApAgentSettingsChanged = "ap_agent.settings.changed";
 
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";

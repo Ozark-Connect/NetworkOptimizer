@@ -242,6 +242,91 @@ public class SshClientService
     }
 
     /// <summary>
+    /// Upload a binary file to the remote host via SCP.
+    /// </summary>
+    /// <param name="connection">SSH connection information</param>
+    /// <param name="localFilePath">Local file path to upload</param>
+    /// <param name="remotePath">Destination path on remote host</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task UploadBinaryViaScpAsync(
+        SshConnectionInfo connection,
+        string localFilePath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        // SCP passes the remote path through the far side's shell, so the transformation is not
+        // optional: it is what stops a path becoming a command there.
+        using var scp = new ScpClient(BuildConnectionInfo(connection), RemotePathTransformation.ShellQuote);
+
+        try
+        {
+            await Task.Run(() => scp.Connect(), cancellationToken);
+
+            using var stream = File.OpenRead(localFilePath);
+            await Task.Run(() => scp.Upload(stream, remotePath), cancellationToken);
+
+            _logger.LogDebug("Uploaded binary via SCP to {Host}:{Path} ({Bytes} bytes)",
+                connection.Host, remotePath, new FileInfo(localFilePath).Length);
+        }
+        finally
+        {
+            if (scp.IsConnected)
+            {
+                scp.Disconnect();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Upload a binary file by streaming it into <c>cat &gt; path</c> over an exec channel. Needs no
+    /// file-transfer subsystem on the far side at all, which makes it the floor when a device
+    /// supports neither SFTP nor SCP.
+    /// </summary>
+    /// <param name="connection">SSH connection information</param>
+    /// <param name="localFilePath">Local file path to upload</param>
+    /// <param name="remotePath">Destination path on remote host</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task UploadBinaryViaExecAsync(
+        SshConnectionInfo connection,
+        string localFilePath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        using var client = CreateSshClient(connection);
+
+        try
+        {
+            await Task.Run(() => client.Connect(), cancellationToken);
+
+            using var command = client.CreateCommand($"cat > \"{remotePath}\"");
+            var execute = command.ExecuteAsync(cancellationToken);
+
+            // The input stream must be disposed before the command completes, or the far side never
+            // sees end-of-input and cat runs forever.
+            await using (var input = command.CreateInputStream())
+            await using (var file = File.OpenRead(localFilePath))
+            {
+                await file.CopyToAsync(input, cancellationToken);
+            }
+
+            await execute;
+
+            if (command.ExitStatus is not 0)
+                throw new IOException($"Remote write of {remotePath} exited {command.ExitStatus}: {command.Error}");
+
+            _logger.LogDebug("Uploaded binary via exec to {Host}:{Path} ({Bytes} bytes)",
+                connection.Host, remotePath, new FileInfo(localFilePath).Length);
+        }
+        finally
+        {
+            if (client.IsConnected)
+            {
+                client.Disconnect();
+            }
+        }
+    }
+
+    /// <summary>
     /// Check if a file exists on the remote host.
     /// </summary>
     public async Task<bool> FileExistsAsync(
@@ -262,39 +347,27 @@ public class SshClientService
     /// Create an SSH client with the given connection info.
     /// </summary>
     private SshClient CreateSshClient(SshConnectionInfo connection)
-    {
-        var authMethods = CreateAuthMethods(connection);
-
-        var sshConnectionInfo = new Renci.SshNet.ConnectionInfo(
-            connection.Host,
-            connection.Port,
-            connection.Username,
-            authMethods.ToArray())
-        {
-            Timeout = connection.Timeout
-        };
-
-        return new SshClient(sshConnectionInfo);
-    }
+        => new(BuildConnectionInfo(connection));
 
     /// <summary>
     /// Create an SFTP client with the given connection info.
     /// </summary>
     private SftpClient CreateSftpClient(SshConnectionInfo connection)
-    {
-        var authMethods = CreateAuthMethods(connection);
+        => new(BuildConnectionInfo(connection));
 
-        var sshConnectionInfo = new Renci.SshNet.ConnectionInfo(
+    /// <summary>
+    /// Build the SSH.NET connection info every client type shares, so a new transport (SCP here)
+    /// authenticates exactly the way commands and SFTP already do.
+    /// </summary>
+    private Renci.SshNet.ConnectionInfo BuildConnectionInfo(SshConnectionInfo connection)
+        => new(
             connection.Host,
             connection.Port,
             connection.Username,
-            authMethods.ToArray())
+            CreateAuthMethods(connection).ToArray())
         {
             Timeout = connection.Timeout
         };
-
-        return new SftpClient(sshConnectionInfo);
-    }
 
     /// <summary>
     /// Create authentication methods based on connection credentials.

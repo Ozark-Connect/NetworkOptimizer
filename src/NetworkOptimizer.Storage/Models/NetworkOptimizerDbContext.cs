@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Threats.Models;
 
@@ -64,6 +64,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<StarlinkConfiguration> StarlinkConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
+    public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
@@ -191,6 +192,15 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("OntConfigurations");
             entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // ApAgentDeployment configuration. One row per access point; the MAC is the natural key
+        // the deployment service looks every AP up by.
+        modelBuilder.Entity<ApAgentDeployment>(entity =>
+        {
+            entity.ToTable("ApAgentDeployments");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
             entity.HasIndex(e => e.Enabled);
         });
 

@@ -1,4 +1,4 @@
-using ApexCharts;
+﻿using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
@@ -395,6 +395,23 @@ builder.Services.AddMutatingService<IOntMonitorService>(sp => sp.GetRequiredServ
 
 builder.Services.AddMutatingService<ICellularModemService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Cellular);
+
+// AP Agent deployment is per site: one instance per site owns that site's access points, its
+// retry backoff, and its subscription to the site's reboot tracker. The registry doubles as the
+// supervision loop, so an enabled site is checked without anyone opening its Settings page.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHealthClient>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.SftpApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.ScpApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.ExecApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentTransferSelector>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>());
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentDeploymentService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>()
+        .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 builder.Services.AddMutatingService<IIperf3SpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
