@@ -126,6 +126,20 @@
 }
 else if (_report == null)
 {
+    @if (ProbesViaDefaultRoute && Svc.Status != IspHealthStatus.NeedsDiscovery)
+    {
+        <div class="alert alert-warning" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-warning">!</span>
+                <div class="banner-text" style="flex: 1;">
+                    @SelectedWanLabel's vantage has no probe binding, so probes leave by the default route (your primary connection) and these readings reflect the primary path. Assign a gateway agent or bind a source address to measure this connection directly.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Configure vantage</button>
+                </div>
+            </div>
+        </div>
+    }
     @if (Svc.Status == IspHealthStatus.Computing)
     {
         <div class="isp-health-loading card">
@@ -246,6 +260,20 @@ else if (_report == null)
 else
 {
     var r = _report;
+    @if (ProbesViaDefaultRoute)
+    {
+        <div class="alert alert-warning" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-warning">!</span>
+                <div class="banner-text" style="flex: 1;">
+                    @SelectedWanLabel's vantage has no probe binding, so probes leave by the default route (your primary connection) and these scores reflect the primary path. Assign a gateway agent or bind a source address to measure this connection directly.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Configure vantage</button>
+                </div>
+            </div>
+        </div>
+    }
     @if (!r.HasUpstreamTraceMap)
     {
         <div class="alert alert-info" style="margin-bottom: 0.75rem;">
@@ -1106,6 +1134,7 @@ else
     // Which WANs a context names. A secondary WAN without one is not "not discovered yet" - it is
     // not probed at all, and discovery cannot change that.
     private HashSet<string> _wansWithContext = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _wansWithProbeBinding = new(StringComparer.OrdinalIgnoreCase);
     private string _selectedWanKey = "";
 
     /// <summary>
@@ -1151,6 +1180,11 @@ else
             _wansWithContext = contexts
                 .Where(c => !string.IsNullOrEmpty(c.WanInterface))
                 .Select(c => c.WanInterface!.ToLowerInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _wansWithProbeBinding = contexts
+                .Where(c => !string.IsNullOrEmpty(c.WanInterface)
+                    && (c.AgentId != null || !string.IsNullOrEmpty(c.ProbeSourceIp)))
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var ctx in contexts)
             {
@@ -1373,6 +1407,23 @@ else
             var wan = _wanOptions.FirstOrDefault(
                 w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
             return wan is { IsPrimary: false } && !_wansWithContext.Contains(wan.Key);
+        }
+    }
+
+    /// <summary>
+    /// The selected WAN has a vantage but no probe binding (no agent, no source IP), so the
+    /// server probes its targets via the default route - which is the primary WAN's path. The
+    /// readings and scores reflect the primary connection, not this one.
+    /// </summary>
+    private bool ProbesViaDefaultRoute
+    {
+        get
+        {
+            var wan = _wanOptions.FirstOrDefault(
+                w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
+            return wan is { IsPrimary: false }
+                && _wansWithContext.Contains(wan.Key)
+                && !_wansWithProbeBinding.Contains(wan.Key);
         }
     }
 
