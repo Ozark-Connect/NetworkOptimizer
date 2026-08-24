@@ -21063,3 +21063,108 @@ a.firmware-rollout-version-badge:hover {
         gap: 1rem;
     }
 }
+
+/* ===== MLO per-link breakdown (Wi-Fi Optimizer Client Stats + Client Performance) ===== */
+
+.mlo-links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    flex-basis: 100%;
+}
+
+.mlo-link-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+}
+
+.mlo-link-row .band-badge {
+    min-width: 54px;
+    text-align: center;
+}
+
+.mlo-link-meta {
+    color: var(--text-secondary);
+}
+
+/* Idle link signals are muted, not signal-graded, so a parked -95 dBm link
+   cannot read as a failing client. */
+.mlo-link-idle .mlo-link-meta,
+.mlo-link-idle .mlo-link-signal-muted {
+    color: var(--text-muted);
+}
+
+.mlo-dim {
+    opacity: 0.6;
+}
+
+.mlo-state {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.mlo-state.mlo-state-active {
+    background: rgba(36, 188, 112, 0.2);
+    color: var(--success-color);
+}
+
+.mlo-state.mlo-state-idle {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-muted);
+}
+
+/* Segmented multi-band pill: one compound badge, since the single-band
+   .band-badge cannot express several bands in one chip. */
+.mlo-pill {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 3px;
+    overflow: hidden;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.mlo-pill-label {
+    padding: 0.125rem 0.4rem;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.mlo-pill-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.125rem 0.4rem;
+}
+
+.mlo-pill-seg.band-2ghz {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.mlo-pill-seg.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.mlo-pill-seg.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.mlo-pill-seg.mlo-seg-idle {
+    opacity: 0.45;
+}
+
+.mlo-seg-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+}

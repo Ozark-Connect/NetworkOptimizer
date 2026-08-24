@@ -198,7 +198,8 @@
                 <div class="identity-signal">
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
-                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
+                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)"
+                             data-tooltip="@(HasMloLinks ? MloLinksTooltip() : null)">
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
@@ -261,7 +262,27 @@
                 }
                 else if (!_client.IsWired)
                 {
-                    <span class="band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                    @if (HasMloLinks)
+                    {
+                        <span class="mlo-pill" data-tooltip="@MloLinksTooltip()">
+                            <span class="mlo-pill-label">MLO</span>
+                            @foreach (var link in MloLinksOrdered())
+                            {
+                                var active = IsMloLinkActive(link);
+                                <span class="mlo-pill-seg @GetBandClass(link.Radio) @(active ? "" : "mlo-seg-idle")">
+                                    @if (active)
+                                    {
+                                        <span class="mlo-seg-dot"></span>
+                                    }
+                                    @MloSegLabel(link.Radio)
+                                </span>
+                            }
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                    }
                     <span class="identity-detail">
                         @(_client.ApName ?? "—")@if (_client.ApModel != null)
                         {<span class="detail-dim"> · @_client.ApModel</span>}
@@ -282,7 +303,8 @@
                     {
                         <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
-                    @if (_client.IsMlo)
+                    @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
+                    @if (_client.IsMlo && !HasMloLinks)
                     {
                         <span class="identity-detail badge-mlo">MLO</span>
                     }
@@ -2619,6 +2641,41 @@
         "6e" => "6 GHz",
         _ => band ?? "—"
     };
+
+    private bool HasMloLinks => _client is { IsMlo: true, MloLinks.Count: > 0 };
+
+    // A link carrying traffic is active, matching UniFiLiveDataProvider.SelectActiveMloLink.
+    private static bool IsMloLinkActive(MloLinkDetail link) => (link.TxRate ?? 0) > 0 || (link.RxRate ?? 0) > 0;
+
+    private IEnumerable<MloLinkDetail> MloLinksOrdered() =>
+        (_client?.MloLinks ?? Enumerable.Empty<MloLinkDetail>()).OrderByDescending(l => MloBandRank(l.Radio));
+
+    private static int MloBandRank(string? radio) => radio switch
+    {
+        "6e" or "6g" => 3,
+        "na" or "5g" => 2,
+        "ng" or "2g" => 1,
+        _ => 0
+    };
+
+    private static string MloSegLabel(string? radio) => radio switch
+    {
+        "6e" or "6g" => "6",
+        "na" or "5g" => "5",
+        "ng" or "2g" => "2.4",
+        _ => "—"
+    };
+
+    private string MloLinksTooltip()
+    {
+        var lines = MloLinksOrdered().Select(l =>
+        {
+            var channel = l.Channel.HasValue ? $" Ch {l.Channel}" : "";
+            var signal = l.Signal.HasValue ? $"{l.Signal} dBm, " : "";
+            return $"{FormatBand(l.Radio)}{channel}: {signal}{(IsMloLinkActive(l) ? "active" : "idle")}";
+        });
+        return string.Join("<br>", lines) + "<br><span class=\"mlo-dim\">Idle links are negotiated and healthy.</span>";
+    }
 
     private static (string bg, string fg) GetBandAnnotationColors(string? band) => band switch
     {

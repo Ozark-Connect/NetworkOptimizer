@@ -1108,7 +1108,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return snapshot;
     }
 
-    private WirelessClientSnapshot MapToWirelessClientSnapshot(
+    internal static WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
         Dictionary<string, string> displayNames,
@@ -1121,6 +1121,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Use v2 display name (system-selected friendly name) first, then fall back to v1 fields
         displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
 
+        var isMlo = client.IsMlo == true;
+        var mloLinks = MapMloLinks(client.MloDetails);
+
+        // Every scalar below must describe the SAME link, and it has to be the active one: one
+        // client's links measured 56 dB apart, so an idle link renders a healthy client as dying.
+        // The console's own top-level fields already report the active link, so they win here; the
+        // per-link pick below only covers a console that leaves them empty.
+        var activeLink = isMlo && client.Signal is null or 0 ? SelectActiveMloLink(mloLinks) : null;
+
         return new WirelessClientSnapshot
         {
             Mac = client.Mac,
@@ -1132,17 +1141,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             ApMac = client.ApMac ?? "",
             ApName = apName,
             Essid = client.Essid ?? "",
-            Band = RadioBandExtensions.FromUniFiCode(client.Radio),
-            Channel = client.Channel,
-            ChannelWidth = client.ChannelWidth,
-            Signal = client.Signal,
-            Noise = client.Noise,
-            Rssi = client.Rssi,
+            Band = activeLink?.Band ?? RadioBandExtensions.FromUniFiCode(client.Radio),
+            Channel = activeLink?.Channel ?? client.Channel,
+            ChannelWidth = activeLink?.ChannelWidth ?? client.ChannelWidth,
+            Signal = activeLink?.Signal ?? client.Signal,
+            Noise = activeLink?.Noise ?? client.Noise,
+            Rssi = activeLink?.Rssi ?? client.Rssi,
             Satisfaction = client.Satisfaction,
             WifiProtocol = client.RadioProto,
             WifiGeneration = ParseWifiGeneration(client.RadioProto),
-            TxRate = client.TxRate,
-            RxRate = client.RxRate,
+            TxRate = activeLink?.TxRate ?? client.TxRate,
+            RxRate = activeLink?.RxRate ?? client.RxRate,
             TxBytes = client.TxBytes,
             RxBytes = client.RxBytes,
             Uptime = client.Uptime,
@@ -1155,8 +1164,47 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 ? (apNames.TryGetValue(client.FixedApMac.ToLowerInvariant(), out var fixedApName) ? fixedApName : null)
                 : null,
             Manufacturer = client.Oui,
+            IsMlo = isMlo,
+            MloLinks = mloLinks,
             Timestamp = timestamp
         };
+    }
+
+    private static List<MloLinkSnapshot> MapMloLinks(List<MloLinkDetail>? details)
+    {
+        if (details == null || details.Count == 0) return new List<MloLinkSnapshot>();
+
+        return details.Select(d => new MloLinkSnapshot
+        {
+            Mac = d.Mac,
+            Band = RadioBandExtensions.FromUniFiCode(d.Radio),
+            Channel = d.Channel,
+            ChannelWidth = d.ChannelWidth,
+            Signal = d.Signal,
+            Noise = d.Noise,
+            Rssi = d.Rssi,
+            Nss = d.Nss,
+            TxRate = d.TxRate,
+            RxRate = d.RxRate,
+            Satisfaction = d.Satisfaction
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Pick the MLO link that is actually carrying traffic. Rates are the evidence, since an idle
+    /// link reports zero; the strongest signal is the fallback because a client whose links all read
+    /// zero still has to resolve to exactly one link.
+    /// </summary>
+    private static MloLinkSnapshot? SelectActiveMloLink(List<MloLinkSnapshot> links)
+    {
+        if (links.Count == 0) return null;
+
+        var carrying = links
+            .Where(l => (l.TxRate ?? 0) > 0 || (l.RxRate ?? 0) > 0)
+            .OrderByDescending(l => (l.TxRate ?? 0) + (l.RxRate ?? 0))
+            .FirstOrDefault();
+
+        return carrying ?? links.OrderByDescending(l => l.Signal ?? int.MinValue).First();
     }
 
     private WirelessClientSnapshot MapHistoricalToWirelessClientSnapshot(

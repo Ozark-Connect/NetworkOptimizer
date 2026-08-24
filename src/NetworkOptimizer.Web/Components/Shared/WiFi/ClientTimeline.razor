@@ -248,22 +248,34 @@
                         <span class="info-label">Connected To:</span>
                         <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
                     </div>
-                    <div class="info-item">
-                        <span class="info-label">Band:</span>
-                        <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
-                            @_selectedClient.Band.ToDisplayString()
-                        </span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Channel:</span>
-                        <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")@(_selectedClient.ChannelWidth.HasValue ? $" - {_selectedClient.ChannelWidth} MHz" : "")</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Signal:</span>
-                        <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)">
-                            @(_selectedClient.Signal?.ToString() ?? "-") dBm
-                        </span>
-                    </div>
+                    @if (HasMloLinks(_selectedClient))
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Signal:</span>
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)"
+                                  data-tooltip="Signal of the active MLO link">@(_selectedClient.Signal?.ToString() ?? "-") dBm</span>
+                            <span class="band-badge @GetBandCssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Band:</span>
+                            <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
+                                @_selectedClient.Band.ToDisplayString()
+                            </span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Channel:</span>
+                            <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")@(_selectedClient.ChannelWidth.HasValue ? $" - {_selectedClient.ChannelWidth} MHz" : "")</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Signal:</span>
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)">
+                                @(_selectedClient.Signal?.ToString() ?? "-") dBm
+                            </span>
+                        </div>
+                    }
                     <div class="info-item">
                         <span class="info-label">AP TX/RX Rate:</span>
                         <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
@@ -276,6 +288,31 @@
                         </div>
                     }
                 </div>
+                @if (HasMloLinks(_selectedClient))
+                {
+                    <div class="mlo-links" style="margin-top: 0.75rem;">
+                        <span class="info-label">MLO Links:</span>
+                        @foreach (var link in _selectedClient.MloLinks.OrderByDescending(l => l.Band))
+                        {
+                            var active = IsMloLinkActive(link);
+                            <div class="mlo-link-row @(active ? "" : "mlo-link-idle")">
+                                <span class="band-badge @GetBandCssClass(link.Band)">@link.Band.ToDisplayString()</span>
+                                <span class="mlo-link-meta">Ch @(link.Channel?.ToString() ?? "-")@(link.ChannelWidth.HasValue ? $" - {link.ChannelWidth} MHz" : "")</span>
+                                @if (active)
+                                {
+                                    <span class="@SignalClassification.GetSignalClass(link.Signal, link.Band)">@(link.Signal?.ToString() ?? "-") dBm</span>
+                                    <span><span class="wifi-speed-tx">TX @FormatRate(link.TxRate)</span> <span class="mlo-dim">/</span> <span class="wifi-speed-rx">RX @FormatRate(link.RxRate)</span></span>
+                                    <span class="mlo-state mlo-state-active">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="mlo-link-signal-muted">@(link.Signal?.ToString() ?? "-") dBm</span>
+                                    <span class="mlo-state mlo-state-idle" data-tooltip="Negotiated but not carrying traffic. Normal and healthy for MLO.">Idle</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         }
 
@@ -703,6 +740,11 @@
         RadioBand.Band6GHz => "band-6ghz",
         _ => ""
     };
+
+    private static bool HasMloLinks(WirelessClientSnapshot client) => client.IsMlo && client.MloLinks.Count > 0;
+
+    // A link carrying traffic is active, matching UniFiLiveDataProvider.SelectActiveMloLink.
+    private static bool IsMloLinkActive(MloLinkSnapshot link) => (link.TxRate ?? 0) > 0 || (link.RxRate ?? 0) > 0;
 
 
     private string GetOfflineTooltip(WirelessClientSnapshot client)
