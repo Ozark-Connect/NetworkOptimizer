@@ -343,7 +343,8 @@ public static class DeviceHealthChartEndpoints
         return eventType switch
         {
             "device.gateway_high_cpu" or "device.gateway_high_memory" or "device.high_temperature"
-                => ReadingPattern.Match(message) is { Success: true } m ? $"{m.Groups[1].Value} {m.Groups[2].Value}" : null,
+                => ReadingPattern.Match(message) is { Success: true } m
+                    ? $"{m.Groups[1].Value}{(m.Groups[2].Value == "%" ? "%" : " C")}" : null,
             _ => null,
         };
     }
