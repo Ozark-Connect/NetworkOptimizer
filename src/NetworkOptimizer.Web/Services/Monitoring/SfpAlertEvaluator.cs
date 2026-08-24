@@ -57,7 +57,7 @@ public class SfpAlertEvaluator
             await CheckHighThreshold(state, "temp", temperatureC.Value, threshold, TempHysteresisC,
                 "monitoring.sfp_temperature",
                 $"SFP temperature on {portLabel}",
-                $"SFP temperature {temperatureC.Value:0.#} C exceeds {threshold} C threshold on {portLabel}",
+                $"SFP temperature {temperatureC.Value:0.#} °C exceeds {threshold} °C threshold on {portLabel}",
                 deviceMac, portName, deviceName, category, ct);
         }
 

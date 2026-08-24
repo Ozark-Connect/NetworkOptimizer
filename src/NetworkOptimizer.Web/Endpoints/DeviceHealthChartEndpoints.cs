@@ -317,34 +317,34 @@ public static class DeviceHealthChartEndpoints
     /// Short label for an alert mark: the alert's own noun, without the device name the chart
     /// already shows. Falls back to the stored title when the event type is not one we name.
     /// </summary>
-    private static string AlertLabel(string eventType, string title) => eventType switch
+    internal static string AlertLabel(string eventType, string title) => eventType switch
     {
         "device.offline" => "Offline",
         "device.recovered" => "Recovered",
         "monitoring.target_offline" => "Device offline",
         "monitoring.target_recovered" => "Device back online",
-        "device.gateway_high_cpu" => "High CPU",
-        "device.gateway_high_memory" => "High memory",
-        "device.high_temperature" => "High temperature",
+        DeviceHealthAlertEvaluator.HighCpuEventType => "High CPU",
+        DeviceHealthAlertEvaluator.HighMemoryEventType => "High memory",
+        DeviceHealthAlertEvaluator.HighTemperatureEventType => "High temperature",
         _ => title,
     };
 
-    private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|C)(?!\w)", RegexOptions.Compiled);
+    private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|°?C)(?!\w)", RegexOptions.Compiled);
 
     /// <summary>
     /// Extracts a short metric reading from the alert message for the collapsed chart tooltip
-    /// subtitle (e.g. "65.3 C", "87 %"). The regex matches the first number+unit in the message,
+    /// subtitle (e.g. "65.3 °C", "87%"). The regex matches the first number+unit in the message,
     /// so every Message format in <see cref="DeviceHealthAlertEvaluator"/> must keep the reading
     /// as the first such token - and new health alert types must be added to the switch below.
     /// </summary>
-    private static string? AlertReading(string eventType, string? message)
+    internal static string? AlertReading(string eventType, string? message)
     {
         if (string.IsNullOrEmpty(message)) return null;
         return eventType switch
         {
-            "device.gateway_high_cpu" or "device.gateway_high_memory" or "device.high_temperature"
+            DeviceHealthAlertEvaluator.HighCpuEventType or DeviceHealthAlertEvaluator.HighMemoryEventType or DeviceHealthAlertEvaluator.HighTemperatureEventType
                 => ReadingPattern.Match(message) is { Success: true } m
-                    ? $"{m.Groups[1].Value}{(m.Groups[2].Value == "%" ? "%" : " C")}" : null,
+                    ? $"{m.Groups[1].Value}{(m.Groups[2].Value == "%" ? "%" : " °C")}" : null,
             _ => null,
         };
     }
