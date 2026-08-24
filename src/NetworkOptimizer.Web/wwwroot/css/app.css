@@ -1168,6 +1168,23 @@ a.stat-card-link:active {
     opacity: 0.4;
 }
 
+.add-card-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    border: 2px dashed var(--border-color);
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.add-card-placeholder:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
 .dashboard-card-editing {
     position: relative;
 }
