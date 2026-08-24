@@ -1,5 +1,7 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
@@ -188,7 +190,7 @@ public static class DeviceHealthChartEndpoints
                     : string.IsNullOrWhiteSpace(reboot.Detail)
                         ? $"Firmware {reboot.FirmwareVersion}"
                         : $"{reboot.Detail}. Firmware {reboot.FirmwareVersion}",
-                firmware = reboot.FirmwareVersion,
+                firmware = FirmwareVersionFormat.ShortOrNull(reboot.FirmwareVersion),
             }));
         }
 
@@ -234,11 +236,9 @@ public static class DeviceHealthChartEndpoints
                     AlertSeverity.Warning => "warning",
                     _ => "info",
                 },
-                // Titles carry the device name and a site suffix, which the chart already knows
-                // from the series it sits on; the event type is what distinguishes one mark
-                // from the next.
                 title = AlertLabel(alert.EventType, alert.Title),
                 detail = alert.Message,
+                reading = AlertReading(alert.EventType, alert.Message),
             }));
         }
 
@@ -328,6 +328,25 @@ public static class DeviceHealthChartEndpoints
         "device.high_temperature" => "High temperature",
         _ => title,
     };
+
+    private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|C)\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extracts a short metric reading from the alert message for the collapsed chart tooltip
+    /// subtitle (e.g. "65.3 C", "87 %"). The regex matches the first number+unit in the message,
+    /// so every Message format in <see cref="DeviceHealthAlertEvaluator"/> must keep the reading
+    /// as the first such token - and new health alert types must be added to the switch below.
+    /// </summary>
+    private static string? AlertReading(string eventType, string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return null;
+        return eventType switch
+        {
+            "device.gateway_high_cpu" or "device.gateway_high_memory" or "device.high_temperature"
+                => ReadingPattern.Match(message) is { Success: true } m ? $"{m.Groups[1].Value} {m.Groups[2].Value}" : null,
+            _ => null,
+        };
+    }
 
     /// <summary>Strips MAC separators and case so spellings from different sources compare equal.</summary>
     private static string NormalizeMac(string mac) =>

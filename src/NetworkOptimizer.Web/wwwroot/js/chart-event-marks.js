@@ -73,8 +73,8 @@ function foldedTooltip(marks) {
     const opts = days.size > 1 ? DATE_TIME : TIME_ONLY;
 
     const items = marks.map(mark => {
-        const parts = [mark.device, mark.port ? `port ${mark.port}` : null].filter(Boolean);
-        if (mark.firmware) parts.push(mark.firmware);
+        const extra = mark.firmware || mark.reading;
+        const parts = [mark.device, mark.port ? `port ${mark.port}` : null, extra].filter(Boolean);
         const where = parts.join(' · ');
         return `<div class="chart-mark-item">`
             + `<span class="chart-mark-item-time">${escapeHtml(formatTime(mark.time, opts))}</span>`
