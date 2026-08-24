@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -38,6 +39,12 @@ func discoverVaps(dir string) ([]string, error) {
 	}
 	names := make([]string, 0, len(items))
 	for _, it := range items {
+		// Sockets only. The directory also holds regular files, measured on 8.7.11:
+		// wifi0ap0.dyn.accept and siblings sit beside the control sockets, and taking
+		// every name reported three of them as VAPs.
+		if it.Type()&fs.ModeSocket == 0 {
+			continue
+		}
 		names = append(names, it.Name())
 	}
 	return filterVapNames(names), nil

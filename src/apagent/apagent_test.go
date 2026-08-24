@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -96,8 +97,17 @@ func TestMergeRadios(t *testing.T) {
 
 func TestDiscoverVaps(t *testing.T) {
 	dir := t.TempDir()
+	// Control sockets are sockets; the directory also holds regular files beside them
+	// (measured on 8.7.11: wifi0ap0.dyn.accept). Only the sockets are VAPs.
 	for _, name := range []string{"wifi2ap10", "global", "wifi0ap0"} {
-		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+		ln, err := net.Listen("unix", filepath.Join(dir, name))
+		if err != nil {
+			t.Skipf("unix sockets unavailable: %v", err)
+		}
+		defer ln.Close()
+	}
+	for _, name := range []string{"wifi0ap0.dyn.accept", "wifi2ap10.dyn.accept"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
