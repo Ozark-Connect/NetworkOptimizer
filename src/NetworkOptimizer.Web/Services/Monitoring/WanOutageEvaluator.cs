@@ -221,11 +221,16 @@ public class WanOutageEvaluator
             switch (kind)
             {
                 case WanVerdictKind.Total when !state.CoveredByRollup && !osCycling && state.OpenKind != WanVerdictKind.Total:
+                    // Opens fresh, or supersedes an open partial: publishing the total closes
+                    // the partial downstream (AlertProcessingService resolves it), so the two
+                    // never stack.
                     state.OpenKind = WanVerdictKind.Total;
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
 
                 case WanVerdictKind.Partial when !state.CoveredByRollup && !osCycling && state.OpenKind == WanVerdictKind.None:
+                    // A partial never downgrades an open total; the total stays open until
+                    // recovery closes it.
                     state.OpenKind = WanVerdictKind.Partial;
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
