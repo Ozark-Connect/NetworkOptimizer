@@ -56,6 +56,49 @@ public class GlModemTransportTests
                 "description": "OpenWrt 23.05.4 r24012-d8dd03c46f"
         }
 }
+===MHI===
+no
+""";
+
+    // XE3000P01 with RM520N-GL on PCIe/MHI: ubus returns valid JSON with all fields empty,
+    // and /dev/mhi_DUN is the AT port. Trimmed from a real device running firmware 4.9.0.
+    private const string MhiModemDiscovery = """
+===INFO===
+{
+        "bus": "",
+        "name": "",
+        "version": "",
+        "vendor": "",
+        "sim_slot_num": 0,
+        "signal_support": false,
+        "sms_support": false
+}
+===STATUS===
+{
+        "bus": "",
+        "status": 0,
+        "current_sim_slot": "",
+        "slot_switch_status": 0,
+        "slot_switch_count": 0
+}
+===GLVER===
+4.9.0
+===BOARD===
+{
+        "kernel": "5.4.211",
+        "hostname": "GL-XE3000P01",
+        "system": "ARMv8 Processor rev 4",
+        "model": "GL.iNet GL-XE3000",
+        "board_name": "glinet,xe3000-emmc",
+        "release": {
+                "distribution": "OpenWrt",
+                "version": "21.02-SNAPSHOT",
+                "target": "mediatek/mt7981",
+                "description": "OpenWrt 21.02-SNAPSHOT "
+        }
+}
+===MHI===
+yes
 """;
 
     [Fact]
@@ -177,6 +220,76 @@ public class GlModemTransportTests
     public void BuildAtCommand_RejectsBusThatIsNotAPath(string bus)
     {
         var act = () => GlModemTransport.BuildAtCommand(new GlModemEndpoint(bus, null), "AT");
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void ParseDiscovery_MhiModem_UsesMhiDevice()
+    {
+        var endpoint = GlModemTransport.ParseDiscovery(MhiModemDiscovery, configuredBus: "");
+
+        endpoint.IsMhi.Should().BeTrue();
+        endpoint.MhiDevice.Should().Be("/dev/mhi_DUN");
+        endpoint.Bus.Should().BeNull();
+        endpoint.Sub.Should().BeNull();
+        endpoint.HostVersion.Should().Be("4.9.0");
+        endpoint.Product.Should().Be("GL-XE3000");
+    }
+
+    [Fact]
+    public void ParseDiscovery_MhiModem_ConfiguredBusIgnored()
+    {
+        var endpoint = GlModemTransport.ParseDiscovery(MhiModemDiscovery, configuredBus: "1-1.2");
+
+        endpoint.IsMhi.Should().BeTrue("MHI wins over a configured bus when gl_modem can't reach the modem");
+        endpoint.MhiDevice.Should().Be("/dev/mhi_DUN");
+    }
+
+    [Fact]
+    public void ParseDiscovery_EmptyUbusNoMhi_FallsThrough()
+    {
+        // Same as the MHI fixture but without /dev/mhi_DUN present.
+        var output = MhiModemDiscovery.Replace("yes", "no");
+
+        var endpoint = GlModemTransport.ParseDiscovery(output, configuredBus: "");
+
+        endpoint.IsMhi.Should().BeFalse();
+        endpoint.Bus.Should().BeNull();
+        endpoint.Sub.Should().BeNull();
+        endpoint.HostVersion.Should().Be("4.9.0");
+        endpoint.Product.Should().Be("GL-XE3000");
+    }
+
+    [Fact]
+    public void ParseDiscovery_EmptyUbusNoMhi_UsesConfiguredBus()
+    {
+        var output = MhiModemDiscovery.Replace("yes", "no");
+
+        var endpoint = GlModemTransport.ParseDiscovery(output, configuredBus: "1-1.2");
+
+        endpoint.IsMhi.Should().BeFalse();
+        endpoint.Bus.Should().Be("1-1.2");
+    }
+
+    [Fact]
+    public void BuildMhiCommand_WritesAndReadsFromDevice()
+    {
+        var command = GlModemTransport.BuildMhiCommand("/dev/mhi_DUN", "AT+QENG=\"servingcell\"");
+
+        command.Should().Contain("> /dev/mhi_DUN");
+        command.Should().Contain("< /dev/mhi_DUN");
+        command.Should().Contain("AT+QENG=");
+        command.Should().Contain("timeout");
+    }
+
+    [Theory]
+    [InlineData("/dev/mhi_DUN; reboot")]
+    [InlineData("/dev/../etc/passwd")]
+    [InlineData("$(id)")]
+    public void BuildMhiCommand_RejectsInjection(string device)
+    {
+        var act = () => GlModemTransport.BuildMhiCommand(device, "AT");
 
         act.Should().Throw<ArgumentException>();
     }

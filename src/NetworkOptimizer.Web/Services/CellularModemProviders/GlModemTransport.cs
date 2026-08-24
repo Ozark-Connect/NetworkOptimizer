@@ -8,13 +8,17 @@ using NetworkOptimizer.Web.Services.Ssh;
 namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
 /// <summary>
-/// Where a GL.iNet router's modem lives and how <c>gl_modem</c> must be addressed to
-/// reach it, plus the identity its firmware reports.
+/// Where a GL.iNet router's modem lives and how to reach it, plus the identity its
+/// firmware reports. Two transports: <c>gl_modem</c> (USB, addressed by <see cref="Bus"/>
+/// and <see cref="Sub"/>) and direct MHI (PCIe, addressed by <see cref="MhiDevice"/>).
 /// </summary>
 /// <param name="Bus">Value for gl_modem's <c>-B</c> flag. "cpu" for a modem integrated
 /// into the SoC, a USB path such as "1-1.2" for a plug-in module.</param>
 /// <param name="Sub">Value for gl_modem's <c>-U</c> flag, or null for firmware whose
 /// gl_modem predates the flag.</param>
+/// <param name="MhiDevice">Device node for a PCIe/MHI modem (e.g. "/dev/mhi_DUN").
+/// When set, AT commands are written directly to this device instead of through
+/// gl_modem. The X3000/XE3000 with an RM520N-GL use this path.</param>
 public sealed record GlModemEndpoint(
     string? Bus,
     int? Sub,
@@ -22,10 +26,14 @@ public sealed record GlModemEndpoint(
     string? Vendor = null,
     string? SoftwareVersion = null,
     string? HostVersion = null,
-    string? Product = null)
+    string? Product = null,
+    string? MhiDevice = null)
 {
     /// <summary>Endpoint used when discovery finds nothing: let gl_modem pick the modem itself.</summary>
     public static readonly GlModemEndpoint Unknown = new(null, null);
+
+    /// <summary>Whether AT commands go through a PCIe/MHI device node rather than gl_modem.</summary>
+    public bool IsMhi => !string.IsNullOrEmpty(MhiDevice);
 
     /// <summary>Human-readable identity for Test Connection, e.g. "Quectel RG650V-NA".</summary>
     public string? Description =>
@@ -113,7 +121,16 @@ public sealed class GlModemTransport
         return result with { Endpoint = endpoint };
     }
 
-    private async Task<GlModemAtResult> ExecuteAsync(
+    private Task<GlModemAtResult> ExecuteAsync(
+        GlModemEndpoint endpoint,
+        SshConnectionInfo connection,
+        IReadOnlyList<string> atCommands,
+        CancellationToken cancellationToken) =>
+        endpoint.IsMhi
+            ? ExecuteMhiAsync(endpoint, connection, atCommands, cancellationToken)
+            : ExecuteGlModemAsync(endpoint, connection, atCommands, cancellationToken);
+
+    private async Task<GlModemAtResult> ExecuteGlModemAsync(
         GlModemEndpoint endpoint,
         SshConnectionInfo connection,
         IReadOnlyList<string> atCommands,
@@ -169,6 +186,40 @@ public sealed class GlModemTransport
     }
 
     /// <summary>
+    /// Execute AT commands by writing directly to a PCIe/MHI device node. Used on
+    /// routers like the X3000/XE3000 whose RM520N-GL sits on PCIe and is unreachable
+    /// by gl_modem.
+    /// </summary>
+    private async Task<GlModemAtResult> ExecuteMhiAsync(
+        GlModemEndpoint endpoint,
+        SshConnectionInfo connection,
+        IReadOnlyList<string> atCommands,
+        CancellationToken cancellationToken)
+    {
+        var device = ValidMhiDevice(endpoint.MhiDevice!);
+        var script = new StringBuilder();
+
+        for (int i = 0; i < atCommands.Count; i++)
+        {
+            if (i > 0) script.Append("; ");
+            script.Append($"echo '{SectionMarker(i)}'; ");
+            script.Append(BuildMhiCommand(device, atCommands[i]));
+        }
+
+        var result = await _sshClient.ExecuteCommandAsync(
+            connection, script.ToString(), cancellationToken: cancellationToken);
+
+        if (!result.Success && string.IsNullOrWhiteSpace(result.Output))
+            return new GlModemAtResult { Success = false, Error = SshFailureSummary.Describe(result.CombinedOutput ?? "", connection.Host) };
+
+        return new GlModemAtResult
+        {
+            Success = true,
+            Sections = SplitAtSections(result.Output ?? "", atCommands),
+        };
+    }
+
+    /// <summary>
     /// Build the gl_modem invocation for one AT command. Both flags are omitted when
     /// unknown, which is the form older firmware accepts.
     /// </summary>
@@ -186,11 +237,28 @@ public sealed class GlModemTransport
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Build a direct AT command to a PCIe/MHI device. Writes the command, then reads
+    /// until the modem answers OK or ERROR (with a timeout fallback).
+    /// </summary>
+    internal static string BuildMhiCommand(string device, string atCommand)
+    {
+        device = ValidMhiDevice(device);
+        return $"echo -ne '{atCommand}\\r' > {device}; " +
+               $"timeout 3 sh -c 'while IFS= read -r l; do echo \"$l\"; " +
+               $"case \"$l\" in OK*|ERROR*|+CME\\ ERROR*|+CMS\\ ERROR*) break;; esac; done < {device}'";
+    }
+
     /// <summary>A bus is interpolated into a shell command, so it may only look like a path.</summary>
     private static string ValidBus(string bus) =>
         Regex.IsMatch(bus, @"^[0-9A-Za-z._:-]+$")
             ? bus
             : throw new ArgumentException($"Invalid modem bus: {bus}");
+
+    private static string ValidMhiDevice(string device) =>
+        Regex.IsMatch(device, @"^/dev/[A-Za-z0-9_]+$")
+            ? device
+            : throw new ArgumentException($"Invalid MHI device: {device}");
 
     /// <summary>
     /// Find the modem's addressing. GL.iNet's own cellular ubus service answers for the
@@ -206,22 +274,23 @@ public sealed class GlModemTransport
             "echo '===INFO==='; ubus call cellular.modem info '{\"bus\":\"cpu\"}' 2>/dev/null; " +
             "echo '===STATUS==='; ubus call cellular.modem status '{\"bus\":\"cpu\"}' 2>/dev/null; " +
             "echo '===GLVER==='; cat /etc/glversion 2>/dev/null; " +
-            "echo '===BOARD==='; ubus call system board 2>/dev/null";
+            "echo '===BOARD==='; ubus call system board 2>/dev/null; " +
+            "echo '===MHI==='; test -c /dev/mhi_DUN && echo yes || echo no";
 
         try
         {
             var result = await _sshClient.ExecuteCommandAsync(
                 connection, command, cancellationToken: cancellationToken);
 
-            // Judged on output, not exit status: the chain ends with the board query, so a
-            // device that answers about its modem but not its board would otherwise have
-            // perfectly good discovery thrown away.
+            // Judged on output, not exit status: any command in the chain can fail without
+            // invalidating what the others returned.
             if (!string.IsNullOrWhiteSpace(result.Output))
             {
                 var endpoint = ParseDiscovery(result.Output ?? "", context.TransportPath);
+                var transport = endpoint.IsMhi ? $"mhi:{endpoint.MhiDevice}" : $"bus:{endpoint.Bus ?? "auto"} sub:{endpoint.Sub?.ToString() ?? "none"}";
                 _logger.LogInformation(
-                    "Resolved GL.iNet modem {Name} to bus {Bus} sub {Sub} ({Model} {Software}, host {Host})",
-                    context.Name, endpoint.Bus ?? "auto", endpoint.Sub?.ToString() ?? "none",
+                    "Resolved GL.iNet modem {Name} via {Transport} ({Model} {Software}, host {Host})",
+                    context.Name, transport,
                     endpoint.Description ?? "unidentified", endpoint.SoftwareVersion ?? "unknown",
                     endpoint.HostVersion ?? "unknown");
                 return endpoint;
@@ -240,13 +309,15 @@ public sealed class GlModemTransport
     /// <summary>Parse the discovery script's sections. Internal for tests.</summary>
     internal static GlModemEndpoint ParseDiscovery(string output, string? configuredBus)
     {
-        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "GLVER", "BOARD" });
+        var sections = SplitNamedSections(output, new[] { "INFO", "STATUS", "GLVER", "BOARD", "MHI" });
 
         sections.TryGetValue("INFO", out var info);
         sections.TryGetValue("STATUS", out var status);
 
         var hostVersion = ParseHostVersion(sections);
         var product = ParseProduct(sections);
+        var hasMhi = sections.TryGetValue("MHI", out var mhi) &&
+                     mhi.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase);
 
         string? bus = null, model = null, vendor = null, software = null;
         int? sub = null;
@@ -263,6 +334,12 @@ public sealed class GlModemTransport
             }
         }
 
+        // Empty strings from ubus mean "I don't know", not "the modem is at bus ''".
+        if (string.IsNullOrWhiteSpace(bus)) bus = null;
+        if (string.IsNullOrWhiteSpace(model)) model = null;
+        if (string.IsNullOrWhiteSpace(vendor)) vendor = null;
+        if (string.IsNullOrWhiteSpace(software)) software = null;
+
         // The AT subscription follows the SIM slot the modem is actually using.
         if (bus != null && TryParseJson(status, out var statusDoc))
         {
@@ -274,6 +351,12 @@ public sealed class GlModemTransport
 
         if (bus != null)
             return new GlModemEndpoint(bus, sub ?? 1, model, vendor, software, hostVersion, product);
+
+        // PCIe/MHI modem (X3000, XE3000 with RM520N-GL): gl_modem can't reach it, but
+        // /dev/mhi_DUN carries AT commands directly.
+        if (hasMhi)
+            return new GlModemEndpoint(null, null, model, vendor, software, hostVersion, product,
+                MhiDevice: "/dev/mhi_DUN");
 
         if (!string.IsNullOrWhiteSpace(configuredBus))
             return new GlModemEndpoint(configuredBus, null, HostVersion: hostVersion, Product: product);
