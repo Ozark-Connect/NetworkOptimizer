@@ -3044,6 +3044,20 @@
     }
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
        row is tighter, so it sits after the bars and ahead of the live indicator. */
+    /* Below this the row cannot hold its four items at full spacing, so the gaps and the gauge give
+       up what the button no longer can. */
+    @@media (max-width: 420px) {
+        .identity-row-2 {
+            gap: 6px 6px;
+        }
+        .identity-signal {
+            gap: 5px;
+        }
+        .signal-gauge {
+            padding: 6px 6px;
+        }
+    }
+
     @@media (max-width: 768px) {
         /* The row carries the gauge, the bars, Roam, Live and Start Logging. It refused to shrink,
            so on a narrower phone it ran off the screen instead of reflowing. Let it wrap. */
@@ -3051,11 +3065,10 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
-        /* Sits between the bars and the live indicator, centered in whatever space they leave and
-           wide enough to read as a control rather than a chip. */
+        /* Sits between the bars and the live indicator. No auto margin: on a wrapping row it eats
+           the free space on its line and pushes the next item onto a new one. */
         .client-roam-btn {
             order: 1;
-            margin-inline: auto;
             /* btn-sm is 28px, well under a comfortable touch target on a page used while walking. */
             height: 40px;
             line-height: 40px;
