@@ -123,7 +123,23 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         // watching any more, which would leave unsupervised agents running on hardware the operator
         // just said to stop using. Best effort: an access point that cannot be reached loses its
         // agent at its next reboot anyway, since nothing here survives one.
-        if (!enabled) await RemoveFromAllAsync(CancellationToken.None);
+        if (!enabled)
+        {
+            await RemoveFromAllAsync(CancellationToken.None);
+            return;
+        }
+
+        // Supervision ticks every couple of minutes, so waiting for it means the table sits empty
+        // right after the operator switches this on. Run one pass now, off the request thread so
+        // the toggle returns immediately.
+        _ = Task.Run(async () =>
+        {
+            try { await SuperviseAsync(CancellationToken.None); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "First supervision pass failed for site {Site}", _siteSlug);
+            }
+        });
     }
 
     /// <summary>
@@ -171,6 +187,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var accessPoints = await GetAccessPointsAsync(ct);
         var records = await LoadRecordsAsync(ct);
         var fleet = new List<ApAgentFleetEntry>(accessPoints.Count);
+
+        // Assessments live in memory and only supervision writes them, so a restarted server shows
+        // an empty table until the first pass lands. Fill the gaps here rather than rendering
+        // Unknown for minutes: only for access points with nothing recorded, so a warm cache costs
+        // nothing.
+        await AssessMissingAsync(accessPoints, records, ct);
 
         foreach (var ap in accessPoints)
         {
@@ -379,6 +401,53 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <summary>Probes one AP and classifies what it found, caching the verdict for the fleet table.</summary>
+    /// <summary>
+    /// Probes access points that have no assessment yet, so a cold cache does not read as "nothing
+    /// is running". Bounded: it skips anything a deploy is already working on, and one slow probe
+    /// cannot hold up the table.
+    /// </summary>
+    private async Task AssessMissingAsync(
+        IReadOnlyList<DiscoveredDevice> accessPoints,
+        Dictionary<string, ApAgentDeployment> records,
+        CancellationToken ct)
+    {
+        var missing = new List<(DiscoveredDevice Ap, ApAgentDeployment Record)>();
+
+        foreach (var ap in accessPoints)
+        {
+            var mac = NormalizeMac(ap.Mac);
+            if (!records.TryGetValue(mac, out var record) || !record.Enabled) continue;
+
+            bool known;
+            lock (_lastAssessment) known = _lastAssessment.ContainsKey(mac);
+            if (!known) missing.Add((ap, record));
+        }
+
+        if (missing.Count == 0) return;
+
+        using var cold = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, cold.Token);
+
+        foreach (var (ap, record) in missing)
+        {
+            if (linked.IsCancellationRequested) return;
+
+            var mac = NormalizeMac(ap.Mac);
+            using var claim = _retry.TryBeginWork(mac);
+            if (claim == null) continue;
+
+            try
+            {
+                var assessment = await AssessAsync(ap, record, linked.Token);
+                lock (_lastAssessment) _lastAssessment[mac] = assessment;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Cold assessment failed for {Mac} on site {Site}", mac, _siteSlug);
+            }
+        }
+    }
+
     private async Task<ApAgentAssessment> AssessAsync(DiscoveredDevice ap, ApAgentDeployment record, CancellationToken ct)
     {
         var supported = record.Architecture == null || ApAgentScripts.SupportsArchitecture(record.Architecture);

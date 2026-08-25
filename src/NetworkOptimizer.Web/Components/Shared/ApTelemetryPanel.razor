@@ -335,8 +335,16 @@
                 </div>
             }
 
-            <details class="setup-guide ap-agent-guide" open="@(!_siteEnabled)">
-                <summary>How AP Agent deployment works</summary>
+            <div class="setup-guide ap-agent-guide">
+                @* Not a details element: it cannot animate, and this tab reuses the same
+                   expand-wrapper machinery as the Multi-Site table. *@
+                <div class="setup-guide-summary" role="button" tabindex="0"
+                     @onclick="ToggleGuideAsync" @onkeypress="OnGuideKeyAsync">
+                    <span class="site-row-caret" aria-hidden="true">@(_guideExpanded ? "▲" : "▼")</span>
+                    <span>How AP Agent deployment works</span>
+                </div>
+                <div class="expand-wrapper @(_guideExpanded ? "expanded" : "")">
+                    <div class="expand-content">
                 <div class="setup-guide-content">
                     <h4>What gets installed</h4>
                     <p>
@@ -364,7 +372,9 @@
                         the UniFi Console.
                     </p>
                 </div>
-            </details>
+                    </div>
+                </div>
+            </div>
         }
     </div>
 </div>
@@ -383,6 +393,36 @@
     private bool _loading;
     private bool _deviceSshConfigured;
     private bool _siteEnabled;
+
+    /// <summary>
+    /// Guide open state. Collapsed on arrival: it is reference material, not the point of the tab.
+    /// </summary>
+    private bool _guideExpanded;
+
+    /// <summary>
+    /// Drives the expand transition one render behind the panel appearing. A wrapper rendered
+    /// already carrying "expanded" has nothing to transition from, so opening is staged.
+    /// </summary>
+    private const int PanelStageMs = 16;
+
+    private async Task ToggleGuideAsync()
+    {
+        if (_guideExpanded)
+        {
+            _guideExpanded = false;
+            return;
+        }
+
+        _guideExpanded = false;
+        StateHasChanged();
+        await Task.Delay(PanelStageMs);
+        _guideExpanded = true;
+    }
+
+    private async Task OnGuideKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ") await ToggleGuideAsync();
+    }
     private IReadOnlyList<ApAgentFleetEntry> _fleet = Array.Empty<ApAgentFleetEntry>();
 
     private string? _message;
