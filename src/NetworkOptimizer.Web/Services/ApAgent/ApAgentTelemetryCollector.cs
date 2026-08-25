@@ -214,6 +214,10 @@ public sealed class ApAgentTelemetryCollector
             _insights.Roams.NoteClients(payload);
             var accumulator = _accumulators.GetOrAdd(target.Mac, _ => new ApAgentWifiAccumulator());
 
+            // Firmware that does not report the flag leaves every client false, so requiring it
+            // would drop the whole site. Only trust it where something in this payload is true.
+            var authorizedIsReported = payload.Clients.Any(c => c.Authorized);
+
             lock (accumulator)
             {
                 foreach (var client in payload.Clients)
@@ -223,10 +227,14 @@ public sealed class ApAgentTelemetryCollector
                     var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac);
                     if (sample == null) continue;
 
-                    // Before the idle gate on purpose: a claim the gate is about to drop is exactly
-                    // the kind we want to see when two access points disagree.
+                    // Before the gates on purpose: a claim they are about to drop is exactly the
+                    // kind we want to see when two access points disagree.
                     _witness.Claimed(sample.ClientMac, target.Mac, sample.IdleSeconds,
                         sample.SignalDbm, client.Authorized, sample.Band);
+
+                    // An association that never completed is not a client. The access point lists it
+                    // with a real signal reading, which is how one device ends up drawn on several.
+                    if (authorizedIsReported && !client.Authorized) continue;
 
                     // BEFORE the accumulator, never after. WriteFolded publishes every folded entry
                     // into the live cache, so a client the access point has not heard from went back
