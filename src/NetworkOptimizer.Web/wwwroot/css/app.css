@@ -21308,3 +21308,11 @@ a.firmware-rollout-version-badge:hover {
         padding-top: 0;
     }
 }
+
+.ap-agent-guide .setup-guide-content {
+    font-size: 0.72rem;
+}
+
+.ap-agent-actions {
+    margin-bottom: 1rem;
+}
