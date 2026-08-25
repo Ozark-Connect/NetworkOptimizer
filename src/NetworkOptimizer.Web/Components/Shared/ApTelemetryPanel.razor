@@ -66,17 +66,16 @@
                     @if (_siteEnabled)
                     {
                         <text>
-                            Wi-Fi telemetry is coming straight from your access points. The AP Agent
-                            goes back on after a reboot or a firmware update, so this keeps working
-                            without you. Turn it off and it comes off every access point.
+                            Wi-Fi stats are coming from the access points themselves, and the agent
+                            reinstalls itself after reboots and firmware updates. Turn this off and
+                            it comes off all of them.
                         </text>
                     }
                     else
                     {
                         <text>
-                            Reads Wi-Fi telemetry straight from your access points instead of the
-                            UniFi Console: faster signal, roam timing, and airtime the Console does
-                            not report. Nothing is installed until you turn this on.
+                            Puts a small agent on each access point so signal, roam timing, and
+                            airtime come from the AP itself rather than the UniFi Console.
                         </text>
                     }
                 </small>
