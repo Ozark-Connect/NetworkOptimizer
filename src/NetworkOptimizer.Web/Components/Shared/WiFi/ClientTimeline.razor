@@ -645,6 +645,14 @@
     {
         var annotations = new List<AnnotationsXAxis>();
 
+        // Past a day the markers outnumber what they explain and bury the trace they sit on, so the
+        // wider ranges carry none. Client Performance draws the same line at 24 hours.
+        if (_timeRanges[_selectedRange] > TimeSpan.FromDays(1))
+        {
+            _roamAnnotations = annotations;
+            return;
+        }
+
         foreach (var evt in _connectionEvents.Where(e => e.Type == ClientConnectionEventType.Roamed))
         {
             var to = evt.ToApName ?? evt.ApName;
