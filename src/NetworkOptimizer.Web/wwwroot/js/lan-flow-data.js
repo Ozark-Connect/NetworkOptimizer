@@ -58,50 +58,57 @@ function _notify(event) {
 }
 
 export function publishSnapshot(snap) {
-    const firstLoad = !_snapshot;
-    // Copy rather than adopt. Added client leaves are merged into this object, and the 3D map
-    // keeps the object it passed in as the baseline it diffs the next poll against - so adopting
-    // it would write our additions into its baseline and make a client that left look present in
-    // one renderer and gone in the other, depending only on which acted last.
-    _snapshot = { ...snap, nodes: [...(snap.nodes || [])], links: [...(snap.links || [])] };
-    // New object: any transient historic leaves are gone with the old one.
-    _addedClientIds = new Set();
-    _addedClientLinkIds = new Set();
-    _addedClientKey = '';
+    const firstLoad = !_serverSnapshot;
+    // Kept pristine. The 3D map keeps the object it passed in as the baseline it diffs the next
+    // poll against, so merging into it would write our overlay into its baseline.
+    _serverSnapshot = snap;
+    _rebuildMerged();
     // Only seed rates on first load. Subsequent refreshes must not clobber
     // the fresh 1s-polled rates with stale snapshot-time values.
     if (firstLoad) _liveRates = snap.liveRates || {};
     _notify('snapshot');
 }
 
-// Client leaves that are not in the snapshot: rebuilt by the historic pass for a scrub instant,
-// and emitted on a live tick for a client the live cache has but the cached snapshot predates.
-// They are merged into the local snapshot so both maps pick them up through their normal rebuild
-// rather than needing their own node-insertion path, and are stripped again the moment an update
-// stops carrying them.
-let _addedClientIds = new Set();
-let _addedClientLinkIds = new Set();
+// Client leaves that are not in the server snapshot: rebuilt by the historic pass for a scrub
+// instant, and emitted on a live tick for a client an AP Agent knows about before the console
+// does. Held across snapshot publishes rather than cleared by them - clearing meant the leaf
+// vanished until the next tick re-added it, so every snapshot poll blinked the client, and the
+// blink swapped its name between the console's and the MAC-only one the agent can offer.
+let _serverSnapshot = null;
+let _addedNodes = [];
+let _addedLinks = [];
 let _addedClientKey = '';
+
+// Rebuilds the published snapshot from the pristine server one plus the overlay. Always from
+// scratch, so an overlay entry that goes away actually goes away rather than accumulating.
+function _rebuildMerged() {
+    if (!_serverSnapshot) { _snapshot = null; return; }
+
+    const nodes = [...(_serverSnapshot.nodes || [])];
+    const links = [...(_serverSnapshot.links || [])];
+    // The server's own node wins for an id it already carries: it has the console's identity for
+    // the client, where an added leaf may only have the MAC.
+    const haveNodes = new Set(nodes.map(n => n.id));
+    const haveLinks = new Set(links.map(l => l.id));
+
+    _snapshot = {
+        ..._serverSnapshot,
+        nodes: nodes.concat(_addedNodes.filter(n => !haveNodes.has(n.id))),
+        links: links.concat(_addedLinks.filter(l => !haveLinks.has(l.id))),
+    };
+}
 
 function _applyAddedClients(update) {
     const nodes = update.addedClientNodes || [];
     const links = update.addedClientLinks || [];
     const key = nodes.map(n => n.id).sort().join(',');
-    // Steady playback over a stable set costs nothing; only a change reshapes the graph.
+    // Steady state over a stable set costs nothing; only a change reshapes the graph.
     if (key === _addedClientKey) return false;
-    if (!_snapshot || !_snapshot.nodes) return false;
 
-    if (_addedClientIds.size) {
-        _snapshot.nodes = _snapshot.nodes.filter(n => !_addedClientIds.has(n.id));
-        if (_snapshot.links) _snapshot.links = _snapshot.links.filter(l => !_addedClientLinkIds.has(l.id));
-    }
-    _addedClientIds = new Set(nodes.map(n => n.id));
-    _addedClientLinkIds = new Set(links.map(l => l.id));
-    if (nodes.length) {
-        _snapshot.nodes = _snapshot.nodes.concat(nodes);
-        if (_snapshot.links) _snapshot.links = _snapshot.links.concat(links);
-    }
+    _addedNodes = nodes;
+    _addedLinks = links;
     _addedClientKey = key;
+    _rebuildMerged();
     return true;
 }
 

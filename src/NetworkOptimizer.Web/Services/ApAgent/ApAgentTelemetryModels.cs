@@ -328,6 +328,15 @@ public sealed class ApAgentClientLink
     [JsonPropertyName("rx_bytes")]
     public long RxBytes { get; set; }
 
+    /// <summary>
+    /// When the byte counters were read, set only when they came from the agent's own counter tier
+    /// rather than its identity poll. Throughput is a counter delta over the gap between two of
+    /// these, so assuming the poll interval instead would misreport it whenever a poll ran late.
+    /// Null on an agent older than the counter tier, which falls back to the poll's own timing.
+    /// </summary>
+    [JsonPropertyName("bytes_at")]
+    public DateTime? BytesAt { get; set; }
+
     /// <summary>Cumulative transmit retries.</summary>
     [JsonPropertyName("tx_retries")]
     public long TxRetries { get; set; }

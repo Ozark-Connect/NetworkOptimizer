@@ -41,6 +41,7 @@ public sealed record ApAgentWifiSample(
     int? Satisfaction,
     long? TxBytes,
     long? RxBytes,
+    DateTime? BytesAt,
     bool IsMlo,
     long? TxRetries,
     long? TxAttempts,
@@ -113,6 +114,7 @@ public static class ApAgentWifiFieldMapper
             Satisfaction: client.Satisfaction,
             TxBytes: active?.TxBytes,
             RxBytes: active?.RxBytes,
+            BytesAt: active?.BytesAt,
             IsMlo: client.IsMlo,
             TxRetries: active?.TxRetries,
             TxAttempts: active?.TxAttempts,
@@ -206,6 +208,10 @@ public sealed class ApAgentWifiAccumulator
     {
         if (sample.TxBytes is not { } tx || sample.RxBytes is not { } rx)
             return (null, null);
+
+        // Date the reading by when the AP read the counters, not when we folded them. An agent
+        // that predates the counter tier sends nothing here and keeps the fold's own timing.
+        at = sample.BytesAt ?? at;
 
         double? txBps = null, rxBps = null;
         if (_bytes.TryGetValue(mac, out var prev))

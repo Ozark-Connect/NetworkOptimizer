@@ -300,6 +300,7 @@ public class LanFlowMapService
 
         ApplyLiveClientStats(snapshot, update);
         AddLiveOnlyClients(snapshot, update);
+        MarkDepartedClients(snapshot, update);
 
         // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
         // so this is cheap).
@@ -2478,15 +2479,20 @@ public class LanFlowMapService
             var parentId = "dev-" + NormalizeMac(live.ApMac);
             if (!nodeIds.Contains(parentId)) continue;
 
+            // Only ever ACCELERATE a client the console can corroborate, never invent one. An
+            // access point reports per-link randomized MACs for an MLO client, and any that does
+            // not fold onto its MLD MAC is a station the console will never list - so it read as
+            // "missing from the snapshot" on every tick and became a permanent nameless node.
+            // Requiring a known name is also what keeps a raw MAC off the map.
+            if (!snapshot.RecentClientNames.ContainsKey(clientMac)) continue;
+
             var band = NormalizeBand(live.Band);
             update.AddedClientNodes.Add(new LanNode
             {
                 Id = nodeId,
                 Kind = LanNodeKind.WifiClient,
                 Mac = clientMac,
-                Name = !string.IsNullOrWhiteSpace(live.Hostname)
-                    ? live.Hostname
-                    : snapshot.RecentClientNames.GetValueOrDefault(clientMac, clientMac),
+                Name = snapshot.RecentClientNames[clientMac],
                 ParentId = parentId,
                 Band = band,
                 SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : null,
@@ -2513,6 +2519,39 @@ public class LanFlowMapService
                 UpstreamBps = live.RxThroughputBps ?? 0,
                 AsOf = live.LastUpdate,
             };
+        }
+    }
+
+    /// <summary>
+    /// Marks clients the snapshot still lists that the access point serving them says are gone.
+    /// The console can take a while to notice a client left; an AP Agent knows within seconds,
+    /// because a disassociation reaches it on the hostapd control socket.
+    ///
+    /// Only for access points the agent is actively reporting: an agent that stopped answering
+    /// says nothing about who is still associated, and treating its silence as departure would
+    /// empty the map.
+    /// </summary>
+    private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+
+        var reportingAps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var live in _liveStats.AllWifiClients())
+        {
+            if (live.Source != WifiClientSource.ApAgent) continue;
+            if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
+            if (!string.IsNullOrEmpty(live.ApMac)) reportingAps.Add("dev-" + NormalizeMac(live.ApMac));
+            present.Add("cli-" + NormalizeMac(live.ClientMac));
+        }
+        if (reportingAps.Count == 0) return;
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient) continue;
+            if (string.IsNullOrEmpty(node.ParentId) || !reportingAps.Contains(node.ParentId)) continue;
+            if (present.Contains(node.Id)) continue;
+            update.RemovedClientIds.Add(node.Id);
         }
     }
 

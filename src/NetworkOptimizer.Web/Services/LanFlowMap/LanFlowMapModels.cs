@@ -340,6 +340,11 @@ public class LanFlowMapLiveUpdate
     /// <summary>Links for <see cref="AddedClientNodes"/>.</summary>
     public List<LanLink> AddedClientLinks { get; set; } = new();
 
+    /// <summary>Client node ids the snapshot still lists but the access point serving them reports
+    /// are gone. The console can lag a departure by a good while; an AP Agent sees the
+    /// disassociation on the control socket.</summary>
+    public List<string> RemovedClientIds { get; set; } = new();
+
     /// <summary>Per-client connection stats (band/signal/PHY rate) keyed by client node id.
     /// Lets the maps override the snapshot-frozen values. Populated for historic playback, and on
     /// a live tick for any client whose live-cache entry came from a source faster than the console

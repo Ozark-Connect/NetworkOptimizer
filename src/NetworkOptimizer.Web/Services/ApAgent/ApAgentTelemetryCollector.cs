@@ -84,6 +84,13 @@ public sealed class ApAgentTelemetryCollector
     private readonly ApAgentCoverageLedger _coverage = new();
     private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Byte counters as of the previous pass, so throughput resolves every poll rather than only
+    /// when a write window closes. Separate from the accumulator's own tracker on purpose: that one
+    /// measures across a window, this one across a pass, and sharing a baseline would corrupt both.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, PassBytes> _passBytes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ApAgentRadioAirtime>> _radios = new(StringComparer.OrdinalIgnoreCase);
 
     private DateTime _lastWriteAt = DateTime.MinValue;
@@ -176,6 +183,8 @@ public sealed class ApAgentTelemetryCollector
         if (!writing) return;
         _lastWriteAt = now;
 
+        PrunePassBytes(now);
+
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
         foreach (var target in targets)
             WriteFolded(target.Mac, now);
@@ -217,7 +226,7 @@ public sealed class ApAgentTelemetryCollector
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
-                    PublishLive(sample, null, now);
+                    PublishLive(sample, null, now, ResolvePassThroughput(sample, now));
                 }
             }
         }
@@ -244,12 +253,61 @@ public sealed class ApAgentTelemetryCollector
     /// <param name="folded">The closed window when there is one. Without it the sample carries no
     /// throughput, and claiming zero would read as an idle client rather than an unmeasured one, so
     /// whatever the last closed window established is carried forward instead.</param>
-    private void PublishLive(ApAgentWifiSample s, ApAgentWifiFolded? folded, DateTime now)
+    /// <summary>
+    /// Throughput since the previous pass, from the counter delta. The agent reads the counters on
+    /// their own short tier, so a pass carries numbers the last one did not; before that tier the
+    /// counters only moved when the identity poll ran and this yields nothing between windows.
+    /// </summary>
+    private (double? Tx, double? Rx) ResolvePassThroughput(ApAgentWifiSample s, DateTime now)
+    {
+        if (s.TxBytes is not { } tx || s.RxBytes is not { } rx) return (null, null);
+
+        var at = s.BytesAt ?? now;
+        var key = $"{s.ApMac}|{s.ClientMac}";
+        double? txBps = null, rxBps = null;
+
+        if (_passBytes.TryGetValue(key, out var prev))
+        {
+            var elapsed = (at - prev.At).TotalSeconds;
+            var deltaTx = tx - prev.TxBytes;
+            var deltaRx = rx - prev.RxBytes;
+
+            // A counter that went backwards is an association reset, not negative traffic.
+            if (elapsed > 0.5 && deltaTx >= 0 && deltaRx >= 0)
+            {
+                txBps = deltaTx * 8.0 / elapsed;
+                rxBps = deltaRx * 8.0 / elapsed;
+            }
+        }
+
+        _passBytes[key] = new PassBytes(at, tx, rx);
+        return (txBps, rxBps);
+    }
+
+    /// <summary>
+    /// Drops counter baselines for clients that stopped reporting. Without this a site's worth of
+    /// visiting clients accumulates for the lifetime of the process.
+    /// </summary>
+    private void PrunePassBytes(DateTime now)
+    {
+        foreach (var (key, prev) in _passBytes)
+        {
+            if (now - prev.At > PassBytesRetention) _passBytes.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>How long a counter baseline is kept for a client that has stopped reporting. Long
+    /// enough that a client dropping one poll still measures against its real previous reading.</summary>
+    private static readonly TimeSpan PassBytesRetention = TimeSpan.FromMinutes(5);
+
+    private readonly record struct PassBytes(DateTime At, long TxBytes, long RxBytes);
+
+    private void PublishLive(ApAgentWifiSample s, ApAgentWifiFolded? folded, DateTime now, (double? Tx, double? Rx) pass)
     {
         try
         {
             var live = _liveStats;
-            var prior = folded == null ? live.GetWifiClient(s.ClientMac) : null;
+            var prior = folded == null && pass.Tx == null ? live.GetWifiClient(s.ClientMac) : null;
 
             live.RecordWifiClient(new WifiClientLiveSnapshot
             {
@@ -262,8 +320,8 @@ public sealed class ApAgentTelemetryCollector
                 NoiseDbm = s.NoiseDbm,
                 TxRateKbps = s.TxRateKbps,
                 RxRateKbps = s.RxRateKbps,
-                TxThroughputBps = folded?.TxThroughputBps ?? prior?.TxThroughputBps,
-                RxThroughputBps = folded?.RxThroughputBps ?? prior?.RxThroughputBps,
+                TxThroughputBps = folded?.TxThroughputBps ?? pass.Tx ?? prior?.TxThroughputBps,
+                RxThroughputBps = folded?.RxThroughputBps ?? pass.Rx ?? prior?.RxThroughputBps,
                 Satisfaction = s.Satisfaction,
                 Rssi = s.Rssi,
                 IsMlo = s.IsMlo,
@@ -289,9 +347,8 @@ public sealed class ApAgentTelemetryCollector
         {
             var s = entry.Sample;
 
-            // Throughput only resolves at the close of a window, against the previous window's byte
-            // counters, so this is the one moment it can reach the cache.
-            PublishLive(s, entry, now);
+            // The window's own throughput, measured across the whole window rather than one pass.
+            PublishLive(s, entry, now, (null, null));
 
             // Same gate as the console path: a client that moved no traffic writes no point, so
             // swapping the source does not change how many points a site produces.
