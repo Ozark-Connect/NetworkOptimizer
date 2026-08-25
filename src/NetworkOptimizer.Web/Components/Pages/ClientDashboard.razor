@@ -3065,10 +3065,10 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
-        /* Sits between the bars and the live indicator. No auto margin: on a wrapping row it eats
-           the free space on its line and pushes the next item onto a new one. */
+        /* Sits between the bars and the live indicator, centered in whatever space they leave. */
         .client-roam-btn {
             order: 1;
+            margin-inline: auto;
             /* btn-sm is 28px, well under a comfortable touch target on a page used while walking. */
             height: 40px;
             line-height: 40px;
