@@ -223,6 +223,9 @@ public sealed class ApAgentTelemetryCollector
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
+                    // Same bar as the stored point: not heard from, not connected now.
+                    if (sample.IdleSeconds is { } stale && stale > PresenceMaxIdleSeconds) continue;
+
                     var pass = ResolvePassThroughput(sample, now);
                     PublishLive(sample, null, now, pass);
 

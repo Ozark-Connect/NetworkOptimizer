@@ -1380,6 +1380,12 @@ public class MonitoringCollectionAgent : BackgroundService
             // which hands the access point straight back here.
             if (_apAgentTelemetry.CoversAp(apMac)) continue;
 
+            // A client the access point has not heard from in a long time is not connected NOW,
+            // whatever the association table still says. Leaving it out lets it age out of the
+            // cache, so Live View and the maps stop drawing a device that has physically left -
+            // the console goes on listing it, which is precisely the gap worth closing.
+            if (c.IdleTime > ApAgent.ApAgentTelemetryCollector.PresenceMaxIdleSeconds) continue;
+
             _liveStats.RecordWifiClient(snapshot);
 
             if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
