@@ -1384,7 +1384,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // whatever the association table still says. Leaving it out lets it age out of the
             // cache, so Live View and the maps stop drawing a device that has physically left -
             // the console goes on listing it, which is precisely the gap worth closing.
-            if (c.IdleTime > ApAgent.ApAgentTelemetryCollector.PresenceMaxIdleSeconds) continue;
+            if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
 
             _liveStats.RecordWifiClient(snapshot);
 
@@ -1396,7 +1396,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 // Unless the access point has not heard from it in a long time, which is what it
                 // looks like when it is holding a client that physically left. Presence for that
                 // draws a departed device forever.
-                if (c.IdleTime > ApAgent.ApAgentTelemetryCollector.PresenceMaxIdleSeconds) continue;
+                if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
                 _ = _influx.WriteWifiClientThroughputAsync(
                     apMac: apMac,
                     band: band,

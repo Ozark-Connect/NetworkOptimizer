@@ -441,7 +441,13 @@ public class UniFiDiscovery
         // 2D/3D maps show the same name as Wi-Fi Optimizer - Client Stats instead of a raw MAC.
         var displayNames = await ClientDisplayNameCache.GetAsync(_apiClient, cancellationToken);
 
-        var discoveredClients = clients.Select(c =>
+        // An access point keeps a wireless client associated long after it has left, and the
+        // Console reports that table faithfully, so a device twenty miles away is still "connected"
+        // here. Filtered at the point the Console's list becomes ours, because every surface that
+        // draws clients reads it from here.
+        var discoveredClients = clients
+            .Where(c => c.IsWired || NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(c.IdleTime))
+            .Select(c =>
         {
             // Use stat/sta BestIp (ip > last_ip > fixed_ip), then active clients endpoint (UX/UX7 bug workaround)
             var ipAddress = ClientIpEnricher.GetEnrichedIp(c.BestIp, c.Mac, macToIp);

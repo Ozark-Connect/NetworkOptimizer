@@ -136,7 +136,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             .ToDictionary(g => g.Key, g => g.First().DisplayName!);
 
         var result = activeWireless
-            .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp, isOnline: true))
+            .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp,
+                isOnline: NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(c.IdleTime) && true))
             .ToList();
 
         await ApplyMeasuredClientsAsync(result, cancellationToken);

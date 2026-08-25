@@ -224,7 +224,7 @@ public sealed class ApAgentTelemetryCollector
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
                     // Same bar as the stored point: not heard from, not connected now.
-                    if (sample.IdleSeconds is { } stale && stale > PresenceMaxIdleSeconds) continue;
+                    if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
 
                     var pass = ResolvePassThroughput(sample, now);
                     PublishLive(sample, null, now, pass);
@@ -301,15 +301,6 @@ public sealed class ApAgentTelemetryCollector
         }
     }
 
-    /// <summary>
-    /// How long an access point may have heard nothing from a client before it stops counting as
-    /// present. Generous on purpose: a quiet client still ARPs and answers probes, so it sits at
-    /// seconds, while a client that has left sits at tens of minutes. The gap between those is wide
-    /// enough that this does not need to be tuned finely, and being wrong towards "still here"
-    /// costs a stale dot where being wrong the other way blinks a real client off the map.
-    /// </summary>
-    public const long PresenceMaxIdleSeconds = 600;
-
     /// <summary>How long a counter baseline is kept for a client that has stopped reporting. Long
     /// enough that a client dropping one poll still measures against its real previous reading.</summary>
     private static readonly TimeSpan PassBytesRetention = TimeSpan.FromMinutes(5);
@@ -383,7 +374,7 @@ public sealed class ApAgentTelemetryCollector
             // active-link pick deliberately prefers the link that did carry something.
             if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0)
             {
-                if (s.IdleSeconds is { } idle && idle > PresenceMaxIdleSeconds) continue;
+                if (s.IdleSeconds is { } idle && idle > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
 
                 _ = _influx.WriteWifiClientThroughputAsync(
                     apMac: s.ApMac,

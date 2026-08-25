@@ -294,7 +294,7 @@ public class ApAgentWifiFoldTests
 
         sample!.IdleSeconds.Should().Be(2932);
         sample.IdleSeconds.Should().BeGreaterThan(
-            ApAgentTelemetryCollector.PresenceMaxIdleSeconds,
+            NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds,
             "a client the access point has not heard from in nearly an hour must not count as present");
     }
 }
