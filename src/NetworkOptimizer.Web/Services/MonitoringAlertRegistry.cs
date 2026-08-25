@@ -28,7 +28,8 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
         CellularAlertEvaluator Cellular,
         StarlinkAlertEvaluator Starlink,
         DeviceRebootAlertEvaluator DeviceReboot,
-        DeviceStateAlertEvaluator DeviceState);
+        DeviceStateAlertEvaluator DeviceState,
+        RadioHealthAlertEvaluator RadioHealth);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, SiteAlertEvaluators> _instances = new();
@@ -61,7 +62,8 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
                 ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<StarlinkAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus),
-                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus, dedup));
+                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus, dedup),
+                ActivatorUtilities.CreateInstance<RadioHealthAlertEvaluator>(_serviceProvider, s, bus));
         });
 
     /// <summary>The default site's evaluators.</summary>

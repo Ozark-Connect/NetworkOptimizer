@@ -53,6 +53,12 @@ public class ClientIdentity
     public bool HasWiFiManData { get; set; }
 
     /// <summary>
+    /// True when signal data came from the access point's own AP Agent rather than the console.
+    /// Optional accelerator: false is the normal state and means the WiFiman path is in use.
+    /// </summary>
+    public bool HasApAgentData { get; set; }
+
+    /// <summary>
     /// VPN hop type when this client connects through Tailscale, Teleport, or a UniFi
     /// remote-user VPN. Set only for the simplified VPN dashboard view; null otherwise.
     /// </summary>

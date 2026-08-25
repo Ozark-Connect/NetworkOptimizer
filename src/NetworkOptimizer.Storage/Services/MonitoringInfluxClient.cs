@@ -3080,6 +3080,136 @@ union(tables: [means, chan])
         return results;
     }
 
+    /// <summary>
+    /// One wifi_client row, pivoted. The agent-only fields are carried so the caller can tell which
+    /// source wrote the row: the console's stat/sta reports none of them.
+    ///
+    /// The counter fields are CUMULATIVE as stored, unlike the console report's per-bucket deltas,
+    /// so they are a source marker here rather than something to chart directly.
+    /// </summary>
+    public record WifiClientSamplePoint
+    {
+        public required DateTime Time { get; init; }
+        /// <summary>Access point the client was on (device_mac tag).</summary>
+        public string? ApMac { get; init; }
+        /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz").</summary>
+        public string? Band { get; init; }
+        public string? ClientMac { get; init; }
+        public double? SignalDbm { get; init; }
+        public double? NoiseDbm { get; init; }
+        /// <summary>Signal-to-noise ratio in dB, which is what the access point calls RSSI.</summary>
+        public int? Rssi { get; init; }
+        public long? TxRateKbps { get; init; }
+        public long? RxRateKbps { get; init; }
+        public int? Channel { get; init; }
+        public int? ChannelWidth { get; init; }
+        public int? Satisfaction { get; init; }
+        public int? Nss { get; init; }
+        public int? Ccq { get; init; }
+        public long? TxRetries { get; init; }
+        public long? TxAttempts { get; init; }
+        public double? LatencyAvgMs { get; init; }
+    }
+
+    /// <summary>
+    /// wifi_client rows, for one client or for every client on the site. Rows come back unreduced:
+    /// which row is newest, and which source wrote it, are both the caller's judgment.
+    ///
+    /// Pass no <paramref name="aggregateWindow"/> for live state, which wants raw samples over a
+    /// short range; pass one for a history read, which wants a point per bucket. Leave
+    /// <paramref name="clientMac"/> null for the whole site.
+    /// </summary>
+    public async Task<IReadOnlyList<WifiClientSamplePoint>> QueryWifiClientSamplesAsync(
+        string? clientMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WifiClientSamplePoint>();
+
+        // client_mac is a field rather than a tag (cardinality control), so the pivot is what makes
+        // a row readable at all, and filtering on a client can only happen after it.
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine($@"from(bucket: ""{_bucket}"")");
+        builder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"")");
+        if (aggregateWindow is { } window)
+            builder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
+        builder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => exists r.client_mac)");
+        if (!string.IsNullOrEmpty(clientMac))
+            builder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == ""{NormalizeMac(clientMac)}"")");
+
+        var results = new List<WifiClientSamplePoint>();
+        await foreach (var record in QueryFluxAsync(builder.ToString(), ct))
+        {
+            results.Add(new WifiClientSamplePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                ApMac = record.GetValueByKey("device_mac") as string,
+                Band = record.GetValueByKey("band") as string,
+                ClientMac = record.GetValueByKey("client_mac") as string,
+                SignalDbm = AsDoubleOrNull(record.GetValueByKey("signal_dbm")),
+                NoiseDbm = AsDoubleOrNull(record.GetValueByKey("noise_dbm")),
+                Rssi = (int?)AsDoubleOrNull(record.GetValueByKey("rssi")),
+                TxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("tx_rate_kbps")),
+                RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps")),
+                Channel = (int?)AsDoubleOrNull(record.GetValueByKey("channel")),
+                ChannelWidth = (int?)AsDoubleOrNull(record.GetValueByKey("channel_width")),
+                Satisfaction = (int?)AsDoubleOrNull(record.GetValueByKey("satisfaction")),
+                Nss = (int?)AsDoubleOrNull(record.GetValueByKey("nss")),
+                Ccq = (int?)AsDoubleOrNull(record.GetValueByKey("ccq")),
+                TxRetries = (long?)AsDoubleOrNull(record.GetValueByKey("tx_retries")),
+                TxAttempts = (long?)AsDoubleOrNull(record.GetValueByKey("tx_attempts")),
+                LatencyAvgMs = AsDoubleOrNull(record.GetValueByKey("latency_avg_ms")),
+            });
+        }
+        // Order on assembly: pivot emits a separate table whenever a row's field set differs, and
+        // those tables arrive after the main one, so the Flux result is not globally ordered.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
+    /// Which bands each client has been seen on over the range, as raw band tags keyed by client
+    /// MAC. A client that has associated on a band demonstrably supports it, which is the only
+    /// client capability evidence wifi_client carries.
+    ///
+    /// distinct() on the single client_mac field is what keeps this cheap over a long range; do not
+    /// widen the field filter, which would turn it into a full pivot over the measurement.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>> QueryWifiClientBandsAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var bands = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
+        if (!IsConfigured) return bands;
+
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"")
+  |> group(columns: [""band""])
+  |> distinct(column: ""_value"")";
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("_value") is not string mac || mac.Length == 0) continue;
+            if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
+
+            if (!bands.TryGetValue(mac, out var seen))
+            {
+                seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bands[mac] = seen;
+            }
+            ((HashSet<string>)seen).Add(band);
+        }
+        return bands;
+    }
+
     private async IAsyncEnumerable<InfluxDB.Client.Core.Flux.Domain.FluxRecord> QueryFluxAsync(
         string flux,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)

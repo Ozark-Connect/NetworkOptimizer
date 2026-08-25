@@ -974,6 +974,7 @@
     // Polling
     private System.Threading.Timer? _pollTimer;
     private bool _hasWiFiManData;
+    private bool _hasApAgentData;
     private int _tickCount;
     private bool _isTooltipActive;
     private bool _isMobile;
@@ -1093,15 +1094,16 @@
             return;
         }
 
-        // Start polling - 1s ticks when WiFiman is available.
-        // Full poll (stat/sta + trace + storage) every 5th tick.
-        // Lightweight WiFiman-only poll on other ticks for live signal updates.
+        // Start polling - 500ms ticks on the AP Agent, 1s on WiFiman, 5s on stat/sta alone.
+        // Full poll (stat/sta + trace + storage) stays on 5s whichever live source is in use.
+        // Lightweight live poll on other ticks for signal updates.
         _pollTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
                 _tickCount++;
-                var isFullPoll = !_hasWiFiManData || _tickCount % 5 == 0;
+                var ticksPerFullPoll = _hasApAgentData ? 10 : 5;
+                var isFullPoll = !(_hasApAgentData || _hasWiFiManData) || _tickCount % ticksPerFullPoll == 0;
 
                 await InvokeAsync(async () =>
                 {
@@ -1111,18 +1113,20 @@
                     }
                     else
                     {
-                        await PollWiFiManOnlyAsync();
+                        await PollLiveAsync();
                     }
                     StateHasChanged();
                 });
                 _consecutiveFailures = 0;
 
-                // Adapt polling interval based on WiFiman availability
+                // Adapt polling interval to whichever live source answered
+                var agentNow = _client?.HasApAgentData == true;
                 var wifiManNow = _client?.HasWiFiManData == true;
-                if (wifiManNow != _hasWiFiManData)
+                if (agentNow != _hasApAgentData || wifiManNow != _hasWiFiManData)
                 {
+                    _hasApAgentData = agentNow;
                     _hasWiFiManData = wifiManNow;
-                    var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+                    var interval = LivePollInterval();
                     _pollTimer?.Change(interval, interval);
                 }
 
@@ -1447,17 +1451,27 @@
         NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(NavigationManager.Uri), forceLoad: true);
 
     /// <summary>
-    /// Lightweight 1s poll: only hits WiFiman for live signal/channel/band/rates.
-    /// Merges into existing _client. No stat/sta, no trace, no DB write.
+    /// How fast the live tick runs. The AP Agent's own fast tier samples at 1 Hz and pushes
+    /// membership rather than polling for it, so 500 ms halves the age of a reading without asking
+    /// for resolution the access point does not have, and catches a roam on the next tick.
     /// </summary>
-    private async Task PollWiFiManOnlyAsync()
+    private TimeSpan LivePollInterval() =>
+        _hasApAgentData ? TimeSpan.FromMilliseconds(500)
+        : _hasWiFiManData ? TimeSpan.FromSeconds(1)
+        : TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Lightweight live poll: the access point's AP Agent where there is one, WiFiman otherwise,
+    /// for signal/channel/band/rates. Merges into existing _client. No stat/sta, no trace, no DB write.
+    /// </summary>
+    private async Task PollLiveAsync()
     {
         if (string.IsNullOrEmpty(_clientIp) || _client == null)
             return;
 
         try
         {
-            var update = await DashboardService.PollWiFiManOnlyAsync(_clientIp);
+            var update = await DashboardService.PollLiveClientAsync(_clientIp);
             if (update == null)
                 return;
 
@@ -1471,7 +1485,18 @@
             if (update.TxRateKbps.HasValue) _client.TxRateKbps = update.TxRateKbps;
             if (update.RxRateKbps.HasValue) _client.RxRateKbps = update.RxRateKbps;
             if (update.Satisfaction.HasValue) _client.Satisfaction = update.Satisfaction;
-            _client.HasWiFiManData = true;
+
+            if (update.HasApAgentData)
+            {
+                // The access point also reports its own identity and the per-link MLO set, so the
+                // page follows a roam instead of holding the access point it started on.
+                ClientDashboardService.ApplyLiveFields(_client, update);
+            }
+            else
+            {
+                _client.HasApAgentData = false;
+                _client.HasWiFiManData = true;
+            }
             _pollCount++;
 
             // WiFiman-only polls update the UI gauges but don't add chart points.
@@ -1925,7 +1950,7 @@
         // Load data for the new tab and reset poll timer so next tick is immediate
         _fullPollCount = 0;
         _tickCount = 0;
-        var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+        var interval = LivePollInterval();
         _pollTimer?.Change(TimeSpan.Zero, interval);
 
         _ = InvokeAsync(async () =>
@@ -2645,7 +2670,10 @@
     private bool HasMloLinks => _client is { IsMlo: true, MloLinks.Count: > 0 };
 
     // A link carrying traffic is active, matching UniFiLiveDataProvider.SelectActiveMloLink.
-    private static bool IsMloLinkActive(MloLinkDetail link) => (link.TxRate ?? 0) > 0 || (link.RxRate ?? 0) > 0;
+    // The AP Agent states outright which link carries traffic; the console never does, so its
+    // links keep being read from the rates.
+    private static bool IsMloLinkActive(MloLinkDetail link) =>
+        link.ActiveLink ?? ((link.TxRate ?? 0) > 0 || (link.RxRate ?? 0) > 0);
 
     private IEnumerable<MloLinkDetail> MloLinksOrdered() =>
         (_client?.MloLinks ?? Enumerable.Empty<MloLinkDetail>()).OrderByDescending(l => MloBandRank(l.Radio));

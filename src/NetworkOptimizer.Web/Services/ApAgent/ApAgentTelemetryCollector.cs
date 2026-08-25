@@ -52,9 +52,6 @@ public sealed class ApAgentTelemetryCollector
     /// <summary>Ceiling on one pass, so a site full of unresponsive access points cannot stall the tier.</summary>
     private static readonly TimeSpan PassBudget = TimeSpan.FromSeconds(25);
 
-    /// <summary>The console device list changes rarely; re-reading it every pass would not.</summary>
-    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(60);
-
     /// <summary>
     /// How stale the AP's own collection may be before its telemetry is refused. An agent that
     /// answers with tiers that stopped running is wedged, and its access point belongs back on the
@@ -76,10 +73,10 @@ public sealed class ApAgentTelemetryCollector
         "pdev_resets", "cycle_cnt", "rx_clear_cnt", "tx_frame_cnt", "phy_err_cnt",
     };
 
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ApAgentTargetDirectory _directory;
     private readonly ApAgentTelemetryClient _telemetry;
+    private readonly ApAgentInsightsRegistry.SiteApAgentInsights _insights;
     private readonly MonitoringInfluxClient _influx;
-    private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<ApAgentTelemetryCollector> _logger;
     private readonly string _siteSlug;
 
@@ -88,25 +85,23 @@ public sealed class ApAgentTelemetryCollector
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ApAgentRadioAirtime>> _radios = new(StringComparer.OrdinalIgnoreCase);
 
-    private List<AccessPointTarget> _cachedTargets = new();
-    private DateTime _targetsLoadedAt = DateTime.MinValue;
     private DateTime _lastWriteAt = DateTime.MinValue;
 
     /// <summary>Creates the collector for one site.</summary>
     public ApAgentTelemetryCollector(
-        IServiceProvider serviceProvider,
+        ApAgentTargetDirectory directory,
         ApAgentTelemetryClient telemetry,
         MonitoringInfluxRegistry influxRegistry,
-        ICredentialProtectionService credentialProtection,
+        ApAgentInsightsRegistry insights,
         ILogger<ApAgentTelemetryCollector> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
-        _serviceProvider = serviceProvider;
+        _directory = directory;
         _telemetry = telemetry;
-        _credentialProtection = credentialProtection;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _influx = influxRegistry.GetFor(_siteSlug);
+        _insights = insights.GetFor(_siteSlug);
     }
 
     /// <summary>
@@ -154,14 +149,14 @@ public sealed class ApAgentTelemetryCollector
 
     private async Task SampleCoreAsync(CancellationToken ct)
     {
-        if (!await IsSiteEnabledAsync(ct))
+        if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct))
         {
             _coverage.ReleaseAll();
             _accumulators.Clear();
             return;
         }
 
-        var targets = await GetTargetsAsync(ct);
+        var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
         if (targets.Count == 0)
         {
             _coverage.ReleaseAll();
@@ -183,9 +178,10 @@ public sealed class ApAgentTelemetryCollector
             WriteFolded(target.Mac, now);
 
         await CollectRadiosAsync(targets, ct);
+        await _insights.Roams.CollectAsync(ct);
     }
 
-    private async Task PollAsync(AccessPointTarget target, DateTime now, CancellationToken ct)
+    private async Task PollAsync(ApAgentTarget target, DateTime now, CancellationToken ct)
     {
         await _pollGate.WaitAsync(ct);
         try
@@ -201,6 +197,9 @@ public sealed class ApAgentTelemetryCollector
             }
 
             _coverage.Claim(target.Mac, now);
+            // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
+            // client associates under a different MAC per link, and the events name only the link.
+            _insights.Roams.NoteClients(payload);
             var accumulator = _accumulators.GetOrAdd(target.Mac, _ => new ApAgentWifiAccumulator());
 
             lock (accumulator)
@@ -274,7 +273,7 @@ public sealed class ApAgentTelemetryCollector
         }
     }
 
-    private async Task CollectRadiosAsync(IReadOnlyList<AccessPointTarget> targets, CancellationToken ct)
+    private async Task CollectRadiosAsync(IReadOnlyList<ApAgentTarget> targets, CancellationToken ct)
     {
         var covered = targets.Where(t => _coverage.Covers(t.Mac, DateTime.UtcNow)).ToList();
         _radios.Clear();
@@ -301,6 +300,7 @@ public sealed class ApAgentTelemetryCollector
                 .ToList();
 
             _radios[target.Mac] = radios;
+            await _insights.RadioHealth.RecordAsync(target.Mac, null, radios, ct);
 
             foreach (var r in payload.Radios)
             {
@@ -336,82 +336,4 @@ public sealed class ApAgentTelemetryCollector
 
     private static bool IsFresh(ApAgentTierInfo? tier, DateTime now)
         => tier is { Available: true, LastCollectedAt: { } at } && now - at.ToUniversalTime() <= TierStaleAfter;
-
-    private async Task<bool> IsSiteEnabledAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var scope = CreateSiteScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-            var setting = await db.SystemSettings.FindAsync(
-                new object[] { ApAgentDeploymentService.SiteEnabledSettingKey }, ct);
-            return bool.TryParse(setting?.Value, out var enabled) && enabled;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "AP Agent telemetry could not read the site setting (site {Site})", _siteSlug);
-            return false;
-        }
-    }
-
-    private async Task<IReadOnlyList<AccessPointTarget>> GetTargetsAsync(CancellationToken ct)
-    {
-        if (DateTime.UtcNow - _targetsLoadedAt < DeviceCacheTtl) return _cachedTargets;
-
-        try
-        {
-            var connection = _serviceProvider.GetRequiredService<SiteConnectionRegistry>().GetFor(_siteSlug);
-            var devices = await connection.GetDiscoveredDevicesAsync(ct);
-
-            using var scope = CreateSiteScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-            var records = await db.ApAgentDeployments.AsNoTracking().ToListAsync(ct);
-            var byMac = records.ToDictionary(r => r.DeviceMac, StringComparer.OrdinalIgnoreCase);
-
-            var targets = new List<AccessPointTarget>();
-            foreach (var device in devices)
-            {
-                if (device.Type != DeviceType.AccessPoint) continue;
-                if (string.IsNullOrEmpty(device.DisplayIpAddress)) continue;
-                if (device.State != 1) continue;
-
-                var mac = ApAgentWifiFieldMapper.NormalizeMac(device.Mac);
-                if (!byMac.TryGetValue(mac, out var record) || !record.Enabled) continue;
-
-                targets.Add(new AccessPointTarget(mac, device.DisplayIpAddress, ResolveToken(record)));
-            }
-
-            _cachedTargets = targets;
-            _targetsLoadedAt = DateTime.UtcNow;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "AP Agent telemetry could not list access points (site {Site})", _siteSlug);
-        }
-
-        return _cachedTargets;
-    }
-
-    /// <summary>A token that will not decrypt is left absent; the agent refuses the request and the console path keeps the access point.</summary>
-    private string? ResolveToken(ApAgentDeployment record)
-    {
-        if (string.IsNullOrEmpty(record.Token)) return null;
-        try
-        {
-            return _credentialProtection.Decrypt(record.Token);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private IServiceScope CreateSiteScope()
-    {
-        var scope = _serviceProvider.CreateScope();
-        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
-        return scope;
-    }
-
-    private readonly record struct AccessPointTarget(string Mac, string Host, string? Token);
 }

@@ -330,4 +330,11 @@ public class MloLinkDetail
 
     [JsonPropertyName("satisfaction")]
     public int? Satisfaction { get; set; }
+
+    /// <summary>
+    /// Whether this is the link carrying traffic, when the source states it outright. The console
+    /// does not, so it stays null there and the reader infers activity from the rates.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ActiveLink { get; set; }
 }

@@ -16,11 +16,22 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private readonly UniFiDiscovery _discovery;
     private readonly ILogger<UniFiLiveDataProvider> _logger;
 
-    public UniFiLiveDataProvider(UniFiApiClient client, UniFiDiscovery discovery, ILogger<UniFiLiveDataProvider> logger)
+    /// <summary>
+    /// Optional, and absent everywhere the AP Agent is not in play. The console path below is
+    /// unconditional; this only lays measured readings over the access points an agent covers.
+    /// </summary>
+    private readonly IMeasuredWirelessClientSource? _measuredClients;
+
+    public UniFiLiveDataProvider(
+        UniFiApiClient client,
+        UniFiDiscovery discovery,
+        ILogger<UniFiLiveDataProvider> logger,
+        IMeasuredWirelessClientSource? measuredClients = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _measuredClients = measuredClients;
     }
 
     public string ProviderName => "UniFi Live";
@@ -127,6 +138,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var result = activeWireless
             .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp, isOnline: true))
             .ToList();
+
+        await ApplyMeasuredClientsAsync(result, cancellationToken);
 
         // Get historical clients (includes offline) - last 30 days
         try
@@ -433,6 +446,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             // Second query: fetch channel info using dynamic keys
             // We now know the AP MAC(s) and band(s) from the first query
             await EnrichWithChannelInfoAsync(metrics, reportType, clientMac, startMs, endMs, cancellationToken);
+
+            await ApplyMeasuredHistoryAsync(metrics, clientMac, start, end, granularity, cancellationToken);
 
             _logger.LogDebug("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
             return metrics;
@@ -1106,6 +1121,91 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         snapshot.TotalClients = snapshot.Radios.Sum(r => r.ClientCount ?? 0);
 
         return snapshot;
+    }
+
+    /// <summary>
+    /// Lays AP-measured readings over the console snapshots for the access points an AP Agent
+    /// covers. Anything that goes wrong leaves the console data as it stands: the measured source
+    /// is an enhancement, and the console path must never be worse off for its presence.
+    /// </summary>
+    private async Task ApplyMeasuredClientsAsync(
+        List<WirelessClientSnapshot> clients,
+        CancellationToken cancellationToken)
+    {
+        if (_measuredClients == null || clients.Count == 0) return;
+
+        try
+        {
+            var apMacs = clients
+                .Where(c => !string.IsNullOrEmpty(c.ApMac))
+                .Select(c => c.ApMac.ToLowerInvariant())
+                .Distinct()
+                .ToList();
+            if (apMacs.Count == 0) return;
+
+            var measured = await _measuredClients.GetMeasuredClientsAsync(apMacs, cancellationToken);
+            MeasuredClientOverlay.Apply(clients, measured);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP-measured client readings unavailable, using console data");
+        }
+    }
+
+    /// <summary>
+    /// Bucket duration for a report granularity, matching the console report's own resolution.
+    /// </summary>
+    internal static TimeSpan BucketFor(MetricGranularity granularity) => granularity switch
+    {
+        MetricGranularity.Hourly => TimeSpan.FromHours(1),
+        MetricGranularity.Daily => TimeSpan.FromDays(1),
+        _ => TimeSpan.FromMinutes(5)
+    };
+
+    /// <summary>
+    /// Lays AP-measured history over the console's client report. Our own measurements win on every
+    /// bucket we hold; the console report fills the buckets we do not, which is what covers an
+    /// access point that had no agent, a period we were not running for, or data older than we have.
+    /// </summary>
+    private async Task ApplyMeasuredHistoryAsync(
+        List<ClientWiFiMetrics> metrics,
+        string clientMac,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        MetricGranularity granularity,
+        CancellationToken cancellationToken)
+    {
+        if (_measuredClients == null) return;
+
+        try
+        {
+            var bucket = BucketFor(granularity);
+            var measured = await _measuredClients.GetMeasuredClientHistoryAsync(
+                clientMac, start, end, bucket, cancellationToken);
+            if (measured.Count == 0) return;
+
+            var (missing, longestRun) = MeasuredClientOverlay.MeasureGaps(start, end, measured, bucket);
+            if (longestRun >= MeasuredClientOverlay.ReportableGapBuckets)
+            {
+                _logger.LogDebug(
+                    "Client {ClientMac}: {Missing} of the measured buckets are absent, longest run {Run}; the console report fills them",
+                    clientMac, missing, longestRun);
+            }
+
+            MeasuredClientOverlay.ApplyHistory(metrics, measured, bucket);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP-measured client history unavailable for {ClientMac}, using console history", clientMac);
+        }
     }
 
     internal static WirelessClientSnapshot MapToWirelessClientSnapshot(

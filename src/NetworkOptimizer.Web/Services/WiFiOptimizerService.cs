@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Helpers;
@@ -41,6 +41,13 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly ChannelPlanCache _planCache;
 
     /// <summary>
+    /// AP-measured client readings, laid over the console data the provider builds. Optional in
+    /// every sense: with no AP Agent covering an access point it yields nothing and the console
+    /// path stands alone.
+    /// </summary>
+    private readonly NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource _measuredClients;
+
+    /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
     /// is never worth making the analysis feel broken.
     /// </summary>
@@ -80,9 +87,11 @@ public class WiFiOptimizerService : IWiFiScanService
         ChannelPlanCache planCache,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
+        NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource measuredClients,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
+        _measuredClients = measuredClients;
         _licenseState = licenseState;
         _siteSlug = siteContext.Slug;
         _connectionService = connectionService;
@@ -112,7 +121,8 @@ public class WiFiOptimizerService : IWiFiScanService
         return new UniFiLiveDataProvider(
             _connectionService.Client!,
             discovery,
-            _loggerFactory.CreateLogger<UniFiLiveDataProvider>());
+            _loggerFactory.CreateLogger<UniFiLiveDataProvider>(),
+            _measuredClients);
     }
 
     /// <summary>

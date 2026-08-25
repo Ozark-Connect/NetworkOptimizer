@@ -9,6 +9,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.Web.Services.ApAgent;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Models;
 
@@ -45,6 +46,17 @@ public class ClientDashboardService
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
+    // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
+    // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
+    private readonly ApAgentClientLiveService? _apAgentLive;
+
+    /// <summary>Roam-follow state per client. One page follows one client, so the cap is a guard.</summary>
+    private const int MaxTrackedFollowers = 8;
+    private readonly Dictionary<string, ApAgentRoamFollower> _followers = new(StringComparer.OrdinalIgnoreCase);
+
+    // Where each client was last known to be, so a roam is recognized as a change of access point.
+    private readonly ConcurrentDictionary<string, string> _lastApMacByClient = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -58,7 +70,8 @@ public class ClientDashboardService
         SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
-        SiteContextService siteContext)
+        SiteContextService siteContext,
+        ApAgentClientLiveService? apAgentLive = null)
     {
         _logger = logger;
         _siteDbFactory = siteDbFactory;
@@ -71,6 +84,7 @@ public class ClientDashboardService
         _speedTestService = siteServices.ClientSpeedTest;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
+        _apAgentLive = apAgentLive;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -179,7 +193,13 @@ public class ClientDashboardService
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
 
-                await EnrichWithApInfoAsync(identity, client.ApMac);
+                // Then the access point's own agent, where there is one. Last overlay wins because
+                // it is the only source that measured the client rather than reporting on it.
+                await OverlayApAgentDataAsync(identity);
+
+                // The AP is read off the identity, not the console record, so a client the agent
+                // followed through a roam is enriched from where it is now.
+                await EnrichWithApInfoAsync(identity, identity.ApMac);
                 return identity;
             }
 
@@ -900,6 +920,133 @@ public class ClientDashboardService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to store signal log for {Mac}", identity.Mac);
+        }
+    }
+
+    /// <summary>
+    /// Live poll for the page's fast tick. Prefers the access point's own AP Agent, which keeps
+    /// reporting across a roam because the access point that just took the client is the authority
+    /// on holding it, and falls back to <see cref="PollWiFiManOnlyAsync"/> - today's path, byte for
+    /// byte - whenever no agent can answer. Returns null when neither source has anything.
+    /// </summary>
+    public async Task<ClientIdentity?> PollLiveClientAsync(string clientIp)
+    {
+        var fromAgent = await PollApAgentAsync(clientIp);
+        return fromAgent ?? await PollWiFiManOnlyAsync(clientIp);
+    }
+
+    /// <summary>
+    /// One AP Agent poll for the client at this IP, or null when the agent path cannot answer:
+    /// no agents on the site, this access point not enrolled, the agent unreachable, or a roam
+    /// still in flight. Every one of those is a fall-through to the console path, never an error.
+    /// </summary>
+    private async Task<ClientIdentity?> PollApAgentAsync(string clientIp)
+    {
+        if (_apAgentLive == null) return null;
+        if (!_ipToMacCache.TryGetValue(clientIp, out var mac)) return null;
+        if (_offlineIdentityCache.ContainsKey(clientIp)) return null;
+
+        try
+        {
+            _lastApMacByClient.TryGetValue(mac, out var lastAp);
+            var live = await _apAgentLive.PollAsync(
+                _siteContext.Slug, mac, lastAp, FollowerFor(mac), DateTime.UtcNow);
+            if (live == null) return null;
+
+            var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
+            if (update == null) return null;
+
+            update.Ip = clientIp;
+            // Only a roam needs the access point resolved again, so the steady state costs one
+            // request to one access point and nothing else.
+            if (!string.Equals(lastAp, live.ApMac, StringComparison.OrdinalIgnoreCase))
+            {
+                await EnrichWithApInfoAsync(update, live.ApMac);
+                _lastApMacByClient[mac] = live.ApMac;
+            }
+            return update;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent live poll failed for {Ip}, using the console path", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Overlays AP Agent data onto a full-poll identity, on top of whatever WiFiman supplied. Only
+    /// fields the access point reported are replaced, so a value it does not carry keeps its
+    /// console-sourced reading.
+    /// </summary>
+    private async Task OverlayApAgentDataAsync(ClientIdentity identity)
+    {
+        if (_apAgentLive == null || identity.IsWired || identity.IsOffline) return;
+        if (string.IsNullOrEmpty(identity.Mac)) return;
+
+        if (!string.IsNullOrEmpty(identity.ApMac))
+            _lastApMacByClient.TryAdd(identity.Mac, identity.ApMac);
+
+        try
+        {
+            _lastApMacByClient.TryGetValue(identity.Mac, out var lastAp);
+            var live = await _apAgentLive.PollAsync(
+                _siteContext.Slug, identity.Mac, lastAp ?? identity.ApMac, FollowerFor(identity.Mac), DateTime.UtcNow);
+            if (live == null) return;
+
+            var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
+            if (update == null) return;
+
+            ApplyLiveFields(identity, update);
+            _lastApMacByClient[identity.Mac] = live.ApMac;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent overlay failed for {Mac}, using the console path", identity.Mac);
+        }
+    }
+
+    /// <summary>
+    /// Copies the live fields an AP Agent reported onto an identity, leaving absent ones alone.
+    /// Shared by the full poll and the page's merge so both agree on what the agent owns.
+    /// </summary>
+    public static void ApplyLiveFields(ClientIdentity target, ClientIdentity update)
+    {
+        if (update.SignalDbm.HasValue) target.SignalDbm = update.SignalDbm;
+        if (update.NoiseDbm.HasValue) target.NoiseDbm = update.NoiseDbm;
+        if (update.Channel.HasValue) target.Channel = update.Channel;
+        if (update.ChannelWidth.HasValue) target.ChannelWidth = update.ChannelWidth;
+        if (!string.IsNullOrEmpty(update.Band)) target.Band = update.Band;
+        if (!string.IsNullOrEmpty(update.Protocol)) target.Protocol = update.Protocol;
+        if (update.TxRateKbps.HasValue) target.TxRateKbps = update.TxRateKbps;
+        if (update.RxRateKbps.HasValue) target.RxRateKbps = update.RxRateKbps;
+        if (update.Satisfaction.HasValue) target.Satisfaction = update.Satisfaction;
+
+        target.IsMlo = update.IsMlo;
+        if (update.MloLinks is { Count: > 0 }) target.MloLinks = update.MloLinks;
+        else if (!update.IsMlo) target.MloLinks = null;
+
+        if (!string.IsNullOrEmpty(update.ApMac)) target.ApMac = update.ApMac;
+        if (!string.IsNullOrEmpty(update.ApName)) target.ApName = update.ApName;
+        if (!string.IsNullOrEmpty(update.ApModel)) target.ApModel = update.ApModel;
+        if (update.ApChannel.HasValue) target.ApChannel = update.ApChannel;
+        if (update.ApTxPower.HasValue) target.ApTxPower = update.ApTxPower;
+        if (update.ApEirp.HasValue) target.ApEirp = update.ApEirp;
+        if (update.ApClientCount.HasValue) target.ApClientCount = update.ApClientCount;
+        if (!string.IsNullOrEmpty(update.ApRadioBand)) target.ApRadioBand = update.ApRadioBand;
+
+        target.HasApAgentData = true;
+    }
+
+    /// <summary>This client's roam-follow state, capped so a long-lived circuit cannot grow it.</summary>
+    private ApAgentRoamFollower FollowerFor(string clientMac)
+    {
+        lock (_followers)
+        {
+            if (_followers.TryGetValue(clientMac, out var existing)) return existing;
+            if (_followers.Count >= MaxTrackedFollowers) _followers.Clear();
+            var follower = new ApAgentRoamFollower();
+            _followers[clientMac] = follower;
+            return follower;
         }
     }
 

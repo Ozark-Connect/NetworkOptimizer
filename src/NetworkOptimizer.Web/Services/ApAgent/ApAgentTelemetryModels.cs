@@ -8,6 +8,10 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// </summary>
 public sealed class ApAgentClientsPayload
 {
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
     /// <summary>The agent's clock when it built the reply.</summary>
     [JsonPropertyName("collected_at")]
     public DateTime CollectedAt { get; set; }
@@ -47,6 +51,135 @@ public sealed class ApAgentTierInfo
     /// <summary>When the tier last completed a pass.</summary>
     [JsonPropertyName("last_collected_at")]
     public DateTime? LastCollectedAt { get; set; }
+}
+
+/// <summary>Which access point a payload came from.</summary>
+public sealed class ApAgentApInfo
+{
+    /// <summary>The access point's own hostname.</summary>
+    [JsonPropertyName("hostname")]
+    public string? Hostname { get; set; }
+
+    /// <summary>Model token as the access point reports it.</summary>
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    /// <summary>The access point's MAC.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+}
+
+/// <summary>
+/// The AP Agent's GET /client/&lt;mac&gt; reply. The agent resolves a link MAC to its parent client,
+/// so a Wi-Fi 7 client is found by any of its link MACs and comes back as one record.
+/// </summary>
+public sealed class ApAgentClientPayload
+{
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>How each collection tier on the AP last fared.</summary>
+    [JsonPropertyName("sources")]
+    public ApAgentTierStatus? Sources { get; set; }
+
+    /// <summary>The client, already resolved across MLO links by the agent.</summary>
+    [JsonPropertyName("client")]
+    public ApAgentClient? Client { get; set; }
+}
+
+/// <summary>The membership event kinds the agent publishes. These strings are its contract.</summary>
+public static class ApAgentEventTypes
+{
+    /// <summary>A client joined this access point.</summary>
+    public const string Assoc = "assoc";
+
+    /// <summary>A client left this access point.</summary>
+    public const string Disassoc = "disassoc";
+
+    /// <summary>This access point announced that a client is moving to a peer.</summary>
+    public const string RoamBroadcast = "roam_broadcast";
+
+    /// <summary>A peer told this access point that a client moved.</summary>
+    public const string RoamToPeer = "roam_to_peer";
+}
+
+/// <summary>One membership fact from an access point's hostapd control socket.</summary>
+public sealed class ApAgentEvent
+{
+    /// <summary>Position in the agent's ring, which restarts at 1 when the agent restarts.</summary>
+    [JsonPropertyName("seq")]
+    public ulong Seq { get; set; }
+
+    /// <summary>One of <see cref="ApAgentEventTypes"/>, or a kind this server does not model.</summary>
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "";
+
+    /// <summary>
+    /// The VAP the event arrived on. It is the only thing that resolves an event to a BSSID, band,
+    /// and channel, none of which the event itself carries.
+    /// </summary>
+    [JsonPropertyName("vap")]
+    public string? Vap { get; set; }
+
+    /// <summary>The client the event is about. On an MLO client this is the link MAC, not the MLD MAC.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
+    /// <summary>The rest of the control-socket line, kept verbatim.</summary>
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
+
+    /// <summary>The source's own timestamp, where the source provides one. hostapd does not.</summary>
+    [JsonPropertyName("event_time")]
+    public DateTime? EventTime { get; set; }
+
+    /// <summary>The BSSID the client is moving to, on a roam event.</summary>
+    [JsonPropertyName("peer_bssid")]
+    public string? PeerBssid { get; set; }
+
+    /// <summary>When the agent recorded it.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>The access-point-side instant, preferring the source's own clock where it has one.</summary>
+    [JsonIgnore]
+    public DateTime At => (EventTime ?? CollectedAt).ToUniversalTime();
+}
+
+/// <summary>The AP Agent's GET /events?since= reply, a bounded replay window.</summary>
+public sealed class ApAgentEventsPayload
+{
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
+    /// <summary>True when the window the caller asked for had already been overwritten.</summary>
+    [JsonPropertyName("truncated")]
+    public bool Truncated { get; set; }
+
+    /// <summary>The retained events, oldest first.</summary>
+    [JsonPropertyName("events")]
+    public List<ApAgentEvent> Events { get; set; } = new();
+
+    /// <summary>
+    /// When the agent process started. The ring holds no state across a restart, so a change here
+    /// means sequence numbering began again at 1 and a stored cursor no longer applies to it.
+    /// </summary>
+    [JsonPropertyName("agent_started_at")]
+    public DateTime AgentStartedAt { get; set; }
+
+    /// <summary>The replay window's shape, which is how an undersized ring becomes visible.</summary>
+    [JsonPropertyName("ring")]
+    public ApAgentRingStats? Ring { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
 }
 
 /// <summary>
@@ -131,9 +264,49 @@ public sealed class ApAgentClientCapabilities
 /// </summary>
 public sealed class ApAgentClientLink
 {
+    /// <summary>This link's own station MAC, which differs per link on an MLO client.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
     /// <summary>Whether this is the link carrying traffic.</summary>
     [JsonPropertyName("active")]
     public bool Active { get; set; }
+
+    /// <summary>This link's channel.</summary>
+    [JsonPropertyName("channel")]
+    public int Channel { get; set; }
+
+    /// <summary>This link's channel width in MHz.</summary>
+    [JsonPropertyName("bw")]
+    public int Bandwidth { get; set; }
+
+    /// <summary>This link's signal in dBm.</summary>
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }
+
+    /// <summary>This link's noise floor in dBm.</summary>
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }
+
+    /// <summary>This link's signal-to-noise ratio in dB.</summary>
+    [JsonPropertyName("snr")]
+    public int? Snr { get; set; }
+
+    /// <summary>This link's transmit rate in kbps (AP to client).</summary>
+    [JsonPropertyName("tx_rate_kbps")]
+    public long TxRateKbps { get; set; }
+
+    /// <summary>This link's receive rate in kbps (client to AP).</summary>
+    [JsonPropertyName("rx_rate_kbps")]
+    public long RxRateKbps { get; set; }
+
+    /// <summary>The driver's phy-mode token, e.g. "IEEE80211_MODE_11AXA_HE160".</summary>
+    [JsonPropertyName("mode")]
+    public string? Mode { get; set; }
+
+    /// <summary>The AP's satisfaction score for this link.</summary>
+    [JsonPropertyName("satisfaction")]
+    public int? Satisfaction { get; set; }
 
     /// <summary>This link's band token.</summary>
     [JsonPropertyName("band")]

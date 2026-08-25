@@ -402,9 +402,25 @@ builder.Services.AddMutatingService<ICellularModemService>(sp => sp.GetRequiredS
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHealthClient>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryClient>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentClientReader,
+    NetworkOptimizer.Web.Services.ApAgent.ApAgentClientReader>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentClientLiveService>();
+// Roam records and radio health ride the same tier pass as the telemetry collector rather than a
+// loop of their own, so the registry is a plain per-site holder with no hosted service behind it.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentEventsClient>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentInsightsRegistry>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamHistoryService>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamHistoryService>(sp));
 // The telemetry collector is driven by the monitoring agent's tier loop rather than a loop of its
 // own, so the registry is a plain per-site holder with no hosted service behind it.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryRegistry>();
+// Wi-Fi Optimizer reads AP-measured client data out of the series the collector above already
+// writes, rather than polling the access points a second time. Scoped so it answers for the site
+// in context; the band cache is shared because its lookback is a day.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.MeasuredClientBandCache>();
+builder.Services.AddScoped<NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource,
+    NetworkOptimizer.Web.Services.ApAgent.InfluxMeasuredClientSource>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
     NetworkOptimizer.Web.Services.ApAgent.SftpApAgentBinaryTransfer>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,

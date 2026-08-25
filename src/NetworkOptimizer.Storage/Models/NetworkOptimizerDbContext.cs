@@ -65,6 +65,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
+    public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
+    public DbSet<ApRoamRecord> ApRoamRecords { get; set; }
+    public DbSet<ApRadioHealthSample> ApRadioHealthSamples { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
@@ -202,6 +205,30 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ApAgentDeployments");
             entity.HasIndex(e => e.DeviceMac).IsUnique();
             entity.HasIndex(e => e.Enabled);
+        });
+
+        // One cursor per access point, looked up by MAC on every event poll.
+        modelBuilder.Entity<ApAgentEventCursor>(entity =>
+        {
+            entity.ToTable("ApAgentEventCursors");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
+        });
+
+        // Roam records are read newest-first for a site and per client, so both are indexed.
+        modelBuilder.Entity<ApRoamRecord>(entity =>
+        {
+            entity.ToTable("ApRoamRecords");
+            entity.HasIndex(e => e.RoamedAt);
+            entity.HasIndex(e => new { e.ClientMac, e.RoamedAt });
+            entity.HasIndex(e => new { e.ToApMac, e.RoamedAt });
+        });
+
+        // Radio health is read per access point over a window, and pruned by age.
+        modelBuilder.Entity<ApRadioHealthSample>(entity =>
+        {
+            entity.ToTable("ApRadioHealthSamples");
+            entity.HasIndex(e => e.SampleAt);
+            entity.HasIndex(e => new { e.ApMac, e.Radio, e.SampleAt });
         });
 
         // StarlinkConfiguration configuration
