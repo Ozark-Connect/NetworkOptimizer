@@ -28,9 +28,11 @@
     <div class="card-body">
         <p class="section-description">
             The AP Agent is a small service Network Optimizer installs on each UniFi access point over
-            SSH. It reads Wi-Fi telemetry directly from the AP: per-client signal and rates, roam
-            events, and radio airtime. Any AP without it falls back to UniFi Console data, so nothing
-            breaks when one is missing.
+            SSH. It reads what the UniFi Console does not expose: per-client retries, TCP stalls, and
+            airtime, plus roam timing and radio health. That sharpens channel recommendations, catches
+            a wedged radio before clients give up on the band, and lets Client Performance provide
+            truly real-time signal and roaming data. Any AP without it falls back to UniFi Console
+            data, so nothing breaks when one is missing.
         </p>
 
         @if (!_loaded)
@@ -63,23 +65,8 @@
                     <span>Collect Wi-Fi telemetry from this site's access points</span>
                 </label>
                 <small class="form-help">
-                    @if (_siteEnabled)
-                    {
-                        <text>
-                            Per-client stats are coming from the access points themselves. Turning
-                            this off removes the agent from every access point.
-                        </text>
-                    }
-                    else
-                    {
-                        <text>
-                            Puts a small agent on each access point and reads what the UniFi Console
-                            does not expose: per-client retries, TCP stalls, and airtime, plus roam
-                            timing and radio health. It sharpens channel recommendations, catches a
-                            wedged radio before clients give up on the band, and lets Client
-                            Performance provide truly real-time signal and roaming data.
-                        </text>
-                    }
+                    Network Optimizer deploys the AP Agent to each access point within a couple of
+                    minutes, and keeps it there. Turning this off removes it from every access point.
                 </small>
             </div>
 
