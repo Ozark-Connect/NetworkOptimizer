@@ -412,6 +412,7 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAge
     new NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService(
         sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>(),
         sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>(),
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.IApAgentClientReader>(),
         sp.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDbContextFactory>(),
         sp.GetRequiredService<ILogger<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService>>(),
         sp.GetRequiredService<SiteContextService>().Slug));

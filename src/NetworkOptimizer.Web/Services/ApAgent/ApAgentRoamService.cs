@@ -43,6 +43,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
     private readonly ApAgentHttpTransport _transport;
     private readonly ApAgentTargetDirectory _directory;
+    private readonly IApAgentClientReader _reader;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<ApAgentRoamService> _logger;
     private readonly string _siteSlug;
@@ -50,12 +51,14 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     public ApAgentRoamService(
         ApAgentHttpTransport transport,
         ApAgentTargetDirectory directory,
+        IApAgentClientReader reader,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         ILogger<ApAgentRoamService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _transport = transport;
         _directory = directory;
+        _reader = reader;
         _siteDbFactory = siteDbFactory;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -279,44 +282,27 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     {
         foreach (var target in targets)
         {
-            try
-            {
-                var (host, port) = await _transport.RouteAsync(_siteSlug, target.Host);
-                var result = await _transport.SendAsync(
-                    host, port, target.Token, $"/clients/{mac}", NeighborTimeout, MaxTransitionBytes, ct);
+            // Through the reader rather than a second hand-rolled fetch: it unwraps the reply, and
+            // parsing it here as a bare client silently produced an empty one for months.
+            var lookup = await _reader.ReadClientAsync(_siteSlug, target.Mac, mac, ct);
+            if (lookup.Status != ApAgentClientLookupStatus.Found || lookup.Client is not { } client) continue;
 
-                if (!result.IsUsable) continue;
-
-                // The same payload carries how long since the access point last heard from this
-                // client, which is what decides whether it is awake enough to be moved.
-                long? idle = null;
-                var bands = new HashSet<string>(StringComparer.Ordinal);
-                try
-                {
-                    var client = JsonSerializer.Deserialize<ApAgentClient>(result.Body, JsonOptions);
-                    if (client?.Links is { Count: > 0 })
-                    {
-                        idle = NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(client.Links.Select(l => l.IdleSeconds));
-                        foreach (var link in client.Links.Where(l => !string.IsNullOrEmpty(l.Band)))
-                            bands.Add(link.Band!);
-                    }
-                    else if (!string.IsNullOrEmpty(client?.Band))
-                    {
-                        bands.Add(client.Band);
-                    }
-                }
-                catch (JsonException) { /* an unreadable body still tells us which AP holds it */ }
-
-                return (target, idle, bands);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            // The same payload carries how long since the access point last heard from this client,
+            // which is what decides whether it is awake enough to be moved.
+            long? idle = null;
+            var bands = new HashSet<string>(StringComparer.Ordinal);
+            if (client.Links is { Count: > 0 })
             {
-                throw;
+                idle = NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(client.Links.Select(l => l.IdleSeconds));
+                foreach (var link in client.Links.Where(l => !string.IsNullOrEmpty(l.Band)))
+                    bands.Add(link.Band!);
             }
-            catch
+            else if (!string.IsNullOrEmpty(client.Band))
             {
-                // An access point that cannot be reached simply is not the one holding the client.
+                bands.Add(client.Band);
             }
+
+            return (target, idle, bands);
         }
         return (null, null, Array.Empty<string>());
     }
