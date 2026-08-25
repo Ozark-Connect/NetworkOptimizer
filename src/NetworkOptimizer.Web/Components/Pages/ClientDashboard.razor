@@ -1155,11 +1155,11 @@
             swBoot.ElapsedMilliseconds, _client != null, _client?.ApMac);
         swBoot.Restart();
 
-        // Steering is offered only on the device you are holding. A BTM request is an eviction, and
-        // a client that cannot act on one is disassociated regardless - so the person who can toggle
-        // its Wi-Fi back on has to be the person pressing the button. The service gates further on
-        // the site having two agents and this client having roamed before.
-        if (_isOwnDevice && !string.IsNullOrEmpty(_client?.Mac))
+        // Deliberately NOT limited to your own device: moving a client that is stuck on the wrong
+        // access point is the point of the feature, and that client is rarely the one in your hand.
+        // The service gates instead on the site having two agents and this client having roamed
+        // before, which is the only evidence available that it survives being moved.
+        if (!string.IsNullOrEmpty(_client?.Mac))
         {
             try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
             catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
