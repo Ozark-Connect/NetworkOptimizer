@@ -206,6 +206,9 @@
                 <div class="identity-signal">
                     @if (_canSteer && _client is { IsWired: false, IsOffline: false, IsVpn: false })
                     {
+                        @* The gate is the service; this is the UX half, so a Viewer is never shown a
+                           control that would refuse them. *@
+                        <SiteOperatorOnly>
                         <button class="btn btn-secondary btn-sm client-roam-btn" @onclick="RequestRoamAsync"
                                 disabled="@_roamBusy"
                                 data-tooltip="Ask this device to move to another access point. It decides, so it may stay put." data-tooltip-hover-only>
@@ -218,6 +221,7 @@
                                 <span>Roam</span>
                             }
                         </button>
+                        </SiteOperatorOnly>
                     }
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
