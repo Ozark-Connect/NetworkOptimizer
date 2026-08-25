@@ -1173,3 +1173,33 @@ func TestSlowTierSuppliesRFWhenFastHasNotReported(t *testing.T) {
 		t.Errorf("signal = %v, want the slow tier's %d when fast is absent", link.Signal, slowSignal)
 	}
 }
+
+func TestFabricVapsAreNotClients(t *testing.T) {
+	for _, vap := range []string{"vwireap10", "vwiresta7", "vwireap10.sta1", "VWIREAP14"} {
+		if !isFabricVap(vap) {
+			t.Errorf("%s is a wireless uplink and must not be treated as carrying clients", vap)
+		}
+	}
+	// A real client VAP, and the randomized MACs that belong to real clients, must be untouched.
+	for _, vap := range []string{"wifi0ap0", "wifi2ap5", "ath0", "mld1"} {
+		if isFabricVap(vap) {
+			t.Errorf("%s carries clients and must not be filtered", vap)
+		}
+	}
+}
+
+func TestFabricStationsNeverEnterTheTable(t *testing.T) {
+	table := NewTable(defaultMaxTrackedClients, 120*time.Second)
+	now := time.Now().UTC()
+
+	// The peer access point on the other end of a wireless uplink, which the parent lists exactly
+	// as it lists a client.
+	table.ApplyEvent(Event{Seq: 1, Type: EventAssoc, Vap: "vwireap10", MAC: "9a:41:b2:16:50:12", CollectedAt: now})
+	table.ApplyFast(map[string]StaFast{
+		stationKey("vwireap10", "9a:41:b2:16:50:12"): {Vap: "vwireap10", MAC: "9a:41:b2:16:50:12"},
+	}, map[string]bool{"vwireap10": true}, now)
+
+	if got := len(table.Clients(now)); got != 0 {
+		t.Fatalf("got %d clients, want 0: a wireless uplink peer is fabric, and writing it puts an AP's own interface into wifi_client", got)
+	}
+}

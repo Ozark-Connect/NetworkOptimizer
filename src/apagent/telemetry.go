@@ -10,36 +10,36 @@ import (
 // ClientLink is one association. A non-MLO client has exactly one; a Wi-Fi 7 client has one per
 // link, each under its own VAP with its own locally administered MAC.
 type ClientLink struct {
-	MAC          string     `json:"mac"`
-	Vap          string     `json:"vap"`
-	Ssid         string     `json:"ssid,omitempty"`
-	Bssid        string     `json:"bssid,omitempty"`
-	Radio        string     `json:"radio,omitempty"`
-	Band         string     `json:"band,omitempty"`
-	Channel      int        `json:"channel,omitempty"`
-	Bandwidth    int        `json:"bw,omitempty"`
-	Active       bool       `json:"active"`
-	Negotiated   bool       `json:"negotiated_idle,omitempty"`
-	Signal       *int       `json:"signal,omitempty"`
-	Noise        *int       `json:"noise,omitempty"`
-	SNR          *int       `json:"snr,omitempty"`
-	MinSignal    *int       `json:"min_signal,omitempty"`
-	MaxSignal    *int       `json:"max_signal,omitempty"`
-	TxRateKbps   int64      `json:"tx_rate_kbps,omitempty"`
-	RxRateKbps   int64      `json:"rx_rate_kbps,omitempty"`
-	TxRateMov    int64      `json:"tx_rate_mov_kbps,omitempty"`
-	RxRateMov    int64      `json:"rx_rate_mov_kbps,omitempty"`
-	Nss          int        `json:"nss,omitempty"`
-	TxNss        int        `json:"tx_nss,omitempty"`
-	RxNss        int        `json:"rx_nss,omitempty"`
-	Ccq          int        `json:"ccq,omitempty"`
-	Mode         string     `json:"mode,omitempty"`
-	TxBytes      int64      `json:"tx_bytes,omitempty"`
-	RxBytes      int64      `json:"rx_bytes,omitempty"`
+	MAC        string `json:"mac"`
+	Vap        string `json:"vap"`
+	Ssid       string `json:"ssid,omitempty"`
+	Bssid      string `json:"bssid,omitempty"`
+	Radio      string `json:"radio,omitempty"`
+	Band       string `json:"band,omitempty"`
+	Channel    int    `json:"channel,omitempty"`
+	Bandwidth  int    `json:"bw,omitempty"`
+	Active     bool   `json:"active"`
+	Negotiated bool   `json:"negotiated_idle,omitempty"`
+	Signal     *int   `json:"signal,omitempty"`
+	Noise      *int   `json:"noise,omitempty"`
+	SNR        *int   `json:"snr,omitempty"`
+	MinSignal  *int   `json:"min_signal,omitempty"`
+	MaxSignal  *int   `json:"max_signal,omitempty"`
+	TxRateKbps int64  `json:"tx_rate_kbps,omitempty"`
+	RxRateKbps int64  `json:"rx_rate_kbps,omitempty"`
+	TxRateMov  int64  `json:"tx_rate_mov_kbps,omitempty"`
+	RxRateMov  int64  `json:"rx_rate_mov_kbps,omitempty"`
+	Nss        int    `json:"nss,omitempty"`
+	TxNss      int    `json:"tx_nss,omitempty"`
+	RxNss      int    `json:"rx_nss,omitempty"`
+	Ccq        int    `json:"ccq,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	TxBytes    int64  `json:"tx_bytes,omitempty"`
+	RxBytes    int64  `json:"rx_bytes,omitempty"`
 	// BytesAt dates the counters when they came from the byte tier rather than the identity poll.
 	// The server divides a counter delta by the gap between these, so an assumed interval would
 	// misreport throughput whenever a poll ran late.
-	BytesAt *time.Time `json:"bytes_at,omitempty"`
+	BytesAt      *time.Time `json:"bytes_at,omitempty"`
 	TxPackets    int64      `json:"tx_packets,omitempty"`
 	RxPackets    int64      `json:"rx_packets,omitempty"`
 	TxRetries    int64      `json:"tx_retries,omitempty"`
@@ -181,12 +181,12 @@ type ApInfo struct {
 // Table is the in-memory state every endpoint reads. A request never triggers a collection: N
 // pollers would otherwise cost N times the collection.
 type Table struct {
-	mu       sync.RWMutex
-	maxSize  int
-	ttl      time.Duration
-	members  map[string]*memberState
-	fast     map[string]StaFast
-	slow     map[string]StaSlow
+	mu      sync.RWMutex
+	maxSize int
+	ttl     time.Duration
+	members map[string]*memberState
+	fast    map[string]StaFast
+	slow    map[string]StaSlow
 	// slowAt dates t.slow, so a byte reading can be told apart from the identity poll's copy.
 	slowAt time.Time
 	// bytes is its own map because ApplySlow replaces t.slow wholesale on every pass. Keeping the
@@ -223,6 +223,11 @@ func NewTable(maxSize int, ttl time.Duration) *Table {
 // waiting for a poll to notice.
 func (t *Table) ApplyEvent(e Event) {
 	if e.MAC == "" || e.Vap == "" {
+		return
+	}
+	// A wireless uplink associates and roams exactly like a client does, so the events have to be
+	// filtered as well as the polls.
+	if isFabricVap(e.Vap) {
 		return
 	}
 	key := stationKey(e.Vap, e.MAC)
@@ -262,6 +267,9 @@ func (t *Table) ApplyFast(stations map[string]StaFast, covered map[string]bool, 
 	defer t.mu.Unlock()
 
 	for key, s := range stations {
+		if isFabricVap(s.Vap) {
+			continue
+		}
 		t.fast[key] = s
 		m, ok := t.members[key]
 		if !ok {
@@ -296,6 +304,9 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 	t.slowAt = now
 	t.slow = make(map[string]StaSlow, len(snap.Stations))
 	for _, s := range snap.Stations {
+		if isFabricVap(s.Vap) {
+			continue
+		}
 		key := stationKey(s.Vap, s.MAC)
 		t.slow[key] = s
 
