@@ -298,6 +298,15 @@ public sealed class ApAgentTelemetryCollector
         }
     }
 
+    /// <summary>
+    /// How long an access point may have heard nothing from a client before it stops counting as
+    /// present. Generous on purpose: a quiet client still ARPs and answers probes, so it sits at
+    /// seconds, while a client that has left sits at tens of minutes. The gap between those is wide
+    /// enough that this does not need to be tuned finely, and being wrong towards "still here"
+    /// costs a stale dot where being wrong the other way blinks a real client off the map.
+    /// </summary>
+    public const long PresenceMaxIdleSeconds = 600;
+
     /// <summary>How long a counter baseline is kept for a client that has stopped reporting. Long
     /// enough that a client dropping one poll still measures against its real previous reading.</summary>
     private static readonly TimeSpan PassBytesRetention = TimeSpan.FromMinutes(5);
@@ -360,15 +369,18 @@ public sealed class ApAgentTelemetryCollector
             // Skipping it entirely is why an idle client read back as departed: playback cannot
             // tell "connected and quiet" from "gone" when neither writes anything.
             //
-            // Except a link that has never carried traffic at all. An access point holds such a
-            // client associated long after it has physically left - measured at 41 minutes, idle
-            // time equal to uptime, zero bytes, signal at the noise floor - and the console agrees,
-            // so this is the platform's belief rather than something we can see through. Writing
-            // presence for it would keep a device that is a town away drawn on the map forever,
-            // which is worse than the gap it replaces.
+            // Except a client the access point has not actually heard from. It holds one
+            // associated long after it physically left - measured at 50 minutes idle, signal at the
+            // noise floor, still authorised, with the console agreeing - and presence for that
+            // draws a device a town away on the map forever.
+            //
+            // Idle time, NOT "never carried traffic": that test fails on multi-link. An MLO client
+            // associates once per band under its own randomised MAC, and one link carrying a few
+            // bytes at association makes the whole client look alive indefinitely, because the
+            // active-link pick deliberately prefers the link that did carry something.
             if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0)
             {
-                if (s.NegotiatedIdle) continue;
+                if (s.IdleSeconds is { } idle && idle > PresenceMaxIdleSeconds) continue;
 
                 _ = _influx.WriteWifiClientThroughputAsync(
                     apMac: s.ApMac,

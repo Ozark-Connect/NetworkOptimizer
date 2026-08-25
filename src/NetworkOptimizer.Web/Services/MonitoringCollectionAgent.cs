@@ -1387,10 +1387,10 @@ public class MonitoringCollectionAgent : BackgroundService
                 // Presence without a rate. An idle client that writes nothing is indistinguishable
                 // from a departed one when the series is read back.
                 //
-                // Unless it has never carried traffic since associating, which is what an access
-                // point looks like when it is holding a client that physically left. Presence for
-                // that draws a departed device forever.
-                if (c.Uptime > 0 && c.IdleTime >= c.Uptime && c.TxBytes == 0) continue;
+                // Unless the access point has not heard from it in a long time, which is what it
+                // looks like when it is holding a client that physically left. Presence for that
+                // draws a departed device forever.
+                if (c.IdleTime > ApAgent.ApAgentTelemetryCollector.PresenceMaxIdleSeconds) continue;
                 _ = _influx.WriteWifiClientThroughputAsync(
                     apMac: apMac,
                     band: band,

@@ -52,6 +52,7 @@ public sealed record ApAgentWifiSample(
     double? TcpLatAvgMs,
     int? Ccq,
     bool NegotiatedIdle,
+    long? IdleSeconds,
     int? Nss);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
@@ -117,6 +118,10 @@ public static class ApAgentWifiFieldMapper
             RxBytes: active?.RxBytes,
             BytesAt: active?.BytesAt,
             NegotiatedIdle: active?.NegotiatedIdle ?? false,
+            // The LOWEST idle across the client's links, not the active link's. An MLO client
+            // associates once per band under its own randomised MAC, and a link that carried a few
+            // bytes at association looks alive forever while every link has actually gone quiet.
+            IdleSeconds: client.Links.Count == 0 ? null : client.Links.Min(l => l.IdleSeconds),
             IsMlo: client.IsMlo,
             TxRetries: active?.TxRetries,
             TxAttempts: active?.TxAttempts,

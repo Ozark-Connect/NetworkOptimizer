@@ -329,6 +329,14 @@ public sealed class ApAgentClientLink
     public long RxBytes { get; set; }
 
     /// <summary>
+    /// Seconds since the access point last heard anything on this link. The direct measure of
+    /// whether a client is still there, and the only one that survives multi-link: a client is
+    /// present if ANY of its links has heard from it recently.
+    /// </summary>
+    [JsonPropertyName("idle_seconds")]
+    public long IdleSeconds { get; set; }
+
+    /// <summary>
     /// This link negotiated and never carried traffic: its idle time covers its whole association.
     /// An access point keeps such a link associated long after the client is gone, so it is the
     /// difference between a client that is quiet and one that left without being torn down.

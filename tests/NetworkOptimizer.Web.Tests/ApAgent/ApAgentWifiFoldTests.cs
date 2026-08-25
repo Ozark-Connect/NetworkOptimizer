@@ -264,6 +264,7 @@ public class ApAgentWifiFoldTests
             RxBytes: rxBytes,
             BytesAt: null,
             NegotiatedIdle: false,
+            IdleSeconds: 0,
             IsMlo: false,
             TxRetries: txRetries,
             TxAttempts: 5_000,
@@ -274,4 +275,26 @@ public class ApAgentWifiFoldTests
             TcpLatAvgMs: 12,
             Ccq: ccq,
             Nss: 2);
+
+    [Fact]
+    public void MloIdleIsTheLowestAcrossLinks_NotTheActiveLinks()
+    {
+        // Measured on hardware: a phone that had left the property entirely, still associated and
+        // authorised on three links, signal at the noise floor. Two links never carried a byte; the
+        // third moved 4 KB at association nearly an hour earlier. The active-link pick prefers that
+        // third link precisely because it carried something, so reading idle from the active link
+        // reported a live client and drew it on the map indefinitely.
+        var client = Client();
+        client.Links.Clear();
+        client.Links.Add(new ApAgentClientLink { Band = "6e", IdleSeconds = 3001, TxBytes = 0, NegotiatedIdle = true });
+        client.Links.Add(new ApAgentClientLink { Band = "6e", IdleSeconds = 3001, TxBytes = 0, NegotiatedIdle = true });
+        client.Links.Add(new ApAgentClientLink { Band = "6e", IdleSeconds = 2932, TxBytes = 4301, Active = true });
+
+        var sample = ApAgentWifiFieldMapper.ToSample(client, ApMac);
+
+        sample!.IdleSeconds.Should().Be(2932);
+        sample.IdleSeconds.Should().BeGreaterThan(
+            ApAgentTelemetryCollector.PresenceMaxIdleSeconds,
+            "a client the access point has not heard from in nearly an hour must not count as present");
+    }
 }
