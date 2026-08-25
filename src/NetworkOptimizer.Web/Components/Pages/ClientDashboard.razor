@@ -1140,11 +1140,19 @@
         ConfigureLatencyChart();
         ConfigureSignalChart();
 
+        // TEMP TIMING - remove once the Connecting... delay is understood
+        var swBoot = System.Diagnostics.Stopwatch.StartNew();
+
         // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
         await ConnectionService.WaitForConnectionAsync();
+        Logger.LogInformation("CP-TIMING WaitForConnection {Ms} ms", swBoot.ElapsedMilliseconds);
+        swBoot.Restart();
 
         // Identify client
         await IdentifyAndLoadAsync();
+        Logger.LogInformation("CP-TIMING IdentifyAndLoad {Ms} ms (client={Have} ap={Ap})",
+            swBoot.ElapsedMilliseconds, _client != null, _client?.ApMac);
+        swBoot.Restart();
 
         // Load AP markers for speed map (non-critical)
         try { _apMapMarkers = await ApMapService.GetApMapMarkersAsync(); }
@@ -1196,7 +1204,10 @@
                     // access point. The full poll still runs, just behind the paint.
                     if (_tickCount == 1)
                     {
+                        var swTick = System.Diagnostics.Stopwatch.StartNew();
                         await PollLiveAsync();
+                        Logger.LogInformation("CP-TIMING first PollLive {Ms} ms (pollCount={N})",
+                            swTick.ElapsedMilliseconds, _pollCount);
                         StateHasChanged();
                     }
 
