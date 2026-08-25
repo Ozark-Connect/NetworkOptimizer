@@ -1218,7 +1218,11 @@
 
                     if (isFullPoll)
                     {
+                        var swFull = System.Diagnostics.Stopwatch.StartNew();
                         await PollAsync();
+                        if (_tickCount <= 2)
+                            Logger.LogInformation("CP-TIMING PollAsync#{Tick} {Ms} ms (pollCount={N})",
+                                _tickCount, swFull.ElapsedMilliseconds, _pollCount);
                     }
                     else
                     {
@@ -1343,6 +1347,16 @@
             {
                 try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
                 catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
+            }
+
+            // Poll now rather than at the next tick. The timer starts before the address is known,
+            // so its first tick returns at PollAsync's own guard without counting - and the label
+            // waits on that count. Everything on the page was already filled in by this method,
+            // which is why it read as fully loaded and still said Connecting for a whole period.
+            if (_client != null && _pollCount == 0 && _pollTimer != null)
+            {
+                var interval = LivePollInterval();
+                _pollTimer.Change(TimeSpan.Zero, interval);
             }
 
             if (_client != null)
