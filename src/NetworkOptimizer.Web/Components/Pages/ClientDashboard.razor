@@ -3045,7 +3045,13 @@
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
        row is tighter, so it sits after the bars and ahead of the live indicator. */
     @@media (max-width: 768px) {
-        .client-roam-btn { order: 1; }
+        /* Sits between the bars and the live indicator, centered in whatever space they leave and
+           wide enough to read as a control rather than a chip. */
+        .client-roam-btn {
+            order: 1;
+            margin-inline: auto;
+            padding-inline: 1.25rem;
+        }
         .identity-live-group { order: 2; }
     }
     .signal-gauge {
