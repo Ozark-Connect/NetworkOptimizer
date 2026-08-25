@@ -20,10 +20,13 @@ const (
 	// a 100 TU beacon. Long enough for a client to move of its own accord before it is pushed.
 	defaultBtmDurationTbtt = 100
 
-	// How long to watch for the client to leave before giving up on banning it, and how often to
-	// look. The window covers the BTM timer with room to spare.
+	// How long to watch for the client to leave, and how often to look. The window covers the BTM
+	// timer with room to spare.
 	departureWindow = 12 * time.Second
 	departurePoll   = 500 * time.Millisecond
+
+	// One beacon interval at 100 TU. Turns the BTM duration into wall time.
+	beaconInterval = 102400 * time.Microsecond
 
 	// 802.11 reason 1, unspecified. The client is leaving by request, not for a protocol fault.
 	banReasonUnspecified = 1
@@ -142,7 +145,10 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 	}
 
 	if req.BanMs > 0 {
-		go banOnDeparture(context.WithoutCancel(ctx), table, vaps, vap, mac, req.BanMs)
+		// Past this the access point has disassociated the client itself, so leaving is no longer
+		// evidence that it chose to.
+		voluntary := time.Duration(duration) * beaconInterval
+		go banOnDeparture(context.WithoutCancel(ctx), table, vaps, vap, mac, req.BanMs, voluntary)
 	}
 
 	return &RoamResult{
@@ -158,18 +164,30 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 // bounce back, never to force a departure, so a device with nowhere else to go is never stranded.
 //
 // hostapd scopes a ban to one VAP, so every VAP carrying the same SSID has to be told.
-func banOnDeparture(ctx context.Context, table *Table, vaps []string, holding, mac string, banMs int) {
-	deadline := time.Now().Add(departureWindow)
+func banOnDeparture(ctx context.Context, table *Table, vaps []string, holding, mac string, banMs int, voluntary time.Duration) {
+	started := time.Now()
+	deadline := started.Add(departureWindow)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(departurePoll):
 		}
-		if vapHoldingClient(ctx, []string{holding}, mac) == "" {
-			banAcrossSsid(ctx, table, vaps, holding, mac, banMs)
+		if vapHoldingClient(ctx, []string{holding}, mac) != "" {
+			continue
+		}
+
+		// Only a client that left before the disassociation timer chose to. One the access point
+		// pushed off could use none of the candidates, and banning it is how a device ends up on
+		// no SSID at all.
+		if elapsed := time.Since(started); elapsed > voluntary {
+			slog.Info("not banning, client was disassociated rather than moving",
+				"mac", mac, "after", elapsed.Round(time.Millisecond).String())
 			return
 		}
+
+		banAcrossSsid(ctx, table, vaps, holding, mac, banMs)
+		return
 	}
 }
 
@@ -199,14 +217,18 @@ func banAcrossSsid(ctx context.Context, table *Table, vaps []string, holding, ma
 		return
 	}
 
+	banned := make([]string, 0, len(targets))
 	for _, vap := range vaps {
 		if !targets[vap] {
 			continue
 		}
 		if _, err := ubusCall(ctx, "hostapd."+vap, "del_client", string(args)); err != nil {
 			slog.Warn("ban failed", "mac", mac, "vap", vap, "error", err)
+			continue
 		}
+		banned = append(banned, vap)
 	}
+	slog.Info("banned after departure", "mac", mac, "ssid", ssid, "vaps", banned, "ban_ms", banMs)
 }
 
 // vapHoldingClient asks each VAP whether it currently holds the client.

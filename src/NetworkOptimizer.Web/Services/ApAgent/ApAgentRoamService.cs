@@ -35,12 +35,12 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     private const int DurationTbtt = 100;
 
     /// <summary>
-    /// How long a client is kept off the access point it just left. Applied only after it has gone,
-    /// so it cannot strand anything - it exists because a client that declines the candidates will
-    /// otherwise reassociate where it started and the move looks like it failed.
-    /// Short on purpose: the worst case is this many seconds of no Wi-Fi.
+    /// How long a client is kept off the access point it just left. Five seconds was not enough: a
+    /// phone sat out the ban on its new access point and went straight back the instant it lifted.
+    /// The agent applies it only to a client that left before the disassociation timer, so a client
+    /// that could use no candidate is never locked out.
     /// </summary>
-    private const int BounceGuardMs = 5000;
+    private const int BounceGuardMs = 20000;
 
     /// <summary>
     /// Idle ceiling for steering. Far below the ten minutes presence uses: this disassociates
