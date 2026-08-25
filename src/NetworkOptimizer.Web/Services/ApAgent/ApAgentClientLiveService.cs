@@ -88,6 +88,12 @@ public sealed class ApAgentClientLiveService
         {
             var c = live.Client;
 
+            // A client the access point has not heard from is not connected now, however often we
+            // are asked about it. Watching one on Client Performance must not be what keeps a
+            // departed device alive in the cache, and so on the maps.
+            var idle = NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(c.Links.Select(l => l.IdleSeconds));
+            if (!NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(idle)) return;
+
             var live_ = _liveStats.GetFor(siteSlug);
             var clientKey = string.IsNullOrEmpty(c.MldMac) ? c.Mac : c.MldMac;
 

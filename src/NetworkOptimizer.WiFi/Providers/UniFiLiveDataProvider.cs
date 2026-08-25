@@ -1219,6 +1219,20 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var apMac = client.ApMac?.ToLowerInvariant() ?? "";
         apNames.TryGetValue(apMac, out var apName);
 
+        // A client marked offline because the access point stopped hearing from it needs a last-seen
+        // or it cannot be found or ordered anywhere. Idle time is exactly how long ago that was, and
+        // it is a better answer than the Console's own last_seen, which keeps advancing for as long
+        // as the Console believes the stale association.
+        DateTimeOffset? lastSeen = null;
+        if (!isOnline && client.IdleTime > 0)
+        {
+            lastSeen = timestamp.AddSeconds(-client.IdleTime);
+        }
+        else if (!isOnline && client.LastSeen > 0)
+        {
+            lastSeen = DateTimeOffset.FromUnixTimeSeconds(client.LastSeen);
+        }
+
         // Use v2 display name (system-selected friendly name) first, then fall back to v1 fields
         displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
 
@@ -1259,6 +1273,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             IsAuthorized = !client.Blocked,
             IsGuest = client.IsGuest,
             IsOnline = isOnline,
+            LastSeen = lastSeen,
             FixedApEnabled = client.FixedApEnabled == true,
             FixedApMac = client.FixedApMac,
             FixedApName = client.FixedApEnabled == true && !string.IsNullOrEmpty(client.FixedApMac)
