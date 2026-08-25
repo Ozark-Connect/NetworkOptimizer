@@ -21338,5 +21338,14 @@ a.firmware-rollout-version-badge:hover {
    not push, where .btn-sm alone still holds the 6rem minimum. */
 .btn-fit {
     min-width: auto;
-    padding-inline: clamp(0.5rem, 2vw, 1.5rem);
+    padding-inline: 1.25rem;
+}
+
+/* Stepped, not scaled. The devices either side of this sit 37px apart, so a vw scale cannot give one
+   comfortable padding and the other a tight fit. Above 420 the row has room; at or below it the row
+   needs that space back to stay on one line. */
+@media (max-width: 420px) {
+    .btn-fit {
+        padding-inline: 0.5rem;
+    }
 }
