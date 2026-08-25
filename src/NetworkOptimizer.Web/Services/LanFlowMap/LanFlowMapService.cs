@@ -1653,6 +1653,12 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>
+    /// How old a cached client reading may be before the console's own value is preferred. Keeps
+    /// the overlay strictly an improvement: past this it is no fresher than what it would replace.
+    /// </summary>
+    private static readonly TimeSpan LiveClientMaxAge = TimeSpan.FromSeconds(30);
+
     private void BuildClientLeaves(
         NetworkTopology topology,
         Dictionary<string, LanPlacement> anchors,
@@ -1666,6 +1672,21 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(clientMac)) continue;
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
+
+            // The live cache is fed far faster than the console client list: every 500 ms while
+            // Client Performance is watching a client, every 10 s from an AP Agent otherwise,
+            // against the console's 30 s. Prefer it so a roam and a signal change reach the map at
+            // that rate. Bounded by age so it can only ever be fresher than what it replaces.
+            var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
+            if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
+
+            // Only follow the cache to an access point the topology actually holds, or the client
+            // node would hang off a parent that was never drawn.
+            if (live != null && !string.IsNullOrEmpty(live.ApMac))
+            {
+                var liveParent = NormalizeMac(live.ApMac);
+                if (rawByMac.ContainsKey(liveParent)) parentMac = liveParent;
+            }
 
             anchors.TryGetValue(clientMac, out var anchor);
             var nodeId = "cli-" + clientMac;
@@ -1684,10 +1705,12 @@ public class LanFlowMapService
             };
             if (!c.IsWired)
             {
-                node.Band = NormalizeBand(c.Radio);
-                node.SignalDbm = c.SignalStrength ?? c.Rssi;
-                node.PhyTxKbps = c.TxRate > 0 ? c.TxRate : null;
-                node.PhyRxKbps = c.RxRate > 0 ? c.RxRate : null;
+                node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
+                node.SignalDbm = live?.SignalDbm is { } dbm
+                    ? (int)Math.Round(dbm)
+                    : c.SignalStrength ?? c.Rssi;
+                node.PhyTxKbps = live?.TxRateKbps > 0 ? live.TxRateKbps : (c.TxRate > 0 ? c.TxRate : null);
+                node.PhyRxKbps = live?.RxRateKbps > 0 ? live.RxRateKbps : (c.RxRate > 0 ? c.RxRate : null);
             }
 
             var link = new LanLink
@@ -1696,7 +1719,7 @@ public class LanFlowMapService
                 FromNodeId = "dev-" + parentMac,
                 ToNodeId = nodeId,
                 Kind = c.IsWired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
-                Band = c.IsWired ? null : NormalizeBand(c.Radio),
+                Band = c.IsWired ? null : (NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio)),
             };
 
             if (c.IsWired && c.SwitchPort.HasValue)
