@@ -445,6 +445,15 @@ public class UniFiDiscovery
         // Console reports that table faithfully, so a device twenty miles away is still "connected"
         // here. Filtered at the point the Console's list becomes ours, because every surface that
         // draws clients reads it from here.
+        // TEMPORARY DIAGNOSTIC - remove once the presence filter is confirmed working.
+        foreach (var probe in clients.Where(c => !c.IsWired).Take(200))
+        {
+            _logger.LogInformation(
+                "PRESENCE-PROBE mac={Mac} idle={Idle} uptime={Up} ap={Ap} mlo={Mlo} present={Present}",
+                probe.Mac, probe.IdleTime, probe.Uptime, probe.ApMac, probe.IsMlo,
+                NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(probe.IdleTime));
+        }
+
         var discoveredClients = clients
             .Where(c => c.IsWired || NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(c.IdleTime))
             .Select(c =>
