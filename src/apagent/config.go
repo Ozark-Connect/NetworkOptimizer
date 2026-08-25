@@ -1,11 +1,11 @@
 package main
 
 import (
-	"time"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -33,24 +33,24 @@ const (
 	minSlowIntervalSeconds     = 10
 	maxSlowIntervalSeconds     = 600
 
-	defaultEventBufferSize   = 1024
-	defaultClientTTLSeconds  = 120
+	defaultEventBufferSize  = 1024
+	defaultClientTTLSeconds = 120
 
-	// defaultBytesIntervalSeconds paces the per-station counter tier. Half the server's poll so a
-	// poll always has a reading it did not already carry, and cheap enough to be unremarkable:
-	// one apstats call per associated station, each well under a millisecond.
-	defaultBytesIntervalSeconds = 5
+	// defaultBytesIntervalSeconds paces the counter tier. Matched to the server's own poll: one
+	// mca-dump per pass at a fixed cost, so a poll always has a reading it did not already carry
+	// without paying for readings nothing consumes.
+	defaultBytesIntervalSeconds = 10
 
 	// One call per associated station, so the floor keeps a busy access point from being asked
 	// faster than it can answer, and the ceiling keeps the tier meaningfully ahead of the
 	// identity poll it exists to beat.
-	minBytesIntervalSeconds = 2
+	minBytesIntervalSeconds = 5
 	maxBytesIntervalSeconds = 60
 
 	// absentGrace is how long a client may be missing from a VAP the poll actually read before it
 	// is dropped. Short on purpose: the read is the evidence, so this only has to survive a missed
 	// one. ClientTTLSeconds remains the bound for entries no poll has covered at all.
-	absentGrace = 6 * time.Second
+	absentGrace              = 6 * time.Second
 	defaultMaxTrackedClients = 512
 	// defaultInstallDir is tmpfs. The AP agent is ephemeral by design: the config partition behind
 	// /etc/persistent is 1 MB, so a Go binary cannot live there, and controller provisioning wipes
@@ -85,9 +85,9 @@ type Config struct {
 	// BytesIntervalSeconds paces the per-station counter tier, which is what makes throughput
 	// resolvable per poll rather than per write window.
 	BytesIntervalSeconds int `json:"bytes_interval_seconds"`
-	EventBufferSize     int `json:"event_buffer_size"`
-	ClientTTLSeconds    int `json:"client_ttl_seconds"`
-	MaxTrackedClients   int `json:"max_tracked_clients"`
+	EventBufferSize      int `json:"event_buffer_size"`
+	ClientTTLSeconds     int `json:"client_ttl_seconds"`
+	MaxTrackedClients    int `json:"max_tracked_clients"`
 }
 
 // Overrides are the flag values that win over the config file when set.

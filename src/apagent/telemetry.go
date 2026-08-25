@@ -352,18 +352,6 @@ func (t *Table) ApplyBytes(readings map[string]StaBytes, now time.Time) {
 	}
 }
 
-// StaTargets lists the stations to read counters for: whatever is currently associated.
-func (t *Table) StaTargets() []StaTarget {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	targets := make([]StaTarget, 0, len(t.members))
-	for key, m := range t.members {
-		targets = append(targets, StaTarget{Key: key, MAC: m.MAC})
-	}
-	return targets
-}
-
 // SetRadioCounters merges the radio-stats tools into the radio table and computes deltas against
 // the previous pass, which is what a CCA wedge is read from. Call it after every ApplySlow, with an
 // empty map when the tools are unavailable: mca-dump's own cu_* counters still want deltas.

@@ -62,6 +62,11 @@ func (s *tierState) info() TierInfo {
 	return info
 }
 
+// minTierRest is the shortest gap between two passes of a tier, whatever the pass cost. It exists
+// so a tier can never spin: a pass that overruns its interval still yields, rather than issuing
+// work back to back and turning a struggling access point into a hammered one.
+const minTierRest = 250 * time.Millisecond
+
 // Collector drives the three-tier model: pushed membership from the hostapd control socket, a fast
 // RF poll, and a slow identity poll. Every tier writes the in-memory table; nothing here is driven
 // by a request.
@@ -107,10 +112,9 @@ func (c *Collector) Apply(ctx context.Context, p ProbeSet) {
 	fast, _ := p.Get(ProbeWlanconfig)
 	slow, _ := p.Get(ProbeMcaDump)
 	ctrl, _ := p.Get(ProbeHostapdCtrl)
-	stats, _ := p.Get(ProbeApstatsSta)
 	c.fast.setAvailable(fast.Available)
 	c.slow.setAvailable(slow.Available)
-	c.bytes.setAvailable(stats.Available)
+	c.bytes.setAvailable(slow.Available)
 	c.evt.setAvailable(ctrl.Available)
 
 	c.events.Reconcile(ctx, p.Vaps)
@@ -153,9 +157,12 @@ func (c *Collector) loop(ctx context.Context, state *tierState, work func(contex
 		work(ctx)
 		c.publishTiers()
 
+		// A pass that overruns its interval must still yield. Clamping to zero meant a tier whose
+		// work outgrew its interval ran continuously, which turns a slow access point into a
+		// hammered one: the slower it answers, the harder we ask.
 		wait := state.interval - time.Since(start)
-		if wait < 0 {
-			wait = 0
+		if wait < minTierRest {
+			wait = minTierRest
 		}
 		select {
 		case <-ctx.Done():
@@ -199,28 +206,33 @@ func (c *Collector) runFast(ctx context.Context) {
 // identity poll, which is slow because mca-dump costs a few hundred milliseconds; one apstats call
 // per station is under a millisecond, so throughput can be resolved per poll instead of per write
 // window.
+// runBytes refreshes per-client byte counters, which is what makes throughput resolvable per poll
+// rather than per write window.
+//
+// One mca-dump for the whole access point, NOT one apstats per station. Per-station calls cost a
+// process spawn and a firmware round-trip each, so the load grew with the client count - forty
+// spawns a second on a two hundred client access point, forever. mca-dump carries every station's
+// counters in a single call at a fixed ~400 ms, so the cost is flat no matter how many clients
+// associate. It is more expensive than one apstats call and cheaper than eighty.
 func (c *Collector) runBytes(ctx context.Context) {
-	targets := c.table.StaTargets()
-	if len(targets) == 0 {
-		// Nothing associated is a successful pass, not a failure: reporting it as failed would
-		// read as a broken tier on an idle access point.
-		c.bytes.succeeded(time.Now().UTC())
+	if !c.bytes.info().Available {
+		return
+	}
+	now := time.Now().UTC()
+	snap, err := collectSlow(ctx, now)
+	if err != nil {
+		c.bytes.failed(err)
 		return
 	}
 
-	// Deliberately not gated on the probe. The probe can only resolve this by asking about a real
-	// station, so an access point with nobody on it at probe time reports the tier unavailable -
-	// and probes are minutes apart, which would leave a client that just joined without throughput
-	// for the rest of the interval. Having targets is the same evidence the probe would use, so
-	// the tier settles itself on the first pass that gets an answer.
-	now := time.Now().UTC()
-	readings := collectStaBytes(ctx, targets)
-	if len(readings) == 0 {
-		c.bytes.setAvailable(false)
-		c.bytes.failed(nil)
-		return
+	readings := make(map[string]StaBytes, len(snap.Stations))
+	for _, s := range snap.Stations {
+		if s.TxBytes == 0 && s.RxBytes == 0 {
+			continue
+		}
+		readings[stationKey(s.Vap, s.MAC)] = StaBytes{TxBytes: s.TxBytes, RxBytes: s.RxBytes, At: now}
 	}
-	c.bytes.setAvailable(true)
+
 	c.table.ApplyBytes(readings, now)
 	c.bytes.succeeded(now)
 }
