@@ -264,24 +264,13 @@ public sealed class ApAgentTelemetryCollector
 
         var at = s.BytesAt ?? now;
         var key = $"{s.ApMac}|{s.ClientMac}";
-        double? txBps = null, rxBps = null;
 
-        if (_passBytes.TryGetValue(key, out var prev))
-        {
-            var elapsed = (at - prev.At).TotalSeconds;
-            var deltaTx = tx - prev.TxBytes;
-            var deltaRx = rx - prev.RxBytes;
-
-            // A counter that went backwards is an association reset, not negative traffic.
-            if (elapsed > 0.5 && deltaTx >= 0 && deltaRx >= 0)
-            {
-                txBps = deltaTx * 8.0 / elapsed;
-                rxBps = deltaRx * 8.0 / elapsed;
-            }
-        }
+        var resolved = _passBytes.TryGetValue(key, out var prev)
+            ? ApAgentThroughput.FromCounters(tx, rx, at, prev.TxBytes, prev.RxBytes, prev.At)
+            : (null, null);
 
         _passBytes[key] = new PassBytes(at, tx, rx);
-        return (txBps, rxBps);
+        return resolved;
     }
 
     /// <summary>
