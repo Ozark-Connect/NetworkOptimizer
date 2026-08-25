@@ -34,4 +34,14 @@ public static class ApAgentPaths
 
     /// <summary>Name of the binary staged in the server's own tools directory.</summary>
     public const string LocalBinaryName = "apagent-linux-arm";
+
+    /// <summary>
+    /// Pattern that matches the running agent and nothing else. Two traps make the obvious forms
+    /// wrong: a plain -f pattern also matches the shell of the SSH command that carries it, so
+    /// pkill kills its own session and pgrep reports a running agent when none exists; and -x
+    /// cannot be used because Linux truncates comm to 15 characters, which clips the binary name.
+    /// The bracketed first character matches the process while the literal text here does not
+    /// match itself.
+    /// </summary>
+    public const string ProcessPattern = "[a]pagent-linux-arm";
 }

@@ -44,7 +44,7 @@ public static class ApAgentScripts
             $"echo '---PROCD---'; test -f {ApAgentPaths.ProcdIncludePath} && echo present || echo absent; " +
             $"echo '---BINARY---'; test -x {ApAgentPaths.RemoteBinaryPath} && echo exists || echo missing; " +
             $"echo '---WRAPPER---'; test -x {ApAgentPaths.RemoteWrapperPath} && echo exists || echo missing; " +
-            $"echo '---PROCESS---'; pgrep -f {ApAgentPaths.RemoteBinaryPath} > /dev/null 2>&1 && echo running || echo stopped; " +
+            $"echo '---PROCESS---'; pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1 && echo running || echo stopped; " +
             $"echo '---VERSION---'; {ApAgentPaths.RemoteWrapperPath} -version 2>/dev/null; " +
             $"echo '---BINARY_VERSION---'; {ApAgentPaths.RemoteWrapperPath} -binary-version 2>/dev/null; " +
             $"echo '---MD5---'; md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1";
@@ -120,8 +120,8 @@ public static class ApAgentScripts
     /// <summary>Stops the agent, through procd where it started it.</summary>
     public static string StopCommand(bool procdAvailable)
         => (procdAvailable ? $"test -x {ApAgentPaths.RemoteInitScriptPath} && {ApAgentPaths.RemoteInitScriptPath} stop >/dev/null 2>&1; " : "")
-           + $"pkill -f {ApAgentPaths.RemoteBinaryPath} 2>/dev/null; sleep 1; "
-           + $"pkill -0 -f {ApAgentPaths.RemoteBinaryPath} 2>/dev/null && pkill -9 -f {ApAgentPaths.RemoteBinaryPath}; true";
+           + $"pkill -f {ApAgentPaths.ProcessPattern} 2>/dev/null; sleep 1; "
+           + $"pgrep -f {ApAgentPaths.ProcessPattern} >/dev/null 2>&1 && pkill -9 -f {ApAgentPaths.ProcessPattern}; true";
 
     /// <summary>Stops the agent and clears everything it wrote. A reboot does the same thing.</summary>
     public static string RemoveCommand(bool procdAvailable)
@@ -130,7 +130,7 @@ public static class ApAgentScripts
 
     /// <summary>Reports whether the agent came up, with the tail of its log when it did not.</summary>
     public static string VerifyRunningCommand()
-        => $"sleep 2; if pgrep -f {ApAgentPaths.RemoteBinaryPath} > /dev/null 2>&1; then echo started; "
+        => $"sleep 2; if pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1; then echo started; "
            + $"else echo failed; tail -5 {ApAgentPaths.RemoteLogPath} 2>/dev/null; fi";
 
     /// <summary>Writes a text file on the AP by piping base64 through the shell.</summary>
