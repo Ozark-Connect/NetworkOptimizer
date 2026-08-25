@@ -21338,5 +21338,5 @@ a.firmware-rollout-version-badge:hover {
    not push, where .btn-sm alone still holds the 6rem minimum. */
 .btn-fit {
     min-width: auto;
-    padding-inline: clamp(1rem, 3vw, 1.5rem);
+    padding-inline: clamp(0.5rem, 4vw, 1.5rem);
 }
