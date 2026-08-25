@@ -1130,7 +1130,10 @@
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);
-        _isLogging = _isOwnDevice; // own device always logs; backend skips wired
+        // Own device logs, but not until the first poll settles what it is: a wireless one waits for
+        // the GPS watcher, a wired one starts straight away. Claiming it here made the label say
+        // Logging while nothing was being written yet.
+        _isLogging = false;
 
         // Build OpenSpeedTest URL
         await BuildOpenSpeedTestUrl();
@@ -1630,10 +1633,29 @@
         if (string.IsNullOrEmpty(_clientIp))
             return;
 
-        // Start GPS watcher on first poll for wireless own-device (needs _client to be loaded)
+        // Start GPS watcher on first poll for wireless own-device (needs _client to be loaded).
+        // Not awaited: a phone's first fix takes seconds and held up the whole poll, so the page sat
+        // on "Connecting..." waiting for a position it does not need to show live signal. Logging
+        // turns on when the watcher is actually up, so the label reads Live, then Live - Logging.
         if (!_gpsWatcherId.HasValue && _isOwnDevice && !_isInsecureContext
             && _client is { IsWired: false })
-            await StartGpsWatcherAsync();
+        {
+            _ = StartGpsWatcherAsync().ContinueWith(async _ =>
+            {
+                await InvokeAsync(() =>
+                {
+                    // Granted or denied, the attempt is over and logging starts either way: a denied
+                    // watcher still logs signal, just without coordinates.
+                    if (!_loggingSuspendedByZombie) _isLogging = true;
+                    StateHasChanged();
+                });
+            }, TaskScheduler.Default);
+        }
+        else if (_isOwnDevice && _client is { IsWired: true })
+        {
+            // No watcher for a wired own-device, so nothing gates logging.
+            _isLogging = true;
+        }
 
         // If the GPS watcher was sending callbacks (success or error) but went completely
         // silent, the browser is gone - stop persisting to avoid zombie writes.
