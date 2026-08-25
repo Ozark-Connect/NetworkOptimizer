@@ -357,6 +357,17 @@ if command -v go &> /dev/null; then
     else
         echo "Warning: wansteer source not found at $WANSTEER_SRC"
     fi
+
+    APAGENT_SRC="$REPO_ROOT/src/apagent"
+    if [ -d "$APAGENT_SRC" ]; then
+        cd "$APAGENT_SRC"
+        # AP Agent, pushed over SSH into tmpfs on each access point. Every U7-class access
+        # point measured is armv7l, so there is deliberately no arm64 target.
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm" .
+        echo "Built apagent for linux/arm/v7 (access point)"
+    else
+        echo "Warning: apagent source not found at $APAGENT_SRC"
+    fi
 else
     echo "Warning: Go not installed - speed test binaries not available"
     echo "  Install with: brew install go"
