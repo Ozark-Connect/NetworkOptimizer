@@ -1682,15 +1682,12 @@ public class LanFlowMapService
             var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
             if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
 
-            // Following the cache to a different access point needs a source that genuinely beats
-            // the topology fetch. A console-written entry is the same data this loop is already
-            // reading, only older, so honoring it would age the parent rather than refresh it.
-            // Also require the topology to hold that AP, or the node hangs off a parent never drawn.
-            if (live is { Source: not WifiClientSource.Console } && !string.IsNullOrEmpty(live.ApMac))
-            {
-                var liveParent = NormalizeMac(live.ApMac);
-                if (rawByMac.ContainsKey(liveParent)) parentMac = liveParent;
-            }
+            // Deliberately NOT re-parenting from the cache here. The snapshot is built from one
+            // console topology and is internally consistent; pointing a client at an access point
+            // this build did not draw leaves its node and link referencing a parent that does not
+            // exist, and the renderers drop it - a returning client vanishes rather than pops in.
+            // Fast roam re-attach belongs on the live tick (ApplyLiveClientStats), which validates
+            // the candidate against the nodes actually in the snapshot.
 
             anchors.TryGetValue(clientMac, out var anchor);
             var nodeId = "cli-" + clientMac;
