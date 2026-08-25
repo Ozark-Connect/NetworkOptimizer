@@ -26,6 +26,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly IAlertEventBus? _alertEventBus;
 
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
     private readonly Licensing.LicenseStateService? _licenseState;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -49,6 +50,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         ITopologySnapshotService snapshotService,
         IConfiguration configuration,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        MonitoringInfluxRegistry? influxRegistry = null,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -65,6 +67,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _configuration = configuration;
         _alertEventBus = alertEventBus;
         _siteDbFactory = siteDbFactory;
+        _influx = influxRegistry?.GetFor(_siteSlug);
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -290,7 +293,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             BackfillFromPathAnalysis(recentResult);
 
             // Update WiFi rate fields from path analysis max values
-            UpdateWifiRatesFromPathAnalysis(recentResult);
+            await SettleWifiRatesAsync(recentResult);
 
             // Clean up snapshot after use
             if (snapshot != null)
@@ -391,7 +394,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 await AnalyzePathAsync(result);
                 BackfillFromPathAnalysis(result);
-                UpdateWifiRatesFromPathAnalysis(result);
+                await SettleWifiRatesAsync(result);
             }
             await db.SaveChangesAsync();
         }
@@ -438,7 +441,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 await AnalyzePathAsync(result);
                 BackfillFromPathAnalysis(result);
-                UpdateWifiRatesFromPathAnalysis(result);
+                await SettleWifiRatesAsync(result);
             }
             await db.SaveChangesAsync();
         }
@@ -606,6 +609,129 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     /// <summary>
+    /// How far the series lag is shifted back. The access point measures, the agent polls, and the
+    /// collector writes, so a point timestamped now describes a moment a few seconds earlier.
+    /// </summary>
+    private static readonly TimeSpan SeriesLag = TimeSpan.FromSeconds(5);
+
+    /// <summary>Widens the window past the test so a short test still lands on points either side.</summary>
+    private static readonly TimeSpan SeriesSlack = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Replaces the trace's wireless rates with the association that actually explains the measured
+    /// throughput, taken from the time series rather than a single-instant topology fetch.
+    ///
+    /// The snapshot is one sample at an uncertain moment, so a client that roams mid-test can leave
+    /// it describing the wrong access point - and on a meshed one, carrying the mesh uplink's PHY
+    /// instead of the client's. The series is timestamped and carries the access point per point,
+    /// so it can answer which one served these seconds.
+    ///
+    /// Returns true when it applied, leaving the caller's own path unused. No series, or nothing that
+    /// fits, changes nothing.
+    /// </summary>
+    private async Task<bool> ReconcileWifiFromSeriesAsync(Iperf3Result result)
+    {
+        if (_influx is not { IsConfigured: true }) return false;
+        if (string.IsNullOrEmpty(result.ClientMac)) return false;
+
+        try
+        {
+            var duration = TimeSpan.FromSeconds(Math.Max(result.DurationSeconds, 1));
+            var to = result.TestTime - SeriesLag + SeriesSlack;
+            var from = result.TestTime - SeriesLag - duration - SeriesSlack;
+
+            var points = await _influx.QueryWifiClientSamplesAsync(result.ClientMac, from, to);
+            if (points.Count == 0)
+            {
+                _logger.LogDebug("Wi-Fi fit for {Mac}: no series points in {From:HH:mm:ss}-{To:HH:mm:ss}",
+                    result.ClientMac, from, to);
+                return false;
+            }
+
+            var candidates = points
+                .Where(p => !string.IsNullOrEmpty(p.ApMac))
+                .GroupBy(p => p.ApMac!, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new WifiFitCandidate(
+                    ApMac: g.Key,
+                    Band: g.Select(p => p.Band).FirstOrDefault(b => !string.IsNullOrEmpty(b)),
+                    TxRateKbps: Median(g.Select(p => p.TxRateKbps)),
+                    RxRateKbps: Median(g.Select(p => p.RxRateKbps)),
+                    SignalDbm: g.Where(p => p.SignalDbm.HasValue).Select(p => p.SignalDbm!.Value)
+                        .DefaultIfEmpty().Average(),
+                    Points: g.Count()))
+                .ToList();
+
+            // Download is From Device and is bounded by RX; upload is To Device and is bounded by TX.
+            double? fromDeviceBps = result.DownloadBitsPerSecond > 0 ? result.DownloadBitsPerSecond : null;
+            double? toDeviceBps = result.UploadBitsPerSecond > 0 ? result.UploadBitsPerSecond : null;
+
+            var scored = SpeedTestWifiFit.Score(candidates, fromDeviceBps, toDeviceBps);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                foreach (var sc in scored)
+                {
+                    _logger.LogDebug(
+                        "Wi-Fi fit for {Mac} on {Ap} ({Band}, {Points} pts): FromDevice {Down:F1}Mbps / RX {Rx}Mbps = {FromEff}, ToDevice {Up:F1}Mbps / TX {Tx}Mbps = {ToEff}, score {Score:F3}{Verdict}",
+                        result.ClientMac, sc.Candidate.ApMac, sc.Candidate.Band ?? "?", sc.Candidate.Points,
+                        (fromDeviceBps ?? 0) / 1e6, sc.Candidate.RxRateKbps / 1000 ?? 0, Pct(sc.FromDeviceEfficiency),
+                        (toDeviceBps ?? 0) / 1e6, sc.Candidate.TxRateKbps / 1000 ?? 0, Pct(sc.ToDeviceEfficiency),
+                        sc.Score, sc.Rejected == null ? "" : $" - REJECTED: {sc.Rejected}");
+                }
+            }
+
+            var best = scored.FirstOrDefault(x => x.IsViable);
+            if (best == null)
+            {
+                _logger.LogDebug("Wi-Fi fit for {Mac}: no candidate fits, keeping the realtime result ({Tx}/{Rx} Kbps)",
+                    result.ClientMac, result.WifiTxRateKbps, result.WifiRxRateKbps);
+                return false;
+            }
+
+            _logger.LogDebug(
+                "Wi-Fi fit for {Mac}: took {Ap} from the series, {Tx}/{Rx} Kbps (was {OldTx}/{OldRx} from realtime)",
+                result.ClientMac, best.Candidate.ApMac,
+                best.Candidate.TxRateKbps, best.Candidate.RxRateKbps,
+                result.WifiTxRateKbps, result.WifiRxRateKbps);
+
+            if (best.Candidate.TxRateKbps is > 0) result.WifiTxRateKbps = best.Candidate.TxRateKbps;
+            if (best.Candidate.RxRateKbps is > 0) result.WifiRxRateKbps = best.Candidate.RxRateKbps;
+
+            // The wireless hop is what the trace renders. Ingress is TX (To Device), egress is RX.
+            var hop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
+            if (hop != null)
+            {
+                if (best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
+                if (best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wi-Fi fit failed for {Mac}; keeping the realtime result", result.ClientMac);
+            return false;
+        }
+    }
+
+    private static string Pct(double? efficiency) => efficiency.HasValue ? $"{efficiency.Value * 100:F1}%" : "n/a";
+
+    private static long? Median(IEnumerable<long?> values)
+    {
+        var v = values.Where(x => x is > 0).Select(x => x!.Value).OrderBy(x => x).ToList();
+        return v.Count == 0 ? null : v[v.Count / 2];
+    }
+
+    /// <summary>
+    /// Settles the result's wireless rates. The time series wins when an association there explains
+    /// the measured throughput; otherwise the realtime path stands, unchanged.
+    /// </summary>
+    private async Task SettleWifiRatesAsync(Iperf3Result result)
+    {
+        if (await ReconcileWifiFromSeriesAsync(result)) return;
+        await SettleWifiRatesAsync(result);
+    }
+
+    /// <summary>
     /// Updates the result's WiFi rate fields with max values from path analysis.
     /// The hop rates already have max(snapshot, current) applied, so this syncs
     /// the result fields to match.
@@ -716,7 +842,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             BackfillFromPathAnalysis(result);
 
             // Update result's WiFi rate fields with max values from path analysis
-            UpdateWifiRatesFromPathAnalysis(result);
+            await SettleWifiRatesAsync(result);
 
             // Clean up snapshot after use (iperf3 client snapshots cleaned up in merge path or auto-expire)
             if (snapshot != null)
