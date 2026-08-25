@@ -12,6 +12,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="Radio">Interface name.</param>
 /// <param name="Band">Band token as the agent reported it.</param>
 /// <param name="Channel">Operating channel.</param>
+/// <param name="Width">Operating channel width in MHz; 0 when the agent did not report one.</param>
 /// <param name="NoiseFloor">Measured noise floor in dBm.</param>
 /// <param name="Counters">Cumulative airtime and wedge counters.</param>
 /// <param name="Deltas">The same counters' movement over the agent's own window.</param>
@@ -21,6 +22,7 @@ public sealed record ApAgentRadioAirtime(
     string Radio,
     string? Band,
     int Channel,
+    int Width,
     int? NoiseFloor,
     IReadOnlyDictionary<string, long> Counters,
     IReadOnlyDictionary<string, long> Deltas,
@@ -82,6 +84,7 @@ public sealed class ApAgentTelemetryCollector
     private readonly string _siteSlug;
 
     private readonly ApAgentCoverageLedger _coverage = new();
+    private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ApAgentRadioAirtime>> _radios = new(StringComparer.OrdinalIgnoreCase);
 
@@ -114,8 +117,15 @@ public sealed class ApAgentTelemetryCollector
     public bool CoversAp(string apMac) => _coverage.Covers(apMac, DateTime.UtcNow);
 
     /// <summary>
-    /// The latest airtime and wedge counters per access point. Held in memory only: long-term
-    /// airtime aggregation into ApChannelOutcome is a separate work item, and no Influx measurement
+    /// The hourly airtime aggregates the channel memory sweep consumes. The aggregator holds them
+    /// in memory only; persistence into ApChannelOutcome happens inside the sweep's own atomic
+    /// commit, never here, so the two sources can never both write the same radio-hour.
+    /// </summary>
+    public ApAgentAirtimeAggregator Airtime => _airtime;
+
+    /// <summary>
+    /// The latest airtime and wedge counters per access point. Held in memory only: hourly
+    /// aggregates flow to ApChannelOutcome through <see cref="Airtime"/>, and no Influx measurement
     /// is per-radio, so inventing one here is exactly what the additive-only rule forbids.
     /// </summary>
     public IReadOnlyList<ApAgentRadioAirtime> RadioAirtime(string apMac)
@@ -282,6 +292,7 @@ public sealed class ApAgentTelemetryCollector
                     r.Name,
                     r.Band,
                     r.Channel,
+                    r.Bandwidth,
                     r.NoiseFloor,
                     Retain(r.Counters),
                     Retain(r.Deltas),
@@ -290,6 +301,16 @@ public sealed class ApAgentTelemetryCollector
                 .ToList();
 
             _radios[target.Mac] = radios;
+
+            foreach (var r in payload.Radios)
+            {
+                // Serving radios only: the scan radio hops channels, and a counter-only entry has
+                // no radio state - either would charge a channel with airtime it never carried.
+                if (r.ScanRadio || r.CounterOnly) continue;
+                if (r.Counters == null || !r.Counters.TryGetValue("cu_total", out var cuTotal)) continue;
+                var cuInterf = r.Counters.TryGetValue("cu_interf", out var i) ? i : 0;
+                _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at);
+            }
         }
     }
 

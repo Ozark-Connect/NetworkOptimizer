@@ -242,6 +242,14 @@ public sealed class ApAgentRadio
     [JsonPropertyName("noise_floor")]
     public int? NoiseFloor { get; set; }
 
+    /// <summary>Whether this is the dedicated scan radio, which hops channels and serves no clients.</summary>
+    [JsonPropertyName("scan_radio")]
+    public bool ScanRadio { get; set; }
+
+    /// <summary>Whether this entry exists only to carry counters, with no radio state behind it.</summary>
+    [JsonPropertyName("counter_only")]
+    public bool CounterOnly { get; set; }
+
     /// <summary>Raw counters, a union across the radio-stats tools.</summary>
     [JsonPropertyName("counters")]
     public Dictionary<string, long>? Counters { get; set; }
