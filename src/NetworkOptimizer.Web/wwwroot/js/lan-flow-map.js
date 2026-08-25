@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=10';
+import * as flowData from './lan-flow-data.js?v=11';
 
 const COLORS = {
     background: 0x202023,
@@ -1924,9 +1924,12 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
-        // Periodic light snapshot refresh (30s) to pick up data changes
-        // (mesh PHY rates, online status, ISP speeds) without re-running
-        // force layout or resetting the camera.
+        // Periodic light snapshot refresh to pick up data changes (mesh PHY rates, online
+        // status, ISP speeds) without re-running force layout or resetting the camera.
+        // The endpoint serves a cached snapshot and only rebuilds on its own slow interval, so
+        // asking often costs a serialize, not a rebuild. Polling at the rebuild interval was
+        // the mistake: two unaligned 30s timers stacked, and a reconnecting client could wait a
+        // minute to appear.
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
         this._snapshotTimer = setInterval(async () => {
             if (this._mode === 'live' && !this._paused && !this._destroyed) {
@@ -1970,7 +1973,7 @@ export class LanFlowMap {
                     this._updateSignalMapHint();
                 } catch { /* transient */ }
             }
-        }, 30000);
+        }, 5000);
     }
 
 

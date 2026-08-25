@@ -70,15 +70,16 @@ export function publishSnapshot(snap) {
     _notify('snapshot');
 }
 
-// Transient client leaves the historic pass rebuilt for the scrub instant. They are merged
-// into the local snapshot so both maps pick them up through their normal snapshot rebuild
-// rather than needing their own node-insertion path, and are stripped again the moment the
-// instant no longer has them - so live mode always renders the pristine snapshot.
+// Client leaves that are not in the snapshot: rebuilt by the historic pass for a scrub instant,
+// and emitted on a live tick for a client the live cache has but the cached snapshot predates.
+// They are merged into the local snapshot so both maps pick them up through their normal rebuild
+// rather than needing their own node-insertion path, and are stripped again the moment an update
+// stops carrying them.
 let _addedClientIds = new Set();
 let _addedClientLinkIds = new Set();
 let _addedClientKey = '';
 
-function _applyHistoricClients(update) {
+function _applyAddedClients(update) {
     const nodes = update.addedClientNodes || [];
     const links = update.addedClientLinks || [];
     const key = nodes.map(n => n.id).sort().join(',');
@@ -123,7 +124,7 @@ export function publishLive(update) {
         : null;
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
-    if (_applyHistoricClients(update)) _notify('snapshot');
+    if (_applyAddedClients(update)) _notify('snapshot');
     _notify('live');
 }
 

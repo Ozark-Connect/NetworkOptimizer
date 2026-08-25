@@ -299,6 +299,7 @@ public class LanFlowMapService
         var snapshot = await BuildSnapshotAsync(ct);
 
         ApplyLiveClientStats(snapshot, update);
+        AddLiveOnlyClients(snapshot, update);
 
         // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
         // so this is cheap).
@@ -2434,6 +2435,74 @@ public class LanFlowMapService
         var idx = key.IndexOf('|');
         if (idx <= 0) return (string.Empty, string.Empty);
         return (key.Substring(0, idx), key.Substring(idx + 1));
+    }
+
+    /// <summary>
+    /// Emits client leaves the live cache holds but the cached snapshot does not, so a client that
+    /// reconnects appears without waiting for the next topology rebuild. The cache learns of an
+    /// association from the AP Agent within a poll, where the console client list the snapshot is
+    /// built from can take considerably longer.
+    ///
+    /// Console-sourced entries are skipped: those came from the same client list the snapshot was
+    /// built from, so anything they could add is already either in it or about to be.
+    /// </summary>
+    private void AddLiveOnlyClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        var nodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var live in _liveStats.AllWifiClients())
+        {
+            if (live.Source == WifiClientSource.Console) continue;
+            if (now - live.LastUpdate > LiveClientMaxAge) continue;
+
+            var clientMac = NormalizeMac(live.ClientMac);
+            var nodeId = "cli-" + clientMac;
+            if (string.IsNullOrEmpty(clientMac) || nodeIds.Contains(nodeId)) continue;
+
+            // A client whose access point this build did not draw is skipped rather than parented
+            // to a guess: a node pointing at a parent that does not exist is dropped by the
+            // renderers, which is worse than waiting for the rebuild.
+            if (string.IsNullOrEmpty(live.ApMac)) continue;
+            var parentId = "dev-" + NormalizeMac(live.ApMac);
+            if (!nodeIds.Contains(parentId)) continue;
+
+            var band = NormalizeBand(live.Band);
+            update.AddedClientNodes.Add(new LanNode
+            {
+                Id = nodeId,
+                Kind = LanNodeKind.WifiClient,
+                Mac = clientMac,
+                Name = !string.IsNullOrWhiteSpace(live.Hostname)
+                    ? live.Hostname
+                    : snapshot.RecentClientNames.GetValueOrDefault(clientMac, clientMac),
+                ParentId = parentId,
+                Band = band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : null,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : null,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : null,
+                Placement = snapshot.AnchorsByMac.GetValueOrDefault(clientMac),
+            });
+
+            var linkId = $"cli-link-{clientMac}";
+            update.AddedClientLinks.Add(new LanLink
+            {
+                Id = linkId,
+                FromNodeId = parentId,
+                ToNodeId = nodeId,
+                Kind = LanLinkKind.WifiClient,
+                Band = band,
+            });
+
+            // The rate pass walks the snapshot's links and this one is not in it, so without this
+            // the new leaf draws a dead line while its throughput sits right here.
+            update.LinkRates[linkId] = new LinkLiveRates
+            {
+                DownstreamBps = live.TxThroughputBps ?? 0,
+                UpstreamBps = live.RxThroughputBps ?? 0,
+                AsOf = live.LastUpdate,
+            };
+        }
     }
 
     /// <summary>

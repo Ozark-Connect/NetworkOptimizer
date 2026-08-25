@@ -331,6 +331,15 @@ public class LanFlowMapLiveUpdate
     public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
 
+    /// <summary>Clients the live cache knows about that the cached snapshot does not carry yet.
+    /// The snapshot rebuild is expensive and runs on its own slow interval, so without these a
+    /// client that reconnects waits for it. Same shape the historic path emits, and the data layer
+    /// merges both the same way.</summary>
+    public List<LanNode> AddedClientNodes { get; set; } = new();
+
+    /// <summary>Links for <see cref="AddedClientNodes"/>.</summary>
+    public List<LanLink> AddedClientLinks { get; set; } = new();
+
     /// <summary>Per-client connection stats (band/signal/PHY rate) keyed by client node id.
     /// Lets the maps override the snapshot-frozen values. Populated for historic playback, and on
     /// a live tick for any client whose live-cache entry came from a source faster than the console
