@@ -262,6 +262,7 @@ public class ApAgentWifiFoldTests
             Satisfaction: 98,
             TxBytes: txBytes,
             RxBytes: rxBytes,
+            BytesAt: null,
             IsMlo: false,
             TxRetries: txRetries,
             TxAttempts: 5_000,
