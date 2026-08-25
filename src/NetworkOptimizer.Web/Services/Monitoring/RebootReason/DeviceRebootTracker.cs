@@ -166,7 +166,8 @@ public class DeviceRebootTracker
         long? uptimeSeconds,
         string? firmwareVersion,
         DateTime observedAt,
-        UptimeSource source = UptimeSource.Monitoring)
+        UptimeSource source = UptimeSource.Monitoring,
+        string? model = null)
     {
         if (string.IsNullOrWhiteSpace(deviceMac) || uptimeSeconds is null or <= 0)
             return;
@@ -229,7 +230,8 @@ public class DeviceRebootTracker
         }
 
         _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
-            previousFirmware: known?.FirmwareVersion, currentFirmware: firmwareVersion);
+            previousFirmware: known?.FirmwareVersion, currentFirmware: firmwareVersion,
+            model: model);
     }
 
     /// <summary>
@@ -311,7 +313,8 @@ public class DeviceRebootTracker
         DateTime bootedAt,
         bool firmwareChanged,
         string? previousFirmware,
-        string? currentFirmware)
+        string? currentFirmware,
+        string? model = null)
     {
         if (string.IsNullOrWhiteSpace(host))
         {
@@ -320,6 +323,9 @@ public class DeviceRebootTracker
                 deviceName ?? "unknown", mac);
             return;
         }
+
+        if (!UniFi.UniFiProductDatabase.HasSsh(model, null))
+            return;
 
         // One probe per device at a time, and a cool-off after a miss. Devices whose SSH is not
         // set up land here on every health sample, so the skip is logged at Debug once per hour

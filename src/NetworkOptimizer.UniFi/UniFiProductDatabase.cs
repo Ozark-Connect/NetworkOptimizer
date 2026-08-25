@@ -805,6 +805,35 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
+    /// Switches that have no SSH daemon. These are managed exclusively through the
+    /// UniFi Network Application and will reject SSH connections at the transport layer.
+    /// </summary>
+    private static readonly HashSet<string> DevicesWithoutSsh = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Flex Series (excluding Flex XG, which does have SSH)
+        "USW-Flex",
+        "USW-Flex-Mini",
+        "USW-Flex-2.5G-5",
+        "USW-Flex-2.5G-8",
+        "USW-Flex-2.5G-8-PoE",
+
+        // Ultra Series
+        "USW-Ultra",
+        "USW-Ultra-60W",
+        "USW-Ultra-210W",
+    };
+
+    /// <summary>
+    /// Whether a device accepts SSH connections. Returns false for switch models known
+    /// to have no SSH daemon (Flex and Ultra families).
+    /// </summary>
+    public static bool HasSsh(string? model, string? shortname)
+    {
+        var productName = GetBestProductName(model, shortname);
+        return string.IsNullOrEmpty(productName) || !DevicesWithoutSsh.Contains(productName);
+    }
+
+    /// <summary>
     /// UniFi power devices (UPS, PDU, redundant power supplies, smart plugs/strips).
     /// Ubiquiti reports these with power-device capabilities and exposes a single
     /// internal/management port_table row. That port is not a controllable

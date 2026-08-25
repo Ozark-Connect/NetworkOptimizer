@@ -901,7 +901,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
                 _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
-                    device.Ip, uptime, device.Version, DateTime.UtcNow);
+                    device.Ip, uptime, device.Version, DateTime.UtcNow,
+                    model: device.Model);
 
                 if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
                     await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
@@ -997,7 +998,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
                 _rebootTracker.RecordUptimeSample(device.Mac, device.Name, device.DeviceType,
-                    device.Ip, uptime, device.Version, now);
+                    device.Ip, uptime, device.Version, now,
+                    model: device.Model);
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),

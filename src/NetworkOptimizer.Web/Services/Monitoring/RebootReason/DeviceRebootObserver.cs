@@ -162,7 +162,8 @@ public sealed class DeviceRebootObserver : BackgroundService
                 (long)device.Uptime.TotalSeconds,
                 device.Firmware,
                 now,
-                DeviceRebootTracker.UptimeSource.Console);
+                DeviceRebootTracker.UptimeSource.Console,
+                model: device.Model);
         }
 
         // Says the pass happened even when it changes nothing, which is the normal case: without it

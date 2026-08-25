@@ -1526,7 +1526,8 @@ public class AgentProbeResultSink
                 rebootAddress,
                 uptimeForReboot,
                 rebootFirmware,
-                timestamp);
+                timestamp,
+                model: apiDevice?.Model);
 
             // Threshold evaluation through the site's own evaluator instance, same
             // state machine the local medium tier runs. The name cache captured on
