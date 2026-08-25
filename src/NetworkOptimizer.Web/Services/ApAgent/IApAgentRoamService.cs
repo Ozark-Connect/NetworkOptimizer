@@ -46,4 +46,18 @@ public interface IApAgentRoamService
     /// <param name="clientMac">Client to check, or null for the site-level answer alone.</param>
     [RequireRole(Roles.Viewer)]
     Task<bool> IsAvailableAsync(string? clientMac = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Whether a band move is worth offering: we have seen this client on a band better than the one
+    /// it is on now. A client already at its best band declines every candidate and returns to where
+    /// it started, so asking costs a disconnection and achieves nothing.
+    ///
+    /// Observed bands undercount capability - a 6 GHz-capable client that has never had reason to
+    /// use it reads as 5 GHz-only. That is accepted: it will associate on 6 GHz by itself eventually
+    /// and be recorded then.
+    /// </summary>
+    /// <param name="clientMac">Client to check.</param>
+    /// <param name="currentBand">Band it is on now, in either the agent's ("5") or UniFi's ("na") spelling.</param>
+    [RequireRole(Roles.Viewer)]
+    Task<bool> CanChangeBandAsync(string clientMac, string? currentBand, CancellationToken ct = default);
 }

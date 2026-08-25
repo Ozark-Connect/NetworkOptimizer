@@ -172,6 +172,42 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         return await HasRoamedBeforeAsync(clientMac.Trim().ToLowerInvariant(), ct);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> CanChangeBandAsync(string clientMac, string? currentBand, CancellationToken ct = default)
+    {
+        var rank = BandRank(currentBand);
+        if (rank == 0) return true;
+
+        var mac = (clientMac ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(mac)) return false;
+
+        try
+        {
+            using var db = _siteDbFactory.CreateForSite(_siteSlug, _siteSlug == SiteManagementService.DefaultSiteSlug);
+            var seen = await db.ApRoamRecords.AsNoTracking()
+                .Where(r => r.ClientMac == mac)
+                .Select(r => new { r.Band, r.FromBand })
+                .ToListAsync(ct);
+
+            return seen.Any(s => BandRank(s.Band) > rank || BandRank(s.FromBand) > rank);
+        }
+        catch (Exception ex)
+        {
+            // Offer it rather than withhold on a read failure: the worst case is one refused steer.
+            _logger.LogDebug(ex, "Could not read observed bands for {Mac} on {Site}", mac, _siteSlug);
+            return true;
+        }
+    }
+
+    /// <summary>Rank of a band token, in either the agent's ("5") or UniFi's ("na") spelling.</summary>
+    private static int BandRank(string? band) => band switch
+    {
+        "6" or "6e" => 3,
+        "5" or "na" => 2,
+        "2.4" or "ng" => 1,
+        _ => 0,
+    };
+
     /// <summary>
     /// Whether this client has ever been recorded roaming - the only evidence that it survives a
     /// transition, since nothing reports BSS Transition support.
@@ -234,7 +270,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     private static List<string> OtherBandsOf(IEnumerable<string> own, IReadOnlyCollection<string> currentBands)
         => own.Select(e => (Element: e, Band: BandOf(e)))
             .Where(x => x.Band != null && !currentBands.Contains(x.Band))
-            .OrderByDescending(x => x.Band switch { "6" => 3, "5" => 2, _ => 1 })
+            .OrderByDescending(x => BandRank(x.Band))
             .Select(x => x.Element)
             .ToList();
 

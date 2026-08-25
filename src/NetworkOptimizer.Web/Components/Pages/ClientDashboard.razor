@@ -210,7 +210,7 @@
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
                            control that would refuse them. *@
                         <SiteOperatorOnly>
-                        <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="() => _showRoamOptions = true"
+                        <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="OnRoamClickAsync"
                                 disabled="@_roamBusy"
                                 data-tooltip="Ask this device to move to another band or access point. It decides, so it may stay put." data-tooltip-hover-only>
                             @if (_roamBusy)
@@ -1039,6 +1039,22 @@
                 StateHasChanged();
             });
         });
+    }
+
+    /// <summary>
+    /// Offers the choice only when there is one. A client already on its best band has nowhere to go
+    /// but down and will refuse, so Roam goes straight to moving it between access points.
+    /// </summary>
+    private async Task OnRoamClickAsync()
+    {
+        if (_client == null || _roamBusy) return;
+
+        var canChangeBand = false;
+        try { canChangeBand = await ApAgentRoam.CanChangeBandAsync(_client.Mac, _client.Band); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not resolve band options for {Mac}", _client.Mac); }
+
+        if (canChangeBand) _showRoamOptions = true;
+        else await SteerAsync(ApAgentRoamIntent.AccessPoint);
     }
 
     /// <summary>
