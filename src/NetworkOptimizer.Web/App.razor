@@ -734,18 +734,24 @@
                 if (hiddenMs < STALE_HIDDEN_MS) return;
 
                 // iOS/Android suspend setInterval while backgrounded, so the
-                // stuck-spinner timer may be dead. If the modal is already up
-                // and the server answers, the circuit is wedged - reload now.
+                // stuck-spinner timer may be dead. Probe the server ourselves.
+                // Retry: mobile network stacks take a few seconds to re-attach
+                // after resume (Wi-Fi rejoin, cellular radio wake).
+                const GIVE_UP_AFTER_MS = 12000;
+                const deadline = Date.now() + GIVE_UP_AFTER_MS;
+
                 if (blazorHandlingDrop()) {
-                    if (await serverIsUp()) location.reload();
+                    while (Date.now() < deadline) {
+                        if (!blazorHandlingDrop()) break;
+                        if (await serverIsUp()) { location.reload(); return; }
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
                     return;
                 }
 
                 // No modal - probe the circuit. One probe isn't enough: Blazor
                 // is often mid-reconnect on resume and the first ping times out
                 // on a circuit that's about to work.
-                const GIVE_UP_AFTER_MS = 12000;
-                const deadline = Date.now() + GIVE_UP_AFTER_MS;
                 while (Date.now() < deadline) {
                     if (blazorHandlingDrop()) {
                         if (await serverIsUp()) location.reload();
