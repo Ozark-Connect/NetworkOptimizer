@@ -544,12 +544,20 @@ func (t *Table) Clients(now time.Time) []Client {
 				Is11r: s.Is11r, IsMlo: s.IsMlo, Nss: s.Nss, BwMaxSupp: s.BwMaxSupp,
 			}
 		}
-		// After the slow block, which assigns the counters unconditionally from the identity
-		// poll. Same counters and same direction - apstats and mca-dump report a station
-		// identically - so this only ever makes them newer.
+		// Counters are always dated by when they were actually read, whichever tier supplied
+		// them. Leaving the identity poll's copy undated made the server date counters up to a
+		// whole slow interval old as if they were current, so the delta was divided by the wrong
+		// interval: one oversized spike, then zeroes until they moved again.
+		if _, ok := t.slow[key]; ok && !t.slowAt.IsZero() {
+			at := t.slowAt
+			link.BytesAt = &at
+		}
 		if b, ok := t.bytes[key]; ok && b.At.After(t.slowAt) {
+			// Same counters and same direction - apstats and mca-dump report a station
+			// identically - so this only ever makes them newer.
+			at := b.At
 			link.TxBytes, link.RxBytes = b.TxBytes, b.RxBytes
-			link.BytesAt = &b.At
+			link.BytesAt = &at
 		}
 
 		if m.Source == "event" {
