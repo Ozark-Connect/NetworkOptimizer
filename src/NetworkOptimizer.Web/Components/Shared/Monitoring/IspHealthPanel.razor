@@ -126,6 +126,20 @@
 }
 else if (_report == null)
 {
+    @if (ProbesViaDefaultRoute && Svc.Status != IspHealthStatus.NeedsDiscovery)
+    {
+        <div class="alert alert-warning" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-warning">!</span>
+                <div class="banner-text" style="flex: 1;">
+                    @SelectedWanLabel's Vantage has no binding, so its probes follow the default route and reflect its performance. Assign an Agent or bind a Policy-Routed source address to actually measure this connection.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Configure Vantage</button>
+                </div>
+            </div>
+        </div>
+    }
     @if (Svc.Status == IspHealthStatus.Computing)
     {
         <div class="isp-health-loading card">
@@ -141,7 +155,7 @@ else if (_report == null)
                 <div class="banner-text" style="flex: 1;">
                     @if (NeedsContextFirst)
                     {
-                        <text>@SelectedWanLabel has no vantage yet, so nothing probes it. Give it one, then discovery can trace its path.</text>
+                        <text>@SelectedWanLabel has no Vantage yet, so nothing probes it. Give it one, then discovery can trace its path.</text>
                     }
                     else
                     {
@@ -151,7 +165,7 @@ else if (_report == null)
                 <div class="banner-actions">
                     @if (NeedsContextFirst)
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN vantage</button>
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Add a WAN Vantage</button>
                     }
                     else
                     {
@@ -246,6 +260,20 @@ else if (_report == null)
 else
 {
     var r = _report;
+    @if (ProbesViaDefaultRoute)
+    {
+        <div class="alert alert-warning" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-warning">!</span>
+                <div class="banner-text" style="flex: 1;">
+                    @SelectedWanLabel's Vantage has no binding, so its probes follow the default route and reflect its performance. Assign an Agent or bind a Policy-Routed source address to actually measure this connection.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&contexts=1"))">Configure Vantage</button>
+                </div>
+            </div>
+        </div>
+    }
     @if (!r.HasUpstreamTraceMap)
     {
         <div class="alert alert-info" style="margin-bottom: 0.75rem;">
@@ -1106,6 +1134,7 @@ else
     // Which WANs a context names. A secondary WAN without one is not "not discovered yet" - it is
     // not probed at all, and discovery cannot change that.
     private HashSet<string> _wansWithContext = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _wansWithProbeBinding = new(StringComparer.OrdinalIgnoreCase);
     private string _selectedWanKey = "";
 
     /// <summary>
@@ -1137,7 +1166,7 @@ else
         try
         {
             foreach (var wan in await PathView.GetWansAsync())
-                options.Add(new WanChoice(wan.WanInterface.ToLowerInvariant(),
+                options.Add(new WanChoice(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan.WanInterface),
                     NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
                         wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
                     wan.IsPrimary));
@@ -1150,12 +1179,17 @@ else
                 Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsNoTracking(db.WanContexts));
             _wansWithContext = contexts
                 .Where(c => !string.IsNullOrEmpty(c.WanInterface))
-                .Select(c => c.WanInterface!.ToLowerInvariant())
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _wansWithProbeBinding = contexts
+                .Where(c => !string.IsNullOrEmpty(c.WanInterface)
+                    && (c.AgentId != null || !string.IsNullOrEmpty(c.ProbeSourceIp)))
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var ctx in contexts)
             {
                 if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
-                var key = ctx.WanInterface!.ToLowerInvariant();
+                var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(ctx.WanInterface!);
                 if (!options.Any(o => o.Key == key))
                     options.Add(new WanChoice(key,
                         NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
@@ -1373,6 +1407,23 @@ else
             var wan = _wanOptions.FirstOrDefault(
                 w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
             return wan is { IsPrimary: false } && !_wansWithContext.Contains(wan.Key);
+        }
+    }
+
+    /// <summary>
+    /// The selected WAN has a vantage but no probe binding (no agent, no source IP), so the
+    /// server probes its targets via the default route - which is the primary WAN's path. The
+    /// readings and scores reflect the primary connection, not this one.
+    /// </summary>
+    private bool ProbesViaDefaultRoute
+    {
+        get
+        {
+            var wan = _wanOptions.FirstOrDefault(
+                w => string.Equals(w.Key, _selectedWanKey, StringComparison.OrdinalIgnoreCase));
+            return wan is { IsPrimary: false }
+                && _wansWithContext.Contains(wan.Key)
+                && !_wansWithProbeBinding.Contains(wan.Key);
         }
     }
 
