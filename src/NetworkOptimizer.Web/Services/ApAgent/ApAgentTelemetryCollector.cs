@@ -261,7 +261,9 @@ public sealed class ApAgentTelemetryCollector
                             txThroughputBps: pass.Tx ?? 0,
                             rxThroughputBps: pass.Rx ?? 0,
                             signalDbm: sample.SignalDbm,
-                            timestamp: sample.BytesAt ?? now);
+                            timestamp: sample.BytesAt ?? now,
+                            txRateKbps: sample.TxRateKbps,
+                            rxRateKbps: sample.RxRateKbps);
                     }
                 }
             }
@@ -417,7 +419,9 @@ public sealed class ApAgentTelemetryCollector
                     txThroughputBps: null,
                     rxThroughputBps: null,
                     signalDbm: s.SignalDbm,
-                    timestamp: now.AddTicks(tickOffset++));
+                    timestamp: now.AddTicks(tickOffset++),
+                    txRateKbps: s.TxRateKbps,
+                    rxRateKbps: s.RxRateKbps);
                 continue;
             }
 

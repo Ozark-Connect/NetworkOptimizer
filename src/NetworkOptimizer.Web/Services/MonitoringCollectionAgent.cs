@@ -1404,7 +1404,9 @@ public class MonitoringCollectionAgent : BackgroundService
                     txThroughputBps: null,
                     rxThroughputBps: null,
                     signalDbm: c.Signal,
-                    timestamp: now.AddTicks(tickOffset++));
+                    timestamp: now.AddTicks(tickOffset++),
+                    txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                    rxRateKbps: c.RxRate > 0 ? c.RxRate : null);
             }
             else
             {

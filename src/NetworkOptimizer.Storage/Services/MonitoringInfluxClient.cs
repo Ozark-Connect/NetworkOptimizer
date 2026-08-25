@@ -643,7 +643,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? txThroughputBps,
         double? rxThroughputBps,
         double? signalDbm,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? txRateKbps = null,
+        long? rxRateKbps = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
 
@@ -656,6 +658,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
         if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
         if (signalDbm.HasValue) point = point.Field("signal_dbm", signalDbm.Value);
+
+        // PHY rides along with signal. Without it signal is 10 s and the rates are 30 s, so a reader
+        // pairs a fresh signal with a rate up to a window old - and a speed test short enough to sit
+        // between two full points has no rate to match against at all.
+        if (txRateKbps is > 0) point = point.Field("tx_rate_kbps", txRateKbps.Value);
+        if (rxRateKbps is > 0) point = point.Field("rx_rate_kbps", rxRateKbps.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
