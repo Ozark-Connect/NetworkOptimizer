@@ -219,13 +219,17 @@ public sealed class ApAgentTelemetryCollector
                     // client's links onto its MLD MAC.
                     var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac);
                     if (sample == null) continue;
+
+                    // BEFORE the accumulator, never after. WriteFolded publishes every folded entry
+                    // into the live cache, so a client the access point has not heard from went back
+                    // onto the map once per write window and survived there until the add path found
+                    // its entry too stale - in and out on a thirty second beat.
+                    if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+
                     accumulator.Add(sample, now);
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
-                    // Same bar as the stored point: not heard from, not connected now.
-                    if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
-
                     var pass = ResolvePassThroughput(sample, now);
                     PublishLive(sample, null, now, pass);
 
