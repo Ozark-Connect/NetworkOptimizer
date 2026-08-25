@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="Mac">The access point's MAC, lower-case colon form.</param>
 /// <param name="Host">Address to reach it on, before tunnel routing.</param>
 /// <param name="Token">Bearer token, decrypted, or null when it would not decrypt.</param>
-public sealed record ApAgentTarget(string Mac, string Host, string? Token);
+public sealed record ApAgentTarget(string Mac, string Host, string? Token, string? Name);
 
 /// <summary>
 /// Which access points on a site have an AP Agent, cached per site.
@@ -94,7 +94,7 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
                 var mac = ApAgentWifiFieldMapper.NormalizeMac(device.Mac);
                 if (!byMac.TryGetValue(mac, out var record) || !record.Enabled) continue;
 
-                targets.Add(new ApAgentTarget(mac, device.DisplayIpAddress, ResolveToken(record)));
+                targets.Add(new ApAgentTarget(mac, device.DisplayIpAddress, ResolveToken(record), device.Name));
             }
 
             cache.Targets = targets;

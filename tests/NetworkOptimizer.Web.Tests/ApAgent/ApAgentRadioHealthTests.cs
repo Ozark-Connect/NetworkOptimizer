@@ -147,8 +147,10 @@ public class ApAgentRadioHealthTests
     }
 
     [Fact]
-    public void One_radio_resetting_while_its_siblings_sit_still_is_reported()
+    public void A_radio_resetting_at_its_normal_rate_is_not_reported()
     {
+        // The case that made this rule noise: on U7 hardware 6 GHz resets continuously while its
+        // siblings sit at zero for their whole uptime, so steady background resets must stay quiet.
         var tracker = new ApAgentRadioHealthTracker();
         tracker.Observe([
             Reading(1_000_000_000, 20_000_000, 20_000_000, 4, 0, radio: "wifi0", band: "6"),
@@ -160,31 +162,39 @@ public class ApAgentRadioHealthTests
             Reading(1_030_000_000, 20_600_000, 20_600_000, 0, 30, radio: "wifi1", band: "5"),
         ]);
 
-        var isolated = ApAgentRadioWedgeDetector.IsolatedResets(windows);
-
-        isolated.Should().HaveCount(1);
-        isolated[0].Radio.Should().Be("wifi0");
-        isolated[0].PdevResetDelta.Should().Be(3);
+        // 3 resets in 30s is 6/min, which is the documented healthy residual.
+        var baseline = new Dictionary<string, double> { ["wifi0"] = 6.0, ["wifi1"] = 0.0 };
+        ApAgentRadioWedgeDetector.ElevatedResets(windows, baseline).Should().BeEmpty();
     }
 
     [Fact]
-    public void Every_radio_resetting_at_once_is_a_firmware_event_not_one_bad_radio()
+    public void A_reset_rate_far_above_its_own_baseline_is_reported()
     {
         var tracker = new ApAgentRadioHealthTracker();
-        tracker.Observe([
-            Reading(1_000_000_000, 20_000_000, 20_000_000, 1, 0, radio: "wifi0", band: "6"),
-            Reading(1_000_000_000, 20_000_000, 20_000_000, 1, 0, radio: "wifi1", band: "5"),
-        ]);
+        tracker.Observe([Reading(1_000_000_000, 20_000_000, 20_000_000, 100, 0, radio: "wifi0", band: "6")]);
 
-        var windows = tracker.Observe([
-            Reading(1_030_000_000, 20_600_000, 20_600_000, 2, 30, radio: "wifi0", band: "6"),
-            Reading(1_030_000_000, 20_600_000, 20_600_000, 2, 30, radio: "wifi1", band: "5"),
-        ]);
+        // 48 resets in 30s is 96/min, the rate measured during the real wedge.
+        var windows = tracker.Observe([Reading(1_030_000_000, 20_600_000, 20_600_000, 148, 30, radio: "wifi0", band: "6")]);
 
-        ApAgentRadioWedgeDetector.IsolatedResets(windows).Should().BeEmpty();
+        var baseline = new Dictionary<string, double> { ["wifi0"] = 6.0 };
+        var elevated = ApAgentRadioWedgeDetector.ElevatedResets(windows, baseline);
+
+        elevated.Should().HaveCount(1);
+        elevated[0].Radio.Should().Be("wifi0");
     }
 
     [Fact]
+    public void A_radio_with_no_baseline_yet_cannot_alert()
+    {
+        var tracker = new ApAgentRadioHealthTracker();
+        tracker.Observe([Reading(1_000_000_000, 20_000_000, 20_000_000, 100, 0, radio: "wifi0", band: "6")]);
+        var windows = tracker.Observe([Reading(1_030_000_000, 20_600_000, 20_600_000, 148, 30, radio: "wifi0", band: "6")]);
+
+        // Nothing to compare against, so a first observation must not fire on its own history.
+        ApAgentRadioWedgeDetector.ElevatedResets(windows, new Dictionary<string, double>()).Should().BeEmpty();
+    }
+
+        [Fact]
     public void A_wrapped_cycle_counter_does_not_fabricate_a_wedge()
     {
         var tracker = new ApAgentRadioHealthTracker();

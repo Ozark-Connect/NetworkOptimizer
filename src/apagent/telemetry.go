@@ -542,20 +542,23 @@ func applyFastToLink(link *ClientLink, f StaFast) {
 	link.FastAt = &at
 }
 
-// applySlowToLink lets the slow tier win on signal and rates. Both tiers report them, but the
-// slow tier is the source the console's own numbers come from, so the two cannot disagree here.
+// applySlowToLink fills what only mca-dump reports. RF belongs to the fast tier: wlanconfig samples
+// signal and rates at 1 Hz, and letting the 30s tier overwrite them served a value that changed
+// twice a minute, which is slower than the console path this replaces. Slow only supplies RF for a
+// link the fast tier has not reported.
 func applySlowToLink(link *ClientLink, s StaSlow) {
-	if s.Signal != nil {
+	stale := link.FastAt == nil
+	if s.Signal != nil && stale {
 		link.Signal = s.Signal
 	}
 	link.Noise = s.Noise
-	if s.RSSI != nil {
+	if s.RSSI != nil && stale {
 		link.SNR = s.RSSI
 	}
-	if s.TxRate > 0 {
+	if s.TxRate > 0 && stale {
 		link.TxRateKbps = s.TxRate
 	}
-	if s.RxRate > 0 {
+	if s.RxRate > 0 && stale {
 		link.RxRateKbps = s.RxRate
 	}
 	link.TxRateMov, link.RxRateMov = s.TxRateMov, s.RxRateMov

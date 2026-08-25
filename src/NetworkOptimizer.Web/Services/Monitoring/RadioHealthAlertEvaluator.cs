@@ -26,6 +26,13 @@ public class RadioHealthAlertEvaluator
     private readonly ConcurrentDictionary<string, ApAgentRadioWedgeDetector> _detectors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTime> _resetAlertedAt = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Each radio's established resets-per-minute, keyed "apMac:radio". Held in memory: losing it on
+    /// a restart costs a few passes of quiet, where persisting a stale baseline would let a radio
+    /// that has degraded since alert on arrival.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, double> _resetBaseline = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>An isolated-reset alert repeats no more often than this while the pattern holds.</summary>
     private static readonly TimeSpan ResetRepeat = TimeSpan.FromHours(6);
 
@@ -58,7 +65,22 @@ public class RadioHealthAlertEvaluator
             await PublishWedgeAsync(apMac, apName, window, ct);
         }
 
-        foreach (var window in ApAgentRadioWedgeDetector.IsolatedResets(windows))
+        var baselines = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var w in windows)
+        {
+            if (w.PdevResetDelta is null || w.WindowSeconds <= 0) continue;
+            var bkey = $"{apMac}:{w.Radio}";
+            if (_resetBaseline.TryGetValue(bkey, out var known)) baselines[w.Radio] = known;
+
+            // Fold this pass in afterwards, so a window is judged against the baseline that existed
+            // before it and cannot raise the bar it is being measured against.
+            var rate = w.PdevResetDelta.Value / (w.WindowSeconds / 60.0);
+            _resetBaseline[bkey] = _resetBaseline.TryGetValue(bkey, out var prev)
+                ? (prev * 0.9) + (rate * 0.1)
+                : rate;
+        }
+
+        foreach (var window in ApAgentRadioWedgeDetector.ElevatedResets(windows, baselines))
         {
             var key = $"{apMac}:{window.Radio}";
             if (_resetAlertedAt.TryGetValue(key, out var last) && DateTime.UtcNow - last < ResetRepeat) continue;

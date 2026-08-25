@@ -300,7 +300,7 @@ public sealed class ApAgentTelemetryCollector
                 .ToList();
 
             _radios[target.Mac] = radios;
-            await _insights.RadioHealth.RecordAsync(target.Mac, null, radios, ct);
+            await _insights.RadioHealth.RecordAsync(target.Mac, target.Name, radios, ct);
 
             foreach (var r in payload.Radios)
             {

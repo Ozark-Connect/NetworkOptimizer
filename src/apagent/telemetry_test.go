@@ -1120,3 +1120,31 @@ func TestEventSourceTalliesUnknownLinesWithinABound(t *testing.T) {
 		t.Error("ignored lines must be counted")
 	}
 }
+
+func TestFastTierOwnsRFAgainstTheSlowTier(t *testing.T) {
+	// The 30s mca-dump pass used to overwrite the 1 Hz wlanconfig reading, so the served signal
+	// changed twice a minute. Do not "reconcile" the tiers by letting slow win again.
+	link := &ClientLink{}
+	fastSignal, slowSignal := -54, -70
+
+	applyFastToLink(link, StaFast{Signal: &fastSignal, TxRateKbps: 2161000, CollectedAt: time.Now()})
+	applySlowToLink(link, StaSlow{Signal: &slowSignal, TxRate: 100000})
+
+	if link.Signal == nil || *link.Signal != fastSignal {
+		t.Errorf("signal = %v, want the fast tier's %d", link.Signal, fastSignal)
+	}
+	if link.TxRateKbps != 2161000 {
+		t.Errorf("tx rate = %d, want the fast tier's 2161000", link.TxRateKbps)
+	}
+}
+
+func TestSlowTierSuppliesRFWhenFastHasNotReported(t *testing.T) {
+	link := &ClientLink{}
+	slowSignal := -70
+
+	applySlowToLink(link, StaSlow{Signal: &slowSignal, TxRate: 100000})
+
+	if link.Signal == nil || *link.Signal != slowSignal {
+		t.Errorf("signal = %v, want the slow tier's %d when fast is absent", link.Signal, slowSignal)
+	}
+}

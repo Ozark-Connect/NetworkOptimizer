@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var version = "dev"
+var version = "0.1.0-dev"
 
 // binaryVersionRaw holds the AP agent's CONTRACT version - an integer that is completely
 // independent of the release version above.
