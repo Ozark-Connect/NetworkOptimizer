@@ -212,7 +212,7 @@
                         <SiteOperatorOnly>
                         <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="OnRoamClickAsync"
                                 disabled="@_roamBusy"
-                                data-tooltip="Ask this device to move to another band or access point. It decides, so it may stay put." data-tooltip-hover-only>
+                                data-tooltip="Ask this device to move to another band or access point. It may briefly disconnect." data-tooltip-hover-only>
                             @if (_roamBusy)
                             {
                                 <span class="spinner spinner-sm"></span>
