@@ -88,13 +88,16 @@ public enum RebootReasonSource
 /// and firmware upgrades name the version from the UniFi device data when the evidence cannot.
 /// v7: a kernel crash dump only explains this boot when the console ring did NOT end deliberately
 /// and the dump dates to this boot - dumps outlive the boot that produced them.
-/// v8: an unexpected probe result is overridden to CommandedReboot when a UniFi Network restart
-/// event sits within the window - catches devices that crash during a commanded shutdown.
 /// </summary>
+/// <remarks>
+/// The commanded-restart override (UniFi event overriding an unexpected pstore classification)
+/// is a runtime signal, not a parser rule change - the same evidence classifies identically,
+/// so no version bump is needed and stored v7 records are not re-probed.
+/// </remarks>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 8;
+    public const int Version = 7;
 }
 
 /// <summary>
