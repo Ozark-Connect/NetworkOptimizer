@@ -200,9 +200,6 @@ func (c *Collector) runFast(ctx context.Context) {
 // per station is under a millisecond, so throughput can be resolved per poll instead of per write
 // window.
 func (c *Collector) runBytes(ctx context.Context) {
-	if !c.bytes.info().Available {
-		return
-	}
 	targets := c.table.StaTargets()
 	if len(targets) == 0 {
 		// Nothing associated is a successful pass, not a failure: reporting it as failed would
@@ -210,12 +207,20 @@ func (c *Collector) runBytes(ctx context.Context) {
 		c.bytes.succeeded(time.Now().UTC())
 		return
 	}
+
+	// Deliberately not gated on the probe. The probe can only resolve this by asking about a real
+	// station, so an access point with nobody on it at probe time reports the tier unavailable -
+	// and probes are minutes apart, which would leave a client that just joined without throughput
+	// for the rest of the interval. Having targets is the same evidence the probe would use, so
+	// the tier settles itself on the first pass that gets an answer.
 	now := time.Now().UTC()
 	readings := collectStaBytes(ctx, targets)
 	if len(readings) == 0 {
+		c.bytes.setAvailable(false)
 		c.bytes.failed(nil)
 		return
 	}
+	c.bytes.setAvailable(true)
 	c.table.ApplyBytes(readings, now)
 	c.bytes.succeeded(now)
 }
