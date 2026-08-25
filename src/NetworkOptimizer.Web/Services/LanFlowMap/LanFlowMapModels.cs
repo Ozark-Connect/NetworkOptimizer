@@ -332,8 +332,10 @@ public class LanFlowMapLiveUpdate
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
 
     /// <summary>Per-client connection stats (band/signal/PHY rate) keyed by client node id.
-    /// Lets the maps override the snapshot-frozen values. Populated for historic playback;
-    /// the live tick leaves it empty (snapshot rebuilds keep live values fresh enough).</summary>
+    /// Lets the maps override the snapshot-frozen values. Populated for historic playback, and on
+    /// a live tick for any client whose live-cache entry came from a source faster than the console
+    /// (an AP Agent, or Client Performance watching it), which the slow snapshot rebuild cannot
+    /// keep up with.</summary>
     public Dictionary<string, NodeClientStats> ClientStats { get; set; } = new();
 }
 

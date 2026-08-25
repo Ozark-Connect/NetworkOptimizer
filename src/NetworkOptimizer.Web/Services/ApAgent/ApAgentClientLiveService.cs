@@ -103,6 +103,7 @@ public sealed class ApAgentClientLiveService
                 RxRateKbps = c.RxRateKbps > 0 ? c.RxRateKbps : null,
                 Rssi = c.Snr,
                 IsMlo = c.IsMlo,
+                Source = WifiClientSource.ApAgent,
                 LastUpdate = DateTime.UtcNow,
             });
         }

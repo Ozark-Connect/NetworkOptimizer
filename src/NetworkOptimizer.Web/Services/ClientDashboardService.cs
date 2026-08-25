@@ -1133,6 +1133,7 @@ public class ClientDashboardService
                 Satisfaction = wifiman.WiFiExperience ?? prior?.Satisfaction,
                 Rssi = prior?.Rssi,
                 IsMlo = prior?.IsMlo ?? false,
+                Source = WifiClientSource.WiFiMan,
                 LastUpdate = DateTime.UtcNow,
             });
         }

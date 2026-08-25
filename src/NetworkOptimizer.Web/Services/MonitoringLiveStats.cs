@@ -603,6 +603,7 @@ public class MonitoringLiveStats
                     Satisfaction = fresh.Satisfaction,
                     Rssi = fresh.Rssi,
                     IsMlo = fresh.IsMlo,
+                    Source = fresh.Source,
                     Hostname = fresh.Hostname ?? prior.Hostname,
                     LastUpdate = fresh.LastUpdate,
                     ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
@@ -713,6 +714,18 @@ public class MonitoringLiveStats
 /// throughput and uses PHY rate as the "pipe width" / utilization denominator.
 /// Don't conflate them.
 /// </summary>
+/// <summary>
+/// Where a live client reading came from, fastest first. The AP Agent polls every 10 s and Client
+/// Performance drives it to 500 ms; WiFiman runs at 1 Hz on sites with no agent; the console wifi
+/// tier is the 30 s baseline every site has.
+/// </summary>
+public enum WifiClientSource
+{
+    Console,
+    WiFiMan,
+    ApAgent,
+}
+
 public record WifiClientLiveSnapshot
 {
     public required string ClientMac { get; init; }
@@ -737,6 +750,13 @@ public record WifiClientLiveSnapshot
     public bool IsMlo { get; init; }
     public string? Hostname { get; init; }
     public DateTime LastUpdate { get; init; }
+
+    /// <summary>
+    /// Which poller wrote this. Readers that must decide whether the cache beats their own copy of
+    /// the same console data need it: age cannot separate the sources, since a console write is
+    /// zero seconds old at the moment it lands.
+    /// </summary>
+    public WifiClientSource Source { get; init; } = WifiClientSource.Console;
 
     /// <summary>Internal: tracks consecutive 0/0 throughput polls so a single
     /// transient zero between active samples doesn't blink the UI to silent.</summary>

@@ -298,6 +298,8 @@ public class LanFlowMapService
         // will short-circuit on the freshness check inside the cache.
         var snapshot = await BuildSnapshotAsync(ct);
 
+        ApplyLiveClientStats(snapshot, update);
+
         // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
         // so this is cheap).
         var wans = await _pathView.GetWansAsync(ct);
@@ -1680,9 +1682,11 @@ public class LanFlowMapService
             var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
             if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
 
-            // Only follow the cache to an access point the topology actually holds, or the client
-            // node would hang off a parent that was never drawn.
-            if (live != null && !string.IsNullOrEmpty(live.ApMac))
+            // Following the cache to a different access point needs a source that genuinely beats
+            // the topology fetch. A console-written entry is the same data this loop is already
+            // reading, only older, so honoring it would age the parent rather than refresh it.
+            // Also require the topology to hold that AP, or the node hangs off a parent never drawn.
+            if (live is { Source: not WifiClientSource.Console } && !string.IsNullOrEmpty(live.ApMac))
             {
                 var liveParent = NormalizeMac(live.ApMac);
                 if (rawByMac.ContainsKey(liveParent)) parentMac = liveParent;
@@ -2433,6 +2437,50 @@ public class LanFlowMapService
         var idx = key.IndexOf('|');
         if (idx <= 0) return (string.Empty, string.Empty);
         return (key.Substring(0, idx), key.Substring(idx + 1));
+    }
+
+    /// <summary>
+    /// Carries per-client RF onto the live tick for clients whose cache entry beats the snapshot.
+    /// The snapshot rebuilds on its own slow cadence, which used to be fresh enough because the
+    /// console was the only source; an AP Agent updates a client every 10 s and Client Performance
+    /// drives it to 500 ms, so waiting for a rebuild strands the map minutes behind what the same
+    /// client's page is showing.
+    ///
+    /// Console-sourced entries are skipped: that is the very data the snapshot was built from, so
+    /// emitting it would cost payload to say nothing. A site with no AP Agent and nobody watching a
+    /// client therefore sends exactly what it sent before.
+    /// </summary>
+    private void ApplyLiveClientStats(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        HashSet<string>? nodeIds = null;
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
+
+            var live = _liveStats.GetWifiClient(node.Mac);
+            if (live == null || live.Source == WifiClientSource.Console) continue;
+            if (now - live.LastUpdate > LiveClientMaxAge) continue;
+
+            // Re-attaching to an access point the map never drew would strand the client's link.
+            string? apNodeId = null;
+            if (!string.IsNullOrEmpty(live.ApMac))
+            {
+                nodeIds ??= snapshot.Nodes.Select(n => n.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var candidate = "dev-" + NormalizeMac(live.ApMac);
+                if (nodeIds.Contains(candidate)) apNodeId = candidate;
+            }
+
+            update.ClientStats[node.Id] = new NodeClientStats
+            {
+                Band = NormalizeBand(live.Band) ?? node.Band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : node.SignalDbm,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : node.PhyTxKbps,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : node.PhyRxKbps,
+                ApNodeId = apNodeId,
+            };
+        }
     }
 
     private static string? NormalizeBand(string? radio) => radio switch
