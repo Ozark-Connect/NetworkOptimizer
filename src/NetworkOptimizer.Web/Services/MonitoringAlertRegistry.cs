@@ -49,8 +49,11 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
             // per-target events for the WAN categories in its favor), so it is created first
             // and handed in rather than exposed on the bundle.
             var wanOutages = ActivatorUtilities.CreateInstance<WanOutageEvaluator>(_serviceProvider, s, bus);
+            // Shared across both evaluators that can fire device offline/recovered so
+            // whichever fires first wins and the other is suppressed.
+            var dedup = new Monitoring.DeviceOfflineDeduplicator();
             return new SiteAlertEvaluators(
-                ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s, bus, wanOutages),
+                ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s, bus, wanOutages, dedup),
                 ActivatorUtilities.CreateInstance<DeviceHealthAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),
@@ -58,7 +61,7 @@ public class MonitoringAlertRegistry : ISiteScopedRegistry
                 ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<StarlinkAlertEvaluator>(_serviceProvider, s, bus),
                 ActivatorUtilities.CreateInstance<DeviceRebootAlertEvaluator>(_serviceProvider, s, bus),
-                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus));
+                ActivatorUtilities.CreateInstance<DeviceStateAlertEvaluator>(_serviceProvider, s, bus, dedup));
         });
 
     /// <summary>The default site's evaluators.</summary>

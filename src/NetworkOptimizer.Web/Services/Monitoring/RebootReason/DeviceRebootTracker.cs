@@ -48,6 +48,22 @@ public class DeviceRebootTracker
     private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Recent UniFi Network restart events, keyed by normalized MAC. When a device crashes
+    /// during a commanded restart, the SSH probe sees an unclean shutdown and classifies it
+    /// as unexpected. Checking this lets the probe result be corrected when UniFi Network
+    /// says the restart was initiated, not spontaneous.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, CommandedRestartEvent> _commandedRestarts = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A restart event must sit within this window of the boot time to override an unexpected
+    /// probe result.
+    /// </summary>
+    internal static readonly TimeSpan CommandedRestartWindow = TimeSpan.FromMinutes(2);
+
+    private record CommandedRestartEvent(string EventKey, string? AdminName, DateTime ReceivedAt);
+
+    /// <summary>
     /// Caps concurrent probes for this site. Uptime samples arrive for every device in one pass, so
     /// a first run - or any classifier bump, which re-probes the fleet - would otherwise open an SSH
     /// session to every device at once, frequently through a single agent tunnel. Probes are rare
@@ -286,8 +302,15 @@ public class DeviceRebootTracker
     }
 
     /// <summary>
-    /// Apply a UniFi Network event as the fallback reason for a device's current boot. Only used
-    /// when the on-device probe found nothing, since these events are generic and often wrong.
+    /// Record that UniFi Network issued a restart event for a device. Called as events arrive,
+    /// before the SSH probe resolves. Two roles:
+    /// <list type="number">
+    /// <item>Fallback: if the probe finds nothing, the event becomes the reason.</item>
+    /// <item>Override: if the probe classifies the boot as unexpected but a commanded restart
+    /// event sits near the boot time, the classification is corrected to CommandedReboot. This
+    /// catches devices that crash during a commanded shutdown sequence (the driver goes wrong,
+    /// pstore shows no clean shutdown marker, but the restart was initiated).</item>
+    /// </list>
     /// </summary>
     /// <param name="deviceMac">Device MAC.</param>
     /// <param name="eventKey">UniFi event key, e.g. <c>EVT_SW_RestartedUnknown</c>.</param>
@@ -297,12 +320,61 @@ public class DeviceRebootTracker
         if (string.IsNullOrWhiteSpace(deviceMac)) return;
 
         var mac = Normalize(deviceMac);
-        if (!_records.TryGetValue(mac, out var record) || record.Reason != null) return;
+        var parsedEvent = RebootReasonParser.ParseUniFiEvent(eventKey, adminName);
+        if (parsedEvent == null) return;
 
-        var reason = RebootReasonParser.ParseUniFiEvent(eventKey, adminName);
-        if (reason == null) return;
+        // Always record the event so the probe can check it when it resolves later.
+        if (parsedEvent.Category == RebootCategory.CommandedReboot)
+            _commandedRestarts[mac] = new CommandedRestartEvent(eventKey!, adminName, DateTime.UtcNow);
 
-        await StoreAsync(mac, record.BootedAt, reason, DeviceType.Unknown);
+        if (!_records.TryGetValue(mac, out var record)) return;
+
+        // Role 1: fallback when probe has not resolved yet.
+        if (record.Reason == null)
+        {
+            await StoreAsync(mac, record.BootedAt, parsedEvent, DeviceType.Unknown);
+            return;
+        }
+
+        // Role 2: override an unexpected probe result with a commanded restart.
+        if (record.Reason.IsUnexpected && parsedEvent.Category == RebootCategory.CommandedReboot)
+        {
+            var overridden = OverrideWithCommandedRestart(record.Reason, adminName);
+            _logger.LogInformation(
+                "Overriding {OldCategory} with {NewCategory} for {Mac}: UniFi Network says the restart was commanded",
+                record.Reason.Category, overridden.Category, mac);
+            await StoreAsync(mac, record.BootedAt, overridden, DeviceType.Unknown);
+        }
+    }
+
+    /// <summary>
+    /// Check whether a recently recorded UniFi restart event explains this boot, and if so
+    /// override an unexpected probe result with CommandedReboot. Called from the probe path
+    /// after it resolves.
+    /// </summary>
+    private DeviceRebootReason? TryOverrideFromCommandedRestart(
+        string mac, DeviceRebootReason probeResult, DateTime bootedAt)
+    {
+        if (!probeResult.IsUnexpected) return null;
+        if (!_commandedRestarts.TryGetValue(mac, out var evt)) return null;
+
+        if ((evt.ReceivedAt - bootedAt).Duration() > CommandedRestartWindow)
+            return null;
+
+        return OverrideWithCommandedRestart(probeResult, evt.AdminName);
+    }
+
+    private static DeviceRebootReason OverrideWithCommandedRestart(
+        DeviceRebootReason original, string? adminName)
+    {
+        var by = string.IsNullOrWhiteSpace(adminName)
+            ? "Restarted via UniFi Network"
+            : $"Restarted by {adminName}";
+        return new DeviceRebootReason(
+            RebootCategory.CommandedReboot,
+            "Restarted",
+            $"{by} (shutdown was not clean: {original.Summary.ToLowerInvariant()})",
+            RebootReasonSource.UniFiEvent);
     }
 
     private async Task ResolveInBackgroundAsync(
@@ -368,12 +440,22 @@ public class DeviceRebootTracker
 
             if (reason == null)
             {
-                // Probe logs why (unreachable vs. reachable but no evidence); this line ties it
-                // back to the device and says what the UI will show until the next attempt.
                 _logger.LogDebug(
                     "No reboot reason established for {Device} ({Mac}); will retry in {Retry} and fall back to the UniFi Network event if one arrives",
                     deviceName ?? "unknown", mac, ProbeRetryDelay);
                 return;
+            }
+
+            // A device that crashed during a commanded restart (the driver went wrong during
+            // shutdown) reads as unexpected from pstore alone. If UniFi Network says it was
+            // told to restart, the classification is corrected.
+            var overridden = TryOverrideFromCommandedRestart(mac, reason, bootedAt);
+            if (overridden != null)
+            {
+                _logger.LogInformation(
+                    "Overriding {OldCategory} with CommandedReboot for {Device} ({Mac}): UniFi Network event within window",
+                    reason.Category, deviceName ?? "unknown", mac);
+                reason = overridden;
             }
 
             // The boot may have rolled over while the probe ran; only store against the boot we probed.

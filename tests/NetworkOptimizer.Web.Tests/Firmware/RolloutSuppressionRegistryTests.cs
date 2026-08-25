@@ -218,7 +218,7 @@ public class RolloutSuppressionRegistryTests
         var bus = new CapturingBus();
         var registry = new RolloutSuppressionRegistry();
         var evaluator = new DeviceStateAlertEvaluator(
-            bus, new DeviceTransitionTracker(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
         registry.Refresh(Site, Mac, Now);
 
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, Now);
@@ -233,7 +233,7 @@ public class RolloutSuppressionRegistryTests
         var bus = new CapturingBus();
         var registry = new RolloutSuppressionRegistry();
         var evaluator = new DeviceStateAlertEvaluator(
-            bus, new DeviceTransitionTracker(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
         registry.Refresh(Site, Mac, Now);
 
         var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);

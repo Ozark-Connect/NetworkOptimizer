@@ -34,6 +34,7 @@ public class DeviceStateAlertEvaluator
 
     private readonly IAlertEventBus _eventBus;
     private readonly DeviceTransitionTracker _transitions;
+    private readonly DeviceOfflineDeduplicator _dedup;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ILogger<DeviceStateAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, DeviceAlertState> _states = new(StringComparer.OrdinalIgnoreCase);
@@ -42,6 +43,7 @@ public class DeviceStateAlertEvaluator
 
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="transitions">Which devices UniFi reports as mid-transition.</param>
+    /// <param name="dedup">Shared de-dup tracker for device offline/recovered alerts.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this instance evaluates for (one per site, owned by the registry).</param>
     /// <param name="rolloutWindows">
@@ -52,12 +54,14 @@ public class DeviceStateAlertEvaluator
     public DeviceStateAlertEvaluator(
         IAlertEventBus eventBus,
         DeviceTransitionTracker transitions,
+        DeviceOfflineDeduplicator dedup,
         ILogger<DeviceStateAlertEvaluator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
     {
         _eventBus = eventBus;
         _transitions = transitions;
+        _dedup = dedup;
         _rolloutWindows = rolloutWindows;
         _logger = logger;
         _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
@@ -141,6 +145,15 @@ public class DeviceStateAlertEvaluator
                 return;
 
             state.Announced = true;
+
+            if (!_dedup.TryClaimSlot(deviceMac, isRecovery: false, DateTime.UtcNow))
+            {
+                _logger.LogDebug(
+                    "Suppressing device.offline for {Device} ({Mac}): monitoring target_offline already fired",
+                    label, deviceMac);
+                return;
+            }
+
             await _eventBus.PublishAsync(new AlertEvent
             {
                 EventType = OfflineEventType,
@@ -176,6 +189,14 @@ public class DeviceStateAlertEvaluator
     private async ValueTask PublishRecoveredAsync(
         string deviceMac, string label, string? deviceIp, DeviceType deviceType, string message, CancellationToken ct)
     {
+        if (!_dedup.TryClaimSlot(deviceMac, isRecovery: true, DateTime.UtcNow))
+        {
+            _logger.LogDebug(
+                "Suppressing device.recovered for {Device} ({Mac}): monitoring target_recovered already fired",
+                label, deviceMac);
+            return;
+        }
+
         await _eventBus.PublishAsync(new AlertEvent
         {
             EventType = RecoveredEventType,
