@@ -46,6 +46,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     private readonly SshClientService _sshClient;
     private readonly ApAgentTransferSelector _transferSelector;
     private readonly ApAgentHealthClient _healthClient;
+    private readonly ApAgentTargetDirectory _directory;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
@@ -65,6 +66,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         SshClientService sshClient,
         ApAgentTransferSelector transferSelector,
         ApAgentHealthClient healthClient,
+        ApAgentTargetDirectory directory,
         SiteTunnelRouting tunnelRouting,
         ICredentialProtectionService credentialProtection,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
@@ -76,6 +78,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         _sshClient = sshClient;
         _transferSelector = transferSelector;
         _healthClient = healthClient;
+        _directory = directory;
         _tunnelRouting = tunnelRouting;
         _credentialProtection = credentialProtection;
         _siteWorkGate = siteWorkGate;
@@ -117,6 +120,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             setting.Value = enabled.ToString();
         }
         await db.SaveChangesAsync();
+        _directory.Invalidate(_siteSlug);
         _logger.LogInformation("AP Agent deployment {State} for site {Site}", enabled ? "enabled" : "disabled", _siteSlug);
 
         // Switching off has to reach the access points. Supervision stopping only means nobody is
@@ -342,6 +346,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         _retry.Forget(mac);
         lock (_lastAssessment) _lastAssessment.Remove(mac);
+        _directory.Invalidate(_siteSlug);
 
         _logger.LogInformation("AP Agent removed from {Host} on site {Site}", ap.DisplayIpAddress, _siteSlug);
         return ApAgentOperationResult.Ok(ApAgentState.Unknown);
@@ -353,6 +358,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var mac = NormalizeMac(deviceMac);
         await UpdateRecordAsync(mac, r => r.Enabled = enabled, ct);
         if (!enabled) _retry.Forget(mac);
+        _directory.Invalidate(_siteSlug);
     }
 
     /// <summary>
@@ -595,6 +601,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         _retry.RecordSuccess(mac);
         lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.Healthy, ApAgentAction.None, "Deployed and running.");
+        _directory.Invalidate(_siteSlug);
 
         _logger.LogInformation("AP Agent deployed to {Host} on site {Site} (version {Version})",
             ap.DisplayIpAddress, _siteSlug, after.Version ?? "unknown");

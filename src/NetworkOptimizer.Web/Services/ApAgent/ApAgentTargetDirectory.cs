@@ -69,6 +69,21 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
     /// Every enrolled, enabled, online access point on the site. Empty when the site opted out, so
     /// a caller that iterates this makes no requests at all on a site without AP Agents.
     /// </summary>
+    /// <summary>
+    /// Drops this site's cached view so the next read reflects a change that just happened. Called
+    /// by anything that deploys, removes, or switches an access point, because a stale target list
+    /// makes a deploy look like it did nothing for up to the cache lifetime.
+    /// </summary>
+    public void Invalidate(string siteSlug)
+    {
+        if (string.IsNullOrEmpty(siteSlug)) return;
+        if (_sites.TryGetValue(siteSlug, out var cache))
+        {
+            cache.TargetsAt = DateTime.MinValue;
+            cache.EnabledAt = DateTime.MinValue;
+        }
+    }
+
     public async Task<IReadOnlyList<ApAgentTarget>> GetTargetsAsync(string siteSlug, CancellationToken ct = default)
     {
         var cache = _sites.GetOrAdd(siteSlug, _ => new SiteCache());
