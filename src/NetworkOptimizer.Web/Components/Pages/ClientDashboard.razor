@@ -1140,20 +1140,11 @@
         ConfigureLatencyChart();
         ConfigureSignalChart();
 
-        // TEMP TIMING - remove once the Connecting... delay is understood
-        Logger.LogInformation("CP-TIMING OnInitializedAsync entered");
-        var swBoot = System.Diagnostics.Stopwatch.StartNew();
-
         // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
         await ConnectionService.WaitForConnectionAsync();
-        Logger.LogInformation("CP-TIMING WaitForConnection {Ms} ms", swBoot.ElapsedMilliseconds);
-        swBoot.Restart();
 
         // Identify client
         await IdentifyAndLoadAsync();
-        Logger.LogInformation("CP-TIMING IdentifyAndLoad {Ms} ms (client={Have} ap={Ap})",
-            swBoot.ElapsedMilliseconds, _client != null, _client?.ApMac);
-        swBoot.Restart();
 
         // _canSteer is resolved in IdentifyAndLoadAsync, which is the only place that knows when the
         // client is actually in hand. On your own device the first attempt always returns null: the
@@ -1204,25 +1195,17 @@
                 {
                     // The first tick takes the cheap live poll first and paints. Both poll paths
                     // flip the label, but the full one carries a stat/sta round trip, a path trace
-                    // and storage - so going straight to it left "Connecting..." on screen for
-                    // seconds while the signal the page wanted was already a request away from the
-                    // access point. The full poll still runs, just behind the paint.
+                    // and storage, so painting behind it costs seconds for a signal that was
+                    // already a request away from the access point.
                     if (_tickCount == 1)
                     {
-                        var swTick = System.Diagnostics.Stopwatch.StartNew();
                         await PollLiveAsync();
-                        Logger.LogInformation("CP-TIMING first PollLive {Ms} ms (pollCount={N})",
-                            swTick.ElapsedMilliseconds, _pollCount);
                         StateHasChanged();
                     }
 
                     if (isFullPoll)
                     {
-                        var swFull = System.Diagnostics.Stopwatch.StartNew();
                         await PollAsync();
-                        if (_tickCount <= 2)
-                            Logger.LogInformation("CP-TIMING PollAsync#{Tick} {Ms} ms (pollCount={N})",
-                                _tickCount, swFull.ElapsedMilliseconds, _pollCount);
                     }
                     else
                     {
@@ -1257,17 +1240,6 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // TEMP TIMING - ms from navigation start to Blazor being interactive on the client.
-        if (firstRender)
-        {
-            try
-            {
-                var sinceNav = await JS.InvokeAsync<double>("eval", "performance.now()");
-                Logger.LogInformation("CP-TIMING interactive at {Ms} ms since navigation start", (long)sinceNav);
-            }
-            catch (Exception ex) { Logger.LogDebug(ex, "CP-TIMING probe failed"); }
-        }
-
         // Apply deferred chart updates after render cycle completes (chart is now mounted)
         if (_pendingChartUpdate)
         {

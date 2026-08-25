@@ -34,9 +34,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     private const int DurationTbtt = 100;
 
     /// <summary>
-    /// How long the access point may have heard nothing before the client is treated as asleep and
-    /// left alone. Far below the ten minutes presence uses: this decides whether to disassociate
-    /// something, so it wants the client demonstrably in use, not merely still associated.
+    /// Idle ceiling for steering. Far below the ten minutes presence uses: this disassociates
+    /// something, so it wants the client demonstrably in use rather than merely associated.
     /// </summary>
     private const long MaxIdleSecondsToSteer = 60;
 
@@ -80,11 +79,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (current == null)
             return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
 
-        // A sleeping client is the one case that cannot recover from this. Device firmware will hold
-        // an association through standby but will not run a scan and authenticate until it wakes, so
-        // disassociating one leaves it off the network until somebody switches it on - measured on a
-        // TV that had been silent for under four minutes and did not return for fourteen hours,
-        // through an access point reboot. Anything actually in use answers within seconds.
+        // A sleeping client holds an association through standby but will not scan and authenticate
+        // until it wakes, so evicting one leaves it off the network until somebody turns it on.
         if (idleSeconds is { } idle && idle > MaxIdleSecondsToSteer)
             return ApAgentRoamResult.Fail(
                 $"That client has been idle for {idle}s and may be asleep. A sleeping client can be moved off but cannot rejoin on its own.");
@@ -95,12 +91,21 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (candidates.Count == 0)
             return ApAgentRoamResult.Fail("No other access point offered a candidate to move to.");
 
-        // Then the current access point, last. The request is an eviction either way - hostapd
-        // offers nothing but wnm_disassoc_imminent - so a client that cannot use any of the
-        // candidates above is going to be disassociated regardless. Listing where it already is
-        // gives it somewhere valid to land instead of nowhere, which is how a client ends up on no
-        // SSID at all. It stays a steer because this entry is last.
+        // Not reordered by band: two access points with identical VAP order give the same phone
+        // opposite outcomes, so order is not what decides it. Why it does is unresolved.
+
+        // Current access point last. The request evicts either way, so a client that can use none
+        // of the above needs somewhere valid to land or it ends up on no SSID at all.
         candidates.AddRange(await FetchNeighborsAsync(current, ssid, ct));
+
+        // What was offered, in order. The access point does not record the list, so without this
+        // there is no way to ask afterwards why a client landed where it did.
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("BTM candidates for {Mac} leaving {Ap}: {Candidates}",
+                mac, current.Name ?? current.Host,
+                string.Join(", ", candidates.Select(DescribeCandidate)));
+        }
 
         var body = JsonSerializer.Serialize(new ApAgentTransitionRequest
         {
@@ -159,9 +164,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     }
 
     /// <summary>
-    /// Whether this client has ever been recorded roaming. The only evidence available that it can
-    /// survive a transition: hostapd sends evictions rather than suggestions, and nothing reports a
-    /// client's BSS Transition support - mca-dump carries is_11r with no 11v equivalent.
+    /// Whether this client has ever been recorded roaming - the only evidence that it survives a
+    /// transition, since nothing reports BSS Transition support.
     /// </summary>
     private async Task<bool> HasRoamedBeforeAsync(string mac, CancellationToken ct)
     {
@@ -178,6 +182,33 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             _logger.LogDebug(ex, "Could not read roam history for {Mac} on {Site}", mac, _siteSlug);
             return false;
         }
+    }
+
+    /// <summary>
+    /// A neighbor report element as "bssid/band ch". Hex layout: BSSID(6), BSSID info(4), operating
+    /// class(1), channel(1) - so the band is already in what we forward.
+    /// </summary>
+    private static string DescribeCandidate(string element)
+    {
+        if (element.Length < 24) return element;
+
+        var bssid = string.Join(":", Enumerable.Range(0, 6).Select(i => element.Substring(i * 2, 2)));
+        if (!int.TryParse(element.AsSpan(20, 2), System.Globalization.NumberStyles.HexNumber, null, out var opClass)
+            || !int.TryParse(element.AsSpan(22, 2), System.Globalization.NumberStyles.HexNumber, null, out var channel))
+        {
+            return bssid;
+        }
+
+        // Operating classes per 802.11: 81-84 are 2.4 GHz, 115-130 are 5 GHz, 131-136 are 6 GHz.
+        var band = opClass switch
+        {
+            >= 81 and <= 84 => "2.4GHz",
+            >= 115 and <= 130 => "5GHz",
+            >= 131 and <= 136 => "6GHz",
+            _ => $"opclass{opClass}",
+        };
+
+        return $"{bssid}/{band} ch{channel}";
     }
 
     /// <summary>One access point's own neighbor report elements, filtered to the client's SSID.</summary>
