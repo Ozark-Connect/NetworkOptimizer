@@ -13,9 +13,10 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// client that declines is disassociated when the timer expires and reassociates wherever it likes,
 /// possibly the same access point.
 ///
-/// The candidate list is what steers, by order: other access points first, the current one last. It
-/// used to be omitted entirely, which made staying put a refusal - and left a client that could not
-/// use any candidate with nowhere valid to go. One was observed never rejoining any SSID.
+/// The candidate list steers by SIZE, not order. A phone repeatedly ignored a 12-entry list and
+/// followed a 3-entry one exactly, so each intent sends only the candidates that serve it. Where the
+/// client already is is always last, never absent: omitting it made staying put a refusal, and one
+/// client that could use no candidate was left on no SSID at all.
 ///
 /// Success here means the frame was sent. Where the client actually went arrives separately, as a
 /// roam event through the agent's event stream.
@@ -101,7 +102,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
         var own = await FetchNeighborsAsync(current, ssid, ct);
         var wanted = intent == ApAgentRoamIntent.Band
-            ? OtherBandsOf(own, currentBands)
+            ? ApAgentRoamCandidates.OtherBands(own, currentBands)
             : await CollectCandidatesAsync(targets, current, ssid, ct);
 
         if (wanted.Count == 0)
@@ -121,7 +122,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             _logger.LogDebug("BTM candidates for {Mac} leaving {Ap} ({Intent}, on {Bands}): {Candidates}",
                 mac, current.Name ?? current.Host, intent,
                 currentBands.Count > 0 ? string.Join("+", currentBands) : "unknown",
-                string.Join(", ", candidates.Select(DescribeCandidate)));
+                string.Join(", ", candidates.Select(ApAgentRoamCandidates.Describe)));
         }
 
         var body = JsonSerializer.Serialize(new ApAgentTransitionRequest
@@ -187,7 +188,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     /// <inheritdoc />
     public async Task<bool> CanChangeBandAsync(string clientMac, string? currentBand, CancellationToken ct = default)
     {
-        var rank = BandRank(currentBand);
+        var rank = ApAgentRoamCandidates.BandRank(currentBand);
         if (rank == 0) return true;
 
         var mac = (clientMac ?? "").Trim().ToLowerInvariant();
@@ -201,7 +202,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 .Select(r => new { r.Band, r.FromBand })
                 .ToListAsync(ct);
 
-            return seen.Any(s => BandRank(s.Band) > rank || BandRank(s.FromBand) > rank);
+            return seen.Any(s => ApAgentRoamCandidates.BandRank(s.Band) > rank
+                || ApAgentRoamCandidates.BandRank(s.FromBand) > rank);
         }
         catch (Exception ex)
         {
@@ -210,15 +212,6 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             return true;
         }
     }
-
-    /// <summary>Rank of a band token, in either the agent's ("5") or UniFi's ("na") spelling.</summary>
-    private static int BandRank(string? band) => band switch
-    {
-        "6" or "6e" => 3,
-        "5" or "na" => 2,
-        "2.4" or "ng" => 1,
-        _ => 0,
-    };
 
     /// <summary>
     /// Whether this client has ever been recorded roaming - the only evidence that it survives a
@@ -240,51 +233,6 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             return false;
         }
     }
-
-    /// <summary>
-    /// A neighbor report element as "bssid/band ch". Hex layout: BSSID(6), BSSID info(4), operating
-    /// class(1), channel(1) - so the band is already in what we forward.
-    /// </summary>
-    private static string DescribeCandidate(string element)
-    {
-        if (element.Length < 24) return element;
-
-        var bssid = string.Join(":", Enumerable.Range(0, 6).Select(i => element.Substring(i * 2, 2)));
-        if (!int.TryParse(element.AsSpan(22, 2), System.Globalization.NumberStyles.HexNumber, null, out var channel))
-            return bssid;
-
-        return $"{bssid}/{BandOf(element) ?? "?"}GHz ch{channel}";
-    }
-
-    /// <summary>
-    /// Band token of a neighbor report element, from its operating class. Per 802.11: 81-84 are
-    /// 2.4 GHz, 115-130 are 5 GHz, 131-136 are 6 GHz.
-    /// </summary>
-    private static string? BandOf(string element)
-    {
-        if (element.Length < 22) return null;
-        if (!int.TryParse(element.AsSpan(20, 2), System.Globalization.NumberStyles.HexNumber, null, out var opClass))
-            return null;
-
-        return opClass switch
-        {
-            >= 81 and <= 84 => "2.4",
-            >= 115 and <= 130 => "5",
-            >= 131 and <= 136 => "6",
-            _ => null,
-        };
-    }
-
-    /// <summary>
-    /// This access point's other bands, best first, for a band move. An MLO client holds several
-    /// bands at once, so every band it is already on is excluded rather than just the active one.
-    /// </summary>
-    private static List<string> OtherBandsOf(IEnumerable<string> own, IReadOnlyCollection<string> currentBands)
-        => own.Select(e => (Element: e, Band: BandOf(e)))
-            .Where(x => x.Band != null && !currentBands.Contains(x.Band))
-            .OrderByDescending(x => BandRank(x.Band))
-            .Select(x => x.Element)
-            .ToList();
 
     /// <summary>One access point's own neighbor report elements, filtered to the client's SSID.</summary>
     private async Task<List<string>> FetchNeighborsAsync(ApAgentTarget target, string? ssid, CancellationToken ct)
