@@ -41,6 +41,12 @@ public sealed class ApAgentTransitionRequest
     [JsonPropertyName("candidates")] public List<string> Candidates { get; set; } = new();
     [JsonPropertyName("duration_tbtt")] public int DurationTbtt { get; set; }
     [JsonPropertyName("abridged")] public bool Abridged { get; set; }
+
+    /// <summary>
+    /// Blocks rejoining the access point it left, for this long, once it has actually gone. 0 is off.
+    /// Agents older than binary version 8 ignore it, which costs the bounce-back guard and nothing else.
+    /// </summary>
+    [JsonPropertyName("ban_ms")] public int BanMs { get; set; }
 }
 
 /// <summary>What the agent reports back about a transition request it sent.</summary>

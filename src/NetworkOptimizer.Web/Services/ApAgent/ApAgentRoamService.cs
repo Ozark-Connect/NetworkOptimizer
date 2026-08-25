@@ -34,6 +34,14 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     private const int DurationTbtt = 100;
 
     /// <summary>
+    /// How long a client is kept off the access point it just left. Applied only after it has gone,
+    /// so it cannot strand anything - it exists because a client that declines the candidates will
+    /// otherwise reassociate where it started and the move looks like it failed.
+    /// Short on purpose: the worst case is this many seconds of no Wi-Fi.
+    /// </summary>
+    private const int BounceGuardMs = 5000;
+
+    /// <summary>
     /// Idle ceiling for steering. Far below the ten minutes presence uses: this disassociates
     /// something, so it wants the client demonstrably in use rather than merely associated.
     /// </summary>
@@ -121,6 +129,10 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             Candidates = candidates,
             DurationTbtt = DurationTbtt,
             Abridged = true,
+
+            // Only for an access point move. A band move lands on the same access point, so banning
+            // there would block the destination.
+            BanMs = intent == ApAgentRoamIntent.AccessPoint ? BounceGuardMs : 0,
         }, JsonOptions);
 
         try
