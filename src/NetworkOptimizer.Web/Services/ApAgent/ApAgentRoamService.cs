@@ -104,7 +104,15 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             {
                 _logger.LogWarning("BTM request for {Mac} on {Ap} answered {Status}",
                     mac, current.Name ?? current.Host, result.Status);
-                return ApAgentRoamResult.Fail($"The access point refused the request ({result.Status}).");
+                // The access point distinguishes a refusal from a failure, so say which. A client
+                // that moved between choosing this access point and the request arriving is the
+                // common case, and reporting it as a server error made it look like a defect.
+                return ApAgentRoamResult.Fail(result.Status switch
+                {
+                    404 => "That client is no longer on that access point - it may have already moved.",
+                    400 => "The access point could not use the request.",
+                    _ => $"The access point refused the request ({result.Status}).",
+                });
             }
 
             _logger.LogInformation("BTM request sent for {Mac} from {Ap} with {Count} candidate(s) on site {Site}",

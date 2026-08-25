@@ -88,12 +88,15 @@ func neighborReports(ctx context.Context, vaps []string) []NeighborReport {
 
 // sendRoam asks the client to transition, on whichever VAP currently holds it.
 func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest) (*RoamResult, error) {
+	// These are refusals, not failures. Returned as plain errors they became 500s, which the server
+	// showed as "the access point refused the request (500)" - a client that roamed between the
+	// caller picking this access point and the request arriving is the common case, and it is a 404.
 	mac := strings.ToLower(strings.TrimSpace(req.Mac))
 	if mac == "" {
-		return nil, fmt.Errorf("no client MAC given")
+		return nil, badRequest("no client MAC given")
 	}
 	if len(req.Candidates) == 0 {
-		return nil, fmt.Errorf("no candidates given: a BTM request with an empty list tells the client nothing")
+		return nil, badRequest("no candidates given: a BTM request with an empty list tells the client nothing")
 	}
 
 	vap := table.VapForClient(mac)
@@ -103,7 +106,7 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		vap = vapHoldingClient(ctx, vaps, mac)
 	}
 	if vap == "" {
-		return nil, fmt.Errorf("client %s is not associated to this access point", mac)
+		return nil, notFound("client %s is not associated to this access point", mac)
 	}
 
 	duration := req.DurationTbtt
