@@ -228,9 +228,11 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
 
         Entry("aptelemetry", "AP Telemetry", "ap-telemetry",
             "AP Telemetry",
-            ["AP Agent", "access point agent"],
+            ["AP Agent", "access point agent", "WiFi", "Wi-Fi"],
             ["wi-fi telemetry", "deploy", "redeploy", "repair", "capability report", "per-client signal",
-             "roam events", "radio airtime", "hostapd", "wlanconfig", "firmware update", "armv7l",
+             "per-client retries", "tcp stalls", "roam events", "roam timing", "radio airtime",
+             "radio health", "wedged radio", "channel recommendations",
+             "hostapd", "wlanconfig", "armv7l", "update agent", "upgrade agent",
              "access points", "device ssh"]),
 
         Entry("speedtests", "Speed Tests", "speed-test-settings",
@@ -377,7 +379,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Multi-Site Management",
             ["Sites", "site management", "agents"],
             ["enable multi-site management", "add agent", "new token", "enrollment token",
-             "set up agent", "update agent", "switch to site", "rename site", "site users",
+             "set up agent", "update agent", "upgrade agent", "switch to site", "rename site", "site users",
              "site configuration", "unifi console through the agent tunnel", "ssh via agent",
              "lan speed test server", "client speed test target override", "agent collects for this site",
              "multi-wan vantage", "disable multi-site management", "on-site agent"], Reach.MultiSite),
