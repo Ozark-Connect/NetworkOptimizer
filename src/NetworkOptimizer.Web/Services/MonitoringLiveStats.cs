@@ -603,12 +603,14 @@ public class MonitoringLiveStats
                     Satisfaction = fresh.Satisfaction,
                     Rssi = fresh.Rssi,
                     IsMlo = fresh.IsMlo,
-                    Hostname = fresh.Hostname,
+                    Hostname = fresh.Hostname ?? prior.Hostname,
                     LastUpdate = fresh.LastUpdate,
                     ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
                 };
             }
-            return fresh;
+            // Hostname is identity, not a reading. Sources that carry no name (the AP Agent knows
+            // MACs only) must not blank the one a source that does carry it already established.
+            return fresh.Hostname is null ? fresh with { Hostname = prior.Hostname } : fresh;
         });
     }
 

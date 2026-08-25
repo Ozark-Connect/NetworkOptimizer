@@ -33,6 +33,7 @@ public interface ITopologySnapshotService
 public class TopologySnapshotService : ITopologySnapshotService
 {
     private readonly IUniFiClientProvider _clientProvider;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<TopologySnapshotService> _logger;
@@ -48,14 +49,44 @@ public class TopologySnapshotService : ITopologySnapshotService
 
     public TopologySnapshotService(
         IUniFiClientProvider clientProvider,
+        MonitoringLiveStatsRegistry liveStats,
         INetworkPathAnalyzer pathAnalyzer,
         ILoggerFactory loggerFactory,
         ILogger<TopologySnapshotService> logger)
     {
         _clientProvider = clientProvider;
+        _liveStats = liveStats;
         _pathAnalyzer = pathAnalyzer;
         _loggerFactory = loggerFactory;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Replaces console-sourced client rates with anything the site's live cache holds more recently,
+    /// so a trace taken during a walk test carries the same numbers the page is showing.
+    /// </summary>
+    private void OverlayLiveRates(string siteSlug, WirelessRateSnapshot snapshot)
+    {
+        try
+        {
+            var live = _liveStats.GetFor(siteSlug);
+
+            foreach (var mac in snapshot.ClientRates.Keys.ToList())
+            {
+                var snap = live.GetWifiClient(mac);
+                if (snap?.TxRateKbps is not > 0 && snap?.RxRateKbps is not > 0) continue;
+
+                snapshot.ClientRates[mac] = (
+                    (int)(snap.TxRateKbps ?? 0),
+                    (int)(snap.RxRateKbps ?? 0),
+                    string.IsNullOrEmpty(snap.ApMac) ? snapshot.ClientRates[mac].Item3 : snap.ApMac);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The console values are already in hand; a cache miss must not cost the snapshot.
+            _logger.LogDebug(ex, "Could not overlay live rates onto the snapshot");
+        }
     }
 
     /// <summary>
@@ -110,6 +141,11 @@ public class TopologySnapshotService : ITopologySnapshotService
             {
                 snapshot.MeshUplinkRates[device.Mac] = (device.UplinkTxRateKbps, device.UplinkRxRateKbps);
             }
+
+            // Anything the site's live cache knows more recently wins. Client Performance polls the
+            // walked client many times a second, so during a walk test the console's copy of that
+            // client is the stalest number in the room.
+            OverlayLiveRates(siteSlug, snapshot);
 
             // Also poll WiFiman for the target client's realtime rates
             var targetClient = topology.Clients.FirstOrDefault(c => c.IpAddress == clientIp);

@@ -77,6 +77,7 @@ public sealed class ApAgentTelemetryCollector
     private readonly ApAgentTelemetryClient _telemetry;
     private readonly ApAgentInsightsRegistry.SiteApAgentInsights _insights;
     private readonly MonitoringInfluxClient _influx;
+    private readonly MonitoringLiveStats _liveStats;
     private readonly ILogger<ApAgentTelemetryCollector> _logger;
     private readonly string _siteSlug;
 
@@ -93,6 +94,7 @@ public sealed class ApAgentTelemetryCollector
         ApAgentTelemetryClient telemetry,
         MonitoringInfluxRegistry influxRegistry,
         ApAgentInsightsRegistry insights,
+        MonitoringLiveStatsRegistry liveStats,
         ILogger<ApAgentTelemetryCollector> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
@@ -102,6 +104,7 @@ public sealed class ApAgentTelemetryCollector
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _influx = influxRegistry.GetFor(_siteSlug);
         _insights = insights.GetFor(_siteSlug);
+        _liveStats = liveStats.GetFor(_siteSlug);
     }
 
     /// <summary>
@@ -209,7 +212,12 @@ public sealed class ApAgentTelemetryCollector
                     // One point per client, never one per link: the agent has already folded an MLO
                     // client's links onto its MLD MAC.
                     var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac);
-                    if (sample != null) accumulator.Add(sample, now);
+                    if (sample == null) continue;
+                    accumulator.Add(sample, now);
+
+                    // Every pass, not every write window: the cache is what Live View, the maps and
+                    // a speed test trace read, and they should see 10 s old readings rather than 30.
+                    PublishLive(sample, null, now);
                 }
             }
         }
@@ -228,6 +236,46 @@ public sealed class ApAgentTelemetryCollector
         }
     }
 
+    /// <summary>
+    /// Publishes one reading into the site's live client cache. On an access point this agent
+    /// covers, this is the authoritative live snapshot: the console wifi tier stands down for
+    /// exactly the same set of access points, so a client has one source at a time, not two racing.
+    /// </summary>
+    /// <param name="folded">The closed window when there is one. Without it the sample carries no
+    /// throughput, and claiming zero would read as an idle client rather than an unmeasured one, so
+    /// whatever the last closed window established is carried forward instead.</param>
+    private void PublishLive(ApAgentWifiSample s, ApAgentWifiFolded? folded, DateTime now)
+    {
+        try
+        {
+            var live = _liveStats;
+            var prior = folded == null ? live.GetWifiClient(s.ClientMac) : null;
+
+            live.RecordWifiClient(new WifiClientLiveSnapshot
+            {
+                ClientMac = s.ClientMac,
+                ApMac = s.ApMac,
+                Band = s.Band,
+                Channel = s.Channel,
+                ChannelWidth = s.ChannelWidth,
+                SignalDbm = s.SignalDbm,
+                NoiseDbm = s.NoiseDbm,
+                TxRateKbps = s.TxRateKbps,
+                RxRateKbps = s.RxRateKbps,
+                TxThroughputBps = folded?.TxThroughputBps ?? prior?.TxThroughputBps,
+                RxThroughputBps = folded?.RxThroughputBps ?? prior?.RxThroughputBps,
+                Satisfaction = s.Satisfaction,
+                Rssi = s.Rssi,
+                IsMlo = s.IsMlo,
+                LastUpdate = now,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not publish AP Agent reading to the live cache (site {Site})", _siteSlug);
+        }
+    }
+
     private void WriteFolded(string apMac, DateTime now)
     {
         if (!_accumulators.TryGetValue(apMac, out var accumulator)) return;
@@ -238,11 +286,16 @@ public sealed class ApAgentTelemetryCollector
         long tickOffset = 0;
         foreach (var entry in folded)
         {
+            var s = entry.Sample;
+
+            // Throughput only resolves at the close of a window, against the previous window's byte
+            // counters, so this is the one moment it can reach the cache.
+            PublishLive(s, entry, now);
+
             // Same gate as the console path: a client that moved no traffic writes no point, so
             // swapping the source does not change how many points a site produces.
             if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0) continue;
 
-            var s = entry.Sample;
             _ = _influx.WriteWifiClientAsync(
                 apMac: s.ApMac,
                 band: s.Band,

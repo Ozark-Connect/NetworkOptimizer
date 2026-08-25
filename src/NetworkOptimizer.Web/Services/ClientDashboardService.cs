@@ -49,6 +49,7 @@ public class ClientDashboardService
     // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
     // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
     private readonly ApAgentClientLiveService? _apAgentLive;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
 
     /// <summary>Roam-follow state per client. One page follows one client, so the cap is a guard.</summary>
     private const int MaxTrackedFollowers = 8;
@@ -71,11 +72,13 @@ public class ClientDashboardService
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
         SiteContextService siteContext,
+        MonitoringLiveStatsRegistry liveStats,
         ApAgentClientLiveService? apAgentLive = null)
     {
         _logger = logger;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
+        _liveStats = liveStats;
         _connectionService = connectionService;
         // The path analyzer must be this site's, not the main-pinned singleton, so L2 traces
         // resolve against the current site's topology.
@@ -1061,7 +1064,7 @@ public class ClientDashboardService
             return null;
 
         // Need a known MAC to have an existing identity
-        if (!_ipToMacCache.TryGetValue(clientIp, out _))
+        if (!_ipToMacCache.TryGetValue(clientIp, out var clientMac))
             return null;
 
         // Fetch WiFiman data only
@@ -1075,6 +1078,10 @@ public class ClientDashboardService
             // We don't call stat/sta here — just overlay WiFiman onto whatever we last knew
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached) && cached.IsOffline)
                 return null;
+
+            // Anything asking about this client between console polls should see the walk test's
+            // numbers, not a value up to 30 seconds old.
+            PublishWiFiManLive(clientMac, wifiman);
 
             // Build a lightweight update (caller merges into their existing _client)
             return new ClientIdentity
@@ -1094,6 +1101,44 @@ public class ClientDashboardService
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Publishes a WiFiman reading into the site's live client cache. WiFiman is the 1 Hz source on
+    /// a site with no AP Agent; the AP Agent replaces it where it runs, so the two never race.
+    /// </summary>
+    private void PublishWiFiManLive(string clientMac, WiFiManClientResponse wifiman)
+    {
+        try
+        {
+            var live = _liveStats.GetFor(_siteContext.Slug);
+            var prior = live.GetWifiClient(clientMac);
+
+            // WiFiman reports the link, not who is serving it and not how much it is carrying.
+            // Those come from whichever poller last knew, so publishing must not claim them as zero.
+            live.RecordWifiClient(new WifiClientLiveSnapshot
+            {
+                ClientMac = clientMac,
+                ApMac = _lastApMacByClient.TryGetValue(clientMac, out var ap) ? ap : prior?.ApMac,
+                Band = wifiman.RadioCode ?? prior?.Band,
+                Channel = wifiman.Channel ?? prior?.Channel,
+                ChannelWidth = wifiman.ChannelWidth ?? prior?.ChannelWidth,
+                SignalDbm = wifiman.Signal,
+                NoiseDbm = wifiman.Noise,
+                TxRateKbps = wifiman.LinkUploadRateKbps,
+                RxRateKbps = wifiman.LinkDownloadRateKbps,
+                TxThroughputBps = prior?.TxThroughputBps,
+                RxThroughputBps = prior?.RxThroughputBps,
+                Satisfaction = wifiman.WiFiExperience ?? prior?.Satisfaction,
+                Rssi = prior?.Rssi,
+                IsMlo = prior?.IsMlo ?? false,
+                LastUpdate = DateTime.UtcNow,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not publish WiFiman reading to the live cache");
         }
     }
 

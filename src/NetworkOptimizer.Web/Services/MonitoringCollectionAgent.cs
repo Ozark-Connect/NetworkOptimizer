@@ -1372,13 +1372,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
                 LastUpdate = now
             };
-            _liveStats.RecordWifiClient(snapshot);
-
-            // Per AP, not per site: an access point served by its own AP Agent has its wifi_client
-            // points written from that agent, and every other access point keeps the console's.
-            // The live snapshot above stays console-sourced for ALL of them on purpose, so a mixed
-            // fleet reads the same way on Live View.
+            // Per AP, not per site: an access point served by its own AP Agent supplies both its
+            // live snapshot and its wifi_client points, and every other access point keeps the
+            // console's. One source per access point at a time, so a client's readings never
+            // alternate between two pollers on different clocks. Coverage expires on a missed poll,
+            // which hands the access point straight back here.
             if (_apAgentTelemetry.CoversAp(apMac)) continue;
+
+            _liveStats.RecordWifiClient(snapshot);
 
             if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
             {
