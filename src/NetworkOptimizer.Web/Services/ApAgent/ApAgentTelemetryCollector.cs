@@ -173,7 +173,9 @@ public sealed class ApAgentTelemetryCollector
         var now = DateTime.UtcNow;
         var writing = now - _lastWriteAt >= WriteWindow;
 
-        await Task.WhenAll(targets.Select(t => PollAsync(t, now, ct)));
+        // A pass that is about to write the full point does not also write a thin one: the fold
+        // covers that instant already, and two points for it would only disagree.
+        await Task.WhenAll(targets.Select(t => PollAsync(t, now, writing, ct)));
 
         if (!writing) return;
         _lastWriteAt = now;
@@ -188,7 +190,7 @@ public sealed class ApAgentTelemetryCollector
         await _insights.Roams.CollectAsync(ct);
     }
 
-    private async Task PollAsync(ApAgentTarget target, DateTime now, CancellationToken ct)
+    private async Task PollAsync(ApAgentTarget target, DateTime now, bool writingFullPoint, CancellationToken ct)
     {
         await _pollGate.WaitAsync(ct);
         try
@@ -221,7 +223,23 @@ public sealed class ApAgentTelemetryCollector
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
-                    PublishLive(sample, null, now, ResolvePassThroughput(sample, now));
+                    var pass = ResolvePassThroughput(sample, now);
+                    PublishLive(sample, null, now, pass);
+
+                    // Throughput is stored as often as it is measured; everything else keeps the
+                    // write window, because it describes how a client is connected rather than
+                    // what it is doing. Same gate as the full point: no traffic, no point.
+                    if (!writingFullPoint && ((pass.Tx ?? 0) > 0 || (pass.Rx ?? 0) > 0))
+                    {
+                        _ = _influx.WriteWifiClientThroughputAsync(
+                            apMac: sample.ApMac,
+                            band: sample.Band,
+                            clientMac: sample.ClientMac,
+                            txThroughputBps: pass.Tx ?? 0,
+                            rxThroughputBps: pass.Rx ?? 0,
+                            signalDbm: sample.SignalDbm,
+                            timestamp: sample.BytesAt ?? now);
+                    }
                 }
             }
         }

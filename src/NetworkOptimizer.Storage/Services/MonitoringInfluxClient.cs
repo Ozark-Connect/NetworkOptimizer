@@ -614,6 +614,48 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Writes throughput alone, between the full points, so a rate can be stored as often as it is
+    /// measured without paying for the rest of the point.
+    ///
+    /// Same measurement and same tags, so these land in the existing series and every reader picks
+    /// them up unchanged - fields are sparse, and the historic query pivots on whatever a row has.
+    /// Throughput and signal only: the rest describe how a client is connected rather than what it
+    /// is doing, and none change meaningfully inside one interval, so repeating all 23 would roughly
+    /// triple the measurement to add nothing.
+    ///
+    /// Signal rides along even though it is slow-moving, because the per-client history query
+    /// aggregates on a window that floors at 5 s - so on any range under about 75 minutes there are
+    /// windows holding only these points, and a window with no signal sample renders as a gap in
+    /// the signal line rather than a flat one. Filling forward in Flux cannot fix it: after the
+    /// pivot, rows for different clients on one access point and band interleave, so a fill would
+    /// carry one client's signal onto another's row.
+    /// </summary>
+    public Task WriteWifiClientThroughputAsync(
+        string apMac,
+        string band,
+        string clientMac,
+        double txThroughputBps,
+        double rxThroughputBps,
+        double? signalDbm,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("wifi_client")
+            .Tag("device_mac", NormalizeMac(apMac))
+            .Tag("band", band.ToLowerInvariant())
+            .Field("client_mac", NormalizeMac(clientMac))
+            .Field("tx_throughput_bps", txThroughputBps)
+            .Field("rx_throughput_bps", rxThroughputBps)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (signalDbm.HasValue) point = point.Field("signal_dbm", signalDbm.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
     public Task WriteWiredClientAsync(
         string switchMac,
         string clientMac,

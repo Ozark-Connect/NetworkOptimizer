@@ -668,12 +668,36 @@ public class LanFlowMapService
 
         // Resolve closest client throughput points from cached data.
         var wifiClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        // How a client is connected is written once per write window, while its throughput is
+        // written every time it is measured - so the point nearest an instant usually carries a
+        // rate and nothing else. Tracked separately and merged below, or a client would lose its
+        // band and signal at most instants and only regain them on a window boundary.
+        var wifiClientConnection = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WifiClients)
         {
             if (string.IsNullOrEmpty(p.ClientMac)) continue;
             if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wifiClientRates[p.ClientMac] = p;
+
+            if (p.SignalDbm == null && p.Band == null) continue;
+            if (!wifiClientConnection.TryGetValue(p.ClientMac, out var describedBy)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((describedBy.Time - at).TotalMilliseconds))
+                wifiClientConnection[p.ClientMac] = p;
+        }
+        foreach (var (mac, described) in wifiClientConnection)
+        {
+            // Copy rather than mutate: these points are cached and re-read for every other instant
+            // in the window.
+            var nearest = wifiClientRates[mac];
+            if (nearest.SignalDbm != null || nearest.Band != null) continue;
+            wifiClientRates[mac] = nearest with
+            {
+                SignalDbm = described.SignalDbm,
+                Band = described.Band,
+                TxRateKbps = described.TxRateKbps,
+                RxRateKbps = described.RxRateKbps,
+            };
         }
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
