@@ -33,6 +33,13 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     /// </summary>
     private const int DurationTbtt = 100;
 
+    /// <summary>
+    /// How long the access point may have heard nothing before the client is treated as asleep and
+    /// left alone. Far below the ten minutes presence uses: this decides whether to disassociate
+    /// something, so it wants the client demonstrably in use, not merely still associated.
+    /// </summary>
+    private const long MaxIdleSecondsToSteer = 60;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ApAgentHttpTransport _transport;
@@ -69,9 +76,18 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (!await HasRoamedBeforeAsync(mac, ct))
             return ApAgentRoamResult.Fail("This client has never been seen roaming, so it may not survive being moved.");
 
-        var current = await FindHoldingApAsync(targets, mac, ct);
+        var (current, idleSeconds) = await FindHoldingApAsync(targets, mac, ct);
         if (current == null)
             return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
+
+        // A sleeping client is the one case that cannot recover from this. Device firmware will hold
+        // an association through standby but will not run a scan and authenticate until it wakes, so
+        // disassociating one leaves it off the network until somebody switches it on - measured on a
+        // TV that had been silent for under four minutes and did not return for fourteen hours,
+        // through an access point reboot. Anything actually in use answers within seconds.
+        if (idleSeconds is { } idle && idle > MaxIdleSecondsToSteer)
+            return ApAgentRoamResult.Fail(
+                $"That client has been idle for {idle}s and may be asleep. A sleeping client can be moved off but cannot rejoin on its own.");
 
         // Every OTHER access point's neighbor reports first: order is preference, so the client
         // tries those before anything after them.
@@ -193,7 +209,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     }
 
     /// <summary>Finds which access point currently holds the client.</summary>
-    private async Task<ApAgentTarget?> FindHoldingApAsync(
+    private async Task<(ApAgentTarget? Ap, long? IdleSeconds)> FindHoldingApAsync(
         IReadOnlyList<ApAgentTarget> targets, string mac, CancellationToken ct)
     {
         foreach (var target in targets)
@@ -204,7 +220,20 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 var result = await _transport.SendAsync(
                     host, port, target.Token, $"/clients/{mac}", NeighborTimeout, MaxTransitionBytes, ct);
 
-                if (result.IsUsable) return target;
+                if (!result.IsUsable) continue;
+
+                // The same payload carries how long since the access point last heard from this
+                // client, which is what decides whether it is awake enough to be moved.
+                long? idle = null;
+                try
+                {
+                    var client = JsonSerializer.Deserialize<ApAgentClient>(result.Body, JsonOptions);
+                    if (client?.Links is { Count: > 0 })
+                        idle = NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(client.Links.Select(l => l.IdleSeconds));
+                }
+                catch (JsonException) { /* an unreadable body still tells us which AP holds it */ }
+
+                return (target, idle);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -215,7 +244,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 // An access point that cannot be reached simply is not the one holding the client.
             }
         }
-        return null;
+        return (null, null);
     }
 
     /// <summary>Gathers neighbor reports from every access point except the one to move off.</summary>
