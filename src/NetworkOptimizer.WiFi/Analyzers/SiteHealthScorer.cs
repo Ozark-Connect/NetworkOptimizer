@@ -33,6 +33,12 @@ public class SiteHealthScorer
         // Exclude offline APs from health scoring and issue generation
         var onlineAps = aps.Where(a => a.IsOnline).ToList();
 
+        // And offline clients, for the same reason. An access point can hold a client associated
+        // long after it has left, at whatever signal it had on the way out, so scoring them raises
+        // a permanent critical about a device that is not there and cannot be helped by moving it
+        // closer. The roster already marks these offline; only the scoring had to be told.
+        clients = clients.Where(c => c.IsOnline).ToList();
+
         var score = new SiteHealthScore
         {
             Timestamp = DateTimeOffset.UtcNow,
