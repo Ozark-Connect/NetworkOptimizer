@@ -117,11 +117,11 @@
                             @if (_recheckAllRunning)
                             {
                                 <span class="spinner"></span>
-                                <span>Rechecking...</span>
+                                <span>Checking...</span>
                             }
                             else
                             {
-                                <span>Recheck All</span>
+                                <span>Check Status</span>
                             }
                         </button>
                     </div>
@@ -266,7 +266,7 @@
                                                             <div class="ap-agent-cap-title">Status - @entry.DeviceName</div>
                                                             @if (AgentAnswers(entry))
                                                             {
-                                                                <span class="ap-agent-note">The capability report did not load; the AP Agent may be mid-restart. Recheck to try again.</span>
+                                                                <span class="ap-agent-note">The capability report did not load; the AP Agent may be mid-restart. Check Status to try again.</span>
                                                             }
                                                             else if (!string.IsNullOrEmpty(entry.Detail))
                                                             {
@@ -313,7 +313,7 @@
                                                                        @onchange="e => SetApEnabledAsync(entry, e)" />
                                                                 <span>Include in AP Agent deployment</span>
                                                             </label>
-                                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Recheck</button>
+                                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Check Status</button>
                                                             @if (entry.LastDeployedAt != null || IsRunning(entry))
                                                             {
                                                                 <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Remove AP Agent</button>

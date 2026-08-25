@@ -70,6 +70,7 @@ type Collector struct {
 	table  *Table
 	ring   *EventRing
 	events *EventSource
+	syslog *SyslogSource
 
 	mu     sync.RWMutex
 	vaps   []string
@@ -85,6 +86,9 @@ type Collector struct {
 func NewCollector(cfg *Config, table *Table, ring *EventRing) *Collector {
 	c := &Collector{cfg: cfg, table: table, ring: ring}
 	c.events = NewEventSource(cfg.HostapdDir, ring, table.ApplyEvent)
+	// stahtd's association quality and hostapd's UBNT_ROAM peer gossip only reach syslog, never
+	// the control socket, so the roam phase timing and auth_rssi need this second source.
+	c.syslog = NewSyslogSource(cfg.SyslogPath, ring)
 	c.fast.interval = time.Duration(cfg.FastIntervalMs) * time.Millisecond
 	c.slow.interval = time.Duration(cfg.SlowIntervalSeconds) * time.Second
 	return c
@@ -120,6 +124,12 @@ func (c *Collector) Start(ctx context.Context) {
 	go func() {
 		defer c.wg.Done()
 		c.loop(ctx, &c.slow, c.runSlow)
+	}()
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.syslog.Run(ctx)
 	}()
 }
 

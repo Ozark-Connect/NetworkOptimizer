@@ -48,6 +48,7 @@ type Event struct {
 	MAC         string     `json:"mac,omitempty"`
 	PeerBssid   string     `json:"peer_bssid,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
+	Sta         *StaEvent  `json:"sta,omitempty"`
 	EventTime   *time.Time `json:"event_time,omitempty"`
 	CollectedAt time.Time  `json:"collected_at"`
 }
