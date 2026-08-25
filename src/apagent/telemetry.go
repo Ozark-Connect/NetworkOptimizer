@@ -854,3 +854,26 @@ func FindClient(clients []Client, mac string) (Client, bool) {
 	}
 	return Client{}, false
 }
+
+// VapForClient reports which VAP currently holds a client, by link MAC or MLD MAC. Empty when the
+// table has not seen it: an MLO client is keyed on its MLD, so either address resolves.
+func (t *Table) VapForClient(mac string) string {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" {
+		return ""
+	}
+
+	for _, c := range t.Clients(time.Now()) {
+		if strings.EqualFold(c.MAC, mac) || strings.EqualFold(c.MldMAC, mac) || strings.EqualFold(c.Key, mac) {
+			if c.Vap != "" {
+				return c.Vap
+			}
+		}
+		for _, l := range c.Links {
+			if strings.EqualFold(l.MAC, mac) && l.Vap != "" {
+				return l.Vap
+			}
+		}
+	}
+	return ""
+}

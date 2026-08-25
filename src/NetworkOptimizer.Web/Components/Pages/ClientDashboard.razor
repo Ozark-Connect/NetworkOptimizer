@@ -23,8 +23,16 @@
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject ILogger<ClientDashboard> Logger
+@inject NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService ApAgentRoam
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
+
+@if (!string.IsNullOrEmpty(_toastMessage))
+{
+    <div class="wifi-toast alert @_toastClass">
+        <div>@_toastMessage</div>
+    </div>
+}
 
 <div class="client-dashboard-page" data-autohide-nav="2000">
     @* Page Header *@
@@ -196,6 +204,21 @@
                     }
                 </div>
                 <div class="identity-signal">
+                    @if (_canSteer && _client is { IsWired: false, IsOffline: false, IsVpn: false })
+                    {
+                        <button class="btn btn-secondary btn-sm client-roam-btn" @onclick="RequestRoamAsync"
+                                disabled="@_roamBusy"
+                                data-tooltip="Ask this device to move to another access point. It decides, so it may stay put." data-tooltip-hover-only>
+                            @if (_roamBusy)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                            }
+                            else
+                            {
+                                <span>Roam</span>
+                            }
+                        </button>
+                    }
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
                         <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)"
@@ -975,6 +998,56 @@
     private System.Threading.Timer? _pollTimer;
     private bool _hasWiFiManData;
     private bool _hasApAgentData;
+
+    /// <summary>Whether this site can steer: the AP Agent is on and at least two access points run it.</summary>
+    private bool _canSteer;
+
+    private bool _roamBusy;
+    private string? _toastMessage;
+    private string _toastClass = "alert-info";
+
+    /// <summary>Same toast the Wi-Fi Optimizer uses, auto-dismissing so it never needs closing.</summary>
+    private void ShowToast(string message, string cssClass)
+    {
+        _toastMessage = message;
+        _toastClass = cssClass;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            await InvokeAsync(() =>
+            {
+                _toastMessage = null;
+                StateHasChanged();
+            });
+        });
+    }
+
+    /// <summary>
+    /// Asks the device to move. 802.11v is a request, so a client that declines simply stays, and
+    /// the result says only that the ask was delivered.
+    /// </summary>
+    private async Task RequestRoamAsync()
+    {
+        if (_client == null || _roamBusy) return;
+        _roamBusy = true;
+        try
+        {
+            var result = await ApAgentRoam.RequestRoamAsync(_client.Mac, _client.Essid);
+            ShowToast(result.Message, result.Success ? "alert-success" : "alert-warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Roam request failed for {Mac}", _client.Mac);
+            ShowToast("Couldn't ask the device to move.", "alert-warning");
+        }
+        finally
+        {
+            _roamBusy = false;
+            StateHasChanged();
+        }
+    }
     private int _tickCount;
     private bool _isTooltipActive;
     private bool _isMobile;
@@ -1027,6 +1100,11 @@
     {
         PtrState.RefreshCallback = () => LoadTabDataAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        // Steering needs the AP Agent on at least two access points. Asking once here keeps the
+        // control off the page entirely where it could never work.
+        try { _canSteer = await ApAgentRoam.IsAvailableAsync(); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
 
         // Parse tab from URL
         if (!string.IsNullOrEmpty(TabParam))
@@ -2959,6 +3037,12 @@
         align-items: center;
         gap: 10px;
         flex-shrink: 0;
+    }
+    /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
+       row is tighter, so it sits after the bars and ahead of the live indicator. */
+    @@media (max-width: 768px) {
+        .client-roam-btn { order: 1; }
+        .identity-live-group { order: 2; }
     }
     .signal-gauge {
         display: flex;

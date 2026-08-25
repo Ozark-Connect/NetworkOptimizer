@@ -406,6 +406,14 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApA
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentClientReader,
     NetworkOptimizer.Web.Services.ApAgent.ApAgentClientReader>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentClientLiveService>();
+// Built per request against the site in context. The directory it uses takes the slug per call, so
+// there is no per-site state to keep and no registry to own it.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService>(sp =>
+    new NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService(
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>(),
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>(),
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService>>(),
+        sp.GetRequiredService<SiteContextService>().Slug));
 // Roam records and radio health ride the same tier pass as the telemetry collector rather than a
 // loop of their own, so the registry is a plain per-site holder with no hosted service behind it.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentEventsClient>();

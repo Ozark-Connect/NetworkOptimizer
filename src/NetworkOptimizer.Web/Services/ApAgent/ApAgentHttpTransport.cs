@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -38,7 +39,7 @@ public sealed class ApAgentHttpTransport
     /// load-bearing: /radios is tens of kilobytes on a healthy AP and nothing bounds what a broken
     /// one returns.
     /// </summary>
-    public async Task<ApAgentHttpResult> SendAsync(
+    public Task<ApAgentHttpResult> SendAsync(
         string host,
         int port,
         string? token,
@@ -46,11 +47,29 @@ public sealed class ApAgentHttpTransport
         TimeSpan timeout,
         long maxBytes,
         CancellationToken ct = default)
+        => SendAsync(host, port, token, path, timeout, maxBytes, null, ct);
+
+    /// <summary>
+    /// Sends to an agent, POSTing <paramref name="jsonBody"/> when one is given and GETting
+    /// otherwise. The agent's only mutating route needs a body; everything else reads.
+    /// </summary>
+    public async Task<ApAgentHttpResult> SendAsync(
+        string host,
+        int port,
+        string? token,
+        string path,
+        TimeSpan timeout,
+        long maxBytes,
+        string? jsonBody,
+        CancellationToken ct = default)
     {
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = timeout;
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{host}:{port}{path}");
+        var method = jsonBody is null ? HttpMethod.Get : HttpMethod.Post;
+        using var request = new HttpRequestMessage(method, $"http://{host}:{port}{path}");
+        if (jsonBody is not null)
+            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
         if (!string.IsNullOrEmpty(token))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 

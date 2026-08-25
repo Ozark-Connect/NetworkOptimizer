@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-var version = "0.1.0-dev"
+// Stamped at build time with Network Optimizer's own version, so an agent in the field reports the
+// release that shipped it. The agent has no independent version line. This literal only shows on a
+// hand-built binary.
+var version = "0.0.0-dev"
 
 // binaryVersionRaw holds the AP agent's CONTRACT version - an integer that is completely
 // independent of the release version above.

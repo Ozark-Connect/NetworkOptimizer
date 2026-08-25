@@ -908,25 +908,27 @@ func TestClientEndpointResolvesLinkOrMldMac(t *testing.T) {
 	auth := "Bearer " + testToken
 
 	for _, mac := range []string{fixtureMldMAC, fixtureLink6e, fixtureLink5, fixtureLink24, strings.ToUpper(fixtureLink6e)} {
-		resp := doRequest(t, srv, http.MethodGet, "/client/"+mac, auth)
+		resp := doRequest(t, srv, http.MethodGet, "/clients/"+mac, auth)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("/client/%s got %d", mac, resp.StatusCode)
+			t.Fatalf("/clients/%s got %d", mac, resp.StatusCode)
 		}
 		var payload ClientPayload
 		decodeJSON(t, resp, &payload)
 		if payload.Client.Key != fixtureMldMAC {
-			t.Errorf("/client/%s resolved to %s, want the MLD %s", mac, payload.Client.Key, fixtureMldMAC)
+			t.Errorf("/clients/%s resolved to %s, want the MLD %s", mac, payload.Client.Key, fixtureMldMAC)
 		}
 		if payload.Client.LinkCount != 3 {
-			t.Errorf("/client/%s returned %d links, want 3", mac, payload.Client.LinkCount)
+			t.Errorf("/clients/%s returned %d links, want 3", mac, payload.Client.LinkCount)
 		}
 	}
 
-	if resp := doRequest(t, srv, http.MethodGet, "/client/00:00:00:00:00:99", auth); resp.StatusCode != http.StatusNotFound {
+	if resp := doRequest(t, srv, http.MethodGet, "/clients/00:00:00:00:00:99", auth); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("an unknown MAC got %d, want 404", resp.StatusCode)
 	}
-	if resp := doRequest(t, srv, http.MethodGet, "/client/", auth); resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("an empty MAC got %d, want 400", resp.StatusCode)
+	// The router rejects an entity path with no id before the handler sees it, which is the right
+	// answer for a path that names no resource.
+	if resp := doRequest(t, srv, http.MethodGet, "/clients/", auth); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("an empty MAC got %d, want 404", resp.StatusCode)
 	}
 }
 
@@ -1013,7 +1015,7 @@ func TestEventsEndpoint(t *testing.T) {
 
 func TestTelemetryEndpointsRequireAuth(t *testing.T) {
 	srv := newTelemetryServer(t)
-	for _, path := range []string{"/clients", "/client/" + fixtureMldMAC, "/vaps", "/radios", "/events"} {
+	for _, path := range []string{"/clients", "/clients/" + fixtureMldMAC, "/vaps", "/radios", "/events"} {
 		if resp := doRequest(t, srv, http.MethodGet, path, ""); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s unauthenticated got %d, want 401", path, resp.StatusCode)
 		}

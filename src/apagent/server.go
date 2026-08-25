@@ -21,10 +21,16 @@ func newMux(state *State) *http.ServeMux {
 	mux.HandleFunc("/capabilities", jsonHandler(func() any { return state.Capabilities() }))
 	mux.HandleFunc("/health", jsonHandler(func() any { return state.Health() }))
 	mux.HandleFunc("/clients", jsonRequestHandler(state.clientsPayload))
-	mux.HandleFunc("/client/", jsonRequestHandler(state.clientPayload))
+	mux.HandleFunc("GET /clients/{mac}", jsonRequestHandler(state.clientPayload))
 	mux.HandleFunc("/vaps", jsonRequestHandler(state.vapsPayload))
 	mux.HandleFunc("/radios", jsonRequestHandler(state.radiosPayload))
 	mux.HandleFunc("/events", jsonRequestHandler(state.eventsPayload))
+	mux.HandleFunc("/neighbors", jsonRequestHandler(state.neighborsPayload))
+
+	// The only route that changes anything. The resource is the transition request, not an action:
+	// POST creates one for the client named in the path. A more specific pattern than "/clients/{mac}",
+	// so it wins on precedence.
+	mux.HandleFunc("POST /clients/{mac}/bss-transitions", jsonMutatingHandler(state.bssTransitionPayload))
 	return mux
 }
 
@@ -41,6 +47,37 @@ func newServer(state *State, token string) *http.Server {
 
 func jsonHandler(payload func() any) http.HandlerFunc {
 	return jsonRequestHandler(func(*http.Request) (any, error) { return payload(), nil })
+}
+
+// jsonMutatingHandler is the read handler's contract for the one endpoint that changes something.
+// POST only, so a stray GET or a link preview can never move a client.
+func jsonMutatingHandler(payload func(*http.Request) (any, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := payload(r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+
+		if err != nil {
+			status := http.StatusInternalServerError
+			var he httpError
+			if errors.As(err, &he) {
+				status = he.status
+			}
+			w.WriteHeader(status)
+			body = map[string]string{"error": err.Error()}
+		}
+
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(body); err != nil {
+			slog.Error("failed to encode response", "path", r.URL.Path, "error", err)
+		}
+	}
 }
 
 // jsonRequestHandler is the same contract for endpoints that read the query or the path. A refusal

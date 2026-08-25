@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -137,7 +140,7 @@ func (s *State) clientsPayload(r *http.Request) (any, error) {
 }
 
 func (s *State) clientPayload(r *http.Request) (any, error) {
-	mac := strings.Trim(strings.TrimPrefix(r.URL.Path, "/client/"), "/")
+	mac := strings.TrimSpace(r.PathValue("mac"))
 	if mac == "" {
 		return nil, badRequest("no MAC in the path (/client/<mac>)")
 	}
@@ -221,4 +224,55 @@ func (s *State) eventsPayload(r *http.Request) (any, error) {
 		Ring:           ring.Stats(),
 		CollectedAt:    time.Now().UTC(),
 	}, nil
+}
+
+// NeighborsPayload lists each VAP's own neighbor report element, which the server assembles into a
+// BTM candidate list. Read-only.
+type NeighborsPayload struct {
+	Ap          ApInfo           `json:"ap"`
+	Count       int              `json:"count"`
+	Neighbors   []NeighborReport `json:"neighbors"`
+	CollectedAt time.Time        `json:"collected_at"`
+}
+
+func (s *State) neighborsPayload(r *http.Request) (any, error) {
+	table, _ := s.telemetry()
+	vaps := make([]string, 0, 8)
+	for _, v := range table.Vaps() {
+		vaps = append(vaps, v.Name)
+	}
+
+	reports := neighborReports(r.Context(), vaps)
+	return NeighborsPayload{
+		Ap:          table.Ap(),
+		Count:       len(reports),
+		Neighbors:   reports,
+		CollectedAt: time.Now().UTC(),
+	}, nil
+}
+
+// bssTransitionPayload creates a BSS transition request for the client named in the path. The only
+// endpoint that changes anything.
+func (s *State) bssTransitionPayload(r *http.Request) (any, error) {
+	var req RoamRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
+		return nil, fmt.Errorf("could not read the transition request: %w", err)
+	}
+
+	// The path is authoritative for who moves; a body that disagrees is a mistake, not an override.
+	req.Mac = r.PathValue("mac")
+
+	table, _ := s.telemetry()
+	vaps := make([]string, 0, 8)
+	for _, v := range table.Vaps() {
+		vaps = append(vaps, v.Name)
+	}
+
+	result, err := sendRoam(r.Context(), table, vaps, req)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("BTM request sent", "mac", result.Mac, "vap", result.Vap, "candidates", result.Candidates)
+	return result, nil
 }

@@ -84,7 +84,7 @@ public sealed class ApAgentTelemetryClient
         try
         {
             var (host, port) = await _transport.RouteAsync(siteSlug, apHost);
-            var result = await _transport.SendAsync(host, port, token, $"/client/{mac}", timeout, MaxClientBytes, ct);
+            var result = await _transport.SendAsync(host, port, token, $"/clients/{mac}", timeout, MaxClientBytes, ct);
 
             if (result.Status == 404)
                 return new ApAgentClientLookup(ApAgentClientLookupStatus.NotOnAp, null);

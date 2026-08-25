@@ -159,6 +159,9 @@ public static class AuditActions
     public const string ApAgentRestarted = "ap_agent.restarted";
     public const string ApAgentSettingsChanged = "ap_agent.settings.changed";
 
+    /// <summary>A client was asked to move to a different access point over 802.11v.</summary>
+    public const string ApAgentClientSteered = "ap_agent.client.steered";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 
