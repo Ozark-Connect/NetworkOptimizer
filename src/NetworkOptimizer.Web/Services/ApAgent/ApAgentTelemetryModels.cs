@@ -329,6 +329,14 @@ public sealed class ApAgentClientLink
     public long RxBytes { get; set; }
 
     /// <summary>
+    /// This link negotiated and never carried traffic: its idle time covers its whole association.
+    /// An access point keeps such a link associated long after the client is gone, so it is the
+    /// difference between a client that is quiet and one that left without being torn down.
+    /// </summary>
+    [JsonPropertyName("negotiated_idle")]
+    public bool NegotiatedIdle { get; set; }
+
+    /// <summary>
     /// When the byte counters were read, set only when they came from the agent's own counter tier
     /// rather than its identity poll. Throughput is a counter delta over the gap between two of
     /// these, so assuming the poll interval instead would misreport it whenever a poll ran late.

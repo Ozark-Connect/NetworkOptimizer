@@ -263,6 +263,7 @@ public class ApAgentWifiFoldTests
             TxBytes: txBytes,
             RxBytes: rxBytes,
             BytesAt: null,
+            NegotiatedIdle: false,
             IsMlo: false,
             TxRetries: txRetries,
             TxAttempts: 5_000,

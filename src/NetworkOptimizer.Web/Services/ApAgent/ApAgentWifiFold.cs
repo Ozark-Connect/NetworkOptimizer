@@ -51,6 +51,7 @@ public sealed record ApAgentWifiSample(
     long? TcpStalls,
     double? TcpLatAvgMs,
     int? Ccq,
+    bool NegotiatedIdle,
     int? Nss);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
@@ -115,6 +116,7 @@ public static class ApAgentWifiFieldMapper
             TxBytes: active?.TxBytes,
             RxBytes: active?.RxBytes,
             BytesAt: active?.BytesAt,
+            NegotiatedIdle: active?.NegotiatedIdle ?? false,
             IsMlo: client.IsMlo,
             TxRetries: active?.TxRetries,
             TxAttempts: active?.TxAttempts,

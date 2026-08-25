@@ -615,8 +615,13 @@ public class MonitoringInfluxClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// Writes throughput alone, between the full points, so a rate can be stored as often as it is
-    /// measured without paying for the rest of the point.
+    /// Writes throughput and/or presence alone, between the full points.
+    ///
+    /// With throughput, this stores a rate as often as it is measured without paying for the rest
+    /// of the point. With throughput null it is a presence point: this client was connected here at
+    /// this instant and moved nothing. Both are needed, because a client that is merely idle used
+    /// to write nothing at all and so read back as departed - the one axis where we were worse than
+    /// the console, which shows it connected throughout.
     ///
     /// Same measurement and same tags, so these land in the existing series and every reader picks
     /// them up unchanged - fields are sparse, and the historic query pivots on whatever a row has.
@@ -635,8 +640,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         string apMac,
         string band,
         string clientMac,
-        double txThroughputBps,
-        double rxThroughputBps,
+        double? txThroughputBps,
+        double? rxThroughputBps,
         double? signalDbm,
         DateTime timestamp)
     {
@@ -646,10 +651,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Tag("device_mac", NormalizeMac(apMac))
             .Tag("band", band.ToLowerInvariant())
             .Field("client_mac", NormalizeMac(clientMac))
-            .Field("tx_throughput_bps", txThroughputBps)
-            .Field("rx_throughput_bps", rxThroughputBps)
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
 
+        if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
+        if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
         if (signalDbm.HasValue) point = point.Field("signal_dbm", signalDbm.Value);
 
         Enqueue(point, longterm: false);
@@ -3011,7 +3016,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm)";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))

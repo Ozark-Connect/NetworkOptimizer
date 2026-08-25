@@ -356,9 +356,30 @@ public sealed class ApAgentTelemetryCollector
             // The window's own throughput, measured across the whole window rather than one pass.
             PublishLive(s, entry, now, (null, null));
 
-            // Same gate as the console path: a client that moved no traffic writes no point, so
-            // swapping the source does not change how many points a site produces.
-            if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0) continue;
+            // A client that moved nothing still writes, carrying presence and signal but no rate.
+            // Skipping it entirely is why an idle client read back as departed: playback cannot
+            // tell "connected and quiet" from "gone" when neither writes anything.
+            //
+            // Except a link that has never carried traffic at all. An access point holds such a
+            // client associated long after it has physically left - measured at 41 minutes, idle
+            // time equal to uptime, zero bytes, signal at the noise floor - and the console agrees,
+            // so this is the platform's belief rather than something we can see through. Writing
+            // presence for it would keep a device that is a town away drawn on the map forever,
+            // which is worse than the gap it replaces.
+            if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0)
+            {
+                if (s.NegotiatedIdle) continue;
+
+                _ = _influx.WriteWifiClientThroughputAsync(
+                    apMac: s.ApMac,
+                    band: s.Band,
+                    clientMac: s.ClientMac,
+                    txThroughputBps: null,
+                    rxThroughputBps: null,
+                    signalDbm: s.SignalDbm,
+                    timestamp: now.AddTicks(tickOffset++));
+                continue;
+            }
 
             _ = _influx.WriteWifiClientAsync(
                 apMac: s.ApMac,

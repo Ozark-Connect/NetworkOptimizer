@@ -269,7 +269,13 @@ public class LanFlowMapService
     /// leaving a client on the map one sample too long is a smaller error than blinking one out
     /// that was really there.
     /// </summary>
-    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// How long after its last point a client is still drawn as present. Three times the write
+    /// cadence: enough to ride out one missed write (an agent restart, a slow poll) without a
+    /// connected client blinking out, and no more. It was three minutes only because points were
+    /// traffic-driven and a quiet client left real gaps; presence is written every window now.
+    /// </summary>
+    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromSeconds(90);
 
     /// <summary>
     /// Instants within this many seconds of now are the "live edge". The historic cache

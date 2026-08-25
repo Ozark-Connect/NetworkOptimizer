@@ -1382,7 +1382,25 @@ public class MonitoringCollectionAgent : BackgroundService
 
             _liveStats.RecordWifiClient(snapshot);
 
-            if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
+            if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
+            {
+                // Presence without a rate. An idle client that writes nothing is indistinguishable
+                // from a departed one when the series is read back.
+                //
+                // Unless it has never carried traffic since associating, which is what an access
+                // point looks like when it is holding a client that physically left. Presence for
+                // that draws a departed device forever.
+                if (c.Uptime > 0 && c.IdleTime >= c.Uptime && c.TxBytes == 0) continue;
+                _ = _influx.WriteWifiClientThroughputAsync(
+                    apMac: apMac,
+                    band: band,
+                    clientMac: clientMac,
+                    txThroughputBps: null,
+                    rxThroughputBps: null,
+                    signalDbm: c.Signal,
+                    timestamp: now.AddTicks(tickOffset++));
+            }
+            else
             {
                 _ = _influx.WriteWifiClientAsync(
                     apMac: apMac,
