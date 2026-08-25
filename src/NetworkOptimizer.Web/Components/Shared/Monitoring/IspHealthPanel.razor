@@ -1166,7 +1166,7 @@ else
         try
         {
             foreach (var wan in await PathView.GetWansAsync())
-                options.Add(new WanChoice(wan.WanInterface.ToLowerInvariant(),
+                options.Add(new WanChoice(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(wan.WanInterface),
                     NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
                         wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null),
                     wan.IsPrimary));
@@ -1179,7 +1179,7 @@ else
                 Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsNoTracking(db.WanContexts));
             _wansWithContext = contexts
                 .Where(c => !string.IsNullOrEmpty(c.WanInterface))
-                .Select(c => c.WanInterface!.ToLowerInvariant())
+                .Select(c => NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface!))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             _wansWithProbeBinding = contexts
                 .Where(c => !string.IsNullOrEmpty(c.WanInterface)
@@ -1189,7 +1189,7 @@ else
             foreach (var ctx in contexts)
             {
                 if (string.IsNullOrEmpty(ctx.WanInterface)) continue;
-                var key = ctx.WanInterface!.ToLowerInvariant();
+                var key = NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(ctx.WanInterface!);
                 if (!options.Any(o => o.Key == key))
                     options.Add(new WanChoice(key,
                         NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
