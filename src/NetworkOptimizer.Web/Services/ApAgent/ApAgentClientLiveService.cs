@@ -88,9 +88,19 @@ public sealed class ApAgentClientLiveService
         {
             var c = live.Client;
 
+            var live_ = _liveStats.GetFor(siteSlug);
+            var clientKey = string.IsNullOrEmpty(c.MldMac) ? c.Mac : c.MldMac;
+
+            // Throughput has to be carried explicitly. The cache reads a missing rate as zero, so
+            // publishing without one overwrites the collector's measurement with "idle" twice a
+            // second, which showed as a burst lasting about as long as the cache's single-zero
+            // hold and flat zero either side.
+            var (tx, rx) = ResolveThroughput(clientKey, c);
+            var prior = tx == null ? live_.GetWifiClient(clientKey) : null;
+
             // The agent already resolves the active link into these scalars, so there is nothing to
             // pick here: taking them straight through is what keeps our value and the page's equal.
-            _liveStats.GetFor(siteSlug).RecordWifiClient(new WifiClientLiveSnapshot
+            live_.RecordWifiClient(new WifiClientLiveSnapshot
             {
                 ClientMac = string.IsNullOrEmpty(c.MldMac) ? c.Mac : c.MldMac,
                 ApMac = live.ApMac,
@@ -103,6 +113,8 @@ public sealed class ApAgentClientLiveService
                 RxRateKbps = c.RxRateKbps > 0 ? c.RxRateKbps : null,
                 Rssi = c.Snr,
                 IsMlo = c.IsMlo,
+                TxThroughputBps = tx ?? prior?.TxThroughputBps,
+                RxThroughputBps = rx ?? prior?.RxThroughputBps,
                 Source = WifiClientSource.ApAgent,
                 LastUpdate = DateTime.UtcNow,
             });
@@ -113,6 +125,34 @@ public sealed class ApAgentClientLiveService
             _logger.LogDebug(ex, "Could not publish AP Agent client reading to the live cache");
         }
     }
+
+    /// <summary>
+    /// Throughput for the watched client from its own byte counters, so the page's rate is measured
+    /// at the rate the page polls rather than inherited from the collector's slower pass.
+    ///
+    /// Returns null far more often than not: this polls several times a second while the access
+    /// point refreshes the counters on its own short tier, so most calls span no new reading at all
+    /// and the caller holds what was last measured.
+    /// </summary>
+    private (double? Tx, double? Rx) ResolveThroughput(string clientKey, ApAgentClient c)
+    {
+        var sample = ApAgentWifiFieldMapper.ToSample(c, "00:00:00:00:00:00");
+        if (sample?.TxBytes is not { } tx || sample.RxBytes is not { } rx) return (null, null);
+
+        var at = sample.BytesAt ?? DateTime.UtcNow;
+        var resolved = _bytes.TryGetValue(clientKey, out var prev)
+            ? ApAgentThroughput.FromCounters(tx, rx, at, prev.TxBytes, prev.RxBytes, prev.At)
+            : (null, null);
+
+        // Only advance the baseline on a genuinely new reading, or a run of polls sharing one
+        // reading would keep resetting it and no gap would ever be long enough to measure.
+        if (prev.At != at) _bytes[clientKey] = new Reading(at, tx, rx);
+        return resolved;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Reading> _bytes = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly record struct Reading(DateTime At, long TxBytes, long RxBytes);
 
     /// <summary>The live cache keys band as "2.4ghz" / "5ghz" / "6ghz"; the agent reports "ng" / "na" / "6e".</summary>
     private static string NormalizeBand(string? band) => band switch
