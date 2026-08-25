@@ -1155,15 +1155,9 @@
             swBoot.ElapsedMilliseconds, _client != null, _client?.ApMac);
         swBoot.Restart();
 
-        // Deliberately NOT limited to your own device: moving a client that is stuck on the wrong
-        // access point is the point of the feature, and that client is rarely the one in your hand.
-        // The service gates instead on the site having two agents and this client having roamed
-        // before, which is the only evidence available that it survives being moved.
-        if (!string.IsNullOrEmpty(_client?.Mac))
-        {
-            try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
-            catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
-        }
+        // _canSteer is resolved in IdentifyAndLoadAsync, which is the only place that knows when the
+        // client is actually in hand. On your own device the first attempt always returns null: the
+        // browser has to report its own address after first render before identity can run.
 
         // Load AP markers for speed map (non-critical)
         try { _apMapMarkers = await ApMapService.GetApMapMarkersAsync(); }
@@ -1341,6 +1335,15 @@
             // ?tab=signal/connection deep link doesn't load data they don't have.
             if (_client?.IsVpn == true && _activeTab != "speed")
                 _activeTab = "speed";
+
+            // Steering availability depends on which client this is, so it can only be answered
+            // once there is one. Deliberately not restricted to your own device: moving a client
+            // stuck on the wrong access point is the point, and that client is rarely in your hand.
+            if (!_canSteer && !string.IsNullOrEmpty(_client?.Mac))
+            {
+                try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
+                catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
+            }
 
             if (_client != null)
             {
