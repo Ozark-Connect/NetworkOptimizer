@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.ApAgent
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Storage.Models
@@ -209,9 +210,9 @@
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
                            control that would refuse them. *@
                         <SiteOperatorOnly>
-                        <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="RequestRoamAsync"
+                        <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="() => _showRoamOptions = true"
                                 disabled="@_roamBusy"
-                                data-tooltip="Ask this device to move to another access point. It decides, so it may stay put." data-tooltip-hover-only>
+                                data-tooltip="Ask this device to move to another band or access point. It decides, so it may stay put." data-tooltip-hover-only>
                             @if (_roamBusy)
                             {
                                 <span class="spinner spinner-sm"></span>
@@ -222,6 +223,17 @@
                             }
                         </button>
                         </SiteOperatorOnly>
+                    }
+                    @if (_showRoamOptions)
+                    {
+                        <div class="roam-options-backdrop" @onclick="() => _showRoamOptions = false">
+                            <div class="roam-options" @onclick:stopPropagation="true">
+                                <button class="btn btn-secondary" disabled="@_roamBusy"
+                                        @onclick="() => SteerAsync(ApAgentRoamIntent.Band)">Change Band</button>
+                                <button class="btn btn-secondary" disabled="@_roamBusy"
+                                        @onclick="() => SteerAsync(ApAgentRoamIntent.AccessPoint)">Change AP</button>
+                            </div>
+                        </div>
                     }
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
@@ -1007,6 +1019,7 @@
     private bool _canSteer;
 
     private bool _roamBusy;
+    private bool _showRoamOptions;
     private string? _toastMessage;
     private string _toastClass = "alert-info";
 
@@ -1032,13 +1045,14 @@
     /// Asks the device to move. 802.11v is a request, so a client that declines simply stays, and
     /// the result says only that the ask was delivered.
     /// </summary>
-    private async Task RequestRoamAsync()
+    private async Task SteerAsync(ApAgentRoamIntent intent)
     {
         if (_client == null || _roamBusy) return;
         _roamBusy = true;
+        _showRoamOptions = false;
         try
         {
-            var result = await ApAgentRoam.RequestRoamAsync(_client.Mac, _client.Essid);
+            var result = await ApAgentRoam.RequestRoamAsync(_client.Mac, _client.Essid, intent);
             ShowToast(result.Message, result.Success ? "alert-success" : "alert-warning");
         }
         catch (Exception ex)
@@ -3093,6 +3107,24 @@
         align-items: center;
         gap: 10px;
         flex-shrink: 0;
+    }
+    .roam-options-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1060;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.6);
+    }
+    .roam-options {
+        display: flex;
+        gap: 10px;
+        padding: 20px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-secondary);
     }
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
        row is tighter, so it sits after the bars and ahead of the live indicator. */

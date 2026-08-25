@@ -14,17 +14,23 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 public interface IApAgentRoamService
 {
     /// <summary>
-    /// Asks the client to leave whichever access point currently holds it, offering every other
-    /// access point as a candidate. Returns once the request is sent: 802.11v is a request, so
-    /// where the client lands arrives afterwards as a roam event.
+    /// Asks the client to leave whichever BSSID currently holds it. Returns once the request is
+    /// sent: 802.11v is a request, so where the client lands arrives afterwards as a roam event.
+    ///
+    /// The candidate list is what steers, and <paramref name="intent"/> decides it. Where the client
+    /// already is always goes last, never absent, so a client that can use nothing offered still has
+    /// somewhere valid to land.
     /// </summary>
     /// <param name="clientMac">Client MAC, or the MLD MAC for a Wi-Fi 7 client.</param>
     /// <param name="ssid">Restricts candidates to this SSID so a client is never steered onto a
     /// different network. Null offers every SSID the neighbors report.</param>
+    /// <param name="intent">Whether to offer other access points or other bands on this one.</param>
     /// <param name="ct">Cancellation token.</param>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ApAgentClientSteered, TargetType = "client")]
-    Task<ApAgentRoamResult> RequestRoamAsync(string clientMac, string? ssid = null, CancellationToken ct = default);
+    Task<ApAgentRoamResult> RequestRoamAsync(
+        string clientMac, string? ssid = null,
+        ApAgentRoamIntent intent = ApAgentRoamIntent.AccessPoint, CancellationToken ct = default);
 
     /// <summary>
     /// Whether steering is available: the feature is on, at least two access points are running the

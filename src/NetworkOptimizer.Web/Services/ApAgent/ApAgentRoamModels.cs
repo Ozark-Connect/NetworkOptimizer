@@ -20,6 +20,21 @@ public sealed class ApAgentNeighborsPayload
     [JsonPropertyName("neighbors")] public List<ApAgentNeighborReport> Neighbors { get; set; } = new();
 }
 
+/// <summary>
+/// What the operator is asking for, which decides the candidate list.
+///
+/// Asked rather than inferred: a client that lands somewhere unhelpful is corrected by clicking
+/// again, and guessing wrong would send it to the far side of the site.
+/// </summary>
+public enum ApAgentRoamIntent
+{
+    /// <summary>Move to a different access point. Candidates are the other access points.</summary>
+    AccessPoint,
+
+    /// <summary>Move to a different band on the same access point, best band first.</summary>
+    Band,
+}
+
 /// <summary>The body of a BSS transition request.</summary>
 public sealed class ApAgentTransitionRequest
 {

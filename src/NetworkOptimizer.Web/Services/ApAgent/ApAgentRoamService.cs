@@ -63,19 +63,22 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
     /// <inheritdoc />
     public async Task<ApAgentRoamResult> RequestRoamAsync(
-        string clientMac, string? ssid = null, CancellationToken ct = default)
+        string clientMac, string? ssid = null,
+        ApAgentRoamIntent intent = ApAgentRoamIntent.AccessPoint, CancellationToken ct = default)
     {
         var mac = (clientMac ?? "").Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(mac)) return ApAgentRoamResult.Fail("No client given.");
 
         var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
-        if (targets.Count < 2)
-            return ApAgentRoamResult.Fail("Steering needs at least two access points running the AP Agent.");
+        if (targets.Count == 0)
+            return ApAgentRoamResult.Fail("No access points on this site are running the AP Agent.");
+        if (intent == ApAgentRoamIntent.AccessPoint && targets.Count < 2)
+            return ApAgentRoamResult.Fail("Moving to another access point needs at least two running the AP Agent.");
 
         if (!await HasRoamedBeforeAsync(mac, ct))
             return ApAgentRoamResult.Fail("This client has never been seen roaming, so it may not survive being moved.");
 
-        var (current, idleSeconds) = await FindHoldingApAsync(targets, mac, ct);
+        var (current, idleSeconds, currentBands) = await FindHoldingApAsync(targets, mac, ct);
         if (current == null)
             return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
 
@@ -85,25 +88,28 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             return ApAgentRoamResult.Fail(
                 $"That client has been idle for {idle}s and may be asleep. A sleeping client can be moved off but cannot rejoin on its own.");
 
-        // Every OTHER access point's neighbor reports first: order is preference, so the client
-        // tries those before anything after them.
-        var candidates = await CollectCandidatesAsync(targets, current, ssid, ct);
-        if (candidates.Count == 0)
-            return ApAgentRoamResult.Fail("No other access point offered a candidate to move to.");
+        var own = await FetchNeighborsAsync(current, ssid, ct);
+        var wanted = intent == ApAgentRoamIntent.Band
+            ? OtherBandsOf(own, currentBands)
+            : await CollectCandidatesAsync(targets, current, ssid, ct);
 
-        // Not reordered by band: two access points with identical VAP order give the same phone
-        // opposite outcomes, so order is not what decides it. Why it does is unresolved.
+        if (wanted.Count == 0)
+            return ApAgentRoamResult.Fail(intent == ApAgentRoamIntent.Band
+                ? "That access point offers no other band on this network."
+                : "No other access point offered a candidate to move to.");
 
-        // Current access point last. The request evicts either way, so a client that can use none
-        // of the above needs somewhere valid to land or it ends up on no SSID at all.
-        candidates.AddRange(await FetchNeighborsAsync(current, ssid, ct));
+        // Where the client already is, last. The request evicts either way, so a client that can use
+        // none of the above needs somewhere valid to land or it ends up on no SSID at all.
+        var candidates = wanted;
+        candidates.AddRange(own.Except(wanted));
 
         // What was offered, in order. The access point does not record the list, so without this
         // there is no way to ask afterwards why a client landed where it did.
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogDebug("BTM candidates for {Mac} leaving {Ap}: {Candidates}",
-                mac, current.Name ?? current.Host,
+            _logger.LogDebug("BTM candidates for {Mac} leaving {Ap} ({Intent}, on {Bands}): {Candidates}",
+                mac, current.Name ?? current.Host, intent,
+                currentBands.Count > 0 ? string.Join("+", currentBands) : "unknown",
                 string.Join(", ", candidates.Select(DescribeCandidate)));
         }
 
@@ -193,23 +199,41 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (element.Length < 24) return element;
 
         var bssid = string.Join(":", Enumerable.Range(0, 6).Select(i => element.Substring(i * 2, 2)));
-        if (!int.TryParse(element.AsSpan(20, 2), System.Globalization.NumberStyles.HexNumber, null, out var opClass)
-            || !int.TryParse(element.AsSpan(22, 2), System.Globalization.NumberStyles.HexNumber, null, out var channel))
-        {
+        if (!int.TryParse(element.AsSpan(22, 2), System.Globalization.NumberStyles.HexNumber, null, out var channel))
             return bssid;
-        }
 
-        // Operating classes per 802.11: 81-84 are 2.4 GHz, 115-130 are 5 GHz, 131-136 are 6 GHz.
-        var band = opClass switch
-        {
-            >= 81 and <= 84 => "2.4GHz",
-            >= 115 and <= 130 => "5GHz",
-            >= 131 and <= 136 => "6GHz",
-            _ => $"opclass{opClass}",
-        };
-
-        return $"{bssid}/{band} ch{channel}";
+        return $"{bssid}/{BandOf(element) ?? "?"}GHz ch{channel}";
     }
+
+    /// <summary>
+    /// Band token of a neighbor report element, from its operating class. Per 802.11: 81-84 are
+    /// 2.4 GHz, 115-130 are 5 GHz, 131-136 are 6 GHz.
+    /// </summary>
+    private static string? BandOf(string element)
+    {
+        if (element.Length < 22) return null;
+        if (!int.TryParse(element.AsSpan(20, 2), System.Globalization.NumberStyles.HexNumber, null, out var opClass))
+            return null;
+
+        return opClass switch
+        {
+            >= 81 and <= 84 => "2.4",
+            >= 115 and <= 130 => "5",
+            >= 131 and <= 136 => "6",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// This access point's other bands, best first, for a band move. An MLO client holds several
+    /// bands at once, so every band it is already on is excluded rather than just the active one.
+    /// </summary>
+    private static List<string> OtherBandsOf(IEnumerable<string> own, IReadOnlyCollection<string> currentBands)
+        => own.Select(e => (Element: e, Band: BandOf(e)))
+            .Where(x => x.Band != null && !currentBands.Contains(x.Band))
+            .OrderByDescending(x => x.Band switch { "6" => 3, "5" => 2, _ => 1 })
+            .Select(x => x.Element)
+            .ToList();
 
     /// <summary>One access point's own neighbor report elements, filtered to the client's SSID.</summary>
     private async Task<List<string>> FetchNeighborsAsync(ApAgentTarget target, string? ssid, CancellationToken ct)
@@ -228,19 +252,29 @@ public sealed class ApAgentRoamService : IApAgentRoamService
             foreach (var n in payload.Neighbors)
             {
                 if (string.IsNullOrEmpty(n.Element)) continue;
+
+                // Mesh backhaul VAPs advertise themselves too. Steering a client onto one would move
+                // it to a network it is not a member of.
+                if (n.Ssid.StartsWith("vwire-", StringComparison.OrdinalIgnoreCase)) continue;
                 if (!string.IsNullOrEmpty(ssid) && !string.Equals(n.Ssid, ssid, StringComparison.Ordinal)) continue;
+
                 elements.Add(n.Element);
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
+            // One unreachable access point costs a candidate, not the whole request.
             _logger.LogDebug(ex, "Could not read neighbors from {Host}", target.Host);
         }
         return elements;
     }
 
-    /// <summary>Finds which access point currently holds the client.</summary>
-    private async Task<(ApAgentTarget? Ap, long? IdleSeconds)> FindHoldingApAsync(
+    /// <summary>Finds which access point currently holds the client, and on which bands.</summary>
+    private async Task<(ApAgentTarget? Ap, long? IdleSeconds, IReadOnlyCollection<string> Bands)> FindHoldingApAsync(
         IReadOnlyList<ApAgentTarget> targets, string mac, CancellationToken ct)
     {
         foreach (var target in targets)
@@ -256,15 +290,24 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 // The same payload carries how long since the access point last heard from this
                 // client, which is what decides whether it is awake enough to be moved.
                 long? idle = null;
+                var bands = new HashSet<string>(StringComparer.Ordinal);
                 try
                 {
                     var client = JsonSerializer.Deserialize<ApAgentClient>(result.Body, JsonOptions);
                     if (client?.Links is { Count: > 0 })
+                    {
                         idle = NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(client.Links.Select(l => l.IdleSeconds));
+                        foreach (var link in client.Links.Where(l => !string.IsNullOrEmpty(l.Band)))
+                            bands.Add(link.Band!);
+                    }
+                    else if (!string.IsNullOrEmpty(client?.Band))
+                    {
+                        bands.Add(client.Band);
+                    }
                 }
                 catch (JsonException) { /* an unreadable body still tells us which AP holds it */ }
 
-                return (target, idle);
+                return (target, idle, bands);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -275,7 +318,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 // An access point that cannot be reached simply is not the one holding the client.
             }
         }
-        return (null, null);
+        return (null, null, Array.Empty<string>());
     }
 
     /// <summary>Gathers neighbor reports from every access point except the one to move off.</summary>
@@ -287,38 +330,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         foreach (var target in targets)
         {
             if (string.Equals(target.Mac, current.Mac, StringComparison.OrdinalIgnoreCase)) continue;
-
-            try
-            {
-                var (host, port) = await _transport.RouteAsync(_siteSlug, target.Host);
-                var result = await _transport.SendAsync(
-                    host, port, target.Token, "/neighbors", NeighborTimeout, MaxNeighborBytes, ct);
-
-                if (!result.IsUsable) continue;
-
-                var payload = JsonSerializer.Deserialize<ApAgentNeighborsPayload>(result.Body, JsonOptions);
-                if (payload?.Neighbors == null) continue;
-
-                foreach (var n in payload.Neighbors)
-                {
-                    if (string.IsNullOrEmpty(n.Element)) continue;
-
-                    // Mesh backhaul VAPs advertise themselves too. Steering a client onto one would
-                    // move it to a network it is not a member of.
-                    if (n.Ssid.StartsWith("vwire-", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (ssid != null && !string.Equals(n.Ssid, ssid, StringComparison.Ordinal)) continue;
-
-                    candidates.Add(n.Element);
-                }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                // One unreachable access point costs a candidate, not the whole request.
-            }
+            candidates.AddRange(await FetchNeighborsAsync(target, ssid, ct));
         }
 
         return candidates;
