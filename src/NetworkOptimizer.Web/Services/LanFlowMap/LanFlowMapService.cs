@@ -1662,6 +1662,13 @@ public class LanFlowMapService
     /// </summary>
     private static readonly TimeSpan LiveClientMaxAge = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How recently the cache must have been refreshed for a client to be ADDED back to the map.
+    /// Bounds how long a client that left can be resurrected: the agent drops it from its own
+    /// table within seconds, after which nothing refreshes its entry.
+    /// </summary>
+    private static readonly TimeSpan LiveClientAddMaxAge = TimeSpan.FromSeconds(15);
+
     private void BuildClientLeaves(
         NetworkTopology topology,
         Dictionary<string, LanPlacement> anchors,
@@ -2454,7 +2461,11 @@ public class LanFlowMapService
         foreach (var live in _liveStats.AllWifiClients())
         {
             if (live.Source == WifiClientSource.Console) continue;
-            if (now - live.LastUpdate > LiveClientMaxAge) continue;
+            // Tighter than the overlay's window on purpose. Overlaying RF onto a client the
+            // snapshot still lists is harmless when slightly stale; ADDING one back after the
+            // snapshot dropped it resurrects a client that left. A still-associated client is
+            // refreshed every agent poll, so anything staler than that is one that went away.
+            if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
 
             var clientMac = NormalizeMac(live.ClientMac);
             var nodeId = "cli-" + clientMac;

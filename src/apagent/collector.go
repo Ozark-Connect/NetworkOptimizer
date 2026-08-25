@@ -76,9 +76,10 @@ type Collector struct {
 	vaps   []string
 	radios []string
 
-	fast tierState
-	slow tierState
-	evt  tierState
+	fast  tierState
+	slow  tierState
+	bytes tierState
+	evt   tierState
 
 	wg sync.WaitGroup
 }
@@ -91,6 +92,7 @@ func NewCollector(cfg *Config, table *Table, ring *EventRing) *Collector {
 	c.syslog = NewSyslogSource(cfg.SyslogPath, ring)
 	c.fast.interval = time.Duration(cfg.FastIntervalMs) * time.Millisecond
 	c.slow.interval = time.Duration(cfg.SlowIntervalSeconds) * time.Second
+	c.bytes.interval = time.Duration(cfg.BytesIntervalSeconds) * time.Second
 	return c
 }
 
@@ -105,8 +107,10 @@ func (c *Collector) Apply(ctx context.Context, p ProbeSet) {
 	fast, _ := p.Get(ProbeWlanconfig)
 	slow, _ := p.Get(ProbeMcaDump)
 	ctrl, _ := p.Get(ProbeHostapdCtrl)
+	stats, _ := p.Get(ProbeApstatsSta)
 	c.fast.setAvailable(fast.Available)
 	c.slow.setAvailable(slow.Available)
+	c.bytes.setAvailable(stats.Available)
 	c.evt.setAvailable(ctrl.Available)
 
 	c.events.Reconcile(ctx, p.Vaps)
@@ -116,7 +120,7 @@ func (c *Collector) Apply(ctx context.Context, p ProbeSet) {
 // Start launches the poll tiers. Each loop waits only after its work finishes, so a collection that
 // overruns its interval delays the next one rather than starting a second alongside it.
 func (c *Collector) Start(ctx context.Context) {
-	c.wg.Add(2)
+	c.wg.Add(3)
 	go func() {
 		defer c.wg.Done()
 		c.loop(ctx, &c.fast, c.runFast)
@@ -124,6 +128,10 @@ func (c *Collector) Start(ctx context.Context) {
 	go func() {
 		defer c.wg.Done()
 		c.loop(ctx, &c.slow, c.runSlow)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.loop(ctx, &c.bytes, c.runBytes)
 	}()
 
 	c.wg.Add(1)
@@ -187,6 +195,31 @@ func (c *Collector) runFast(ctx context.Context) {
 	c.fast.succeeded(now)
 }
 
+// runBytes refreshes per-station counters on their own tier. They used to arrive only with the
+// identity poll, which is slow because mca-dump costs a few hundred milliseconds; one apstats call
+// per station is under a millisecond, so throughput can be resolved per poll instead of per write
+// window.
+func (c *Collector) runBytes(ctx context.Context) {
+	if !c.bytes.info().Available {
+		return
+	}
+	targets := c.table.StaTargets()
+	if len(targets) == 0 {
+		// Nothing associated is a successful pass, not a failure: reporting it as failed would
+		// read as a broken tier on an idle access point.
+		c.bytes.succeeded(time.Now().UTC())
+		return
+	}
+	now := time.Now().UTC()
+	readings := collectStaBytes(ctx, targets)
+	if len(readings) == 0 {
+		c.bytes.failed(nil)
+		return
+	}
+	c.table.ApplyBytes(readings, now)
+	c.bytes.succeeded(now)
+}
+
 func (c *Collector) runSlow(ctx context.Context) {
 	if !c.slow.info().Available {
 		return
@@ -216,6 +249,7 @@ func (c *Collector) publishTiers() {
 		Events: c.evt.info(),
 		Fast:   c.fast.info(),
 		Slow:   c.slow.info(),
+		Bytes:  c.bytes.info(),
 	})
 }
 

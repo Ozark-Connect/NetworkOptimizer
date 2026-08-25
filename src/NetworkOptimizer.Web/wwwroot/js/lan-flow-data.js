@@ -59,7 +59,11 @@ function _notify(event) {
 
 export function publishSnapshot(snap) {
     const firstLoad = !_snapshot;
-    _snapshot = snap;
+    // Copy rather than adopt. Added client leaves are merged into this object, and the 3D map
+    // keeps the object it passed in as the baseline it diffs the next poll against - so adopting
+    // it would write our additions into its baseline and make a client that left look present in
+    // one renderer and gone in the other, depending only on which acted last.
+    _snapshot = { ...snap, nodes: [...(snap.nodes || [])], links: [...(snap.links || [])] };
     // New object: any transient historic leaves are gone with the old one.
     _addedClientIds = new Set();
     _addedClientLinkIds = new Set();

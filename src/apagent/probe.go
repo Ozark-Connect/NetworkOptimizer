@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ const (
 	ProbeUbus        = "ubus"
 	ProbeStahtd      = "stahtd"
 	ProbeAthstats    = "athstats"
+	ProbeApstatsSta  = "apstats_sta"
 )
 
 // ProbeResult is one capability, resolved by behavior. Only the hostapd control socket is fatal;
@@ -95,6 +97,7 @@ func runProbes(ctx context.Context, cfg *Config) ProbeSet {
 
 	set.Results = append(set.Results, probeStahtd(cfg, now))
 	set.Results = append(set.Results, probeAthstats(ctx, set.Radios, now))
+	set.Results = append(set.Results, probeApstatsSta(ctx, vaps, now))
 
 	return set
 }
@@ -227,4 +230,55 @@ func probeAthstats(ctx context.Context, radios []string, now time.Time) ProbeRes
 	}
 	r.Detail = fmt.Sprintf("neither athstats -i %s nor apstats -r -i %s returned known counters", radio, radio)
 	return r
+}
+
+// probeApstatsSta resolves per-station byte counters. Probed against a real associated station,
+// because apstats answers successfully for a MAC it knows nothing about and prints no counters at
+// all - so "the binary exists" is not evidence the counters do.
+func probeApstatsSta(ctx context.Context, vaps []string, now time.Time) ProbeResult {
+	r := ProbeResult{Name: ProbeApstatsSta, CheckedAt: now, Degrades: "per-client throughput only as often as the identity poll"}
+
+	mac := firstAssociatedStation(ctx, vaps)
+	if mac == "" {
+		// No client to ask about is not a failure of the tool. Report unavailable so the tier
+		// idles, and let the next probe settle it once someone associates.
+		r.Detail = "no associated station to probe against"
+		return r
+	}
+
+	out, err := runCommand(ctx, staBytesTimeout, "apstats", "-s", "-m", mac)
+	if err != nil {
+		r.Detail = fmt.Sprintf("apstats -s: %v", err)
+		return r
+	}
+	_, txOK := firstInt64(apstatsTxDataBytes, out)
+	_, rxOK := firstInt64(apstatsRxDataBytes, out)
+	if !txOK && !rxOK {
+		r.Detail = "apstats -s answered without Tx/Rx Data Bytes"
+		return r
+	}
+
+	r.Available = true
+	r.Detail = "apstats -s: Tx Data Bytes, Rx Data Bytes"
+	return r
+}
+
+// firstAssociatedStation returns any currently associated station MAC, or "" if none.
+func firstAssociatedStation(ctx context.Context, vaps []string) string {
+	for _, vap := range vaps {
+		out, err := ubusCall(ctx, "hostapd."+vap, "get_clients", "")
+		if err != nil {
+			continue
+		}
+		var payload struct {
+			Clients map[string]json.RawMessage `json:"clients"`
+		}
+		if json.Unmarshal([]byte(out), &payload) != nil {
+			continue
+		}
+		for mac := range payload.Clients {
+			return mac
+		}
+	}
+	return ""
 }

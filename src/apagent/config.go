@@ -36,6 +36,17 @@ const (
 	defaultEventBufferSize   = 1024
 	defaultClientTTLSeconds  = 120
 
+	// defaultBytesIntervalSeconds paces the per-station counter tier. Half the server's poll so a
+	// poll always has a reading it did not already carry, and cheap enough to be unremarkable:
+	// one apstats call per associated station, each well under a millisecond.
+	defaultBytesIntervalSeconds = 5
+
+	// One call per associated station, so the floor keeps a busy access point from being asked
+	// faster than it can answer, and the ceiling keeps the tier meaningfully ahead of the
+	// identity poll it exists to beat.
+	minBytesIntervalSeconds = 2
+	maxBytesIntervalSeconds = 60
+
 	// absentGrace is how long a client may be missing from a VAP the poll actually read before it
 	// is dropped. Short on purpose: the read is the evidence, so this only has to survive a missed
 	// one. ClientTTLSeconds remains the bound for entries no poll has covered at all.
@@ -71,6 +82,9 @@ type Config struct {
 
 	FastIntervalMs      int `json:"fast_interval_ms"`
 	SlowIntervalSeconds int `json:"slow_interval_seconds"`
+	// BytesIntervalSeconds paces the per-station counter tier, which is what makes throughput
+	// resolvable per poll rather than per write window.
+	BytesIntervalSeconds int `json:"bytes_interval_seconds"`
 	EventBufferSize     int `json:"event_buffer_size"`
 	ClientTTLSeconds    int `json:"client_ttl_seconds"`
 	MaxTrackedClients   int `json:"max_tracked_clients"`
@@ -181,6 +195,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.EventBufferSize <= 0 {
 		cfg.EventBufferSize = defaultEventBufferSize
 	}
+	if cfg.BytesIntervalSeconds <= 0 {
+		cfg.BytesIntervalSeconds = defaultBytesIntervalSeconds
+	}
 	if cfg.ClientTTLSeconds <= 0 {
 		cfg.ClientTTLSeconds = defaultClientTTLSeconds
 	}
@@ -231,6 +248,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.SlowIntervalSeconds < minSlowIntervalSeconds || cfg.SlowIntervalSeconds > maxSlowIntervalSeconds {
 		return fmt.Errorf("slow_interval_seconds %d is outside %d to %d", cfg.SlowIntervalSeconds, minSlowIntervalSeconds, maxSlowIntervalSeconds)
+	}
+	if cfg.BytesIntervalSeconds < minBytesIntervalSeconds || cfg.BytesIntervalSeconds > maxBytesIntervalSeconds {
+		return fmt.Errorf("bytes_interval_seconds %d is outside %d to %d", cfg.BytesIntervalSeconds, minBytesIntervalSeconds, maxBytesIntervalSeconds)
 	}
 	if cfg.ClientTTLSeconds < cfg.SlowIntervalSeconds {
 		return fmt.Errorf("client_ttl_seconds %d is below slow_interval_seconds %d, which would expire clients between passes",

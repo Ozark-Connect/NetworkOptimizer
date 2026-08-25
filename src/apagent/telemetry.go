@@ -36,6 +36,10 @@ type ClientLink struct {
 	Mode         string     `json:"mode,omitempty"`
 	TxBytes      int64      `json:"tx_bytes,omitempty"`
 	RxBytes      int64      `json:"rx_bytes,omitempty"`
+	// BytesAt dates the counters when they came from the byte tier rather than the identity poll.
+	// The server divides a counter delta by the gap between these, so an assumed interval would
+	// misreport throughput whenever a poll ran late.
+	BytesAt *time.Time `json:"bytes_at,omitempty"`
 	TxPackets    int64      `json:"tx_packets,omitempty"`
 	RxPackets    int64      `json:"rx_packets,omitempty"`
 	TxRetries    int64      `json:"tx_retries,omitempty"`
@@ -162,6 +166,7 @@ type TierStatus struct {
 	Events TierInfo `json:"events"`
 	Fast   TierInfo `json:"fast"`
 	Slow   TierInfo `json:"slow"`
+	Bytes  TierInfo `json:"bytes"`
 }
 
 // ApInfo identifies the AP a payload came from, so a collector fanning out over a fleet can tell
@@ -182,6 +187,12 @@ type Table struct {
 	members  map[string]*memberState
 	fast     map[string]StaFast
 	slow     map[string]StaSlow
+	// slowAt dates t.slow, so a byte reading can be told apart from the identity poll's copy.
+	slowAt time.Time
+	// bytes is its own map because ApplySlow replaces t.slow wholesale on every pass. Keeping the
+	// counters separate is what lets them refresh far faster than the identity poll that used to
+	// be their only source.
+	bytes    map[string]StaBytes
 	identity map[string]identityRecord
 	vaps     []VapState
 	radios   []RadioState
@@ -201,6 +212,7 @@ func NewTable(maxSize int, ttl time.Duration) *Table {
 		members:      map[string]*memberState{},
 		fast:         map[string]StaFast{},
 		slow:         map[string]StaSlow{},
+		bytes:        map[string]StaBytes{},
 		identity:     map[string]identityRecord{},
 		prevCounters: map[string]map[string]int64{},
 	}
@@ -281,6 +293,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 		t.ap.Firmware = snap.Version
 	}
 
+	t.slowAt = now
 	t.slow = make(map[string]StaSlow, len(snap.Stations))
 	for _, s := range snap.Stations {
 		key := stationKey(s.Vap, s.MAC)
@@ -306,6 +319,38 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 	}
 	t.expireLocked(covered, now)
 	t.evictLocked()
+}
+
+// ApplyBytes records per-station counters. It deliberately does NOT touch LastSeen: presence is
+// decided by the tiers that enumerate a VAP, and a counter read for one MAC is no evidence about
+// who is still associated.
+func (t *Table) ApplyBytes(readings map[string]StaBytes, now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for key, b := range readings {
+		if _, ok := t.members[key]; !ok {
+			continue
+		}
+		t.bytes[key] = b
+	}
+	for key := range t.bytes {
+		if _, ok := t.members[key]; !ok {
+			delete(t.bytes, key)
+		}
+	}
+}
+
+// StaTargets lists the stations to read counters for: whatever is currently associated.
+func (t *Table) StaTargets() []StaTarget {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	targets := make([]StaTarget, 0, len(t.members))
+	for key, m := range t.members {
+		targets = append(targets, StaTarget{Key: key, MAC: m.MAC})
+	}
+	return targets
 }
 
 // SetRadioCounters merges the radio-stats tools into the radio table and computes deltas against
@@ -488,6 +533,14 @@ func (t *Table) Clients(now time.Time) []Client {
 				Is11r: s.Is11r, IsMlo: s.IsMlo, Nss: s.Nss, BwMaxSupp: s.BwMaxSupp,
 			}
 		}
+		// After the slow block, which assigns the counters unconditionally from the identity
+		// poll. Same counters and same direction - apstats and mca-dump report a station
+		// identically - so this only ever makes them newer.
+		if b, ok := t.bytes[key]; ok && b.At.After(t.slowAt) {
+			link.TxBytes, link.RxBytes = b.TxBytes, b.RxBytes
+			link.BytesAt = &b.At
+		}
+
 		if m.Source == "event" {
 			record.Sources.Event = true
 		}

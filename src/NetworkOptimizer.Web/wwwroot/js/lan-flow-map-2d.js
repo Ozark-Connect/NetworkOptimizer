@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=11';
+import * as flowData from './lan-flow-data.js?v=12';
 
 function demoMask(text) {
     const dm = window.DemoMask;
