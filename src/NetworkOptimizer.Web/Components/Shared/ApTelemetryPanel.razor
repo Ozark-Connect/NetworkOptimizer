@@ -60,12 +60,25 @@
             <div class="form-group">
                 <label class="checkbox-label">
                     <input type="checkbox" checked="@_siteEnabled" @onchange="OnSiteEnabledChangedAsync" />
-                    <span>Enable AP Agent deployment for this site</span>
+                    <span>Collect Wi-Fi telemetry from this site's access points</span>
                 </label>
                 <small class="form-help">
-                    Nothing deploys while this is off. Once on, Network Optimizer keeps the AP Agent
-                    running on every included access point, redeploying after reboots and firmware
-                    updates on its own.
+                    @if (_siteEnabled)
+                    {
+                        <text>
+                            Wi-Fi telemetry is coming straight from your access points. The AP Agent
+                            goes back on after a reboot or a firmware update, so this keeps working
+                            without you. Turn it off and it comes off every access point.
+                        </text>
+                    }
+                    else
+                    {
+                        <text>
+                            Reads Wi-Fi telemetry straight from your access points instead of the
+                            UniFi Console: faster signal, roam timing, and airtime the Console does
+                            not report. Nothing is installed until you turn this on.
+                        </text>
+                    }
                 </small>
             </div>
 

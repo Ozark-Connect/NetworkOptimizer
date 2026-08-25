@@ -118,6 +118,51 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         }
         await db.SaveChangesAsync();
         _logger.LogInformation("AP Agent deployment {State} for site {Site}", enabled ? "enabled" : "disabled", _siteSlug);
+
+        // Switching off has to reach the access points. Supervision stopping only means nobody is
+        // watching any more, which would leave unsupervised agents running on hardware the operator
+        // just said to stop using. Best effort: an access point that cannot be reached loses its
+        // agent at its next reboot anyway, since nothing here survives one.
+        if (!enabled) await RemoveFromAllAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Removes the agent from every access point that has one, for the site-wide off switch.
+    /// Failures are logged rather than thrown: one unreachable access point must not stop the rest
+    /// from being cleaned up, and the setting has already been saved.
+    /// </summary>
+    private async Task RemoveFromAllAsync(CancellationToken ct)
+    {
+        Dictionary<string, ApAgentDeployment> records;
+        try { records = await LoadRecordsAsync(ct); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AP Agent records could not be read while disabling site {Site}", _siteSlug);
+            return;
+        }
+
+        var deployed = records.Values.Where(r => !string.IsNullOrEmpty(r.DeployedVersion)).ToList();
+        if (deployed.Count == 0) return;
+
+        _logger.LogInformation("Removing the AP Agent from {Count} access point(s) on site {Site}",
+            deployed.Count, _siteSlug);
+
+        foreach (var record in deployed)
+        {
+            try
+            {
+                var result = await RemoveAsync(record.DeviceMac, ct);
+                if (!result.Success)
+                {
+                    _logger.LogWarning("AP Agent could not be removed from {Mac} on site {Site}: {Error}",
+                        record.DeviceMac, _siteSlug, result.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AP Agent removal failed for {Mac} on site {Site}", record.DeviceMac, _siteSlug);
+            }
+        }
     }
 
     /// <inheritdoc />
