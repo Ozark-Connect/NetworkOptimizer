@@ -281,7 +281,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 recentResult.ParallelStreams = parallelStreams;
 
             // Get snapshot captured during first direction test (if available)
-            var snapshot = _snapshotService.GetSnapshot(clientIp);
+            var snapshot = _snapshotService.GetSnapshot(_siteSlug, clientIp);
 
             // Re-analyze path with updated bidirectional data (using snapshot for max rates)
             await AnalyzePathAsync(recentResult, snapshot);
@@ -294,7 +294,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
             // Clean up snapshot after use
             if (snapshot != null)
-                _snapshotService.RemoveSnapshot(clientIp);
+                _snapshotService.RemoveSnapshot(_siteSlug, clientIp);
 
             await db.SaveChangesAsync();
 
@@ -336,7 +336,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
         // Capture snapshot now (during active test) for use when second direction merges
         // Fire-and-forget - don't block the response
-        _ = _snapshotService.CaptureSnapshotAsync(clientIp);
+        _ = _snapshotService.CaptureSnapshotAsync(_siteSlug, clientIp);
 
         // Enrich and analyze in background (after WiFi rates stabilize)
         _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
@@ -705,7 +705,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             WirelessRateSnapshot? snapshot = null;
             if (result.Direction != SpeedTestDirection.ClientToServer)
             {
-                snapshot = _snapshotService.GetSnapshot(result.DeviceHost);
+                snapshot = _snapshotService.GetSnapshot(_siteSlug, result.DeviceHost);
             }
 
             // Perform path analysis (using snapshot to pick max wireless rates)
@@ -720,7 +720,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
             // Clean up snapshot after use (iperf3 client snapshots cleaned up in merge path or auto-expire)
             if (snapshot != null)
-                _snapshotService.RemoveSnapshot(result.DeviceHost);
+                _snapshotService.RemoveSnapshot(_siteSlug, result.DeviceHost);
 
             await db.SaveChangesAsync();
 

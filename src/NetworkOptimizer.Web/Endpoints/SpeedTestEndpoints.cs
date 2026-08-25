@@ -321,7 +321,7 @@ public static class SpeedTestEndpoints
             var snapshotService = speedTestRegistry.GetFor(siteSlug).Snapshots;
 
             // Fire-and-forget - capture snapshot asynchronously, don't block response
-            _ = snapshotService.CaptureSnapshotAsync(clientIp);
+            _ = snapshotService.CaptureSnapshotAsync(siteSlug, clientIp);
 
             return Results.Ok(new { success = true });
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.ApAgent;
 using Xunit;
 
@@ -24,7 +25,13 @@ public class ApAgentClientLiveServiceTests
     private static readonly DateTime Now = new(2026, 8, 24, 12, 0, 0, DateTimeKind.Utc);
 
     private static ApAgentClientLiveService Service(FakeReader reader)
-        => new(reader, NullLogger<ApAgentClientLiveService>.Instance);
+        => new(reader, new MonitoringLiveStatsRegistry(new EmptyProvider()), NullLogger<ApAgentClientLiveService>.Instance);
+
+    /// <summary>The live cache is a side effect here, not the thing under test.</summary>
+    private sealed class EmptyProvider : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => null;
+    }
 
     private static ApAgentClient Client(string mac, int signal = -55, string band = "5")
         => new()

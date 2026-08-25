@@ -13,17 +13,17 @@ public interface ITopologySnapshotService
     /// Captures a wireless rate snapshot for the given client IP.
     /// This invalidates the topology cache first to ensure fresh data.
     /// </summary>
-    Task CaptureSnapshotAsync(string clientIp);
+    Task CaptureSnapshotAsync(string siteSlug, string clientIp);
 
     /// <summary>
     /// Gets the snapshot for a client IP, if it exists and hasn't expired.
     /// </summary>
-    WirelessRateSnapshot? GetSnapshot(string clientIp);
+    WirelessRateSnapshot? GetSnapshot(string siteSlug, string clientIp);
 
     /// <summary>
     /// Removes the snapshot for a client IP.
     /// </summary>
-    void RemoveSnapshot(string clientIp);
+    void RemoveSnapshot(string siteSlug, string clientIp);
 }
 
 /// <summary>
@@ -38,6 +38,12 @@ public class TopologySnapshotService : ITopologySnapshotService
     private readonly ILogger<TopologySnapshotService> _logger;
 
     private readonly ConcurrentDictionary<string, SnapshotEntry> _snapshots = new();
+
+    /// <summary>
+    /// Keyed by site as well as client. This is a singleton across every site, and client IPs repeat
+    /// between them: two sites both running 192.168.1.x would otherwise read each other's snapshots.
+    /// </summary>
+    private static string Key(string siteSlug, string clientIp) => $"{siteSlug}|{clientIp}";
     private static readonly TimeSpan SnapshotExpiration = TimeSpan.FromMinutes(2);
 
     public TopologySnapshotService(
@@ -56,7 +62,7 @@ public class TopologySnapshotService : ITopologySnapshotService
     /// Captures a wireless rate snapshot for the given client IP.
     /// This invalidates the topology cache first to ensure fresh data.
     /// </summary>
-    public async Task CaptureSnapshotAsync(string clientIp)
+    public async Task CaptureSnapshotAsync(string siteSlug, string clientIp)
     {
         try
         {
@@ -110,7 +116,7 @@ public class TopologySnapshotService : ITopologySnapshotService
             await EnrichWithWiFiManAsync(snapshot, clientIp, targetClient);
 
             // Store snapshot (overwrite any existing for this IP)
-            _snapshots[clientIp] = new SnapshotEntry(snapshot, DateTime.UtcNow);
+            _snapshots[Key(siteSlug, clientIp)] = new SnapshotEntry(snapshot, DateTime.UtcNow);
 
             if (targetClient != null && !targetClient.IsWired && snapshot.ClientRates.TryGetValue(targetClient.Mac, out var targetRates))
             {
@@ -139,14 +145,14 @@ public class TopologySnapshotService : ITopologySnapshotService
     /// <summary>
     /// Gets the snapshot for a client IP, if it exists and hasn't expired.
     /// </summary>
-    public WirelessRateSnapshot? GetSnapshot(string clientIp)
+    public WirelessRateSnapshot? GetSnapshot(string siteSlug, string clientIp)
     {
-        if (_snapshots.TryGetValue(clientIp, out var entry))
+        if (_snapshots.TryGetValue(Key(siteSlug, clientIp), out var entry))
         {
             // Check if expired
             if (DateTime.UtcNow - entry.CapturedAt > SnapshotExpiration)
             {
-                _snapshots.TryRemove(clientIp, out _);
+                _snapshots.TryRemove(Key(siteSlug, clientIp), out _);
                 return null;
             }
             return entry.Snapshot;
@@ -157,9 +163,9 @@ public class TopologySnapshotService : ITopologySnapshotService
     /// <summary>
     /// Removes the snapshot for a client IP.
     /// </summary>
-    public void RemoveSnapshot(string clientIp)
+    public void RemoveSnapshot(string siteSlug, string clientIp)
     {
-        if (_snapshots.TryRemove(clientIp, out _))
+        if (_snapshots.TryRemove(Key(siteSlug, clientIp), out _))
         {
             _logger.LogDebug("Removed snapshot for {ClientIp}", clientIp);
         }

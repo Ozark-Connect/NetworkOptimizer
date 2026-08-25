@@ -20,12 +20,17 @@ public sealed class ApAgentClientLiveService
     private static readonly TimeSpan HintLookback = ApAgentRoamFollower.SearchWindow;
 
     private readonly IApAgentClientReader _reader;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
     private readonly ILogger<ApAgentClientLiveService> _logger;
 
     /// <summary>Creates the live service.</summary>
-    public ApAgentClientLiveService(IApAgentClientReader reader, ILogger<ApAgentClientLiveService> logger)
+    public ApAgentClientLiveService(
+        IApAgentClientReader reader,
+        MonitoringLiveStatsRegistry liveStats,
+        ILogger<ApAgentClientLiveService> logger)
     {
         _reader = reader;
+        _liveStats = liveStats;
         _logger = logger;
     }
 
@@ -61,13 +66,61 @@ public sealed class ApAgentClientLiveService
         if (follower.State == ApAgentFollowState.Attached && follower.CurrentAp is { } current)
         {
             var found = await AttachedPollAsync(siteSlug, clientMac, current, follower, now, ct);
+            if (found != null) Publish(siteSlug, found);
             if (found != null || !follower.IsSearching) return found;
         }
 
-        return follower.IsSearching
-            ? await SearchAsync(siteSlug, clientMac, follower, aps, now, ct)
-            : null;
+        if (!follower.IsSearching) return null;
+
+        var searched = await SearchAsync(siteSlug, clientMac, follower, aps, now, ct);
+        if (searched != null) Publish(siteSlug, searched);
+        return searched;
     }
+
+    /// <summary>
+    /// Publishes the reading into the site's live cache. Client Performance is polling this client
+    /// far faster than the collector does, and that freshness should be available to anything else
+    /// asking what the client is doing right now rather than staying private to the page.
+    /// </summary>
+    private void Publish(string siteSlug, ApAgentLiveClient live)
+    {
+        try
+        {
+            var c = live.Client;
+
+            // The agent already resolves the active link into these scalars, so there is nothing to
+            // pick here: taking them straight through is what keeps our value and the page's equal.
+            _liveStats.GetFor(siteSlug).RecordWifiClient(new WifiClientLiveSnapshot
+            {
+                ClientMac = string.IsNullOrEmpty(c.MldMac) ? c.Mac : c.MldMac,
+                ApMac = live.ApMac,
+                Band = NormalizeBand(c.Band),
+                Channel = c.Channel > 0 ? c.Channel : null,
+                ChannelWidth = c.Bandwidth > 0 ? c.Bandwidth : null,
+                SignalDbm = c.Signal,
+                NoiseDbm = c.Noise,
+                TxRateKbps = c.TxRateKbps > 0 ? c.TxRateKbps : null,
+                RxRateKbps = c.RxRateKbps > 0 ? c.RxRateKbps : null,
+                Rssi = c.Snr,
+                IsMlo = c.IsMlo,
+                LastUpdate = DateTime.UtcNow,
+            });
+        }
+        catch (Exception ex)
+        {
+            // Publishing is a courtesy to other readers; it must never break the page's own poll.
+            _logger.LogDebug(ex, "Could not publish AP Agent client reading to the live cache");
+        }
+    }
+
+    /// <summary>The live cache keys band as "2.4ghz" / "5ghz" / "6ghz"; the agent reports "ng" / "na" / "6e".</summary>
+    private static string NormalizeBand(string? band) => band switch
+    {
+        "ng" or "2.4" or "2.4ghz" => "2.4ghz",
+        "na" or "5" or "5ghz" => "5ghz",
+        "6e" or "6" or "6ghz" => "6ghz",
+        _ => band ?? "",
+    };
 
     /// <summary>
     /// Points the follow at the console's access point when it has nowhere else to go. An access
