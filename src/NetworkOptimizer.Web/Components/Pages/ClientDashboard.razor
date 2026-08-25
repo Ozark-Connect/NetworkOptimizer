@@ -1105,10 +1105,7 @@
         PtrState.RefreshCallback = () => LoadTabDataAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
 
-        // Steering needs the AP Agent on at least two access points. Asking once here keeps the
-        // control off the page entirely where it could never work.
-        try { _canSteer = await ApAgentRoam.IsAvailableAsync(); }
-        catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
+        // _canSteer is resolved after identity, since it depends on which client this is.
 
         // Parse tab from URL
         if (!string.IsNullOrEmpty(TabParam))
@@ -1157,6 +1154,16 @@
         Logger.LogInformation("CP-TIMING IdentifyAndLoad {Ms} ms (client={Have} ap={Ap})",
             swBoot.ElapsedMilliseconds, _client != null, _client?.ApMac);
         swBoot.Restart();
+
+        // Steering is offered only on the device you are holding. A BTM request is an eviction, and
+        // a client that cannot act on one is disassociated regardless - so the person who can toggle
+        // its Wi-Fi back on has to be the person pressing the button. The service gates further on
+        // the site having two agents and this client having roamed before.
+        if (_isOwnDevice && !string.IsNullOrEmpty(_client?.Mac))
+        {
+            try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
+        }
 
         // Load AP markers for speed map (non-critical)
         try { _apMapMarkers = await ApMapService.GetApMapMarkersAsync(); }

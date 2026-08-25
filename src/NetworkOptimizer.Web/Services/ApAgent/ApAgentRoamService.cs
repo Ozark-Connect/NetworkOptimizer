@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -12,8 +13,9 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// client that declines is disassociated when the timer expires and reassociates wherever it likes,
 /// possibly the same access point.
 ///
-/// The candidate list is what steers. Omitting the current access point's own BSSIDs is what makes
-/// staying put a refusal rather than a valid choice.
+/// The candidate list is what steers, by order: other access points first, the current one last. It
+/// used to be omitted entirely, which made staying put a refusal - and left a client that could not
+/// use any candidate with nowhere valid to go. One was observed never rejoining any SSID.
 ///
 /// Success here means the frame was sent. Where the client actually went arrives separately, as a
 /// roam event through the agent's event stream.
@@ -35,17 +37,20 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
     private readonly ApAgentHttpTransport _transport;
     private readonly ApAgentTargetDirectory _directory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<ApAgentRoamService> _logger;
     private readonly string _siteSlug;
 
     public ApAgentRoamService(
         ApAgentHttpTransport transport,
         ApAgentTargetDirectory directory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         ILogger<ApAgentRoamService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _transport = transport;
         _directory = directory;
+        _siteDbFactory = siteDbFactory;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
     }
@@ -61,15 +66,25 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (targets.Count < 2)
             return ApAgentRoamResult.Fail("Steering needs at least two access points running the AP Agent.");
 
+        if (!await HasRoamedBeforeAsync(mac, ct))
+            return ApAgentRoamResult.Fail("This client has never been seen roaming, so it may not survive being moved.");
+
         var current = await FindHoldingApAsync(targets, mac, ct);
         if (current == null)
             return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
 
-        // Candidates are every OTHER access point's neighbor reports. Excluding the current one is
-        // the whole steering mechanism: with its own BSSIDs absent, staying is a refusal.
+        // Every OTHER access point's neighbor reports first: order is preference, so the client
+        // tries those before anything after them.
         var candidates = await CollectCandidatesAsync(targets, current, ssid, ct);
         if (candidates.Count == 0)
             return ApAgentRoamResult.Fail("No other access point offered a candidate to move to.");
+
+        // Then the current access point, last. The request is an eviction either way - hostapd
+        // offers nothing but wnm_disassoc_imminent - so a client that cannot use any of the
+        // candidates above is going to be disassociated regardless. Listing where it already is
+        // gives it somewhere valid to land instead of nowhere, which is how a client ends up on no
+        // SSID at all. It stays a steer because this entry is last.
+        candidates.AddRange(await FetchNeighborsAsync(current, ssid, ct));
 
         var body = JsonSerializer.Serialize(new ApAgentTransitionRequest
         {
@@ -109,11 +124,64 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     }
 
     /// <inheritdoc />
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+    public async Task<bool> IsAvailableAsync(string? clientMac = null, CancellationToken ct = default)
     {
         if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct)) return false;
         var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
-        return targets.Count >= 2;
+        if (targets.Count < 2) return false;
+
+        if (string.IsNullOrWhiteSpace(clientMac)) return true;
+        return await HasRoamedBeforeAsync(clientMac.Trim().ToLowerInvariant(), ct);
+    }
+
+    /// <summary>
+    /// Whether this client has ever been recorded roaming. The only evidence available that it can
+    /// survive a transition: hostapd sends evictions rather than suggestions, and nothing reports a
+    /// client's BSS Transition support - mca-dump carries is_11r with no 11v equivalent.
+    /// </summary>
+    private async Task<bool> HasRoamedBeforeAsync(string mac, CancellationToken ct)
+    {
+        try
+        {
+            using var db = _siteDbFactory.CreateForSite(_siteSlug, _siteSlug == SiteManagementService.DefaultSiteSlug);
+            return await db.ApRoamRecords.AsNoTracking()
+                .AnyAsync(r => r.ClientMac == mac, ct);
+        }
+        catch (Exception ex)
+        {
+            // No history is the safe answer: it withholds the control rather than offering one that
+            // can strand a device.
+            _logger.LogDebug(ex, "Could not read roam history for {Mac} on {Site}", mac, _siteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>One access point's own neighbor report elements, filtered to the client's SSID.</summary>
+    private async Task<List<string>> FetchNeighborsAsync(ApAgentTarget target, string? ssid, CancellationToken ct)
+    {
+        var elements = new List<string>();
+        try
+        {
+            var (host, port) = await _transport.RouteAsync(_siteSlug, target.Host);
+            var result = await _transport.SendAsync(
+                host, port, target.Token, "/neighbors", NeighborTimeout, MaxNeighborBytes, ct);
+            if (!result.IsUsable) return elements;
+
+            var payload = JsonSerializer.Deserialize<ApAgentNeighborsPayload>(result.Body, JsonOptions);
+            if (payload?.Neighbors == null) return elements;
+
+            foreach (var n in payload.Neighbors)
+            {
+                if (string.IsNullOrEmpty(n.Element)) continue;
+                if (!string.IsNullOrEmpty(ssid) && !string.Equals(n.Ssid, ssid, StringComparison.Ordinal)) continue;
+                elements.Add(n.Element);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read neighbors from {Host}", target.Host);
+        }
+        return elements;
     }
 
     /// <summary>Finds which access point currently holds the client.</summary>

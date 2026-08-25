@@ -1,4 +1,4 @@
-﻿using ApexCharts;
+using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
@@ -412,6 +412,7 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAge
     new NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService(
         sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>(),
         sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>(),
+        sp.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDbContextFactory>(),
         sp.GetRequiredService<ILogger<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService>>(),
         sp.GetRequiredService<SiteContextService>().Slug));
 // Roam records and radio health ride the same tier pass as the telemetry collector rather than a

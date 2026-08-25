@@ -27,9 +27,17 @@ public interface IApAgentRoamService
     Task<ApAgentRoamResult> RequestRoamAsync(string clientMac, string? ssid = null, CancellationToken ct = default);
 
     /// <summary>
-    /// Whether steering is available on this site: the feature is on and at least two access points
-    /// are running the AP Agent. Drives whether the control is offered at all.
+    /// Whether steering is available: the feature is on, at least two access points are running the
+    /// AP Agent, and - when a client is named - that client has roamed before.
+    ///
+    /// The client check is a safety gate, not a nicety. hostapd exposes only
+    /// <c>wnm_disassoc_imminent</c>, so every steer is an eviction with a timer rather than a
+    /// suggestion, and nothing reports whether a client supports BSS Transition: mca-dump carries
+    /// is_11r but no 11v equivalent. A device that cannot act on the request is disassociated
+    /// anyway, and one was observed never rejoining any SSID afterwards. A prior roam is the only
+    /// evidence we have that a client survives being moved.
     /// </summary>
+    /// <param name="clientMac">Client to check, or null for the site-level answer alone.</param>
     [RequireRole(Roles.Viewer)]
-    Task<bool> IsAvailableAsync(CancellationToken ct = default);
+    Task<bool> IsAvailableAsync(string? clientMac = null, CancellationToken ct = default);
 }
