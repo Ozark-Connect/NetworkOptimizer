@@ -441,6 +441,7 @@
     // Chart data
     private ApexChart<ClientChartPoint>? _signalChart;
     private ApexChartOptions<ClientChartPoint> _signalChartOptions = new();
+    private List<AnnotationsXAxis> _roamAnnotations = new();
     private List<ClientChartPoint> _signalData = new();
     private List<ClientChartPoint> _txRetryData = new();
 
@@ -629,8 +630,41 @@
         _signalData = newSignalData;
         _txRetryData = newTxRetryData;
 
+        BuildRoamAnnotations();
+
         // Ensure chart options match current filter state
         UpdateChartOptionsForVisibleSeries();
+    }
+
+    /// <summary>
+    /// Marks where the client changed access point. The roam events already loaded for the timeline
+    /// carry both the moment and the destination name, so the chart says which AP a signal step
+    /// belongs to rather than leaving a reader to guess.
+    /// </summary>
+    private void BuildRoamAnnotations()
+    {
+        var annotations = new List<AnnotationsXAxis>();
+
+        foreach (var evt in _connectionEvents.Where(e => e.Type == ClientConnectionEventType.Roamed))
+        {
+            var to = evt.ToApName ?? evt.ApName;
+            if (string.IsNullOrEmpty(to)) continue;
+
+            annotations.Add(new AnnotationsXAxis
+            {
+                X = evt.Timestamp.ToUnixTimeMilliseconds(),
+                BorderColor = "#64748b",
+                Label = new Label
+                {
+                    Text = to,
+                    Style = new Style { Background = "#64748b", Color = "#ffffff", FontSize = "11px" },
+                    Orientation = Orientation.Horizontal,
+                    OffsetY = -5
+                }
+            });
+        }
+
+        _roamAnnotations = annotations;
     }
 
     private Task OnChartFilterChanged()
@@ -688,6 +722,11 @@
         // Update chart options
         _signalChartOptions.Yaxis = yAxes;
         _signalChartOptions.Colors = colors;
+        // Only meaningful against the signal trace; on a retry-only view they mark nothing.
+        _signalChartOptions.Annotations = new Annotations
+        {
+            Xaxis = _showSignal ? _roamAnnotations : new List<AnnotationsXAxis>()
+        };
         _signalChartOptions.Fill = new Fill
         {
             Type = fillTypes,
