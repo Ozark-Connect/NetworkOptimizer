@@ -79,6 +79,7 @@ public sealed class ApAgentTelemetryCollector
     private readonly ApAgentCoverageLedger _coverage = new();
     private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ApAgentPassWitness _witness = new();
 
     /// <summary>
     /// Byte counters as of the previous pass, so throughput resolves every poll rather than only
@@ -175,7 +176,9 @@ public sealed class ApAgentTelemetryCollector
 
         // A pass that is about to write the full point does not also write a thin one: the fold
         // covers that instant already, and two points for it would only disagree.
+        _witness.Reset();
         await Task.WhenAll(targets.Select(t => PollAsync(t, now, writing, ct)));
+        ReportContestedClients();
 
         if (!writing) return;
         _lastWriteAt = now;
@@ -219,6 +222,11 @@ public sealed class ApAgentTelemetryCollector
                     // client's links onto its MLD MAC.
                     var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac);
                     if (sample == null) continue;
+
+                    // Before the idle gate on purpose: a claim the gate is about to drop is exactly
+                    // the kind we want to see when two access points disagree.
+                    _witness.Claimed(sample.ClientMac, target.Mac, sample.IdleSeconds,
+                        sample.SignalDbm, client.Authorized, sample.Band);
 
                     // BEFORE the accumulator, never after. WriteFolded publishes every folded entry
                     // into the live cache, so a client the access point has not heard from went back
@@ -346,6 +354,20 @@ public sealed class ApAgentTelemetryCollector
         {
             _logger.LogDebug(ex, "Could not publish AP Agent reading to the live cache (site {Site})", _siteSlug);
         }
+    }
+
+    /// <summary>
+    /// Reports any client two access points both claimed this pass. Warning rather than debug: it
+    /// means we wrote a point per access point for one association, and the map redraws the client
+    /// onto whichever answered last.
+    /// </summary>
+    private void ReportContestedClients()
+    {
+        var contested = _witness.Contested();
+        if (contested.Count == 0) return;
+
+        foreach (var line in contested)
+            _logger.LogWarning("Client claimed by several access points on site {Site} - {Claims}", _siteSlug, line);
     }
 
     private void WriteFolded(string apMac, DateTime now)

@@ -205,6 +205,13 @@ public sealed class ApAgentClient
     [JsonPropertyName("is_mlo")]
     public bool IsMlo { get; set; }
 
+    /// <summary>
+    /// Whether authentication completed, as opposed to merely being in the access point's station
+    /// table. False covers a client mid-handshake and one that abandoned the attempt.
+    /// </summary>
+    [JsonPropertyName("authorized")]
+    public bool Authorized { get; set; }
+
     /// <summary>Active link's band, as the agent's "2.4" / "5" / "6" token.</summary>
     [JsonPropertyName("band")]
     public string? Band { get; set; }
