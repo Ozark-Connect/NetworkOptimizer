@@ -1120,8 +1120,8 @@ public class ClientDashboardService
             live.RecordWifiClient(new WifiClientLiveSnapshot
             {
                 ClientMac = clientMac,
-                ApMac = _lastApMacByClient.TryGetValue(clientMac, out var ap) ? ap : prior?.ApMac,
-                Band = wifiman.RadioCode ?? prior?.Band,
+                ApMac = _lastApMacByClient.TryGetValue(clientMac, out var ap) ? ap : prior?.ApMac ?? string.Empty,
+                Band = wifiman.RadioCode ?? prior?.Band ?? string.Empty,
                 Channel = wifiman.Channel ?? prior?.Channel,
                 ChannelWidth = wifiman.ChannelWidth ?? prior?.ChannelWidth,
                 SignalDbm = wifiman.Signal,
