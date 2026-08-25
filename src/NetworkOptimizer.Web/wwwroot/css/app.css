@@ -21349,3 +21349,15 @@ a.firmware-rollout-version-badge:hover {
         padding-inline: 0.5rem;
     }
 }
+
+/* With the nav hidden the row runs full width, so the space it gave up can come back. The narrow
+   case needs it most; a wider phone only wants a touch. */
+body:has(.top-bar-hidden) .btn-fit {
+    padding-inline: 1.375rem;
+}
+
+@media (max-width: 420px) {
+    body:has(.top-bar-hidden) .btn-fit {
+        padding-inline: 0.875rem;
+    }
+}
