@@ -601,6 +601,12 @@
                 .ToList();
 
             Logger.LogInformation("Loaded {Count} connection events", _connectionEvents.Count);
+
+            // The chart is transformed before this point, so the annotations built there saw no
+            // events at all. Rebuild now that they exist, or they only appear once something else
+            // rebuilds the chart.
+            BuildRoamAnnotations();
+            UpdateChartOptionsForVisibleSeries();
         }
         finally
         {
