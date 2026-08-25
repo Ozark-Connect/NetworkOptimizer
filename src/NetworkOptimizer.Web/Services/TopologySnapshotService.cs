@@ -61,6 +61,9 @@ public class TopologySnapshotService : ITopologySnapshotService
         _logger = logger;
     }
 
+    /// <summary>How recent a cached reading must be to displace a freshly fetched one.</summary>
+    private static readonly TimeSpan LiveRateMaxAge = TimeSpan.FromSeconds(15);
+
     /// <summary>
     /// Replaces console-sourced client rates with anything the site's live cache holds more recently,
     /// so a trace taken during a walk test carries the same numbers the page is showing.
@@ -70,15 +73,27 @@ public class TopologySnapshotService : ITopologySnapshotService
         try
         {
             var live = _liveStats.GetFor(siteSlug);
+            var now = DateTime.UtcNow;
 
             foreach (var mac in snapshot.ClientRates.Keys.ToList())
             {
                 var snap = live.GetWifiClient(mac);
-                if (snap?.TxRateKbps is not > 0 && snap?.RxRateKbps is not > 0) continue;
+                if (snap == null) continue;
+
+                // The capture above deliberately bypassed the topology cache to get current values,
+                // so the overlay has to clear a real bar rather than simply existing. A Console
+                // entry is that same wifi tier data on an independent clock, and a stale one can be
+                // older still, so neither may displace what was just fetched.
+                if (snap.Source == WifiClientSource.Console) continue;
+                if (now - snap.LastUpdate > LiveRateMaxAge) continue;
+
+                // Both directions or neither: taking one and writing 0 for the other replaces a
+                // real console rate with silence.
+                if (snap.TxRateKbps is not > 0 || snap.RxRateKbps is not > 0) continue;
 
                 snapshot.ClientRates[mac] = (
-                    (int)(snap.TxRateKbps ?? 0),
-                    (int)(snap.RxRateKbps ?? 0),
+                    (int)snap.TxRateKbps.Value,
+                    (int)snap.RxRateKbps.Value,
                     string.IsNullOrEmpty(snap.ApMac) ? snapshot.ClientRates[mac].Item3 : snap.ApMac);
             }
         }

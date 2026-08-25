@@ -78,14 +78,18 @@ let _serverSnapshot = null;
 let _addedNodes = [];
 let _addedLinks = [];
 let _addedClientKey = '';
+// Clients an access point reports gone while the console still lists them. Held with the overlay
+// and applied the same way, so a departure shows at the agent's speed rather than the console's.
+let _removedIds = new Set();
 
 // Rebuilds the published snapshot from the pristine server one plus the overlay. Always from
 // scratch, so an overlay entry that goes away actually goes away rather than accumulating.
 function _rebuildMerged() {
     if (!_serverSnapshot) { _snapshot = null; return; }
 
-    const nodes = [...(_serverSnapshot.nodes || [])];
-    const links = [...(_serverSnapshot.links || [])];
+    const nodes = (_serverSnapshot.nodes || []).filter(n => !_removedIds.has(n.id));
+    const links = (_serverSnapshot.links || []).filter(
+        l => !_removedIds.has(l.toNodeId) && !_removedIds.has(l.fromNodeId));
     // The server's own node wins for an id it already carries: it has the console's identity for
     // the client, where an added leaf may only have the MAC.
     const haveNodes = new Set(nodes.map(n => n.id));
@@ -101,12 +105,14 @@ function _rebuildMerged() {
 function _applyAddedClients(update) {
     const nodes = update.addedClientNodes || [];
     const links = update.addedClientLinks || [];
-    const key = nodes.map(n => n.id).sort().join(',');
+    const removed = update.removedClientIds || [];
+    const key = nodes.map(n => n.id).sort().join(',') + '|' + [...removed].sort().join(',');
     // Steady state over a stable set costs nothing; only a change reshapes the graph.
     if (key === _addedClientKey) return false;
 
     _addedNodes = nodes;
     _addedLinks = links;
+    _removedIds = new Set(removed);
     _addedClientKey = key;
     _rebuildMerged();
     return true;

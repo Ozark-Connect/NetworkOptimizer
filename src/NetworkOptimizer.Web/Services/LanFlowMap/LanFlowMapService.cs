@@ -24,6 +24,7 @@ public class LanFlowMapService
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringPathView _pathView;
     private readonly ApMapService _apMap;
@@ -37,6 +38,7 @@ public class LanFlowMapService
     public LanFlowMapService(
         UniFiConnectionService connection,
         MonitoringLiveStats liveStats,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         MonitoringInfluxClient influx,
         MonitoringPathView pathView,
         ApMapService apMap,
@@ -49,6 +51,7 @@ public class LanFlowMapService
     {
         _connection = connection;
         _liveStats = liveStats;
+        _apAgentTelemetry = apAgentTelemetry;
         _influx = influx;
         _pathView = pathView;
         _apMap = apMap;
@@ -680,7 +683,9 @@ public class LanFlowMapService
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wifiClientRates[p.ClientMac] = p;
 
-            if (p.SignalDbm == null && p.Band == null) continue;
+            // PHY rate is the discriminator: it is written only on a full point. Band is a tag on
+            // every point and signal rides on the thin ones too, so neither can tell them apart.
+            if (p.TxRateKbps == null && p.RxRateKbps == null) continue;
             if (!wifiClientConnection.TryGetValue(p.ClientMac, out var describedBy)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((describedBy.Time - at).TotalMilliseconds))
                 wifiClientConnection[p.ClientMac] = p;
@@ -690,7 +695,7 @@ public class LanFlowMapService
             // Copy rather than mutate: these points are cached and re-read for every other instant
             // in the window.
             var nearest = wifiClientRates[mac];
-            if (nearest.SignalDbm != null || nearest.Band != null) continue;
+            if (nearest.TxRateKbps != null || nearest.RxRateKbps != null) continue;
             wifiClientRates[mac] = nearest with
             {
                 SignalDbm = described.SignalDbm,
@@ -1713,6 +1718,9 @@ public class LanFlowMapService
             // against the console's 30 s. Prefer it so a roam and a signal change reach the map at
             // that rate. Bounded by age so it can only ever be fresher than what it replaces.
             var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
+            // A Console-sourced entry is the same wifi tier data this build already holds, only on
+            // an independent clock, so preferring it is as often staler as fresher.
+            if (live is { Source: WifiClientSource.Console }) live = null;
             if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
 
             // Deliberately NOT re-parenting from the cache here. The snapshot is built from one
@@ -2558,22 +2566,28 @@ public class LanFlowMapService
     private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
     {
         var now = DateTime.UtcNow;
+        var coverage = _apAgentTelemetry.GetFor(_siteContext.Slug);
 
-        var reportingAps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var live in _liveStats.AllWifiClients())
         {
             if (live.Source != WifiClientSource.ApAgent) continue;
             if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
-            if (!string.IsNullOrEmpty(live.ApMac)) reportingAps.Add("dev-" + NormalizeMac(live.ApMac));
             present.Add("cli-" + NormalizeMac(live.ClientMac));
         }
-        if (reportingAps.Count == 0) return;
 
         foreach (var node in snapshot.Nodes)
         {
             if (node.Kind != LanNodeKind.WifiClient) continue;
-            if (string.IsNullOrEmpty(node.ParentId) || !reportingAps.Contains(node.ParentId)) continue;
+            if (string.IsNullOrEmpty(node.ParentId) || !node.ParentId.StartsWith("dev-", StringComparison.OrdinalIgnoreCase)) continue;
+
+            // Coverage is the authority, not the presence of agent-sourced readings. Client
+            // Performance writes those at 500 ms for the one client it watches, without the
+            // collector covering that access point at all - so inferring from them would mark
+            // every OTHER client on it as departed the moment someone opened the page.
+            var apMac = node.ParentId["dev-".Length..];
+            if (!coverage.CoversAp(apMac)) continue;
+
             if (present.Contains(node.Id)) continue;
             update.RemovedClientIds.Add(node.Id);
         }

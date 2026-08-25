@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=13';
+import * as flowData from './lan-flow-data.js?v=14';
 
 const COLORS = {
     background: 0x202023,
@@ -1497,11 +1497,26 @@ export class LanFlowMap {
         const nodes = update.addedClientNodes || [];
         const links = update.addedClientLinks || [];
         if (!this._historicClientIds) this._historicClientIds = new Set();
-        if (nodes.length === 0 && this._historicClientIds.size === 0) return;
+
+        // Clients their access point reports gone. The server snapshot still lists them until the
+        // console notices, so they are removed explicitly rather than by the sweep below. The
+        // snapshot diff will not re-add them: they are in both its previous and current snapshots.
+        const departed = update.removedClientIds || [];
+        for (const id of departed) {
+            if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
+            this._historicClientIds.delete(id);
+        }
+
+        if (nodes.length === 0 && departed.length === 0 && this._historicClientIds.size === 0) return;
 
         const wanted = new Set(nodes.map(n => n.id));
+        // Ids the server snapshot already carries. The overlay stops emitting a client the moment
+        // the console catches up and the snapshot includes it, so without this the handoff removes
+        // a CONNECTED client and it stays gone until the next snapshot poll re-adds it.
+        const inSnapshot = new Set((this._snapshot?.nodes || []).map(n => n.id));
         for (const id of [...this._historicClientIds]) {
             if (wanted.has(id)) continue;
+            if (inSnapshot.has(id)) { this._historicClientIds.delete(id); continue; }
             if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
             this._historicClientIds.delete(id);
         }
@@ -2121,6 +2136,10 @@ export class LanFlowMap {
     // Incremental client add: create mesh near parent, create link pipe + particles.
     _addNodeIncremental(node, snap) {
         if (node.kind === NODE_KIND.Cloud) return;
+        // Adding a node that already has a mesh overwrites its map entry and orphans the old mesh
+        // and pipe in the scene forever, while the live sweep then removes the tracked copy. The
+        // overlay path checks this; the snapshot diff path did not.
+        if (this._nodeMeshes.has(node.id)) return;
         // Position near parent: find the link to this node
         const link = (snap.links ?? []).find(l => l.toNodeId === node.id || l.fromNodeId === node.id);
         if (!link) return;
