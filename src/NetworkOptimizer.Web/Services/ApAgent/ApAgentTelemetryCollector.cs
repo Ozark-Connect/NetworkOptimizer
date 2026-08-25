@@ -1,10 +1,5 @@
 using System.Collections.Concurrent;
-using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage;
-using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -296,7 +291,11 @@ public sealed class ApAgentTelemetryCollector
         try
         {
             var live = _liveStats;
-            var prior = folded == null && pass.Tx == null ? live.GetWifiClient(s.ClientMac) : null;
+            // Always consulted. A null rate means the counters could not support one - too little
+            // time between readings, or a reset - and the cache coerces a null throughput to 0, so
+            // publishing one turns "not measured" into "idle". That is the flat 0/0 between bursts:
+            // a real rate, then a window that could not be measured overwriting it with zero.
+            var prior = live.GetWifiClient(s.ClientMac);
 
             live.RecordWifiClient(new WifiClientLiveSnapshot
             {
