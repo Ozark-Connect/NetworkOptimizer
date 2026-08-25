@@ -1141,6 +1141,7 @@
         ConfigureSignalChart();
 
         // TEMP TIMING - remove once the Connecting... delay is understood
+        Logger.LogInformation("CP-TIMING OnInitializedAsync entered");
         var swBoot = System.Diagnostics.Stopwatch.StartNew();
 
         // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
@@ -1248,6 +1249,17 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // TEMP TIMING - ms from navigation start to Blazor being interactive on the client.
+        if (firstRender)
+        {
+            try
+            {
+                var sinceNav = await JS.InvokeAsync<double>("eval", "performance.now()");
+                Logger.LogInformation("CP-TIMING interactive at {Ms} ms since navigation start", (long)sinceNav);
+            }
+            catch (Exception ex) { Logger.LogDebug(ex, "CP-TIMING probe failed"); }
+        }
+
         // Apply deferred chart updates after render cycle completes (chart is now mounted)
         if (_pendingChartUpdate)
         {
