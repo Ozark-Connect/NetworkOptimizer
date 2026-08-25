@@ -698,6 +698,17 @@
                     m.classList.contains('components-reconnect-rejected'));
             }
 
+            async function serverIsUp() {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 2000);
+                try {
+                    const resp = await fetch('/api/health?probe=resume',
+                        { signal: ctrl.signal, cache: 'no-store' });
+                    return resp.ok;
+                } catch { return false; }
+                finally { clearTimeout(t); }
+            }
+
             async function circuitAlive() {
                 if (!window.DotNet) return false;
                 try {
@@ -720,25 +731,32 @@
                 if (hiddenAt === null) return;
                 const hiddenMs = Date.now() - hiddenAt;
                 hiddenAt = null;
-                if (hiddenMs < STALE_HIDDEN_MS || blazorHandlingDrop()) return;
+                if (hiddenMs < STALE_HIDDEN_MS) return;
 
-                // Only reload when the circuit is genuinely dead; otherwise pick up exactly where
-                // we left off. One probe is not enough to decide that: coming back from the
-                // background, Blazor is often mid-reconnect and the first ping times out on a
-                // circuit that is about to work. Keep asking for a few seconds and stand the
-                // reload down the moment it answers - a refresh that throws away the user's place
-                // costs more than waiting does. Re-check the modal each time too, in case Blazor
-                // surfaced its own reconnect UI meanwhile, since that path owns the reload.
+                // iOS/Android suspend setInterval while backgrounded, so the
+                // stuck-spinner timer may be dead. If the modal is already up
+                // and the server answers, the circuit is wedged - reload now.
+                if (blazorHandlingDrop()) {
+                    if (await serverIsUp()) location.reload();
+                    return;
+                }
+
+                // No modal - probe the circuit. One probe isn't enough: Blazor
+                // is often mid-reconnect on resume and the first ping times out
+                // on a circuit that's about to work.
                 const GIVE_UP_AFTER_MS = 12000;
                 const deadline = Date.now() + GIVE_UP_AFTER_MS;
                 while (Date.now() < deadline) {
-                    if (blazorHandlingDrop()) return;
+                    if (blazorHandlingDrop()) {
+                        if (await serverIsUp()) location.reload();
+                        return;
+                    }
                     if (await circuitAlive()) return;
                     await new Promise(r => setTimeout(r, 1000));
                 }
-                if (!blazorHandlingDrop()) {
-                    location.reload();
-                }
+                // Still no circuit and no modal - server may be down. Reload
+                // only if it answers; otherwise we'd strand on a blank page.
+                if (await serverIsUp()) location.reload();
             });
         })();
     </script>
