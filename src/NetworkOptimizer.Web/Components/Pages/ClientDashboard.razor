@@ -3044,6 +3044,11 @@
     }
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
        row is tighter, so it sits after the bars and ahead of the live indicator. */
+    /* .btn carries min-width: 6rem, which .btn-sm does not override, so a four-letter label was
+       held at 96px and pushed the status text along the row. */
+    .client-roam-btn {
+        min-width: auto;
+    }
     @@media (max-width: 768px) {
         .client-roam-btn { order: 1; }
         .identity-live-group { order: 2; }
