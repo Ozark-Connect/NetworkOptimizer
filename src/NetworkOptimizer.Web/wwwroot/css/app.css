@@ -21332,3 +21332,11 @@ a.firmware-rollout-version-badge:hover {
     margin-left: 0;
     padding-left: 0;
 }
+
+/* Button that sizes to its label rather than the .btn 6rem floor, keeping roomy padding while the
+   row has space and tightening when it does not. For a control sharing a row with content it must
+   not push, where .btn-sm alone still holds the 6rem minimum. */
+.btn-fit {
+    min-width: auto;
+    padding-inline: clamp(0.5rem, 2vw, 1.25rem);
+}

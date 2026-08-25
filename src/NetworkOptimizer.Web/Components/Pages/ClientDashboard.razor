@@ -209,7 +209,7 @@
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
                            control that would refuse them. *@
                         <SiteOperatorOnly>
-                        <button class="btn btn-secondary btn-sm client-roam-btn" @onclick="RequestRoamAsync"
+                        <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="RequestRoamAsync"
                                 disabled="@_roamBusy"
                                 data-tooltip="Ask this device to move to another access point. It decides, so it may stay put." data-tooltip-hover-only>
                             @if (_roamBusy)
@@ -3044,11 +3044,6 @@
     }
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
        row is tighter, so it sits after the bars and ahead of the live indicator. */
-    /* .btn carries min-width: 6rem, which .btn-sm does not override, so a four-letter label was
-       held at 96px and pushed the status text along the row. */
-    .client-roam-btn {
-        min-width: auto;
-    }
     @@media (max-width: 768px) {
         .client-roam-btn { order: 1; }
         .identity-live-group { order: 2; }
