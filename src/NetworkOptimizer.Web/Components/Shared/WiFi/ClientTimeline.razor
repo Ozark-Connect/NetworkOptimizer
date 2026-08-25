@@ -245,9 +245,15 @@
                 </div>
                 <div class="client-info-details">
                     <div class="info-item">
-                        <span class="info-label">Connected To:</span>
+                        <span class="info-label">@(_selectedClient.IsOnline ? "Connected To:" : "Last Connected To:")</span>
                         <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
                     </div>
+                    @if (!_selectedClient.IsOnline)
+                    {
+                        <div class="info-item">
+                            <span class="info-value signal-poor">@GetOfflineTooltip(_selectedClient)</span>
+                        </div>
+                    }
                     @if (HasMloLinks(_selectedClient))
                     {
                         <div class="info-item">
