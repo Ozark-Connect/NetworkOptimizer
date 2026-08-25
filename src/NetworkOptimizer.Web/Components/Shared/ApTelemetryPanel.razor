@@ -314,7 +314,10 @@
                                                                        @onchange="e => SetApEnabledAsync(entry, e)" />
                                                                 <span>Include in AP Agent deployment</span>
                                                             </label>
-                                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Check Status</button>
+                                                            @if (_siteEnabled)
+                                                            {
+                                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Check Status</button>
+                                                            }
                                                             @if (entry.LastDeployedAt != null || IsRunning(entry))
                                                             {
                                                                 <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Remove AP Agent</button>

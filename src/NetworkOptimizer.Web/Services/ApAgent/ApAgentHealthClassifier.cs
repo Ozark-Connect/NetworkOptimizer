@@ -29,7 +29,7 @@ public static class ApAgentHealthClassifier
         if (!observation.SupportedArchitecture)
         {
             return new ApAgentAssessment(ApAgentState.Unsupported, ApAgentAction.None,
-                observation.Detail ?? "This access point's architecture has no AP Agent build.");
+                observation.Detail ?? "No AP Agent build for this hardware.");
         }
 
         // An AP that is down is not an agent problem. Checked before the connection outcome so a
@@ -37,22 +37,22 @@ public static class ApAgentHealthClassifier
         if (!observation.DeviceOnline)
         {
             return new ApAgentAssessment(ApAgentState.ApOffline, ApAgentAction.Wait,
-                observation.Detail ?? "The access point is offline; nothing to deploy to yet.");
+                observation.Detail ?? "Access point is offline.");
         }
 
         switch (observation.Reach)
         {
             case ApAgentReach.Refused:
                 return new ApAgentAssessment(ApAgentState.NotListening, ApAgentAction.Redeploy,
-                    observation.Detail ?? "The access point refused the connection, so nothing is listening. Redeploying.");
+                    observation.Detail ?? "The AP Agent didn't respond, process is probably not running. Redeploying...");
 
             case ApAgentReach.TimedOut:
                 return new ApAgentAssessment(ApAgentState.Filtered, ApAgentAction.SurfacePathProblem,
-                    observation.Detail ?? "The connection was dropped rather than refused, which means something in the path is filtering it. SSH is likely blocked the same way, so a redeploy would not help.");
+                    observation.Detail ?? "Something in the path is blocking port 8899. SSH is likely blocked too.");
 
             case ApAgentReach.Unreachable:
                 return new ApAgentAssessment(ApAgentState.Filtered, ApAgentAction.SurfacePathProblem,
-                    observation.Detail ?? "There is no route to the access point from this server.");
+                    observation.Detail ?? "No route to this access point.");
 
             case ApAgentReach.NotAttempted:
                 return new ApAgentAssessment(ApAgentState.Unknown, ApAgentAction.None,
@@ -60,7 +60,7 @@ public static class ApAgentHealthClassifier
 
             case ApAgentReach.Unknown:
                 return new ApAgentAssessment(ApAgentState.Unhealthy, ApAgentAction.None,
-                    observation.Detail ?? "The connection failed without saying why. Waiting for a clearer answer rather than redeploying on a guess.");
+                    observation.Detail ?? "Connection failed, no reason given.");
 
             case ApAgentReach.Answered:
                 break;
@@ -76,13 +76,13 @@ public static class ApAgentHealthClassifier
         if (status == 401 || status == 403)
         {
             return new ApAgentAssessment(ApAgentState.Unauthorized, ApAgentAction.RepushConfig,
-                observation.Detail ?? "The agent is running but rejected this server's token. Pushing the token again; the binary is fine.");
+                observation.Detail ?? "The AP Agent rejected our token. Pushing a new one...");
         }
 
         if (status is < 200 or > 299 || observation.Health is null)
         {
             return new ApAgentAssessment(ApAgentState.Unhealthy, ApAgentAction.None,
-                observation.Detail ?? $"The agent answered with HTTP {status} and no usable health payload.");
+                observation.Detail ?? $"The AP Agent answered with HTTP {status}.");
         }
 
         var health = observation.Health;
