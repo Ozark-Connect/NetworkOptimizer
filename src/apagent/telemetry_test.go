@@ -519,6 +519,29 @@ func TestExpiryOnlyAppliesToVapsAPollReached(t *testing.T) {
 	}
 }
 
+func TestAbsentFromACoveredVapExpiresPromptly(t *testing.T) {
+	table := NewTable(defaultMaxTrackedClients, 120*time.Second)
+	start := time.Now().UTC()
+	covered := map[string]bool{"wifi0ap0": true}
+
+	table.ApplyEvent(Event{Seq: 1, Type: EventAssoc, Vap: "wifi0ap0", MAC: fixtureLink24, CollectedAt: start})
+
+	// Still inside the grace: one missed read must not drop a client that is really there.
+	within := start.Add(absentGrace / 2)
+	table.ApplyFast(map[string]StaFast{}, covered, within)
+	if got := len(table.Clients(within)); got != 1 {
+		t.Fatalf("got %d clients inside the grace, want 1", got)
+	}
+
+	// Past it. A client that turns Wi-Fi off sends no disassoc, so this is the only path that
+	// removes it; the configured TTL must not hold it any longer than the grace.
+	after := start.Add(absentGrace + time.Second)
+	table.ApplyFast(map[string]StaFast{}, covered, after)
+	if got := len(table.Clients(after)); got != 0 {
+		t.Fatalf("got %d clients past the grace, want 0", got)
+	}
+}
+
 func TestTableEvictsPastItsCap(t *testing.T) {
 	table := NewTable(4, time.Hour)
 	base := time.Now().UTC()

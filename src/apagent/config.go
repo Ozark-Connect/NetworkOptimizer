@@ -1,6 +1,7 @@
 package main
 
 import (
+	"time"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,6 +35,11 @@ const (
 
 	defaultEventBufferSize   = 1024
 	defaultClientTTLSeconds  = 120
+
+	// absentGrace is how long a client may be missing from a VAP the poll actually read before it
+	// is dropped. Short on purpose: the read is the evidence, so this only has to survive a missed
+	// one. ClientTTLSeconds remains the bound for entries no poll has covered at all.
+	absentGrace = 6 * time.Second
 	defaultMaxTrackedClients = 512
 	// defaultInstallDir is tmpfs. The AP agent is ephemeral by design: the config partition behind
 	// /etc/persistent is 1 MB, so a Go binary cannot live there, and controller provisioning wipes

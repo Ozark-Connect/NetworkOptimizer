@@ -364,12 +364,20 @@ func (t *Table) SetApMAC(mac string) {
 	t.ap.MAC = mac
 }
 
-// expireLocked drops links that no tier has seen for the TTL. A disassoc the agent missed is the
-// case this exists for, and it is what keeps the table bounded on a busy AP. Only VAPs a poll
-// actually reached are expired: an unreachable tool is not evidence a client left.
+// expireLocked drops links a covered VAP has stopped listing. A poll that reached the VAP and did
+// not find the client IS evidence the client left, so the window here only needs to outlast a
+// missed read, not a whole disassoc timeout: the fast tier runs at 1 Hz, making absentGrace several
+// consecutive absences.
+//
+// Never widen this back to a disassoc-timeout scale. A client that turns Wi-Fi off sends nothing,
+// so it leaves only by this path, and every second it lingers the collector keeps republishing it
+// as live: it stays drawn on the maps, and if it comes back on another AP the stale entry pins it
+// to the old one. Roaming hides the bug, since a BTM roam does send a disassoc.
+//
+// Only VAPs a poll actually reached are expired: an unreachable tool is not evidence a client left.
 func (t *Table) expireLocked(covered map[string]bool, now time.Time) {
 	for key, m := range t.members {
-		if !covered[m.Vap] || now.Sub(m.LastSeen) <= t.ttl {
+		if !covered[m.Vap] || now.Sub(m.LastSeen) <= absentGrace {
 			continue
 		}
 		delete(t.members, key)
