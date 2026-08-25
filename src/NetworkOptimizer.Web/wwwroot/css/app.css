@@ -11514,7 +11514,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .channel-plan-age {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     white-space: nowrap;
 }
@@ -16340,7 +16340,7 @@ tr.stats-row-filtered {
     gap: 0.25rem;
 } 
 .lan-flow-map-panel-title {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
@@ -16396,7 +16396,7 @@ tr.stats-row-filtered {
     padding: 0.05rem 0.35rem;
     border-radius: 3px;
     font-family: var(--font-mono, monospace);
-    font-size: 0.72rem;
+    font-size: 0.825rem;
 }
 .lan-flow-map-status {
     bottom: 0.75rem;
@@ -16843,7 +16843,7 @@ tr.stats-row-filtered {
     color: var(--text-secondary);
     height: 1.75rem;
     border-radius: 0.25rem;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     padding: 0 0.2rem;
     cursor: pointer;
     flex-shrink: 0;
@@ -17014,7 +17014,7 @@ tr.stats-row-filtered {
     gap: 0.35rem;
     padding: 0.18rem 0.55rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     background: rgba(36, 188, 112, 0.15);
@@ -17439,7 +17439,7 @@ tr.stats-row-filtered {
 .lan-flow-map-reposition-keys .kbd {
     display: inline-block;
     padding: 1px 5px;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 3px;
@@ -17645,7 +17645,7 @@ tr.stats-row-filtered {
     position: absolute;
     top: 0.6rem;
     right: 0.75rem;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     z-index: 1;
 }
@@ -18200,7 +18200,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-asn-sub {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -18425,7 +18425,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-outage-ack {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
 }
 
@@ -18513,7 +18513,7 @@ a.isp-outage-ack:hover {
 }
 
 .isp-outage-hop-status {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-secondary);
     text-align: right;
     white-space: nowrap;
@@ -18603,7 +18603,7 @@ a.isp-outage-ack:hover {
     border-radius: 999px;
     background: var(--bg-card);
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     white-space: nowrap;
     transition: color 0.15s ease, border-color 0.15s ease;
 }
@@ -20540,7 +20540,7 @@ body.kiosk-mode .status-indicators {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     pointer-events: none;
 }
@@ -20987,7 +20987,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-stat .detail-label {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
 }
 
@@ -21310,7 +21310,7 @@ a.firmware-rollout-version-badge:hover {
 }
 
 .ap-agent-guide .setup-guide-content {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
 }
 
 .ap-agent-actions {

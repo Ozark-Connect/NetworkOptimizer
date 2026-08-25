@@ -66,16 +66,18 @@
                     @if (_siteEnabled)
                     {
                         <text>
-                            Wi-Fi stats are coming from the access points themselves, and the agent
-                            reinstalls itself after reboots and firmware updates. Turn this off and
-                            it comes off all of them.
+                            Per-client stats are coming from the access points themselves. Turning
+                            this off removes the agent from every access point.
                         </text>
                     }
                     else
                     {
                         <text>
-                            Puts a small agent on each access point so signal, roam timing, and
-                            airtime come from the AP itself rather than the UniFi Console.
+                            Puts a small agent on each access point and reads what the UniFi Console
+                            does not expose: per-client retries, TCP stalls, and airtime, plus roam
+                            timing and radio health. It sharpens channel recommendations, catches a
+                            wedged radio before clients give up on the band, and lets Client
+                            Performance provide truly real-time signal and roaming data.
                         </text>
                     }
                 </small>
