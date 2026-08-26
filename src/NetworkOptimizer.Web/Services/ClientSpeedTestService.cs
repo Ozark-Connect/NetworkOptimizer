@@ -641,7 +641,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// Returns true when it applied, leaving the caller's own path unused. No series, or nothing that
     /// fits, changes nothing.
     /// </summary>
-    private async Task<bool> ReconcileWifiFromSeriesAsync(Iperf3Result result)
+    private async Task<bool> ReconcileWifiFromSeriesAsync(Iperf3Result result, string attempt = "initial")
     {
         if (_influx is not { IsConfigured: true }) return false;
         if (string.IsNullOrEmpty(result.ClientMac)) return false;
@@ -659,8 +659,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 // Expected on the trace that runs during the test: the window reaches past now, so
                 // the points do not exist yet. The post-test trace is the one that should find them.
-                _logger.LogDebug("Wi-Fi fit for {Mac}: no series points in {From:yyyy-MM-dd HH:mm:ss}Z-{To:HH:mm:ss}Z",
-                    result.ClientMac, from, to);
+                _logger.LogDebug("Wi-Fi fit [{Attempt} #{Id}] {Mac}: no series points in {From:yyyy-MM-dd HH:mm:ss}Z-{To:HH:mm:ss}Z",
+                    attempt, result.Id, result.ClientMac, from, to);
                 return false;
             }
 
@@ -691,8 +691,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 foreach (var sc in scored)
                 {
                     _logger.LogDebug(
-                        "Wi-Fi fit for {Mac} on {Ap} ({Band}, {Points} pts): FromDevice {Down:F1}Mbps / RX {Rx}Mbps = {FromEff}, ToDevice {Up:F1}Mbps / TX {Tx}Mbps = {ToEff}, score {Score:F3}{Verdict}",
-                        result.ClientMac, sc.Candidate.ApMac, sc.Candidate.Band ?? "?", sc.Candidate.Points,
+                        "Wi-Fi fit [{Attempt} #{Id}] {Mac} on {Ap} ({Band}, {Points} pts): FromDevice {Down:F1}Mbps / RX {Rx}Mbps = {FromEff}, ToDevice {Up:F1}Mbps / TX {Tx}Mbps = {ToEff}, score {Score:F3}{Verdict}",
+                        attempt, result.Id, result.ClientMac, sc.Candidate.ApMac, sc.Candidate.Band ?? "?", sc.Candidate.Points,
                         (fromDeviceBps ?? 0) / 1e6, sc.Candidate.RxRateKbps / 1000 ?? 0, Pct(sc.FromDeviceEfficiency),
                         (toDeviceBps ?? 0) / 1e6, sc.Candidate.TxRateKbps / 1000 ?? 0, Pct(sc.ToDeviceEfficiency),
                         sc.Score, sc.Rejected == null ? "" : $" - REJECTED: {sc.Rejected}");
@@ -702,14 +702,14 @@ public class ClientSpeedTestService : IClientSpeedTestService
             var best = scored.FirstOrDefault(x => x.IsViable);
             if (best == null)
             {
-                _logger.LogDebug("Wi-Fi fit for {Mac}: no candidate fits, keeping the realtime result ({Tx}/{Rx} Kbps)",
-                    result.ClientMac, result.WifiTxRateKbps, result.WifiRxRateKbps);
+                _logger.LogDebug("Wi-Fi fit [{Attempt} #{Id}] {Mac}: no candidate fits, keeping the realtime result ({Tx}/{Rx} Kbps)",
+                    attempt, result.Id, result.ClientMac, result.WifiTxRateKbps, result.WifiRxRateKbps);
                 return false;
             }
 
             _logger.LogDebug(
-                "Wi-Fi fit for {Mac}: took {Ap} from the series, {Tx}/{Rx} Kbps (was {OldTx}/{OldRx} from realtime)",
-                result.ClientMac, best.Candidate.ApMac,
+                "Wi-Fi fit [{Attempt} #{Id}] {Mac}: took {Ap} from the series, {Tx}/{Rx} Kbps (was {OldTx}/{OldRx} from realtime)",
+                attempt, result.Id, result.ClientMac, best.Candidate.ApMac,
                 best.Candidate.TxRateKbps, best.Candidate.RxRateKbps,
                 result.WifiTxRateKbps, result.WifiRxRateKbps);
 
@@ -731,8 +731,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
             if (!string.IsNullOrEmpty(tracedAp)
                 && !string.Equals(tracedAp, best.Candidate.ApMac, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogDebug("Wi-Fi fit for {Mac}: re-tracing through {Fit}, trace had {Traced}",
-                    result.ClientMac, best.Candidate.ApMac, tracedAp);
+                _logger.LogDebug("Wi-Fi fit [{Attempt} #{Id}] {Mac}: re-tracing through {Fit}, trace had {Traced}",
+                    attempt, result.Id, result.ClientMac, best.Candidate.ApMac, tracedAp);
                 await AnalyzePathAsync(result, forceApMac: best.Candidate.ApMac);
             }
 
@@ -807,20 +807,32 @@ public class ClientSpeedTestService : IClientSpeedTestService
         {
             try
             {
-                if (!await _apAgents.IsSiteEnabledAsync(_siteSlug)) return;
+                if (!await _apAgents.IsSiteEnabledAsync(_siteSlug))
+                {
+                    _logger.LogDebug("Wi-Fi fit [retry #{Id}]: skipped, no AP Agent on this site", resultId);
+                    return;
+                }
 
+                _logger.LogDebug("Wi-Fi fit [retry #{Id}]: scheduled in {Delay}s", resultId, SeriesRetryDelay.TotalSeconds);
                 await Task.Delay(SeriesRetryDelay);
 
                 await using var db = await CreateSiteDbAsync();
                 var result = await db.Iperf3Results.FindAsync(resultId);
-                if (result == null) return;
+                if (result == null)
+                {
+                    _logger.LogDebug("Wi-Fi fit [retry #{Id}]: result no longer exists", resultId);
+                    return;
+                }
 
-                if (await ReconcileWifiFromSeriesAsync(result))
+                if (await ReconcileWifiFromSeriesAsync(result, attempt: "retry"))
+                {
                     await db.SaveChangesAsync();
+                    _logger.LogDebug("Wi-Fi fit [retry #{Id}]: applied and saved", resultId);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Series retry failed for result {Id}", resultId);
+                _logger.LogDebug(ex, "Wi-Fi fit [retry #{Id}]: failed", resultId);
             }
         });
     }
