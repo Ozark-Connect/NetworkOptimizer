@@ -132,22 +132,25 @@ public static class SignalClassification
             _ => (-60, -70, -78, -85)
         };
 
-        // The class boundaries are the anchors, so a reading at one is exactly its badge color. The
-        // two endpoints reach one step past them, band-relative like everything else: a fixed top
-        // stop stretched 25 dB on 2.4 and 37 on 6, which read as two different scales. Above the
-        // top stop it clamps, which is honest - that strong is as good as it gets.
+        // The class boundaries are the anchors, so a reading at one is exactly its badge color, and
+        // the endpoints reach one step past them band-relative like everything else - a fixed top
+        // stop stretched 25 dB on 2.4 and 37 on 6, which read as two different scales.
         //
-        // Every color is the 500 step of its hue except the top, which is emerald-400: one step
-        // brighter than excellent, same hue, so the blend never rotates through a color that
-        // belongs to no family. Do not reach for a generic bright green here.
+        // Hue travels the whole way: teal, emerald, lime, yellow, orange, rose, dark red. Three
+        // greens in a row left twenty decibels reading as one color. The extra stop between fair
+        // and weak is the only one off a boundary, and it is there because that span is short and
+        // is where a reading most needs to visibly move.
+        var fairToWeak = (fair + weak) / 2;
+
         return
         [
-            (excellent + 10, "#34d399"),
+            (excellent + 10, "#2dd4bf"),
             (excellent, "#10b981"),
-            (good, "#22c55e"),
-            (fair, "#eab308"),
-            (weak, "#f97316"),
-            (weak - 10, "#ef4444")
+            (good, "#84cc16"),
+            (fair, "#fde047"),
+            (fairToWeak, "#fb923c"),
+            (weak, "#f43f5e"),
+            (weak - 10, "#991b1b")
         ];
     }
 
