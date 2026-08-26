@@ -77,6 +77,7 @@ public sealed class ApAgentTelemetryCollector
     private readonly string _siteSlug;
 
     private readonly ApAgentCoverageLedger _coverage = new();
+    private readonly ApAgentMembershipLedger _membership = new();
     private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ApAgentPassWitness _witness = new();
@@ -116,6 +117,38 @@ public sealed class ApAgentTelemetryCollector
     /// without, and the ones without must keep their console-sourced data.
     /// </summary>
     public bool CoversAp(string apMac) => _coverage.Covers(apMac, DateTime.UtcNow);
+
+    /// <summary>
+    /// The agent verdict on whether a client is associated right now, for the Console entry
+    /// points. Unknown wherever the agent path cannot vouch, which hands back to the Console rules.
+    /// </summary>
+    public NetworkOptimizer.Core.Helpers.AgentClientPresence PresenceFor(string? apMac, string? clientMac)
+    {
+        var now = DateTime.UtcNow;
+        if (string.IsNullOrEmpty(apMac) || !_coverage.Covers(apMac, now))
+        {
+            // Present can still come from another covered access point; Absent cannot, because
+            // only the claimed access point's own answer says anything about who is NOT on it.
+            var elsewhere = _membership.PresenceFor(null, clientMac, now);
+            return elsewhere == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present
+                ? elsewhere
+                : NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown;
+        }
+        return _membership.PresenceFor(apMac, clientMac, now);
+    }
+
+    /// <summary>
+    /// The covered client holding this IPv4 address right now, or null. What lets Client
+    /// Performance identify a client the agent has seen associate before the Console lists it.
+    /// </summary>
+    public ApAgentKnownClient? FindClientByIp(string ip)
+    {
+        var known = _membership.FindByIp(ip, DateTime.UtcNow);
+        return known != null && _coverage.Covers(known.ApMac, DateTime.UtcNow) ? known : null;
+    }
+
+    /// <summary>Roster-refresh hints for consumers caching the Console's client list.</summary>
+    public ConsoleRosterNudge RosterNudge { get; } = new();
 
     /// <summary>
     /// The hourly airtime aggregates the channel memory sweep consumes. The aggregator holds them
@@ -158,6 +191,7 @@ public sealed class ApAgentTelemetryCollector
         if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct))
         {
             _coverage.ReleaseAll();
+            _membership.ReleaseAll();
             _accumulators.Clear();
             return;
         }
@@ -166,10 +200,13 @@ public sealed class ApAgentTelemetryCollector
         if (targets.Count == 0)
         {
             _coverage.ReleaseAll();
+            _membership.ReleaseAll();
             return;
         }
 
-        _coverage.RetainOnly(targets.Select(t => t.Mac).ToHashSet(StringComparer.OrdinalIgnoreCase));
+        var targetMacs = targets.Select(t => t.Mac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _coverage.RetainOnly(targetMacs);
+        _membership.RetainOnly(targetMacs);
 
         var now = DateTime.UtcNow;
         var writing = now - _lastWriteAt >= WriteWindow;
@@ -204,6 +241,7 @@ public sealed class ApAgentTelemetryCollector
                 // Absent, unhealthy, or wedged: release now so the console path resumes on its next
                 // tick rather than this access point going dark.
                 _coverage.Release(target.Mac);
+                _membership.Release(target.Mac);
                 _accumulators.TryRemove(target.Mac, out _);
                 return;
             }
@@ -216,6 +254,12 @@ public sealed class ApAgentTelemetryCollector
                 ?? payload.CollectedAt;
 
             _coverage.Claim(target.Mac, now);
+
+            // A membership change is exactly what the Console has not caught up to yet, so it arms
+            // the roster nudge for the consumers caching the Console's client list.
+            if (_membership.Record(target.Mac, payload.Clients, now))
+                RosterNudge.NoteMembershipChange(now);
+
             // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
             // client associates under a different MAC per link, and the events name only the link.
             _insights.Roams.NoteClients(payload);
@@ -283,6 +327,7 @@ public sealed class ApAgentTelemetryCollector
         {
             _logger.LogDebug(ex, "AP Agent telemetry poll failed for {Host} (site {Site})", target.Host, _siteSlug);
             _coverage.Release(target.Mac);
+            _membership.Release(target.Mac);
         }
         finally
         {

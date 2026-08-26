@@ -34,6 +34,7 @@ public class LanFlowMapService
     private readonly SiteContextService _siteContext;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
 
     public LanFlowMapService(
         UniFiConnectionService connection,
@@ -46,12 +47,14 @@ public class LanFlowMapService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
     {
         _connection = connection;
         _liveStats = liveStats;
         _apAgentTelemetry = apAgentTelemetry;
+        _agentPresence = agentPresence;
         _influx = influx;
         _pathView = pathView;
         _apMap = apMap;
@@ -77,7 +80,15 @@ public class LanFlowMapService
     /// rates on top of the cached snapshot.
     /// </summary>
     public Task<LanFlowMapSnapshot> BuildSnapshotAsync(CancellationToken ct = default)
-        => _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    {
+        // An agent-observed association change marks the cached topology stale about ten seconds
+        // later, so the map converges on the Console's fresh roster without waiting out the TTL.
+        var nudge = _apAgentTelemetry.GetFor(_siteContext.Slug).RosterNudge;
+        if (_cache.Current is { } current && nudge.ShouldRefresh(current.GeneratedAt, DateTime.UtcNow))
+            _cache.MarkStale();
+
+        return _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    }
 
     /// <summary>Force the next snapshot read to rebuild (e.g. on controller reconnect).</summary>
     public void InvalidateCache() => _cache.Invalidate();
@@ -91,7 +102,7 @@ public class LanFlowMapService
             return snapshot;
         }
 
-        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>());
+        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>(), _agentPresence);
         var topology = await discovery.DiscoverTopologyAsync(ct);
 
         var markers = await _apMap.GetApMapMarkersAsync();

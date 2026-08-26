@@ -22,16 +22,24 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     /// </summary>
     private readonly IMeasuredWirelessClientSource? _measuredClients;
 
+    /// <summary>
+    /// Optional for the same reason. Lets an agent's answer about who its access point holds beat
+    /// the Console's idle tolerance when the roster judges a client online.
+    /// </summary>
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? _agentPresence;
+
     public UniFiLiveDataProvider(
         UniFiApiClient client,
         UniFiDiscovery discovery,
         ILogger<UniFiLiveDataProvider> logger,
-        IMeasuredWirelessClientSource? measuredClients = null)
+        IMeasuredWirelessClientSource? measuredClients = null,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? agentPresence = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _measuredClients = measuredClients;
+        _agentPresence = agentPresence;
     }
 
     public string ProviderName => "UniFi Live";
@@ -137,7 +145,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         var result = activeWireless
             .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp,
-                isOnline: NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(c.IdleTime) && true))
+                isOnline: NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(
+                    c.IdleTime, c.ApMac, c.Radio, c.Signal,
+                    hasMloLinks: c.MloDetails is { Count: > 0 },
+                    agent: _agentPresence?.PresenceFor(c.ApMac, c.Mac)
+                        ?? NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown)))
             .ToList();
 
         await ApplyMeasuredClientsAsync(result, cancellationToken);

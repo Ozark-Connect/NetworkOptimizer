@@ -1,6 +1,23 @@
 namespace NetworkOptimizer.Core.Helpers;
 
 /// <summary>
+/// What an access point's own agent says about a client being associated right now. Unknown means
+/// the agent path cannot vouch either way, and the Console rules apply exactly as they do on a
+/// site with no agents.
+/// </summary>
+public enum AgentClientPresence
+{
+    /// <summary>The agent path has no answer for this access point.</summary>
+    Unknown,
+
+    /// <summary>An agent-covered access point currently holds the client.</summary>
+    Present,
+
+    /// <summary>The claimed access point's agent answered with clients, and this is not one.</summary>
+    Absent,
+}
+
+/// <summary>
 /// Whether a wireless client the access point still lists is actually there.
 ///
 /// An access point keeps a client in its association table long after the client has physically
@@ -34,6 +51,42 @@ public static class ClientPresence
     /// <param name="idleSeconds">Seconds since the access point last heard from the client.</param>
     public static bool IsPresent(long? idleSeconds)
         => idleSeconds is not { } idle || idle <= MaxIdleSeconds;
+
+    /// <summary>
+    /// The full Console-entry gate: the agent's verdict where its access point is covered, the
+    /// idle tolerance plus association evidence otherwise. Both Console entry points (topology
+    /// discovery, the Wi-Fi Optimizer roster) call this so the surfaces they feed cannot disagree.
+    /// </summary>
+    /// <param name="idleSeconds">Seconds since the access point last heard from the client.</param>
+    /// <param name="apMac">The access point the Console says holds the client.</param>
+    /// <param name="radio">The Console's band/radio token for the client.</param>
+    /// <param name="signalDbm">The Console's signal reading for the client.</param>
+    /// <param name="hasMloLinks">Whether the Console reports any MLO links for the client.</param>
+    /// <param name="agent">The agent verdict, Unknown wherever no agent can vouch.</param>
+    public static bool IsPresent(
+        long? idleSeconds,
+        string? apMac,
+        string? radio,
+        int? signalDbm,
+        bool hasMloLinks,
+        AgentClientPresence agent) => agent switch
+    {
+        AgentClientPresence.Present => true,
+        AgentClientPresence.Absent => false,
+        _ => IsPresent(idleSeconds) && HasAssociationEvidence(apMac, radio, signalDbm, hasMloLinks),
+    };
+
+    /// <summary>
+    /// Whether a Console-listed wireless client shows any evidence of an association: an access
+    /// point, a band, a signal reading, or an MLO link. A departed client can linger in the active
+    /// list with every one of these empty and no idle time at all; requiring ALL of them empty is
+    /// what keeps a client the Console is mid-refresh on from blinking.
+    /// </summary>
+    public static bool HasAssociationEvidence(string? apMac, string? radio, int? signalDbm, bool hasMloLinks = false)
+        => !string.IsNullOrEmpty(apMac)
+        || !string.IsNullOrEmpty(radio)
+        || signalDbm is not (null or 0)
+        || hasMloLinks;
 
     /// <summary>
     /// The lowest idle time across a multi-link client's links, or null when it has none. A client

@@ -431,6 +431,10 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApA
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.MeasuredClientBandCache>();
 builder.Services.AddScoped<NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource,
     NetworkOptimizer.Web.Services.ApAgent.InfluxMeasuredClientSource>();
+// The presence verdict the Console entry points consult, so an agent's association table beats
+// the Console's idle tolerance on the access points it covers.
+builder.Services.AddScoped<NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource,
+    NetworkOptimizer.Web.Services.ApAgent.ApAgentClientPresenceSource>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
     NetworkOptimizer.Web.Services.ApAgent.SftpApAgentBinaryTransfer>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,

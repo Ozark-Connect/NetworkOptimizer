@@ -211,6 +211,14 @@ public sealed class ApAgentClient
     [JsonPropertyName("mld_mac")]
     public string? MldMac { get; set; }
 
+    /// <summary>The client's hostname, from the agent's identity poll. Empty until that poll runs.</summary>
+    [JsonPropertyName("hostname")]
+    public string? Hostname { get; set; }
+
+    /// <summary>The client's IPv4 address, from the agent's identity poll. Empty until that poll runs.</summary>
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
     /// <summary>Whether the client negotiated multi-link operation.</summary>
     [JsonPropertyName("is_mlo")]
     public bool IsMlo { get; set; }

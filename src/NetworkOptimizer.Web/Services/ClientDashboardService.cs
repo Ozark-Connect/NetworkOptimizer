@@ -49,6 +49,7 @@ public class ClientDashboardService
     // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
     // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
     private readonly ApAgentClientLiveService? _apAgentLive;
+    private readonly ApAgentTelemetryRegistry? _apAgentTelemetry;
     private readonly MonitoringLiveStatsRegistry _liveStats;
 
     /// <summary>Roam-follow state per client. One page follows one client, so the cap is a guard.</summary>
@@ -73,7 +74,8 @@ public class ClientDashboardService
         IServiceScopeFactory scopeFactory,
         SiteContextService siteContext,
         MonitoringLiveStatsRegistry liveStats,
-        ApAgentClientLiveService? apAgentLive = null)
+        ApAgentClientLiveService? apAgentLive = null,
+        ApAgentTelemetryRegistry? apAgentTelemetry = null)
     {
         _logger = logger;
         _siteDbFactory = siteDbFactory;
@@ -88,6 +90,7 @@ public class ClientDashboardService
         _configuration = configuration;
         _scopeFactory = scopeFactory;
         _apAgentLive = apAgentLive;
+        _apAgentTelemetry = apAgentTelemetry;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -206,6 +209,14 @@ public class ClientDashboardService
                 return identity;
             }
 
+            // Not in the console's active list. Before concluding offline, ask the AP Agents: on a
+            // covered access point the agent knows the client and its IP from association, seconds
+            // before the console lists it. The console's active answer is never overridden - this
+            // runs only when it had none.
+            var fromAgent = await IdentifyFromApAgentAsync(clientIp);
+            if (fromAgent != null)
+                return fromAgent;
+
             // Device not in active list - check offline cache
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
                 return cached;
@@ -240,6 +251,36 @@ public class ClientDashboardService
             _logger.LogWarning(ex, "Failed to identify client {Ip}", clientIp);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Builds an online identity for a client an agent-covered access point currently holds but
+    /// the console does not yet list as active. Null everywhere the agent path cannot vouch, which
+    /// leaves the offline-history and VPN fallbacks exactly as they were.
+    /// </summary>
+    private async Task<ClientIdentity?> IdentifyFromApAgentAsync(string clientIp)
+    {
+        var known = _apAgentTelemetry?.GetFor(_siteContext.Slug).FindClientByIp(clientIp);
+        if (known == null) return null;
+
+        var identity = new ClientIdentity
+        {
+            Mac = known.ClientMac,
+            Name = known.Hostname,
+            Hostname = known.Hostname,
+            Ip = clientIp,
+            IsWired = false,
+            ApMac = known.ApMac,
+        };
+
+        _offlineIdentityCache.TryRemove(clientIp, out _);
+        _ipToMacCache[clientIp] = known.ClientMac;
+        _logger.LogDebug("Identified client {Ip} as {Mac} from its access point's agent", clientIp, known.ClientMac);
+
+        // The same enrichment shape as the console path, so the page renders identically.
+        await OverlayApAgentDataAsync(identity);
+        await EnrichWithApInfoAsync(identity, identity.ApMac);
+        return identity;
     }
 
     /// <summary>
