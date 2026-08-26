@@ -91,8 +91,8 @@ public sealed class ApAgentTelemetryCollector
     private readonly ApAgentCoverageLedger _coverage = new();
     private readonly ApAgentMembershipLedger _membership = new();
 
-    /// <summary>Access points the site expects to hear from, from the last membership pass.</summary>
-    private volatile int _targetCount;
+    /// <summary>Online access points at the site, agent-covered or not, from the last pass.</summary>
+    private volatile int _siteApCount;
     private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ApAgentPassWitness _witness = new();
@@ -155,7 +155,7 @@ public sealed class ApAgentTelemetryCollector
                 _logger.LogDebug(
                     "[Presence] {Client} on {Ap} (site {Site}): {Previous} -> {Verdict} (answers={Answers}/{Targets})",
                     clientMac, string.IsNullOrEmpty(apMac) ? "-" : apMac, _siteSlug, previous, verdict,
-                    _membership.FreshAnswersNamingClients(DateTime.UtcNow), _targetCount);
+                    _membership.FreshAnswers(DateTime.UtcNow), _siteApCount);
             }
         }
 
@@ -176,12 +176,12 @@ public sealed class ApAgentTelemetryCollector
         var verdict = _membership.PresenceFor(claimed, clientMac, now);
         if (verdict != NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown) return verdict;
 
-        // Nothing named this client and no access point was claimed. When every access point the
-        // site expects answered freshly and named someone, the agents can see the whole site, so
-        // absence from all of them is absence. Short of that the guard holds and this stays Unknown,
-        // because the client may be on an access point no agent covers.
-        var targets = _targetCount;
-        return targets > 0 && _membership.FreshAnswersNamingClients(now) >= targets
+        // Nothing named this client and no access point was claimed. When EVERY online access
+        // point at the site answered - not merely every agent-covered one - the agents can see the
+        // whole site and absence from all of them is absence. On a partly covered site this stays
+        // Unknown, because the client may be on an access point no agent watches.
+        var aps = _siteApCount;
+        return aps > 0 && _membership.FreshAnswers(now) >= aps
             ? NetworkOptimizer.Core.Helpers.AgentClientPresence.Absent
             : NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown;
     }
@@ -264,7 +264,7 @@ public sealed class ApAgentTelemetryCollector
         if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct)) return;
 
         var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
-        _targetCount = targets.Count;
+        _siteApCount = _directory.CachedApCount(_siteSlug);
         if (targets.Count == 0) return;
 
         var now = DateTime.UtcNow;

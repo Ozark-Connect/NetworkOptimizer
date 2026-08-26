@@ -270,15 +270,20 @@ public sealed class ApAgentMembershipLedger
     /// tunnel blip would mass-drop a site.
     /// </summary>
     /// <summary>
-    /// How many access points have a fresh answer that named at least one client. Compared against
-    /// the site's target count, this is what says the agents can see the whole site right now.
+    /// How many access points answered within the TTL. Compared against the site's target count,
+    /// this is what says the agents can see the whole site right now.
+    ///
+    /// An answer holding no clients counts: it is only recorded after a poll succeeded, so an
+    /// empty access point is evidence that the client is not on it, exactly as a populated one is.
+    /// Requiring a named client instead pinned a site with any idle access point below its target
+    /// count forever, and the rule could never fire.
     /// </summary>
-    public int FreshAnswersNamingClients(DateTime now)
+    public int FreshAnswers(DateTime now)
     {
         var n = 0;
         foreach (var answer in _answers.Values)
         {
-            if (now - answer.At <= AnswerTtl && answer.NamedAnyClient) n++;
+            if (now - answer.At <= AnswerTtl) n++;
         }
         return n;
     }

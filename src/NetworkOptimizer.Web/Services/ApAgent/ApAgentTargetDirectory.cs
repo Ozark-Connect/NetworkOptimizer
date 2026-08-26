@@ -84,6 +84,14 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
         }
     }
 
+    /// <summary>
+    /// Online access points at the site, agent-covered or not, from the last directory read.
+    /// Absence across the agents only means absence when this many of them answered - anything
+    /// less and the client may be on an access point no agent covers.
+    /// </summary>
+    public int CachedApCount(string siteSlug)
+        => _sites.TryGetValue(siteSlug, out var cache) ? cache.ApCount : 0;
+
     public async Task<IReadOnlyList<ApAgentTarget>> GetTargetsAsync(string siteSlug, CancellationToken ct = default)
     {
         var cache = _sites.GetOrAdd(siteSlug, _ => new SiteCache());
@@ -100,11 +108,13 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
             var byMac = records.ToDictionary(r => r.DeviceMac, StringComparer.OrdinalIgnoreCase);
 
             var targets = new List<ApAgentTarget>();
+            var apCount = 0;
             foreach (var device in devices)
             {
                 if (device.Type != DeviceType.AccessPoint) continue;
                 if (string.IsNullOrEmpty(device.DisplayIpAddress)) continue;
                 if (device.State != 1) continue;
+                apCount++;
 
                 var mac = ApAgentWifiFieldMapper.NormalizeMac(device.Mac);
                 if (!byMac.TryGetValue(mac, out var record) || !record.Enabled) continue;
@@ -113,6 +123,7 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
             }
 
             cache.Targets = targets;
+            cache.ApCount = apCount;
             cache.TargetsAt = DateTime.UtcNow;
         }
         catch (Exception ex)
@@ -165,6 +176,7 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
         public bool Enabled;
         public DateTime EnabledAt = DateTime.MinValue;
         public IReadOnlyList<ApAgentTarget> Targets = Array.Empty<ApAgentTarget>();
+        public int ApCount;
         public DateTime TargetsAt = DateTime.MinValue;
     }
 }
