@@ -23,17 +23,20 @@ public sealed class ConsoleRosterNudge
 
     /// <summary>
     /// Notes that an access point's membership changed. Coalesced: while a suggestion is pending,
-    /// further changes fold into it.
+    /// a further change can only pull it earlier, never push it out. Immediate skips the settle
+    /// delay - right for a departure, where the Console still lists the client and the presence
+    /// gate excludes it regardless, so there is nothing to wait for. The floor holds either way.
     /// </summary>
-    public void NoteMembershipChange(DateTime now)
+    public void NoteMembershipChange(DateTime now, bool immediate = false)
     {
         lock (_lock)
         {
-            if (_dueAt != null) return;
-
-            var due = now + ConsoleSettleDelay;
+            var due = immediate ? now : now + ConsoleSettleDelay;
             var floor = _lastDueAt + MinInterval;
-            _dueAt = due < floor ? floor : due;
+            if (due < floor) due = floor;
+
+            if (_dueAt is { } pending && due >= pending) return;
+            _dueAt = due;
         }
     }
 

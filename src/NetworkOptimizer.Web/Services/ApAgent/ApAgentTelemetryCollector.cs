@@ -40,6 +40,18 @@ public sealed class ApAgentTelemetryCollector
     /// <summary>Matches the console wifi tier's cadence, so both sources write at the same rate.</summary>
     public static readonly TimeSpan WriteWindow = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How often membership is read, separately from the sampling pass above. Presence truth must
+    /// move at the fastest path we have, and /clients serves the agent's in-memory table - the
+    /// event stream and its 1 Hz sweep maintain it regardless of who asks, so a faster read costs
+    /// the access point one JSON serialization and no radio or mcad work. Three seconds keeps the
+    /// server's share of departure latency small against the AP's own 6 s absent grace.
+    /// </summary>
+    public static readonly TimeSpan MembershipInterval = TimeSpan.FromSeconds(3);
+
+    /// <summary>Ceiling on one membership pass, so unresponsive access points cannot stack it up.</summary>
+    private static readonly TimeSpan MembershipBudget = TimeSpan.FromSeconds(12);
+
     /// <summary>An access point is a small target; a slow one must not hold up the pass.</summary>
     private static readonly TimeSpan ClientsTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RadiosTimeout = TimeSpan.FromSeconds(8);
@@ -213,6 +225,106 @@ public sealed class ApAgentTelemetryCollector
         }
     }
 
+    /// <summary>
+    /// One membership pass, on its own short cadence. Reads /clients per access point and updates
+    /// only the in-memory state a viewer sees change: the membership ledger (the presence verdict),
+    /// the roster nudge, and the live cache. Deliberately no coverage claim, no accumulator, no
+    /// witness, no throughput baseline, and no writes - the Influx cadence belongs to the sampling
+    /// pass, and a faster read must not become a faster write.
+    /// </summary>
+    public async Task SampleMembershipAsync(CancellationToken ct = default)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(MembershipBudget);
+
+        try
+        {
+            await MembershipCoreAsync(budget.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug("AP Agent membership pass ran out of budget (site {Site})", _siteSlug);
+        }
+    }
+
+    private async Task MembershipCoreAsync(CancellationToken ct)
+    {
+        // Read-only against the ledgers on the failure side: releases and retention stay with the
+        // sampling pass, so the two loops cannot duel over coverage state.
+        if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct)) return;
+
+        var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
+        if (targets.Count == 0) return;
+
+        var now = DateTime.UtcNow;
+        await Task.WhenAll(targets.Select(t => PollMembershipAsync(t, now, ct)));
+    }
+
+    private async Task PollMembershipAsync(ApAgentTarget target, DateTime now, CancellationToken ct)
+    {
+        await _pollGate.WaitAsync(ct);
+        try
+        {
+            var payload = await _telemetry.GetClientsAsync(_siteSlug, target.Host, target.Token, ClientsTimeout, ct);
+            if (payload == null || IsStale(payload, now)) return;
+
+            RecordMembership(target.Mac, payload, now);
+            PublishMembershipLive(target.Mac, payload, now);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent membership poll failed for {Host} (site {Site})", target.Host, _siteSlug);
+        }
+        finally
+        {
+            _pollGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Records one answer into the ledger and arms the roster nudge on a change. A departure is
+    /// immediate: the Console still lists the client and the gate excludes it regardless, so there
+    /// is nothing to wait for. An arrival keeps the settle delay - re-reading before the Console
+    /// has digested the association returns the roster we already have.
+    /// </summary>
+    private void RecordMembership(string apMac, ApAgentClientsPayload payload, DateTime now)
+    {
+        if (!_membership.Record(apMac, payload.Clients, now, out var delta)) return;
+
+        RosterNudge.NoteMembershipChange(now, immediate: delta.Left.Count > 0);
+        _logger.LogDebug(
+            "[Presence] agent {Ap} membership changed (site {Site}): joined [{Joined}], left [{Left}]",
+            apMac, _siteSlug, string.Join(", ", delta.Joined), string.Join(", ", delta.Left));
+    }
+
+    /// <summary>
+    /// Publishes the answer's clients into the live cache, so the maps track arrivals and RF at
+    /// the membership cadence. Same gates as the sampling pass, minus everything that measures:
+    /// throughput baselines stay with the pass, or its deltas would shrink to this cadence.
+    /// </summary>
+    private void PublishMembershipLive(string apMac, ApAgentClientsPayload payload, DateTime now)
+    {
+        var identityAt = payload.Sources?.Bytes?.LastCollectedAt
+            ?? payload.Sources?.Slow?.LastCollectedAt
+            ?? payload.CollectedAt;
+        var authorizedIsReported = payload.Clients.Any(c => c.Authorized);
+
+        foreach (var client in payload.Clients)
+        {
+            if (authorizedIsReported && !client.Authorized) continue;
+
+            var sample = ApAgentWifiFieldMapper.ToSample(client, apMac, identityAt);
+            if (sample == null) continue;
+            if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+
+            PublishLive(sample, null, now, (null, null));
+        }
+    }
+
     private async Task SampleCoreAsync(CancellationToken ct)
     {
         if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct))
@@ -281,16 +393,7 @@ public sealed class ApAgentTelemetryCollector
                 ?? payload.CollectedAt;
 
             _coverage.Claim(target.Mac, now);
-
-            // A membership change is exactly what the Console has not caught up to yet, so it arms
-            // the roster nudge for the consumers caching the Console's client list.
-            if (_membership.Record(target.Mac, payload.Clients, now, out var delta))
-            {
-                RosterNudge.NoteMembershipChange(now);
-                _logger.LogDebug(
-                    "[Presence] agent {Ap} membership changed (site {Site}): joined [{Joined}], left [{Left}]",
-                    target.Mac, _siteSlug, string.Join(", ", delta.Joined), string.Join(", ", delta.Left));
-            }
+            RecordMembership(target.Mac, payload, now);
 
             // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
             // client associates under a different MAC per link, and the events name only the link.

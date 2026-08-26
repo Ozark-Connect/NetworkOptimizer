@@ -65,6 +65,43 @@ public class ConsoleRosterNudgeTests
     }
 
     [Fact]
+    public void ImmediateChange_SuggestsARefreshAtOnce()
+    {
+        // A departure needs no Console settle: the Console still lists the client and the
+        // presence gate excludes it regardless.
+        var nudge = new ConsoleRosterNudge();
+        var snapshotAt = T0 - TimeSpan.FromSeconds(15);
+        nudge.NoteMembershipChange(T0, immediate: true);
+
+        nudge.ShouldRefresh(snapshotAt, T0).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ImmediateChange_PullsAPendingSuggestionEarlier()
+    {
+        var nudge = new ConsoleRosterNudge();
+        var snapshotAt = T0 - TimeSpan.FromSeconds(15);
+        nudge.NoteMembershipChange(T0);
+        nudge.NoteMembershipChange(T0 + TimeSpan.FromSeconds(2), immediate: true);
+
+        nudge.ShouldRefresh(snapshotAt, T0 + TimeSpan.FromSeconds(2)).Should().BeTrue("the departure pulled the pending settle-delayed suggestion in");
+    }
+
+    [Fact]
+    public void ImmediateChange_StillHonorsTheFloor()
+    {
+        var nudge = new ConsoleRosterNudge();
+        nudge.NoteMembershipChange(T0, immediate: true);
+        nudge.ShouldRefresh(T0 - TimeSpan.FromSeconds(15), T0).Should().BeTrue();
+
+        // A departure right after a fire waits out the floor like any other change.
+        nudge.NoteMembershipChange(T0 + TimeSpan.FromSeconds(1), immediate: true);
+        var snapshotAt = T0 + TimeSpan.FromSeconds(2);
+        nudge.ShouldRefresh(snapshotAt, T0 + TimeSpan.FromSeconds(5)).Should().BeFalse("the floor holds");
+        nudge.ShouldRefresh(snapshotAt, T0 + ConsoleRosterNudge.MinInterval).Should().BeTrue();
+    }
+
+    [Fact]
     public void ChurnIsFloored_BetweenSuggestions()
     {
         var nudge = new ConsoleRosterNudge();

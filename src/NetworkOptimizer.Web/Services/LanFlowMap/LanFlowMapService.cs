@@ -2576,37 +2576,23 @@ public class LanFlowMapService
     /// The console can take a while to notice a client left; an AP Agent knows within seconds,
     /// because a disassociation reaches it on the hostapd control socket.
     ///
-    /// Only for access points the agent is actively reporting: an agent that stopped answering
-    /// says nothing about who is still associated, and treating its silence as departure would
-    /// empty the map.
+    /// The judge is the same presence verdict the Console entry points use, so this tick-rate
+    /// accelerator can never disagree with the next topology rebuild - and it inherits the
+    /// verdict's guards: an agent that stopped answering, or answered empty, says Unknown rather
+    /// than departure, and a client another covered access point holds is Present mid-roam.
     /// </summary>
     private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
     {
-        var now = DateTime.UtcNow;
-        var coverage = _apAgentTelemetry.GetFor(_siteContext.Slug);
-
-        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var live in _liveStats.AllWifiClients())
-        {
-            if (live.Source != WifiClientSource.ApAgent) continue;
-            if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
-            present.Add("cli-" + NormalizeMac(live.ClientMac));
-        }
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
 
         foreach (var node in snapshot.Nodes)
         {
-            if (node.Kind != LanNodeKind.WifiClient) continue;
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
             if (string.IsNullOrEmpty(node.ParentId) || !node.ParentId.StartsWith("dev-", StringComparison.OrdinalIgnoreCase)) continue;
 
-            // Coverage is the authority, not the presence of agent-sourced readings. Client
-            // Performance writes those at 500 ms for the one client it watches, without the
-            // collector covering that access point at all - so inferring from them would mark
-            // every OTHER client on it as departed the moment someone opened the page.
             var apMac = node.ParentId["dev-".Length..];
-            if (!coverage.CoversAp(apMac)) continue;
-
-            if (present.Contains(node.Id)) continue;
-            update.RemovedClientIds.Add(node.Id);
+            if (collector.PresenceFor(apMac, node.Mac) == AgentClientPresence.Absent)
+                update.RemovedClientIds.Add(node.Id);
         }
     }
 

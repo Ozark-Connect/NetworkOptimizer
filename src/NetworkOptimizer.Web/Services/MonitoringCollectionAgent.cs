@@ -348,6 +348,14 @@ public class MonitoringCollectionAgent : BackgroundService
             (_, ct) => _apAgentTelemetry.SampleAsync(ct),
             TimeSpan.FromSeconds(35),
             stoppingToken);
+        // Membership on its own short cadence, because presence truth must not wait for the
+        // sampling pass: /clients serves the agent's in-memory table, so reading it often costs
+        // the access point a serialization and nothing else. Writes stay with the pass above.
+        var apAgentMembershipTask = RunTierAsync("apagent-membership",
+            _ => ApAgent.ApAgentTelemetryCollector.MembershipInterval,
+            (_, ct) => _apAgentTelemetry.SampleMembershipAsync(ct),
+            TimeSpan.FromSeconds(8),
+            stoppingToken);
         // SNMP credential self-heal on its own short cadence. It must NOT ride the fast
         // tier's cycle: when every SNMP call is timing out (the exact failure it exists to
         // detect), a fast cycle stretches to minutes of stacked timeouts and an end-of-cycle
@@ -359,7 +367,7 @@ public class MonitoringCollectionAgent : BackgroundService
             TimeSpan.FromSeconds(12),
             stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, apAgentTask, selfHealTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, apAgentTask, apAgentMembershipTask, selfHealTask);
         _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 

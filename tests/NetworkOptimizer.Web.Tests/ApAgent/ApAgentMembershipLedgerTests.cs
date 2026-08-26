@@ -145,6 +145,21 @@ public class ApAgentMembershipLedgerTests
     }
 
     [Fact]
+    public void Record_ReportsWhoJoinedAndLeft()
+    {
+        // The departure side of the delta is what makes the roster nudge immediate, so its
+        // contents are load-bearing, not just the changed flag.
+        var ledger = new ApAgentMembershipLedger();
+        ledger.Record(Ap1, new[] { Client() }, Now, out var first);
+        first.Joined.Should().BeEmpty("the first answer is a baseline");
+        first.Left.Should().BeEmpty();
+
+        ledger.Record(Ap1, new[] { Client(mac: "0a:0b:0c:0d:0e:0f") }, Now, out var delta);
+        delta.Joined.Should().BeEquivalentTo("0a:0b:0c:0d:0e:0f");
+        delta.Left.Should().BeEquivalentTo(StationMac);
+    }
+
+    [Fact]
     public void FindByIp_ReturnsTheFreshMember()
     {
         var ledger = new ApAgentMembershipLedger();
