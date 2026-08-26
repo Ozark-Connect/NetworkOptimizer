@@ -2058,7 +2058,11 @@ class LanFlowMap2D {
             ctx.moveTo(x-2.5,y-0.5);
             ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
             ctx.stroke();
-            if(n.d.signalBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,n.d.signalClass,n.d.signalBars);
+            // Live stats first, as the band lookup already does: the label reads that value, so
+            // taking the class off the node colors the bars after a different, older reading.
+            const sg=flowData.getClientStats()?.[n.d.id];
+            const sBars=sg?.signalBars??n.d.signalBars, sCls=sg?.signalClass??n.d.signalClass;
+            if(sBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,sCls,sBars);
         } else {
             const s=r*0.9;
             ctx.fillStyle=color;
@@ -2083,11 +2087,11 @@ class LanFlowMap2D {
     // Five bars rising left to right, the Client Performance hero at map scale. Lit count and
     // color both arrive per node; nothing about the curve is decided here.
     _drawSignalBars(ctx,x,y,cls,lit){
-        const w=1.6, gap=1, h=7, on=SIG[cls]||C.textMuted;
+        const w=1.6, gap=1, h=9.45, base=y+4.55, on=SIG[cls]||C.textMuted;
         for(let i=0;i<5;i++){
             const bh=h*(0.2+i*0.2);
             ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
-            ctx.fillRect(x+i*(w+gap), y+h/2-bh, w, bh);
+            ctx.fillRect(x+i*(w+gap), base-bh, w, bh);
         }
     }
 

@@ -94,7 +94,7 @@ public class LanNode
     public int? SignalDbm { get; set; }
 
     /// <summary>
-    /// Signal class for colouring and how many of five bars are lit, from the shared per-band
+    /// Signal class for coloring and how many of five bars are lit, from the shared per-band
     /// curves. Computed here so the map cannot drift from every other surface that shows signal -
     /// the thresholds never reach the browser.
     /// </summary>
@@ -384,6 +384,20 @@ public class NodeClientStats
     public int? SignalDbm { get; set; }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+
+    /// <summary>
+    /// The same per-band class and bar count the snapshot node carries. A client's signal often
+    /// arrives on the live tick before the snapshot rebuild catches up, and reading the class off
+    /// the node then colors the bars after a different, staler reading than the label shows.
+    /// </summary>
+    public string? SignalClass => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+        : null;
+
+    /// <inheritdoc cref="SignalClass"/>
+    public int? SignalBars => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+        : null;
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
     /// Null when unknown.</summary>
