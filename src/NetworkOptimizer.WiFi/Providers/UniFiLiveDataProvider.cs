@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -166,7 +166,26 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             _logger.LogDebug("Found {Online} online and {Offline} offline wireless clients",
                 result.Count, offlineWireless.Count);
 
-            result.AddRange(offlineWireless.Select(c => MapHistoricalToWirelessClientSnapshot(c, apNames, timestamp)));
+            var historical = offlineWireless
+                .Select(c => MapHistoricalToWirelessClientSnapshot(c, apNames, timestamp))
+                .ToList();
+
+            // The console lists a returning client minutes after its access point has it, so a
+            // history row is already stale when it is built. Where an agent holds the client the
+            // verdict outranks that row: mark it online and let the measured overlay say which
+            // access point it is on now, rather than the one it left.
+            var returned = historical
+                .Where(c => _agentPresence?.PresenceFor(c.ApMac, c.Mac)
+                    == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present)
+                .ToList();
+            foreach (var c in returned) c.IsOnline = true;
+            if (returned.Count > 0)
+            {
+                _logger.LogDebug("Promoted {Count} client(s) the console still lists as offline; their agents hold them", returned.Count);
+                await ApplyMeasuredClientsAsync(returned, cancellationToken);
+            }
+
+            result.AddRange(historical);
         }
         catch (Exception ex)
         {
