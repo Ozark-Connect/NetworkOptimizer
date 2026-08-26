@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
@@ -546,8 +545,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             return ApAgentOperationResult.Fail(reason, ApAgentState.Unsupported);
         }
 
-        var record = await GetOrCreateRecordAsync(mac, ap.Name, ct);
-        var token = ResolveToken(record);
+        await GetOrCreateRecordAsync(mac, ap.Name, ct);
 
         // Idempotent: the same binary already running is the common case on a supervision tick, and
         // re-pushing 10 MB to prove it would be the expensive way to learn nothing.
@@ -572,6 +570,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 return transferred;
             }
         }
+
+        var token = await RotateTokenAsync(mac, ct);
 
         progress?.Report("Writing the service definition...");
         var wrote = await WriteSupportFilesAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
@@ -802,6 +802,19 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     {
         if (backOff) _retry.RecordFailure(deviceMac, DateTime.UtcNow);
         await UpdateRecordAsync(deviceMac, r => r.LastError = Truncate(error, 500), ct);
+    }
+
+    /// <summary>
+    /// Mints the access point a new signing token, stored before it is pushed so a failed write
+    /// never leaves the agent serving on a secret nothing recorded. Deploy path only: the agent
+    /// reads its token once at startup.
+    /// </summary>
+    private async Task<string> RotateTokenAsync(string deviceMac, CancellationToken ct)
+    {
+        var token = GenerateToken();
+        await UpdateRecordAsync(deviceMac, r => r.Token = _credentialProtection.Encrypt(token), ct);
+        _directory.Invalidate(_siteSlug);
+        return token;
     }
 
     /// <summary>
