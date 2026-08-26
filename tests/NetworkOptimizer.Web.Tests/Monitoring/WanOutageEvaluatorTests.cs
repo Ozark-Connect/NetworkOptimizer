@@ -90,7 +90,7 @@ public class WanOutageEvaluatorTests
         var wanOutages = new WanOutageEvaluator(_bus, NullLogger<WanOutageEvaluator>.Instance,
             new FakeContextSource(context), rolloutWindows: rolloutWindows, timeProvider: _time);
         return new MonitoringAlertEvaluator(_bus, NullLogger<MonitoringAlertEvaluator>.Instance,
-            new DeviceTransitionTracker(), wanOutages, rolloutWindows: rolloutWindows);
+            new DeviceTransitionTracker(), wanOutages, new DeviceOfflineDeduplicator(), rolloutWindows: rolloutWindows);
     }
 
     #region Per-WAN outages

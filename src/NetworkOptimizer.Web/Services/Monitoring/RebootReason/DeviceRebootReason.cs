@@ -89,6 +89,11 @@ public enum RebootReasonSource
 /// v7: a kernel crash dump only explains this boot when the console ring did NOT end deliberately
 /// and the dump dates to this boot - dumps outlive the boot that produced them.
 /// </summary>
+/// <remarks>
+/// The commanded-restart override (UniFi event overriding an unexpected pstore classification)
+/// is a runtime signal, not a parser rule change - the same evidence classifies identically,
+/// so no version bump is needed and stored v7 records are not re-probed.
+/// </remarks>
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
