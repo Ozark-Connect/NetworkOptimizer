@@ -202,18 +202,12 @@ func (c *Collector) runFast(ctx context.Context) {
 	c.fast.succeeded(now)
 }
 
-// runBytes refreshes per-station counters on their own tier. They used to arrive only with the
-// identity poll, which is slow because mca-dump costs a few hundred milliseconds; one apstats call
-// per station is under a millisecond, so throughput can be resolved per poll instead of per write
-// window.
-// runBytes refreshes per-client byte counters, which is what makes throughput resolvable per poll
-// rather than per write window.
+// runBytes is the only tier that reads mca-dump, and it applies the whole snapshot. Never split the
+// quality fields back onto their own pass: it costs a second dump and dates them behind counters
+// from the same read.
 //
-// One mca-dump for the whole access point, NOT one apstats per station. Per-station calls cost a
-// process spawn and a firmware round-trip each, so the load grew with the client count - forty
-// spawns a second on a two hundred client access point, forever. mca-dump carries every station's
-// counters in a single call at a fixed ~400 ms, so the cost is flat no matter how many clients
-// associate. It is more expensive than one apstats call and cheaper than eighty.
+// One dump for the access point, never one apstats per station - per-station calls scale with the
+// client count, mca-dump is flat at ~400 ms.
 func (c *Collector) runBytes(ctx context.Context) {
 	if !c.bytes.info().Available {
 		return
@@ -222,6 +216,8 @@ func (c *Collector) runBytes(ctx context.Context) {
 	snap, err := collectSlow(ctx, now)
 	if err != nil {
 		c.bytes.failed(err)
+		c.slow.failed(err)
+		slog.Warn("mca-dump collection failed", "error", err)
 		return
 	}
 
@@ -233,23 +229,19 @@ func (c *Collector) runBytes(ctx context.Context) {
 		readings[stationKey(s.Vap, s.MAC)] = StaBytes{TxBytes: s.TxBytes, RxBytes: s.RxBytes, At: now}
 	}
 
+	c.table.ApplySlow(snap, now)
 	c.table.ApplyBytes(readings, now)
 	c.bytes.succeeded(now)
+	c.slow.succeeded(now)
 }
 
+// runSlow reads no mca-dump; the bytes tier does that. Only the radio counters are left, and they
+// keep the wider interval because their deltas need it.
 func (c *Collector) runSlow(ctx context.Context) {
 	if !c.slow.info().Available {
 		return
 	}
 	now := time.Now().UTC()
-	snap, err := collectSlow(ctx, now)
-	if err != nil {
-		c.slow.failed(err)
-		slog.Warn("slow tier collection failed", "error", err)
-		return
-	}
-	c.table.ApplySlow(snap, now)
-	c.slow.succeeded(now)
 
 	// Radio counters ride the slow tier: the CCA wedge is read from deltas, and a delta needs two
 	// samples an interval apart rather than two samples a second apart. This runs even when the

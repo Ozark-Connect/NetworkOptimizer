@@ -36,7 +36,17 @@ public sealed class ApAgentTierStatus
     [JsonPropertyName("fast")]
     public ApAgentTierInfo? Fast { get; set; }
 
-    /// <summary>The mca-dump pass, which carries the quality fields.</summary>
+    /// <summary>
+    /// From binary version 10 this is the mca-dump pass, and it carries the quality fields as well
+    /// as the counters. Before that it read counters only.
+    /// </summary>
+    [JsonPropertyName("bytes")]
+    public ApAgentTierInfo? Bytes { get; set; }
+
+    /// <summary>
+    /// The quality-field pass on agents before binary version 10. From 10 it runs no mca-dump of its
+    /// own - the bytes tier does that for both - and covers the radio counters alone.
+    /// </summary>
     [JsonPropertyName("slow")]
     public ApAgentTierInfo? Slow { get; set; }
 }

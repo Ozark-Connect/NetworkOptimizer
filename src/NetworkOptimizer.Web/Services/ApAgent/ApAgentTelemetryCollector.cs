@@ -208,11 +208,12 @@ public sealed class ApAgentTelemetryCollector
                 return;
             }
 
-            // Dated by the tier that actually supplied the fields, not by when the reply was built.
-            // The rates and signal come from the mca-dump pass, which can be a whole slow interval
-            // older than the answer carrying them - stamping those with the reply time records a
-            // rate the access point read half a minute ago as if it were current.
-            var identityAt = payload.Sources?.Slow?.LastCollectedAt ?? payload.CollectedAt;
+            // Dated by the pass that read the fields, not by when the reply was built, or a rate
+            // the access point read an interval ago is recorded as current. Bytes owns the only
+            // mca-dump from binary version 10; slow is the same read on older agents.
+            var identityAt = payload.Sources?.Bytes?.LastCollectedAt
+                ?? payload.Sources?.Slow?.LastCollectedAt
+                ?? payload.CollectedAt;
 
             _coverage.Claim(target.Mac, now);
             // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
@@ -373,10 +374,8 @@ public sealed class ApAgentTelemetryCollector
     }
 
     /// <summary>
-    /// How far an access point's clock may differ from this server's before its own timestamps are
-    /// refused. Trusting the collector's clock is how loss, latency and SNMP are already recorded,
-    /// but a wedged clock would scatter that access point's points across the series instead of
-    /// producing an obvious fault, so an implausible one falls back to the server's.
+    /// Clock difference past which an access point's own timestamps are refused. A wedged clock
+    /// would scatter its points across the series rather than fail visibly.
     /// </summary>
     private static readonly TimeSpan MaxAgentClockSkew = TimeSpan.FromMinutes(5);
 
