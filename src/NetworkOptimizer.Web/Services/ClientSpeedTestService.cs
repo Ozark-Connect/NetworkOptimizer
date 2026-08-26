@@ -523,7 +523,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// </summary>
     /// <param name="result">The speed test result to analyze</param>
     /// <param name="priorSnapshot">Optional wireless rate snapshot captured during the test</param>
-    private async Task AnalyzePathAsync(Iperf3Result result, WirelessRateSnapshot? priorSnapshot = null)
+    private async Task AnalyzePathAsync(
+        Iperf3Result result, WirelessRateSnapshot? priorSnapshot = null, string? forceApMac = null)
     {
         try
         {
@@ -552,7 +553,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
                     result.DeviceHost,
                     result.LocalIp,
                     retryOnFailure: true,
-                    priorSnapshot);
+                    priorSnapshot,
+                    forceApMac: forceApMac);
 
                 // A relayed result's LocalIp is the listener's socket address, which
                 // can be off-topology (Docker bridge networking, or a multi-NIC agent
@@ -572,7 +574,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
                         _logger.LogDebug("Server position not found from {LocalIp}; retrying with site endpoint {FallbackIp}",
                             result.LocalIp ?? "auto", fallbackIp);
                         path = await _pathAnalyzer.CalculatePathAsync(
-                            result.DeviceHost, fallbackIp, retryOnFailure: false, priorSnapshot);
+                            result.DeviceHost, fallbackIp, retryOnFailure: false, priorSnapshot,
+                            forceApMac: forceApMac);
                         if (path.IsValid)
                         {
                             result.LocalIp = fallbackIp;
@@ -710,6 +713,19 @@ public class ClientSpeedTestService : IClientSpeedTestService
             if (best.Candidate.NoiseDbm is < 0) result.WifiNoiseDbm = (int)Math.Round(best.Candidate.NoiseDbm.Value);
             if (best.Candidate.Channel is > 0) result.WifiChannel = best.Candidate.Channel;
             if (RadioTokenFor(best.Candidate.Band) is { } radio) result.WifiRadio = radio;
+
+            // A different access point means a different path above it, so the trace is rebuilt
+            // through the one the series names rather than relabelled - the hops after it belong to
+            // that access point's uplink, not the one topology guessed.
+            var tracedAp = result.PathAnalysis?.Path?.Hops?
+                .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceMac;
+            if (!string.IsNullOrEmpty(tracedAp)
+                && !string.Equals(tracedAp, best.Candidate.ApMac, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Wi-Fi fit for {Mac}: re-tracing through {Fit}, trace had {Traced}",
+                    result.ClientMac, best.Candidate.ApMac, tracedAp);
+                await AnalyzePathAsync(result, forceApMac: best.Candidate.ApMac);
+            }
 
             // The wireless hop is what the trace renders. Ingress is TX (To Device), egress is RX.
             var hop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);

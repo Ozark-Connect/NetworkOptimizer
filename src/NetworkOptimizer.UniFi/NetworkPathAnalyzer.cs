@@ -36,7 +36,7 @@ public interface INetworkPathAnalyzer
     /// Calculates the network path from the server to a target device or client.
     /// Uses the provided snapshot to compare wireless rates and pick the highest values.
     /// </summary>
-    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default, string? forceApMac = null);
 
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 
@@ -415,7 +415,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         WirelessRateSnapshot? priorSnapshot,
         string? wanIp = null,
         string? resolvedWanGroup = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? forceApMac = null)
     {
         var path = new NetworkPath
         {
@@ -561,7 +562,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
             // Build the hop list
-            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot, wanIp, resolvedWanGroup);
+            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot, wanIp, resolvedWanGroup, forceApMac);
 
             // Check if BuildHopList marked the path invalid due to stale data (retry if enabled)
             if (!path.IsValid && retryOnFailure &&
@@ -1806,11 +1807,27 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         Dictionary<string, UniFiDeviceResponse> rawDevices,
         WirelessRateSnapshot? priorSnapshot = null,
         string? wanIp = null,
-        string? resolvedWanGroup = null)
+        string? resolvedWanGroup = null,
+        string? forceApMac = null)
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
         var meshParents = UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
+        // Stands in for what topology reported the client was on. The walk uses it exactly as it
+        // would the real value, so the whole path above the access point is built normally.
+        // Ignored unless it names a wireless client's access point this topology actually knows,
+        // so a stale or unknown override can only fall back to today's behavior.
+        var targetApMac = targetClient?.ConnectedToDeviceMac;
+        if (!string.IsNullOrEmpty(forceApMac)
+            && targetClient is { IsWired: false }
+            && deviceDict.ContainsKey(forceApMac)
+            && !string.Equals(forceApMac, targetApMac, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Tracing {Name} through {Forced} instead of {Topology}",
+                targetClient.Name ?? targetClient.IpAddress, forceApMac, targetApMac ?? "(none)");
+            targetApMac = forceApMac;
+        }
 
         // Start from target and trace back to server's switch
         string? currentMac;
@@ -1916,7 +1933,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         else if (targetClient != null)
         {
             // Target is a client - start from its connected device
-            currentMac = targetClient.ConnectedToDeviceMac;
+            currentMac = targetApMac;
             currentPort = targetClient.SwitchPort;
 
             // Warn if wireless client has no AP MAC - indicates stale data from UniFi API
@@ -1968,10 +1985,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     // For site surveys, the current AP is where the user IS, so current rates
                     // are the accurate representation of their actual position.
                     if (!string.IsNullOrEmpty(snapshotRates.ApMac) &&
-                        !string.Equals(snapshotRates.ApMac, targetClient.ConnectedToDeviceMac, StringComparison.OrdinalIgnoreCase))
+                        !string.Equals(snapshotRates.ApMac, targetApMac, StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogDebug("Wireless client {Name}: Skipping snapshot - client roamed from {SnapAp} to {CurAp}",
-                            targetClient.Name ?? targetClient.IpAddress, snapshotRates.ApMac, targetClient.ConnectedToDeviceMac);
+                            targetClient.Name ?? targetClient.IpAddress, snapshotRates.ApMac, targetApMac);
                     }
                     else
                     {
