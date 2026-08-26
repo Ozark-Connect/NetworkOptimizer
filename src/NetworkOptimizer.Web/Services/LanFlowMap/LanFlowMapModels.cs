@@ -92,6 +92,20 @@ public class LanNode
     /// <summary>WiFi client band ("2.4", "5", "6") if Kind = WifiClient.</summary>
     public string? Band { get; set; }
     public int? SignalDbm { get; set; }
+
+    /// <summary>
+    /// Signal class for colouring and how many of five bars are lit, from the shared per-band
+    /// curves. Computed here so the map cannot drift from every other surface that shows signal -
+    /// the thresholds never reach the browser.
+    /// </summary>
+    public string? SignalClass => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+        : null;
+
+    /// <inheritdoc cref="SignalClass"/>
+    public int? SignalBars => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+        : null;
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
     public string? Ssid { get; set; }

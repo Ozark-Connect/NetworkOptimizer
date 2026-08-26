@@ -3415,6 +3415,9 @@
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
 
+        // The surface colours on the band in view, matching the points drawn over it.
+        await JS.InvokeVoidAsync("fpEditor.setSignalBandOffset", NetworkOptimizer.WiFi.Helpers.SignalClassification.BandOffsetDb(_heatmapBand));
+
         // Build signal measurements for calibration adjustment when signal data is active
         object? signalMeasurements = null;
         if (_showSignalData)
@@ -3509,7 +3512,7 @@
                 key = $"st-{r.Id}",
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
-                color = GetSignalColor(r.WifiSignalDbm!.Value),
+                color = GetSignalColor(r.WifiSignalDbm!.Value, r.WifiRadio),
                 signalDbm = r.WifiSignalDbm!.Value,
                 popup = BuildSignalPopup(r)
             });
@@ -3521,7 +3524,7 @@
                 key = $"sl-{p.Timestamp.Ticks}-{i}",
                 lat = p.Latitude,
                 lng = p.Longitude,
-                color = GetSignalColor(p.SignalDbm),
+                color = GetSignalColor(p.SignalDbm, p.Band),
                 signalDbm = p.SignalDbm,
                 popup = BuildSignalLogPopup(p)
             });
@@ -3535,18 +3538,21 @@
         if (_showHeatmap) await ComputeHeatmap();
     }
 
-    private static string GetSignalColor(int dbm)
+    // Shifted per band by the same offsets SignalClassification uses, so a 6 GHz reading is not
+    // painted two quality steps worse than the badge beside it calls it. Same stops as the heatmap's
+    // lerpColor, which takes the offset too - shift one without the other and they disagree.
+    private static string GetSignalColor(int dbm, string? band = null)
     {
-        // Same gradient stops as heatmap lerpColor
+        var o = band == null ? 0 : NetworkOptimizer.WiFi.Helpers.SignalClassification.BandOffsetDb(band);
         (int s, int r, int g, int b)[] stops =
         [
-            (-30, 0, 220, 0),
-            (-45, 34, 197, 94),
-            (-55, 180, 220, 40),
-            (-65, 250, 204, 21),
-            (-72, 251, 146, 60),
-            (-80, 239, 68, 68),
-            (-90, 107, 114, 128)
+            (-30 + o, 0, 220, 0),
+            (-45 + o, 34, 197, 94),
+            (-55 + o, 180, 220, 40),
+            (-65 + o, 250, 204, 21),
+            (-72 + o, 251, 146, 60),
+            (-80 + o, 239, 68, 68),
+            (-90 + o, 107, 114, 128)
         ];
 
         if (dbm >= stops[0].s) return $"rgb({stops[0].r},{stops[0].g},{stops[0].b})";

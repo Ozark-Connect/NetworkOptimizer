@@ -37,6 +37,12 @@ const C = {
 };
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
+// Signal palette, matching the Client Performance hero. Only the colours live here: which class a
+// reading falls in, and how many bars it lights, are per-band curves the server owns.
+const SIG = {
+    'signal-excellent':'#10b981', 'signal-good':'#22c55e', 'signal-fair':'#eab308',
+    'signal-weak':'#f97316', 'signal-poor':'#ef4444',
+};
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
 const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
@@ -2052,6 +2058,7 @@ class LanFlowMap2D {
             ctx.moveTo(x-2.5,y-0.5);
             ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
             ctx.stroke();
+            if(n.d.signalBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,n.d.signalClass,n.d.signalBars);
         } else {
             const s=r*0.9;
             ctx.fillStyle=color;
@@ -2070,6 +2077,17 @@ class LanFlowMap2D {
             ctx.font=`${G.clientFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
             ctx.fillText(dn,x,y+r+3);
+        }
+    }
+
+    // Five bars rising left to right, the Client Performance hero at map scale. Lit count and
+    // colour both arrive per node; nothing about the curve is decided here.
+    _drawSignalBars(ctx,x,y,cls,lit){
+        const w=1.6, gap=1, h=7, on=SIG[cls]||C.textMuted;
+        for(let i=0;i<5;i++){
+            const bh=h*(0.2+i*0.2);
+            ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
+            ctx.fillRect(x+i*(w+gap), y+h/2-bh, w, bh);
         }
     }
 

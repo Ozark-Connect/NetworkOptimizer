@@ -3117,6 +3117,8 @@ window.fpEditor = {
 
     // ── Heatmap ──────────────────────────────────────────────────────
 
+    setSignalBandOffset: function (offset) { this._signalBandOffset = offset || 0; },
+
     computeHeatmap: function (baseUrl, activeFloor, band, excludePlannedAps, signalMeasurements) {
         var m = this._map;
         if (!m) return;
@@ -3203,11 +3205,14 @@ window.fpEditor = {
 
             // Smooth color gradient function
             function lerpColor(sig) {
+                // Shifted by the band offset the server sets, so the surface reads on the same
+                // curve as the points drawn over it and as every signal badge elsewhere.
+                var o = fpEditor._signalBandOffset || 0;
                 var stops = [
-                    { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
-                    { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
-                    { s: -72, r: 251, g: 146, b: 60 }, { s: -80, r: 239, g: 68, b: 68 },
-                    { s: -90, r: 107, g: 114, b: 128 }
+                    { s: -30 + o, r: 0, g: 220, b: 0 }, { s: -45 + o, r: 34, g: 197, b: 94 },
+                    { s: -55 + o, r: 180, g: 220, b: 40 }, { s: -65 + o, r: 250, g: 204, b: 21 },
+                    { s: -72 + o, r: 251, g: 146, b: 60 }, { s: -80 + o, r: 239, g: 68, b: 68 },
+                    { s: -90 + o, r: 107, g: 114, b: 128 }
                 ];
                 if (sig >= stops[0].s) return stops[0];
                 if (sig <= stops[stops.length - 1].s) return stops[stops.length - 1];

@@ -105,11 +105,49 @@ public static class SignalClassification
         _ => 1
     };
 
+    // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
+    // through here is classified on the 5 GHz curve, so a missing case is a silently wrong colour.
+
+    /// <summary>
+    /// How many of five bars are lit, 0-5. A different curve from <see cref="GetSignalClass"/>:
+    /// the class colours the bars, this fills them, and the two disagree by design.
+    /// </summary>
+    public static int GetSignalBars(int dbm, RadioBand band)
+    {
+        var thresholds = band switch
+        {
+            RadioBand.Band2_4GHz => new[] { -82, -75, -67, -60, -50 },
+            RadioBand.Band6GHz => new[] { -97, -92, -87, -78, -67 },
+            _ => new[] { -92, -85, -78, -70, -60 }
+        };
+
+        var bars = 0;
+        foreach (var t in thresholds)
+        {
+            if (dbm >= t) bars++;
+        }
+        return bars;
+    }
+
+    /// <summary>Bars for a band string, in either the UniFi or normalized form.</summary>
+    public static int GetSignalBars(int dbm, string? bandString) => GetSignalBars(dbm, ParseBand(bandString));
+
+    /// <summary>Per-band offset from the 5 GHz curve, for continuous scales that must agree with it.</summary>
+    public static int BandOffsetDb(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => 5,
+        RadioBand.Band6GHz => -8,
+        _ => 0
+    };
+
+    /// <summary>Per-band offset for a band string, in either form.</summary>
+    public static int BandOffsetDb(string? bandString) => BandOffsetDb(ParseBand(bandString));
+
     private static RadioBand ParseBand(string? bandString) => bandString switch
     {
-        "ng" => RadioBand.Band2_4GHz,
-        "6e" => RadioBand.Band6GHz,
-        "na" => RadioBand.Band5GHz,
+        "ng" or "2.4" or "2.4ghz" or "2.4 GHz" => RadioBand.Band2_4GHz,
+        "6e" or "6" or "6ghz" or "6 GHz" => RadioBand.Band6GHz,
+        "na" or "5" or "5ghz" or "5 GHz" => RadioBand.Band5GHz,
         _ => RadioBand.Band5GHz
     };
 }
