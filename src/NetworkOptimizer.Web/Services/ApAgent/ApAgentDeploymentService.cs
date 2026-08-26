@@ -557,6 +557,10 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             return ApAgentOperationResult.Ok();
         }
 
+        // Past the idempotent return, so this covers real deploys only. The agent is down and its
+        // token is about to change; holding it out of the directory keeps callers off it throughout.
+        using var hold = _directory.HoldDuringDeploy(_siteSlug, mac);
+
         progress?.Report("Stopping any running agent...");
         await _siteSsh.RunCommandAsync(ap.DisplayIpAddress, ApAgentScripts.StopCommand(status.ProcdAvailable), null, SshTimeout, ct);
 

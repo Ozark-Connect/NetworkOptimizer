@@ -92,10 +92,22 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
     public int CachedApCount(string siteSlug)
         => _sites.TryGetValue(siteSlug, out var cache) ? cache.ApCount : 0;
 
+    /// <summary>
+    /// Holds one access point out of the target list until the returned handle is disposed. Its
+    /// agent is stopped and its token rewritten during a deploy, so every request in that window
+    /// can only fail.
+    /// </summary>
+    public IDisposable HoldDuringDeploy(string siteSlug, string deviceMac)
+    {
+        var cache = _sites.GetOrAdd(siteSlug, _ => new SiteCache());
+        cache.Deploying[deviceMac] = 0;
+        return new DeployHold(cache.Deploying, deviceMac);
+    }
+
     public async Task<IReadOnlyList<ApAgentTarget>> GetTargetsAsync(string siteSlug, CancellationToken ct = default)
     {
         var cache = _sites.GetOrAdd(siteSlug, _ => new SiteCache());
-        if (DateTime.UtcNow - cache.TargetsAt < CacheTtl) return cache.Targets;
+        if (DateTime.UtcNow - cache.TargetsAt < CacheTtl) return Visible(cache);
 
         try
         {
@@ -131,8 +143,15 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
             _logger.LogDebug(ex, "AP Agent directory could not list access points (site {Site})", siteSlug);
         }
 
-        return cache.Targets;
+        return Visible(cache);
     }
+
+    // Filtered on the way out rather than when the list is built: a deploy that starts mid-TTL must
+    // take effect at once, and its access point must return without waiting for the cache to expire.
+    private static IReadOnlyList<ApAgentTarget> Visible(SiteCache cache)
+        => cache.Deploying.IsEmpty
+            ? cache.Targets
+            : cache.Targets.Where(t => !cache.Deploying.ContainsKey(t.Mac)).ToList();
 
     /// <summary>One access point's target, or null when it has no AP Agent this server may use.</summary>
     public async Task<ApAgentTarget?> FindAsync(string siteSlug, string? apMac, CancellationToken ct = default)
@@ -178,5 +197,17 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
         public IReadOnlyList<ApAgentTarget> Targets = Array.Empty<ApAgentTarget>();
         public int ApCount;
         public DateTime TargetsAt = DateTime.MinValue;
+        public readonly ConcurrentDictionary<string, byte> Deploying = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class DeployHold(ConcurrentDictionary<string, byte> set, string mac) : IDisposable
+    {
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 1) return;
+            set.TryRemove(mac, out _);
+        }
     }
 }
