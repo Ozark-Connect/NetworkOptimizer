@@ -206,6 +206,17 @@ public class ClientDashboardService
                 // The AP is read off the identity, not the console record, so a client the agent
                 // followed through a roam is enriched from where it is now.
                 await EnrichWithApInfoAsync(identity, identity.ApMac);
+
+                // The console keeps a departed client in its active list for minutes. Where an
+                // agent covers the access point its verdict is the fresher answer, so the page
+                // shows offline now rather than when the console catches up.
+                if (_apAgentTelemetry?.GetFor(_siteContext.Slug)
+                        .PresenceFor(identity.ApMac, identity.Mac)
+                    == NetworkOptimizer.Core.Helpers.AgentClientPresence.Absent)
+                {
+                    identity.IsOffline = true;
+                }
+
                 return identity;
             }
 
