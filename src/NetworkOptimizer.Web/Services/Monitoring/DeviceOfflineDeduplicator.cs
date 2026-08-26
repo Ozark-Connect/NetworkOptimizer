@@ -16,7 +16,7 @@ public class DeviceOfflineDeduplicator
     /// enough that a genuinely separate event (device recovers then goes down again) is not
     /// suppressed.
     /// </summary>
-    public static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
+    public static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<string, DateTime> _lastOffline = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTime> _lastRecovered = new(StringComparer.OrdinalIgnoreCase);
