@@ -3156,6 +3156,10 @@ union(tables: [means, chan])
         public int? Rssi { get; init; }
         public long? TxRateKbps { get; init; }
         public long? RxRateKbps { get; init; }
+        /// <summary>Measured access point to client throughput, where the point carried one.</summary>
+        public double? TxThroughputBps { get; init; }
+        /// <summary>Measured client to access point throughput, where the point carried one.</summary>
+        public double? RxThroughputBps { get; init; }
         public int? Channel { get; init; }
         public int? ChannelWidth { get; init; }
         public int? Satisfaction { get; init; }
@@ -3189,7 +3193,7 @@ union(tables: [means, chan])
         builder.AppendLine($@"from(bucket: ""{_bucket}"")");
         builder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
         builder.AppendLine(@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
-        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"")");
         if (aggregateWindow is { } window)
             builder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
         builder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");

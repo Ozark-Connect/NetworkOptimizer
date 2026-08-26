@@ -615,13 +615,12 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     /// <summary>
-    /// How far the series lag is shifted back. The access point measures, the agent polls, and the
-    /// collector writes, so a point timestamped now describes a moment a few seconds earlier.
+    /// How far either side of the test's finish to look. Deliberately tight: the association is
+    /// whatever held the client as the test ended, and reaching further back only admits ones it
+    /// had already left. A 45 s window took a point 30 s before the finish, from an access point
+    /// the client had roamed off, and scored it as a candidate.
     /// </summary>
-    private static readonly TimeSpan SeriesLag = TimeSpan.FromSeconds(5);
-
-    /// <summary>Widens the window past the test so a short test still lands on points either side.</summary>
-    private static readonly TimeSpan SeriesSlack = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SeriesWindow = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// How long to wait before the second attempt. A roam took 28 s to appear in the series when
@@ -650,9 +649,10 @@ public class ClientSpeedTestService : IClientSpeedTestService
         {
             // Never hand the Influx client a raw stored timestamp: see DateTimeUtilities.AsUtc.
             var anchor = DateTimeUtilities.AsUtc(result.TestTime);
-            var duration = TimeSpan.FromSeconds(Math.Max(result.DurationSeconds, 1));
-            var to = anchor - SeriesLag + SeriesSlack;
-            var from = anchor - SeriesLag - duration - SeriesSlack;
+            // Anchored on the finish, not the whole test: TestTime is when the result was recorded,
+            // and the association that matters is the one holding the client at that moment.
+            var to = anchor + SeriesWindow;
+            var from = anchor - SeriesWindow;
 
             var points = await _influx.QueryWifiClientSamplesAsync(result.ClientMac, from, to);
             if (points.Count == 0)
@@ -670,15 +670,18 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 .Select(g => new WifiFitCandidate(
                     ApMac: g.Key,
                     Band: g.Select(p => p.Band).FirstOrDefault(b => !string.IsNullOrEmpty(b)),
-                    TxRateKbps: Median(g.Select(p => p.TxRateKbps)),
-                    RxRateKbps: Median(g.Select(p => p.RxRateKbps)),
+                    // The best the link reached, not its middle value: a link ramping through a test
+                    // is under-described by the median, and the ceiling is what bounds throughput.
+                    TxRateKbps: g.Max(p => p.TxRateKbps),
+                    RxRateKbps: g.Max(p => p.RxRateKbps),
                     SignalDbm: g.Where(p => p.SignalDbm.HasValue).Select(p => p.SignalDbm!.Value)
                         .DefaultIfEmpty().Average(),
                     Points: g.Count(),
                     NoiseDbm: g.Where(p => p.NoiseDbm.HasValue).Select(p => p.NoiseDbm!.Value)
                         .Cast<double?>().LastOrDefault(),
                     Channel: g.Select(p => p.Channel).LastOrDefault(c => c.HasValue),
-                    ChannelWidth: g.Select(p => p.ChannelWidth).LastOrDefault(c => c.HasValue)))
+                    ChannelWidth: g.Select(p => p.ChannelWidth).LastOrDefault(c => c.HasValue),
+                    ObservedThroughputBps: g.Max(p => Math.Max(p.TxThroughputBps ?? 0, p.RxThroughputBps ?? 0))))
                 .ToList();
 
             // Download is From Device and is bounded by RX; upload is To Device and is bounded by TX.
@@ -769,12 +772,6 @@ public class ClientSpeedTestService : IClientSpeedTestService
         "6ghz" => "6e",
         _ => null,
     };
-
-    private static long? Median(IEnumerable<long?> values)
-    {
-        var v = values.Where(x => x is > 0).Select(x => x!.Value).OrderBy(x => x).ToList();
-        return v.Count == 0 ? null : v[v.Count / 2];
-    }
 
     /// <summary>
     /// Settles the result's wireless rates. The time series wins when an association there explains

@@ -10,6 +10,9 @@ namespace NetworkOptimizer.Web.Services;
 /// <param name="Channel">Channel the association was on.</param>
 /// <param name="ChannelWidth">Channel width in MHz.</param>
 /// <param name="Points">How many series points backed this candidate.</param>
+/// <param name="ObservedThroughputBps">Most traffic seen on this association during the window, in
+/// either direction. Zero means it carried nothing, which is evidence it did not serve the test -
+/// but a roam mid-test resets the byte counters, so absence is not proof.</param>
 public sealed record WifiFitCandidate(
     string ApMac,
     string? Band,
@@ -19,7 +22,8 @@ public sealed record WifiFitCandidate(
     int Points,
     double? NoiseDbm = null,
     int? Channel = null,
-    int? ChannelWidth = null);
+    int? ChannelWidth = null,
+    double ObservedThroughputBps = 0);
 
 /// <summary>A scored candidate. Efficiencies are measured throughput over the PHY that bounds it.</summary>
 /// <param name="Candidate">The association scored.</param>
@@ -53,10 +57,12 @@ public sealed record WifiFitScore(
 public static class SpeedTestWifiFit
 {
     /// <summary>
-    /// Measured throughput may exceed the reported PHY slightly - they are sampled on different
-    /// clocks and the rate moves during a test. Past this the candidate cannot be what carried it.
+    /// How far measured throughput may exceed the PHY before the candidate cannot be what carried
+    /// it. Generous on purpose: PHY is sampled every ten seconds and moves throughout a test, while
+    /// throughput is averaged across the whole of it, so the two are not measuring the same instant.
+    /// At 1.05 this rejected a correct association reading 110%, which is well inside that noise.
     /// </summary>
-    public const double MaxEfficiency = 1.05;
+    public const double MaxEfficiency = 1.5;
 
     /// <summary>
     /// Below this the PHY does not describe the link at all. Deliberately far under any real link:
@@ -96,8 +102,12 @@ public static class SpeedTestWifiFit
             scored.Add(new WifiFitScore(c, from, to, known.Average(), rejected));
         }
 
+        // Traffic first among viable candidates: an access point that carried nothing during the
+        // window did not serve the test, whatever its PHY implies. Ranked rather than rejected,
+        // because a roam mid-test leaves both sides with no measurable throughput at all.
         return scored
             .OrderBy(s => s.IsViable ? 0 : 1)
+            .ThenByDescending(s => s.Candidate.ObservedThroughputBps > 0 ? 1 : 0)
             .ThenByDescending(s => s.Score)
             .ThenByDescending(s => s.Candidate.Points)
             .ToList();
