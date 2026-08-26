@@ -623,10 +623,16 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private static readonly TimeSpan SeriesWindow = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// How long to wait before the second attempt. A roam took 28 s to appear in the series when
-    /// this was measured, so the retry sits comfortably past that.
+    /// When to try again after an empty window, stopping at the first that fits. Several short
+    /// attempts rather than one long wait: collection and polling both run at ten seconds, and a
+    /// single guess either fires before the point exists or leaves a wrong value up too long.
     /// </summary>
-    private static readonly TimeSpan SeriesRetryDelay = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan[] SeriesRetryDelays =
+    [
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(15),
+        TimeSpan.FromSeconds(30),
+    ];
 
     /// <summary>
     /// Replaces the trace's wireless rates with the association that actually explains the measured
@@ -810,22 +816,32 @@ public class ClientSpeedTestService : IClientSpeedTestService
                     return;
                 }
 
-                _logger.LogDebug("Wi-Fi fit [retry #{Id}]: scheduled in {Delay}s", resultId, SeriesRetryDelay.TotalSeconds);
-                await Task.Delay(SeriesRetryDelay);
-
-                await using var db = await CreateSiteDbAsync();
-                var result = await db.Iperf3Results.FindAsync(resultId);
-                if (result == null)
+                var elapsed = TimeSpan.Zero;
+                for (var i = 0; i < SeriesRetryDelays.Length; i++)
                 {
-                    _logger.LogDebug("Wi-Fi fit [retry #{Id}]: result no longer exists", resultId);
-                    return;
+                    var wait = SeriesRetryDelays[i] - elapsed;
+                    if (wait > TimeSpan.Zero) await Task.Delay(wait);
+                    elapsed = SeriesRetryDelays[i];
+
+                    await using var db = await CreateSiteDbAsync();
+                    var result = await db.Iperf3Results.FindAsync(resultId);
+                    if (result == null)
+                    {
+                        _logger.LogDebug("Wi-Fi fit [retry #{Id}]: result no longer exists", resultId);
+                        return;
+                    }
+
+                    if (await ReconcileWifiFromSeriesAsync(result, attempt: $"retry {elapsed.TotalSeconds:0}s"))
+                    {
+                        await db.SaveChangesAsync();
+                        _logger.LogDebug("Wi-Fi fit [retry #{Id}]: applied and saved after {Elapsed}s",
+                            resultId, elapsed.TotalSeconds);
+                        return;
+                    }
                 }
 
-                if (await ReconcileWifiFromSeriesAsync(result, attempt: "retry"))
-                {
-                    await db.SaveChangesAsync();
-                    _logger.LogDebug("Wi-Fi fit [retry #{Id}]: applied and saved", resultId);
-                }
+                _logger.LogDebug("Wi-Fi fit [retry #{Id}]: gave up after {Elapsed}s, realtime result stands",
+                    resultId, elapsed.TotalSeconds);
             }
             catch (Exception ex)
             {
