@@ -80,7 +80,7 @@ public class DeviceRebootCommandedOverrideTests
             new DeviceRebootTracker.DeviceBootRecord(bootedAt, abruptStop, "7.1.2");
 
         // Now a UniFi restart event arrives
-        await tracker.ApplyUniFiEventFallbackAsync(Mac, "EVT_AP_Restarted");
+        await tracker.ApplyUniFiEventFallbackAsync(Mac, "EVT_AP_Restarted", null, Now);
 
         // The reason should be overridden to CommandedReboot
         var reason = tracker.GetReasonForReportedUptime(Mac, 120, Now);
@@ -181,7 +181,7 @@ public class DeviceRebootCommandedOverrideTests
         records[Mac.Replace(":", "").ToLowerInvariant()] =
             new DeviceRebootTracker.DeviceBootRecord(bootedAt, abruptStop, "7.1.2");
 
-        await tracker.ApplyUniFiEventFallbackAsync(Mac, "EVT_AP_Restarted", adminName: "TJ");
+        await tracker.ApplyUniFiEventFallbackAsync(Mac, "EVT_AP_Restarted", "TJ", Now);
 
         var reason = tracker.GetReasonForReportedUptime(Mac, 90, Now);
         Assert.Equal(RebootCategory.CommandedReboot, reason!.Category);

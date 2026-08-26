@@ -315,7 +315,10 @@ public class DeviceRebootTracker
     /// <param name="deviceMac">Device MAC.</param>
     /// <param name="eventKey">UniFi event key, e.g. <c>EVT_SW_RestartedUnknown</c>.</param>
     /// <param name="adminName">Admin the console credited, when it named one.</param>
-    public async Task ApplyUniFiEventFallbackAsync(string deviceMac, string? eventKey, string? adminName = null)
+    public Task ApplyUniFiEventFallbackAsync(string deviceMac, string? eventKey, string? adminName = null) =>
+        ApplyUniFiEventFallbackAsync(deviceMac, eventKey, adminName, DateTime.UtcNow);
+
+    internal async Task ApplyUniFiEventFallbackAsync(string deviceMac, string? eventKey, string? adminName, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return;
 
@@ -325,7 +328,7 @@ public class DeviceRebootTracker
 
         // Always record the event so the probe can check it when it resolves later.
         if (parsedEvent.Category == RebootCategory.CommandedReboot)
-            _commandedRestarts[mac] = new CommandedRestartEvent(eventKey!, adminName, DateTime.UtcNow);
+            _commandedRestarts[mac] = new CommandedRestartEvent(eventKey!, adminName, now);
 
         if (!_records.TryGetValue(mac, out var record)) return;
 
@@ -341,7 +344,7 @@ public class DeviceRebootTracker
         // ago then gets a routine restart command today would have its old crash record
         // rewritten - the event explains the next boot, not the recorded one.
         if (record.Reason.IsUnexpected && parsedEvent.Category == RebootCategory.CommandedReboot
-            && (DateTime.UtcNow - record.BootedAt).Duration() <= CommandedRestartWindow)
+            && (now - record.BootedAt).Duration() <= CommandedRestartWindow)
         {
             var overridden = OverrideWithCommandedRestart(record.Reason, adminName);
             _logger.LogInformation(
