@@ -2507,6 +2507,7 @@ public class LanFlowMapService
     private void AddLiveOnlyClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
     {
         var now = DateTime.UtcNow;
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
         var nodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
 
         foreach (var live in _liveStats.AllWifiClients())
@@ -2521,6 +2522,11 @@ public class LanFlowMapService
             var clientMac = NormalizeMac(live.ClientMac);
             var nodeId = "cli-" + clientMac;
             if (string.IsNullOrEmpty(clientMac) || nodeIds.Contains(nodeId)) continue;
+
+            // Never accelerate a client the agent says has gone: MarkDepartedClients is removing
+            // this same id on this same tick, and the age window above cannot tell a departure
+            // from a quiet moment. The verdict can.
+            if (collector.PresenceFor(live.ApMac, clientMac) == AgentClientPresence.Absent) continue;
 
             // A client whose access point this build did not draw is skipped rather than parented
             // to a guess: a node pointing at a parent that does not exist is dropped by the

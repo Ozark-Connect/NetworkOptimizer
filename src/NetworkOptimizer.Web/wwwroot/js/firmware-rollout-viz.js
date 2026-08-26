@@ -5,7 +5,7 @@
 
 import * as map2d from './lan-flow-map-2d.js?v=13'; // bump v= when lan-flow-map-2d.js changes
 // KEEP IN SYNC with lan-flow-map-2d.js: the same specifier, so both share one store.
-import * as flowData from './lan-flow-data.js?v=15';
+import * as flowData from './lan-flow-data.js?v=16';
 
 function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();

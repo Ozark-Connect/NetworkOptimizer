@@ -57,12 +57,31 @@ function _notify(event) {
     }
 }
 
+
+// Diagnostic tracing for client presence flapping. Enable with localStorage.mapTrace = '1'
+// (or window.__mapTrace = true) and watch the console; off, it costs one boolean per tick.
+let _traceOn = null;
+function _trace(...args) {
+    if (_traceOn === null) {
+        try { _traceOn = window.__mapTrace === true || localStorage.getItem('mapTrace') === '1'; }
+        catch { _traceOn = false; }
+    }
+    if (!_traceOn) return;
+    console.log('[map ' + new Date().toLocaleTimeString() + ']', ...args);
+}
+
+function _clientIds(snap) {
+    return (snap?.nodes || []).filter(n => n.kind === 'WifiClient' || n.kind === 4).map(n => n.id);
+}
+
 export function publishSnapshot(snap) {
     const firstLoad = !_serverSnapshot;
     // Kept pristine. The 3D map keeps the object it passed in as the baseline it diffs the next
     // poll against, so merging into it would write our overlay into its baseline.
     _serverSnapshot = snap;
     _snapshotStale = false;
+    _trace('SNAPSHOT arrived gen=', snap?.generatedAt, 'clients=', _clientIds(snap).length,
+        'removedOverlay=', [..._removedIds]);
     _rebuildMerged();
     // Only seed rates on first load. Subsequent refreshes must not clobber
     // the fresh 1s-polled rates with stale snapshot-time values.
@@ -95,6 +114,8 @@ function _rebuildMerged() {
     if (!_serverSnapshot) { _snapshot = null; return; }
 
     const nodes = (_serverSnapshot.nodes || []).filter(n => !_removedIds.has(n.id));
+    _trace('RENDER clients=', nodes.filter(n => n.kind === 'WifiClient' || n.kind === 4).length,
+        'of', _clientIds(_serverSnapshot).length, 'suppressed=', [..._removedIds]);
     const links = (_serverSnapshot.links || []).filter(
         l => !_removedIds.has(l.toNodeId) && !_removedIds.has(l.fromNodeId));
     // The server's own node wins for an id it already carries: it has the console's identity for
@@ -102,10 +123,14 @@ function _rebuildMerged() {
     const haveNodes = new Set(nodes.map(n => n.id));
     const haveLinks = new Set(links.map(l => l.id));
 
+    // Removal outranks addition for the same id. Filtering the snapshot drops the id out of
+    // haveNodes, so without this an added leaf carrying it walks straight back in and defeats
+    // its own removal.
     _snapshot = {
         ..._serverSnapshot,
-        nodes: nodes.concat(_addedNodes.filter(n => !haveNodes.has(n.id))),
-        links: links.concat(_addedLinks.filter(l => !haveLinks.has(l.id))),
+        nodes: nodes.concat(_addedNodes.filter(n => !haveNodes.has(n.id) && !_removedIds.has(n.id))),
+        links: links.concat(_addedLinks.filter(l => !haveLinks.has(l.id)
+            && !_removedIds.has(l.toNodeId) && !_removedIds.has(l.fromNodeId))),
     };
 }
 
@@ -115,7 +140,9 @@ function _applyAddedClients(update) {
     const removed = update.removedClientIds || [];
     const key = nodes.map(n => n.id).sort().join(',') + '|' + [...removed].sort().join(',');
     // Steady state over a stable set costs nothing; only a change reshapes the graph.
-    if (key === _addedClientKey) return false;
+    if (key === _addedClientKey) { _trace('patch UNCHANGED removed=', removed, 'added=', nodes.map(n => n.id)); return false; }
+    _trace('patch APPLIED removed=', removed, 'added=', nodes.map(n => n.id),
+        'previousRemoved=', [..._removedIds]);
 
     _addedNodes = nodes;
     _addedLinks = links;
@@ -153,7 +180,11 @@ export function publishLive(update) {
     // not by presence, so they apply regardless.
     const gen = update.snapshotGeneratedAt;
     const held = _serverSnapshot?.generatedAt;
+    _trace('TICK updGen=', gen, 'heldGen=', held, 'match=', gen === held,
+        'guardArmed=', !!(gen && held), 'removed=', update.removedClientIds || [],
+        'added=', (update.addedClientNodes || []).map(n => n.id));
     if (_mode === 'live' && gen && held && gen !== held) {
+        _trace('patch SKIPPED - stale snapshot, resync requested');
         _snapshotStale = true;
         _notify('snapshot-stale');
     }
