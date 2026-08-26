@@ -144,8 +144,12 @@ public static class SignalClassification
             _ => (-60, -70, -78, -85)
         };
 
+        // The class boundaries are the anchors, so a reading at one is exactly its badge color. The
+        // two endpoints reach past them on purpose: a heat surface runs from the near field to the
+        // noise floor, and without them everything stronger than excellent flattens to one green.
         return
         [
+            (-30, "#00dc00"),
             (excellent, "#10b981"),
             (good, "#22c55e"),
             (fair, "#eab308"),

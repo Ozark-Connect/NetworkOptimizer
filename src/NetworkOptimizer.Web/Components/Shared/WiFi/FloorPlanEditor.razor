@@ -3534,6 +3534,12 @@
         var allMarkers = speedTestMarkers.Concat(signalLogMarkers);
         var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
 
+        // Pushed here as well as before a heatmap pass: the cluster dots color from these stops
+        // whether or not the surface is on, and without this they hold the seeded 5 GHz ramp.
+        await JS.InvokeVoidAsync("fpEditor.setSignalStops",
+            NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalGradient(_heatmapBand)
+                .Select(x => new { s = x.Dbm, hex = x.Hex }));
+
         await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
 
         // Recompute heatmap with signal adjustment if heatmap is active
