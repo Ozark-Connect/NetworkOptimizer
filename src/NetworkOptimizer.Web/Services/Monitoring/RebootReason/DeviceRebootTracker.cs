@@ -336,8 +336,12 @@ public class DeviceRebootTracker
             return;
         }
 
-        // Role 2: override an unexpected probe result with a commanded restart.
-        if (record.Reason.IsUnexpected && parsedEvent.Category == RebootCategory.CommandedReboot)
+        // Role 2: override an unexpected probe result with a commanded restart, but only
+        // when the boot it describes is recent. Without this check, an AP that crashed days
+        // ago then gets a routine restart command today would have its old crash record
+        // rewritten - the event explains the next boot, not the recorded one.
+        if (record.Reason.IsUnexpected && parsedEvent.Category == RebootCategory.CommandedReboot
+            && (DateTime.UtcNow - record.BootedAt).Duration() <= CommandedRestartWindow)
         {
             var overridden = OverrideWithCommandedRestart(record.Reason, adminName);
             _logger.LogInformation(
@@ -361,6 +365,7 @@ public class DeviceRebootTracker
         if ((evt.ReceivedAt - bootedAt).Duration() > CommandedRestartWindow)
             return null;
 
+        _commandedRestarts.TryRemove(mac, out _);
         return OverrideWithCommandedRestart(probeResult, evt.AdminName);
     }
 
