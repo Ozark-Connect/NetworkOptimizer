@@ -41,7 +41,7 @@ layer on top. What works each way:
 | ISP Health + Upstream Path Discovery | Needs agent - path discovery and latency targets run from the site |
 | LAN / WAN / Client speed tests | Needs agent - tests must originate inside the site |
 | Cable Modem / ONT / Cellular / Starlink status | Only if the management IP is VPN-routable (often `192.168.100.x` and not); otherwise needs the agent |
-| Multi-WAN monitoring (per-WAN latency, loss, path analysis) | Needs agent - each WAN needs a Vantage bound to an agent that can probe from it; see [Monitoring additional WANs](#monitoring-additional-wans) |
+| Multi-WAN monitoring (per-WAN latency, loss, path analysis) | Needs agent - each WAN needs a Vantage bound to an agent that can probe from it (easiest with an agent on the gateway itself); see [Monitoring additional WANs](#monitoring-additional-wans) |
 
 Bottom line: the agent gets you everything with zero new inter-site
 infrastructure, and it's the only path for a site you can't already reach. A
@@ -766,7 +766,7 @@ Monitoring - Network Performance, in the Multi-WAN Monitoring - Vantages card. A
 Vantage pairs a WAN with the box that probes it, and the targets you assign to it
 are measured over that WAN.
 
-The easiest box to pair is an Agent on the UniFi Gateway itself. It reaches each
+**The easiest box to pair is an Agent on the UniFi Gateway itself.** It reaches each
 WAN by that WAN's own interface, so one Agent covers all of them with no routing
 to build. Set one up in Settings - Multi-Site.
 
