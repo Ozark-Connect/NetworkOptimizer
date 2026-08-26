@@ -27,6 +27,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
+    private readonly ApAgent.ApAgentTargetDirectory? _apAgents;
     private readonly Licensing.LicenseStateService? _licenseState;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -51,6 +52,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         IConfiguration configuration,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry? influxRegistry = null,
+        ApAgent.ApAgentTargetDirectory? apAgents = null,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -68,6 +70,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _alertEventBus = alertEventBus;
         _siteDbFactory = siteDbFactory;
         _influx = influxRegistry?.GetFor(_siteSlug);
+        _apAgents = apAgents;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -621,6 +624,12 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private static readonly TimeSpan SeriesSlack = TimeSpan.FromSeconds(20);
 
     /// <summary>
+    /// How long to wait before the second attempt. A roam took 28 s to appear in the series when
+    /// this was measured, so the retry sits comfortably past that.
+    /// </summary>
+    private static readonly TimeSpan SeriesRetryDelay = TimeSpan.FromSeconds(45);
+
+    /// <summary>
     /// Replaces the trace's wireless rates with the association that actually explains the measured
     /// throughput, taken from the time series rather than a single-instant topology fetch.
     ///
@@ -728,11 +737,17 @@ public class ClientSpeedTestService : IClientSpeedTestService
             }
 
             // The wireless hop is what the trace renders. Ingress is TX (To Device), egress is RX.
-            var hop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
+            //
+            // Assigned back deliberately: PathAnalysis caches the deserialized object, and only its
+            // setter rewrites PathAnalysisJson. Mutating the hop alone changes what this instance
+            // holds and nothing that is stored.
+            var analysis = result.PathAnalysis;
+            var hop = analysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
             if (hop != null)
             {
                 if (best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
                 if (best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
+                result.PathAnalysis = analysis;
             }
 
             return true;
@@ -765,10 +780,49 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// Settles the result's wireless rates. The time series wins when an association there explains
     /// the measured throughput; otherwise the realtime path stands, unchanged.
     /// </summary>
-    private async Task SettleWifiRatesAsync(Iperf3Result result)
+    private async Task SettleWifiRatesAsync(Iperf3Result result, int retryResultId = 0)
     {
         if (await ReconcileWifiFromSeriesAsync(result)) return;
         UpdateWifiRatesFromPathAnalysis(result);
+
+        // The series can be behind the client: an access point it has just moved to takes a few
+        // collection passes to appear, so the association that actually served the test may not be a
+        // candidate yet. One later attempt catches it. retryResultId is 0 on the retry itself, which
+        // is what stops it repeating.
+        if (retryResultId > 0) ScheduleSeriesRetry(retryResultId);
+    }
+
+    /// <summary>
+    /// Re-runs the fit once the collector has had time to write the client's current association.
+    ///
+    /// Only where the AP Agent is running. Without it the series is written from the console - the
+    /// same source the realtime result already used - so waiting could not produce a better answer,
+    /// and delaying a result to re-read what we already have would be wrong.
+    /// </summary>
+    private void ScheduleSeriesRetry(int resultId)
+    {
+        if (_influx is not { IsConfigured: true } || _apAgents == null) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (!await _apAgents.IsSiteEnabledAsync(_siteSlug)) return;
+
+                await Task.Delay(SeriesRetryDelay);
+
+                await using var db = await CreateSiteDbAsync();
+                var result = await db.Iperf3Results.FindAsync(resultId);
+                if (result == null) return;
+
+                if (await ReconcileWifiFromSeriesAsync(result))
+                    await db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Series retry failed for result {Id}", resultId);
+            }
+        });
     }
 
     /// <summary>
@@ -882,7 +936,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             BackfillFromPathAnalysis(result);
 
             // Series first, path analysis only if nothing there explains the measurement.
-            await SettleWifiRatesAsync(result);
+            await SettleWifiRatesAsync(result, retryResultId: resultId);
 
             // Clean up snapshot after use (iperf3 client snapshots cleaned up in merge path or auto-expire)
             if (snapshot != null)
