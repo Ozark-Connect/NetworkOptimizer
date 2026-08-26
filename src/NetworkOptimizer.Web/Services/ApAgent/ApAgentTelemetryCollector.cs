@@ -124,6 +124,33 @@ public sealed class ApAgentTelemetryCollector
     /// </summary>
     public NetworkOptimizer.Core.Helpers.AgentClientPresence PresenceFor(string? apMac, string? clientMac)
     {
+        var verdict = ResolvePresence(apMac, clientMac);
+
+        // Transitions only. A bounce is a verdict changing and changing back, which is unreadable
+        // from the surfaces alone and invisible if every unchanged answer is logged too.
+        if (!string.IsNullOrEmpty(clientMac))
+        {
+            var key = clientMac.ToLowerInvariant();
+            var previous = _lastVerdict.TryGetValue(key, out var p)
+                ? p
+                : NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown;
+            if (previous != verdict)
+            {
+                _lastVerdict[key] = verdict;
+                _logger.LogDebug(
+                    "[Presence] {Client} on {Ap} (site {Site}): {Previous} -> {Verdict}",
+                    clientMac, string.IsNullOrEmpty(apMac) ? "-" : apMac, _siteSlug, previous, verdict);
+            }
+        }
+
+        return verdict;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, NetworkOptimizer.Core.Helpers.AgentClientPresence> _lastVerdict =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private NetworkOptimizer.Core.Helpers.AgentClientPresence ResolvePresence(string? apMac, string? clientMac)
+    {
         var now = DateTime.UtcNow;
         if (string.IsNullOrEmpty(apMac) || !_coverage.Covers(apMac, now))
         {
@@ -257,8 +284,13 @@ public sealed class ApAgentTelemetryCollector
 
             // A membership change is exactly what the Console has not caught up to yet, so it arms
             // the roster nudge for the consumers caching the Console's client list.
-            if (_membership.Record(target.Mac, payload.Clients, now))
+            if (_membership.Record(target.Mac, payload.Clients, now, out var delta))
+            {
                 RosterNudge.NoteMembershipChange(now);
+                _logger.LogDebug(
+                    "[Presence] agent {Ap} membership changed (site {Site}): joined [{Joined}], left [{Left}]",
+                    target.Mac, _siteSlug, string.Join(", ", delta.Joined), string.Join(", ", delta.Left));
+            }
 
             // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
             // client associates under a different MAC per link, and the events name only the link.

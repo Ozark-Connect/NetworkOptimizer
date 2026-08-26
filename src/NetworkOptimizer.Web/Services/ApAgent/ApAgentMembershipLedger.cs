@@ -10,6 +10,13 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="Ip">IPv4 address from the agent's identity poll, when it has run.</param>
 public sealed record ApAgentKnownClient(string ClientMac, string ApMac, string? Hostname, string? Ip);
 
+/// <summary>Who joined and left one access point's answer since the previous one.</summary>
+public sealed record MembershipDelta(IReadOnlyList<string> Joined, IReadOnlyList<string> Left)
+{
+    /// <summary>An answer that changed nothing.</summary>
+    public static readonly MembershipDelta None = new(Array.Empty<string>(), Array.Empty<string>());
+}
+
 /// <summary>
 /// Who each agent-covered access point said it holds, from the same polls that claim coverage.
 ///
@@ -41,6 +48,13 @@ public sealed class ApAgentMembershipLedger
     /// newly enrolled agent does not read as churn.
     /// </summary>
     public bool Record(string apMac, IReadOnlyList<ApAgentClient> clients, DateTime at)
+        => Record(apMac, clients, at, out _);
+
+    /// <summary>
+    /// As above, also reporting who joined and left. The delta is what makes a client appearing or
+    /// disappearing on a surface traceable to the poll that saw it.
+    /// </summary>
+    public bool Record(string apMac, IReadOnlyList<ApAgentClient> clients, DateTime at, out MembershipDelta delta)
     {
         var ap = Normalize(apMac);
         var macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -80,6 +94,11 @@ public sealed class ApAgentMembershipLedger
         }
 
         var changed = _answers.TryGetValue(ap, out var previous) && !previous.MemberKeys.SetEquals(keys);
+        delta = previous == null
+            ? MembershipDelta.None
+            : new MembershipDelta(
+                keys.Except(previous.MemberKeys, StringComparer.OrdinalIgnoreCase).ToList(),
+                previous.MemberKeys.Except(keys, StringComparer.OrdinalIgnoreCase).ToList());
         _answers[ap] = new ApAnswer(at, clients.Count > 0, macs, members, keys);
         return changed;
     }
