@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -621,4 +622,60 @@ func contains(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestDueVapsAlwaysReadsOccupied(t *testing.T) {
+	vaps := []string{"wifi0ap0", "wifi0ap1", "wifi1ap2", "wifi1ap3", "wifi2ap5"}
+	occupied := map[string]bool{"wifi1ap2": true}
+
+	// An occupied VAP is read on every pass, never paced.
+	for pass := uint64(0); pass < 3*sweepDivisor; pass++ {
+		due := dueVaps(vaps, occupied, pass)
+		found := false
+		for _, v := range due {
+			if v == "wifi1ap2" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("pass %d skipped an occupied VAP: %v", pass, due)
+		}
+	}
+}
+
+func TestDueVapsSweepsEveryEmptyVapWithinOneCycle(t *testing.T) {
+	vaps := []string{"wifi0ap0", "wifi0ap1", "wifi1ap2", "wifi1ap3", "wifi2ap5"}
+	occupied := map[string]bool{}
+
+	// Every empty VAP is reached at least once per cycle, so a missed association cannot outlast
+	// sweepDivisor passes.
+	seen := map[string]bool{}
+	for pass := uint64(0); pass < sweepDivisor; pass++ {
+		for _, v := range dueVaps(vaps, occupied, pass) {
+			seen[v] = true
+		}
+	}
+	for _, v := range vaps {
+		if !seen[v] {
+			t.Errorf("empty VAP %s was never swept within a cycle", v)
+		}
+	}
+}
+
+func TestDueVapsStaggersSoOneTickCarriesFew(t *testing.T) {
+	// 24 VAPs is a realistic 8-SSID, 3-band access point. Staggering keeps any single tick from
+	// carrying the whole fanout, which is the point of pacing at all.
+	vaps := make([]string, 24)
+	for i := range vaps {
+		vaps[i] = fmt.Sprintf("wifi%dap%d", i%3, i)
+	}
+	max := 0
+	for pass := uint64(0); pass < sweepDivisor; pass++ {
+		if n := len(dueVaps(vaps, map[string]bool{}, pass)); n > max {
+			max = n
+		}
+	}
+	if want := len(vaps)/sweepDivisor + 1; max > want {
+		t.Errorf("a single tick carried %d VAPs, want at most %d", max, want)
+	}
 }

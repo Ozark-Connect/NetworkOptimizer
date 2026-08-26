@@ -261,6 +261,19 @@ func (t *Table) ApplyEvent(e Event) {
 
 // ApplyFast folds one fast sweep in. A station present in a poll but with no assoc event is added:
 // the agent starts fresh on every AP boot and was not running for associations that predate it.
+// OccupiedVaps names the VAPs the table holds a member for. A VAP stays occupied for as long as a
+// member lingers, so it keeps its full cadence across the whole absentGrace window - which is
+// exactly the window that detects a client that left without disassociating.
+func (t *Table) OccupiedVaps() map[string]bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make(map[string]bool, len(t.members))
+	for _, m := range t.members {
+		out[m.Vap] = true
+	}
+	return out
+}
+
 // covered names the VAPs the sweep actually reached, which is what bounds expiry to them.
 func (t *Table) ApplyFast(stations map[string]StaFast, covered map[string]bool, now time.Time) {
 	t.mu.Lock()

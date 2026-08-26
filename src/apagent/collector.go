@@ -81,6 +81,9 @@ type Collector struct {
 	vaps   []string
 	radios []string
 
+	// fastPass counts fast tier passes and paces the sweep of empty VAPs. Only runFast touches it.
+	fastPass uint64
+
 	fast  tierState
 	slow  tierState
 	bytes tierState
@@ -184,6 +187,23 @@ func (c *Collector) currentRadios() []string {
 	return append([]string(nil), c.radios...)
 }
 
+// sweepDivisor paces VAPs holding no clients. Reading them every fifth pass bounds a missed
+// association to five seconds, inside absentGrace, while removing most of the per-VAP fanout on an
+// access point carrying many SSIDs - VAP count is SSIDs times bands and is unrelated to client count.
+const sweepDivisor = 5
+
+// dueVaps returns the VAPs to read this pass: every occupied one, plus the empty ones whose turn it
+// is. The index staggers them so they do not all land on the same tick.
+func dueVaps(vaps []string, occupied map[string]bool, pass uint64) []string {
+	due := make([]string, 0, len(vaps))
+	for i, v := range vaps {
+		if occupied[v] || (pass+uint64(i))%sweepDivisor == 0 {
+			due = append(due, v)
+		}
+	}
+	return due
+}
+
 func (c *Collector) runFast(ctx context.Context) {
 	if !c.fast.info().Available {
 		return
@@ -193,7 +213,15 @@ func (c *Collector) runFast(ctx context.Context) {
 		return
 	}
 	now := time.Now().UTC()
-	stations, covered := collectFast(ctx, vaps, now)
+	c.fastPass++
+	due := dueVaps(vaps, c.table.OccupiedVaps(), c.fastPass)
+	if len(due) == 0 {
+		// Nothing due is not a failure. An access point with no clients would otherwise record one
+		// every second and read as broken while being perfectly healthy.
+		c.fast.succeeded(now)
+		return
+	}
+	stations, covered := collectFast(ctx, due, now)
 	if len(covered) == 0 {
 		c.fast.failed(nil)
 		return
