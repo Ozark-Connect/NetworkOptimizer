@@ -651,6 +651,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
         if (_influx is not { IsConfigured: true }) return false;
         if (string.IsNullOrEmpty(result.ClientMac)) return false;
 
+        if (IsWiredClient(result)) return false;
+
         try
         {
             // Never hand the Influx client a raw stored timestamp: see DateTimeUtilities.AsUtc.
@@ -768,6 +770,14 @@ public class ClientSpeedTestService : IClientSpeedTestService
         }
     }
 
+    /// <summary>
+    /// Whether the trace shows a wired endpoint. A wired client has nothing in wifi_client, so the
+    /// query and the retries after it are waste. Positive evidence only: a wireless client missing
+    /// from the console list has no radio fields either and must not be skipped.
+    /// </summary>
+    private static bool IsWiredClient(Iperf3Result result)
+        => result.PathAnalysis?.Path?.Hops?.Any(h => h.Type == HopType.Client) == true;
+
     private static string Pct(double? efficiency) => efficiency.HasValue ? $"{efficiency.Value * 100:F1}%" : "n/a";
 
     /// <summary>The series band tag as the radio token the result stores. Null leaves the field alone.</summary>
@@ -787,6 +797,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     {
         if (await ReconcileWifiFromSeriesAsync(result)) return;
         UpdateWifiRatesFromPathAnalysis(result);
+
+        if (IsWiredClient(result)) return;
 
         // The series can be behind the client: an access point it has just moved to takes a few
         // collection passes to appear, so the association that actually served the test may not be a
