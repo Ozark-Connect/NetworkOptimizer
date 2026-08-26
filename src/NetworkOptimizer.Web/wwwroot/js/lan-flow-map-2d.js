@@ -37,7 +37,7 @@ const C = {
 };
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
-// Signal palette, matching the Client Performance hero. Only the colours live here: which class a
+// Signal palette, matching the Client Performance hero. Only the colors live here: which class a
 // reading falls in, and how many bars it lights, are per-band curves the server owns.
 const SIG = {
     'signal-excellent':'#10b981', 'signal-good':'#22c55e', 'signal-fair':'#eab308',
@@ -1770,7 +1770,7 @@ class LanFlowMap2D {
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
             const cap=e.lk.capacityBps||1e9;
-            // Full-duplex: reserve the top (red) colour for BOTH directions
+            // Full-duplex: reserve the top (red) color for BOTH directions
             // saturated. Busy direction drives the ramp; the quiet one must also
             // load up to reach full - a lone saturated direction tops out amber.
             const dU=Math.min(dn/cap,1),uU=Math.min(up/cap,1);
@@ -2081,7 +2081,7 @@ class LanFlowMap2D {
     }
 
     // Five bars rising left to right, the Client Performance hero at map scale. Lit count and
-    // colour both arrive per node; nothing about the curve is decided here.
+    // color both arrive per node; nothing about the curve is decided here.
     _drawSignalBars(ctx,x,y,cls,lit){
         const w=1.6, gap=1, h=7, on=SIG[cls]||C.textMuted;
         for(let i=0;i<5;i++){

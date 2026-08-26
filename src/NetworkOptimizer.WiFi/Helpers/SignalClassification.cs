@@ -105,12 +105,9 @@ public static class SignalClassification
         _ => 1
     };
 
-    // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
-    // through here is classified on the 5 GHz curve, so a missing case is a silently wrong colour.
-
     /// <summary>
     /// How many of five bars are lit, 0-5. A different curve from <see cref="GetSignalClass"/>:
-    /// the class colours the bars, this fills them, and the two disagree by design.
+    /// the class colors the bars, this fills them, and the two disagree by design.
     /// </summary>
     public static int GetSignalBars(int dbm, RadioBand band)
     {
@@ -132,17 +129,36 @@ public static class SignalClassification
     /// <summary>Bars for a band string, in either the UniFi or normalized form.</summary>
     public static int GetSignalBars(int dbm, string? bandString) => GetSignalBars(dbm, ParseBand(bandString));
 
-    /// <summary>Per-band offset from the 5 GHz curve, for continuous scales that must agree with it.</summary>
-    public static int BandOffsetDb(RadioBand band) => band switch
+    /// <summary>
+    /// The color ramp for a band, as (dBm, hex) from strongest to weakest. Anchored to the same
+    /// thresholds <see cref="GetSignalClass"/> uses and painted in the class colors, so a reading
+    /// at a boundary is exactly its badge color and anything between blends its neighbors. One
+    /// curve for gauges, dots and heat surfaces alike - a second scale is how they drift apart.
+    /// </summary>
+    public static (int Dbm, string Hex)[] GetSignalGradient(RadioBand band)
     {
-        RadioBand.Band2_4GHz => 5,
-        RadioBand.Band6GHz => -8,
-        _ => 0
-    };
+        var (excellent, good, fair, weak) = band switch
+        {
+            RadioBand.Band2_4GHz => (-55, -65, -73, -80),
+            RadioBand.Band6GHz => (-67, -78, -87, -92),
+            _ => (-60, -70, -78, -85)
+        };
 
-    /// <summary>Per-band offset for a band string, in either form.</summary>
-    public static int BandOffsetDb(string? bandString) => BandOffsetDb(ParseBand(bandString));
+        return
+        [
+            (excellent, "#10b981"),
+            (good, "#22c55e"),
+            (fair, "#eab308"),
+            (weak, "#f97316"),
+            (weak - 10, "#ef4444")
+        ];
+    }
 
+    /// <summary>The ramp for a band string, in either the UniFi or normalized form.</summary>
+    public static (int Dbm, string Hex)[] GetSignalGradient(string? bandString) => GetSignalGradient(ParseBand(bandString));
+
+    // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
+    // through here is classified on the 5 GHz curve, so a missing case is a silently wrong color.
     private static RadioBand ParseBand(string? bandString) => bandString switch
     {
         "ng" or "2.4" or "2.4ghz" or "2.4 GHz" => RadioBand.Band2_4GHz,
