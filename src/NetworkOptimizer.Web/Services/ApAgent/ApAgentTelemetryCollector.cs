@@ -208,6 +208,12 @@ public sealed class ApAgentTelemetryCollector
                 return;
             }
 
+            // Dated by the tier that actually supplied the fields, not by when the reply was built.
+            // The rates and signal come from the mca-dump pass, which can be a whole slow interval
+            // older than the answer carrying them - stamping those with the reply time records a
+            // rate the access point read half a minute ago as if it were current.
+            var identityAt = payload.Sources?.Slow?.LastCollectedAt ?? payload.CollectedAt;
+
             _coverage.Claim(target.Mac, now);
             // The roam path needs the link-MAC to client-key mapping this payload carries: an MLO
             // client associates under a different MAC per link, and the events name only the link.
@@ -224,7 +230,7 @@ public sealed class ApAgentTelemetryCollector
                 {
                     // One point per client, never one per link: the agent has already folded an MLO
                     // client's links onto its MLD MAC.
-                    var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac, payload.CollectedAt);
+                    var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac, identityAt);
                     if (sample == null) continue;
 
                     // Before the gates on purpose: a claim they are about to drop is exactly the
