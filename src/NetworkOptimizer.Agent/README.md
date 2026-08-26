@@ -41,12 +41,13 @@ layer on top. What works each way:
 | ISP Health + Upstream Path Discovery | Needs agent - path discovery and latency targets run from the site |
 | LAN / WAN / Client speed tests | Needs agent - tests must originate inside the site |
 | Cable Modem / ONT / Cellular / Starlink status | Only if the management IP is VPN-routable (often `192.168.100.x` and not); otherwise needs the agent |
+| Multi-WAN monitoring (per-WAN latency, loss, path analysis) | Needs agent - each WAN needs a Vantage bound to an agent that can probe from it; see [Monitoring additional WANs](#monitoring-additional-wans) |
 
 Bottom line: the agent gets you everything with zero new inter-site
 infrastructure, and it's the only path for a site you can't already reach. A
 site-to-site VPN gets you the management/audit/SNMP floor without an agent; ISP
-Health, path discovery, site-vantage latency/loss, and speed tests are the
-agent's to add.
+Health, path discovery, site-vantage latency/loss, multi-WAN monitoring, and
+speed tests are the agent's to add.
 
 ## Where to run it
 
@@ -521,6 +522,29 @@ fix the proxy first; the agent has no fallback to plain HTTP by design.
 
 ## Security and hardening
 
+### Protocol security
+
+The agent authenticates with a bearer key, exchanged once during enrollment.
+The enrollment token (`noa_...`) is single-use: the agent posts it on first
+run, receives a permanent key and site slug, writes both into `agent.json`,
+and discards the token. The server stores only SHA-256 hashes of both the
+token and the key, so a database leak does not expose usable credentials.
+
+The same key authenticates both the gRPC tunnel (sent in the hello handshake)
+and the REST heartbeat fallback (sent in the POST body). A revoked or disabled
+key gets a 401 on either path, and the agent logs the rejection. There is no
+rotation mechanism short of removing the old agent in the UI and re-enrolling;
+`agent.json` is the only copy of the live key.
+
+TLS is mandatory and enforced twice: at startup (the agent refuses a
+`serverUrl` or `tunnelUrl` whose scheme is not `https`) and again before
+dialing the tunnel. SNMP credentials and proxied console traffic ride the
+tunnel, so cleartext is never acceptable. `ignoreSslErrors` disables
+certificate validation for self-signed servers - not the TLS layer itself;
+even with it set, the channel is encrypted.
+
+### Network posture
+
 The agent dials out only, so the site never exposes an inbound port - a real
 posture win. The flip side is that the central server it dials into can SSH into
 this site's gateway, and a gateway is the LAN router, so that reach is
@@ -615,6 +639,71 @@ gateway's sshd; the agent pumps opaque bytes and cannot inspect them. Command
 safety lives server-side (parameterized command construction), and the
 gateway-side option (`authorized_keys` forced commands) is gateway
 configuration, not agent code.
+
+## Agent resilience
+
+Probes and SNMP polling run for the life of the process, not per-connection.
+When the tunnel drops they keep running on the last configuration the server
+pushed, and results accumulate in a local buffer. When the tunnel reconnects,
+the backlog flushes and the site's monitoring history picks up where it left
+off. While the tunnel is down the agent falls back to REST heartbeats (every
+30 seconds), so it stays visible as Online on the server.
+
+### Buffered results and acknowledgement
+
+Results are never dropped on write. A write into a black-holed TCP connection
+reports success while the bytes sit in the kernel send buffer and get discarded
+on teardown - so the agent holds every result until the server explicitly
+acknowledges it. On a reconnect, anything unacknowledged replays automatically.
+
+The buffer caps at **12 hours** of data or **64 MB** (whichever comes first),
+evicting the oldest entries when either limit is hit - newest data is the most
+valuable when the link returns. A typical site's probe and SNMP output fits
+comfortably inside both caps; a site with a large target set trims to fewer
+hours rather than growing without bound. Drop counts are logged at reconnect
+time so you can see whether caps were hit during the outage.
+
+When replaying a large backlog, results are coalesced into bigger batches
+(cutting the server's per-batch overhead) while leaving headroom on the
+connection for heartbeats and proxied console traffic to get through mid-flush.
+
+### Disk spool
+
+On shutdown (and before a watchdog-forced restart), unacknowledged results are
+written to `result-spool.bin` next to the agent binary. On the next start the
+spool is restored with original timestamps intact, so the 12-hour age cap
+still applies. A truncated or corrupt spool (crash mid-write) keeps whatever
+decoded cleanly; nothing beyond the corrupt tail is lost.
+
+systemd delivers SIGTERM to the agent and its child processes (ping probes) at
+the same instant, so a probe in flight completes with fewer replies and reads
+as real packet loss. To prevent this, the agent drops results from the last
+five seconds before spooling - by time, not count, so a long backlog from a
+server outage is preserved while only the seconds that straddle the stop are
+discarded.
+
+### Dead-connection detection
+
+The tunnel reconnects on a 30-second interval. Each attempt has a 15-second
+TCP connect timeout (without it, a powered-off server rides OS SYN retries for
+~2 minutes) and a 20-second hello timeout for the post-connect handshake.
+
+The server pushes configuration refreshes every 60 seconds on a healthy
+tunnel. If nothing arrives for 150 seconds (2.5 missed cycles), the agent
+treats the connection as black-holed and tears it down. Without this, a dead
+TCP session would hang for the full OS timeout (~15 minutes) before the
+reconnect loop could run. Because unacknowledged results stay in the buffer,
+the forced teardown is lossless.
+
+### Async I/O watchdog
+
+On certain vendor kernels (seen on UniFi gateways), the kernel's event-polling
+layer can wedge: async socket completions stop being delivered while timers and
+synchronous I/O keep working. The agent detects this with a loopback canary -
+an async connect to its own listener on 127.0.0.1 every 60 seconds. Since a
+loopback connect cannot time out for network reasons, three consecutive
+in-process timeouts prove the async engine is dead. The watchdog saves the
+result spool and exits for systemd to relaunch.
 
 ## Local dev / testing
 
