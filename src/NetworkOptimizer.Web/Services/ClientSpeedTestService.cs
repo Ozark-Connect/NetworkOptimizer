@@ -646,12 +646,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// Returns true when it applied, leaving the caller's own path unused. No series, or nothing that
     /// fits, changes nothing.
     /// </summary>
-    private async Task<bool> ReconcileWifiFromSeriesAsync(Iperf3Result result, string attempt = "initial")
+    private async Task<(bool Applied, bool Plausible)> ReconcileWifiFromSeriesAsync(
+        Iperf3Result result, string attempt = "initial")
     {
-        if (_influx is not { IsConfigured: true }) return false;
-        if (string.IsNullOrEmpty(result.ClientMac)) return false;
+        if (_influx is not { IsConfigured: true }) return (false, false);
+        if (string.IsNullOrEmpty(result.ClientMac)) return (false, false);
 
-        if (IsWiredClient(result)) return false;
+        if (IsWiredClient(result)) return (false, false);
 
         try
         {
@@ -669,7 +670,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 // the points do not exist yet. The post-test trace is the one that should find them.
                 _logger.LogDebug("Wi-Fi fit [{Attempt} #{Id}] {Mac}: no series points in {From:yyyy-MM-dd HH:mm:ss}Z-{To:HH:mm:ss}Z",
                     attempt, result.Id, result.ClientMac, from, to);
-                return false;
+                return (false, false);
             }
 
             var candidates = points
@@ -715,7 +716,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 _logger.LogDebug("Wi-Fi fit [{Attempt} #{Id}] {Mac}: no candidate fits, keeping the realtime result ({Tx}/{Rx} Kbps)",
                     attempt, result.Id, result.ClientMac, result.WifiTxRateKbps, result.WifiRxRateKbps);
-                return false;
+                return (false, false);
             }
 
             _logger.LogDebug(
@@ -761,12 +762,12 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 result.PathAnalysis = analysis;
             }
 
-            return true;
+            return (true, best.IsPlausible);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Wi-Fi fit failed for {Mac}; keeping the realtime result", result.ClientMac);
-            return false;
+            return (false, false);
         }
     }
 
@@ -795,8 +796,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// </summary>
     private async Task SettleWifiRatesAsync(Iperf3Result result, int retryResultId = 0)
     {
-        if (await ReconcileWifiFromSeriesAsync(result)) return;
-        UpdateWifiRatesFromPathAnalysis(result);
+        var (applied, plausible) = await ReconcileWifiFromSeriesAsync(result);
+        if (applied && plausible) return;
+        if (!applied) UpdateWifiRatesFromPathAnalysis(result);
 
         if (IsWiredClient(result)) return;
 
@@ -843,11 +845,18 @@ public class ClientSpeedTestService : IClientSpeedTestService
                         return;
                     }
 
-                    if (await ReconcileWifiFromSeriesAsync(result, attempt: $"retry {elapsed.TotalSeconds:0}s"))
+                    var (applied, plausible) = await ReconcileWifiFromSeriesAsync(
+                        result, attempt: $"retry {elapsed.TotalSeconds:0}s");
+
+                    // A last attempt takes the best it has; an earlier one holds out for a sample
+                    // the rates are believable in, because the PHY moves through a test and one
+                    // point can catch a dip.
+                    var last = i == SeriesRetryDelays.Length - 1;
+                    if (applied && (plausible || last))
                     {
                         await db.SaveChangesAsync();
-                        _logger.LogDebug("Wi-Fi fit [retry #{Id}]: applied and saved after {Elapsed}s",
-                            resultId, elapsed.TotalSeconds);
+                        _logger.LogDebug("Wi-Fi fit [retry #{Id}]: applied and saved after {Elapsed}s{Caveat}",
+                            resultId, elapsed.TotalSeconds, plausible ? "" : " (rates still implausible)");
                         return;
                     }
                 }

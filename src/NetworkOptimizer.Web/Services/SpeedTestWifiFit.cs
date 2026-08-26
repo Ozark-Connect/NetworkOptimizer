@@ -39,6 +39,16 @@ public sealed record WifiFitScore(
     string? Rejected)
 {
     public bool IsViable => Rejected == null;
+
+    /// <summary>
+    /// Whether the rates are worth recording. PHY moves through a test and these points sample it,
+    /// so a ratio at or above the link's own capacity means the sample caught a dip, not that the
+    /// access point is wrong. Worth waiting for another point rather than writing this one.
+    /// </summary>
+    public bool IsPlausible =>
+        IsViable
+        && (FromDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling)
+        && (ToDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling);
 }
 
 /// <summary>
@@ -53,6 +63,12 @@ public sealed record WifiFitScore(
 /// </summary>
 public static class SpeedTestWifiFit
 {
+    /// <summary>
+    /// Highest share of the PHY a real link reaches. Wi-Fi does not run near its rate, so anything
+    /// above this says the sampled PHY is below what actually carried the traffic.
+    /// </summary>
+    public const double PlausibleCeiling = 0.9;
+
     /// <summary>
     /// Scores every candidate. Order is by score descending, rejected ones last, so a caller can log
     /// the whole comparison rather than only what won.

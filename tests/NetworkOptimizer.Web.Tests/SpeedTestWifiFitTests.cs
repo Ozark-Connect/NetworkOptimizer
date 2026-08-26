@@ -168,6 +168,42 @@ public class SpeedTestWifiFitTests
             Array.Empty<WifiFitCandidate>(), fromDeviceBps: 5e6, toDeviceBps: 5e6));
 
     /// <summary>
+    /// The measured case: RX 24 Mbps recorded with 57.6 Mbps measured across it, taken from one
+    /// point and written as fact. Time had the access point right; the rate was a dip.
+    /// </summary>
+    [Fact]
+    public void A_ratio_over_the_ceiling_is_not_worth_recording_yet()
+    {
+        var scored = SpeedTestWifiFit.Score(
+            new[] { Ap("backyard", txKbps: 432_000, rxKbps: 24_000) },
+            fromDeviceBps: 57.6e6, toDeviceBps: 151.7e6);
+
+        Assert.True(scored[0].IsViable, "the access point is still the right one");
+        Assert.False(scored[0].IsPlausible, "but the rates are not worth writing");
+    }
+
+    [Fact]
+    public void A_normal_link_is_plausible()
+    {
+        var scored = SpeedTestWifiFit.Score(
+            new[] { Ap("ap", txKbps: 1_921_000, rxKbps: 1_729_000) },
+            fromDeviceBps: 1068.8e6, toDeviceBps: 1549.3e6);
+
+        Assert.True(scored[0].IsPlausible);
+    }
+
+    /// <summary>A poor link runs far under its PHY, which is believable - only the top end is not.</summary>
+    [Fact]
+    public void A_very_low_ratio_is_still_plausible()
+    {
+        var scored = SpeedTestWifiFit.Score(
+            new[] { Ap("far", txKbps: 144_000, rxKbps: 144_000) },
+            fromDeviceBps: 8e6, toDeviceBps: 8e6);
+
+        Assert.True(scored[0].IsPlausible);
+    }
+
+    /// <summary>
     /// Coverage outranks efficiency. The access point seen through the window held the client, even
     /// where another one's rates happen to divide more neatly into the measurement.
     /// </summary>
