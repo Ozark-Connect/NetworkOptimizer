@@ -1,0 +1,106 @@
+<div class="client-selector-combo">
+    <div class="filterable-select @(_open ? "open" : "")">
+        @if (_selected != null && !_open)
+        {
+            <div class="filterable-select-display" @onclick="OpenForEdit">
+                <span class="status-dot @(_selected.IsOnline ? "online" : "offline")"></span>
+                <span class="option-text">@_selected.Name</span>
+                <span class="option-mac">@_selected.Mac</span>
+            </div>
+        }
+        else
+        {
+            <input @ref="_filterInput"
+                   type="text" class="form-select filterable-select-input"
+                   placeholder="@Placeholder"
+                   @bind="_search"
+                   @bind:event="oninput"
+                   @onclick="Open"
+                   @onfocus="Open"
+                   @onblur="CloseDelayed" />
+        }
+        @if (_open)
+        {
+            <div class="filterable-select-overlay" @onclick="Close"></div>
+            <div class="filterable-select-dropdown">
+                @foreach (var item in Filtered().Take(50))
+                {
+                    <div class="filterable-select-option @(item.IsOnline ? "" : "offline")"
+                         @onmousedown="() => Pick(item)"
+                         @onmousedown:preventDefault>
+                        <span class="status-dot @(item.IsOnline ? "online" : "offline")"></span>
+                        <span class="option-text">@item.Name</span>
+                        <span class="option-mac">@item.Mac</span>
+                    </div>
+                }
+                @if (!Filtered().Any())
+                {
+                    <div class="filterable-select-empty">No clients found</div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>One choice. Key is whatever the host page identifies a client by - MAC or IP.</summary>
+    public sealed record Item(string Key, string Name, string? Mac, bool IsOnline, string? Ip = null);
+
+    [Parameter] public IReadOnlyList<Item> Items { get; set; } = Array.Empty<Item>();
+    [Parameter] public string? SelectedKey { get; set; }
+    [Parameter] public EventCallback<string> SelectedKeyChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Select a client...";
+
+    private string _search = "";
+    private bool _open;
+    private ElementReference _filterInput;
+
+    private Item? _selected => string.IsNullOrEmpty(SelectedKey)
+        ? null
+        : Items.FirstOrDefault(i => i.Key == SelectedKey);
+
+    private void Open() => _open = true;
+
+    private async Task OpenForEdit()
+    {
+        _search = "";
+        _open = true;
+        StateHasChanged();
+        await Task.Delay(1); // let the input render before focusing it
+        await _filterInput.FocusAsync();
+    }
+
+    private void Close() => _open = false;
+
+    private async Task CloseDelayed()
+    {
+        // Long enough for a click on an option to land before the blur closes the list.
+        await Task.Delay(150);
+        _open = false;
+        StateHasChanged();
+    }
+
+    private async Task Pick(Item item)
+    {
+        _open = false;
+        _search = "";
+        await SelectedKeyChanged.InvokeAsync(item.Key);
+    }
+
+    private IEnumerable<Item> Filtered()
+    {
+        var items = Items.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var filter = _search.Trim();
+            items = items.Where(i =>
+                i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (i.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return items.OrderByDescending(i => i.IsOnline).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase);
+    }
+}

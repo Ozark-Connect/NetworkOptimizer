@@ -97,7 +97,7 @@ public class ClientDashboardService
     private NetworkOptimizerDbContext CreateSiteDb() => _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>A device choice for the Client Performance page's manual picker.</summary>
-    public sealed record SelectableClient(string Ip, string Name, bool IsWired);
+    public sealed record SelectableClient(string Ip, string Name, bool IsWired, string? Mac = null, bool IsOnline = true);
 
     /// <summary>
     /// This site's online clients as picker choices for the Client Performance page. Used on
@@ -115,7 +115,7 @@ public class ClientDashboardService
             // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
             // picker matches the name shown on the page and in Client Stats.
             var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
-            return (clients ?? new List<UniFiClientResponse>())
+            var online = (clients ?? new List<UniFiClientResponse>())
                 .Where(c => !string.IsNullOrEmpty(c.BestIp))
                 .Select(c => new SelectableClient(
                     c.BestIp!,
@@ -123,8 +123,38 @@ public class ClientDashboardService
                         : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
                         : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
                         : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
-                    c.IsWired))
-                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    c.IsWired,
+                    c.Mac,
+                    IsOnline: true))
+                .ToList();
+
+            // Six hours of departed clients too, so a device that just dropped is still pickable.
+            // Not Client Stats' thirty days: in a picker that is noise.
+            var seen = new HashSet<string>(online.Select(c => c.Ip), StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 6);
+                foreach (var h in history ?? new List<UniFiClientDetailResponse>())
+                {
+                    if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
+                    online.Add(new SelectableClient(
+                        h.BestIp!,
+                        !string.IsNullOrWhiteSpace(h.DisplayName) ? h.DisplayName
+                            : !string.IsNullOrWhiteSpace(h.Name) ? h.Name
+                            : !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname : h.BestIp!,
+                        h.IsWired,
+                        h.Mac,
+                        IsOnline: false));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Client history unavailable for the picker; showing connected clients only");
+            }
+
+            return online
+                .OrderByDescending(c => c.IsOnline)
+                .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
         catch (Exception ex)

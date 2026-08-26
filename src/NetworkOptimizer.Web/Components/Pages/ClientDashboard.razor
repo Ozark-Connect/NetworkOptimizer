@@ -4,6 +4,7 @@
 @implements IAsyncDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.ApAgent
+@using NetworkOptimizer.Web.Components.Shared.WiFi
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Storage.Models
@@ -37,9 +38,17 @@
 
 <div class="client-dashboard-page" data-autohide-nav="2000">
     @* Page Header *@
-    <div class="page-header">
-        <h1>Client Performance</h1>
-        <p class="page-description">Live signal strength, speed test history, connection path tracing, and walk-test signal mapping for @(_isOwnDevice ? "your device" : "a specific Wi-Fi client").@(_isOwnDevice ? _isInsecureContext ? " Leave this page open to collect signal data." : " Leave this page open while walking around to collect signal and location data." : "")</p>
+    <div class="page-header client-dashboard-header">
+        <div>
+            <h1>Client Performance</h1>
+            <p class="page-description">Live signal strength, speed test history, connection path tracing, and walk-test signal mapping for @(_isOwnDevice ? "your device" : "a specific Wi-Fi client").@(_isOwnDevice ? _isInsecureContext ? " Leave this page open to collect signal data." : " Leave this page open while walking around to collect signal and location data." : "")</p>
+        </div>
+        @if (!_showClientPicker && _pickerClients.Count > 0)
+        {
+            <ClientSelector Items="PickerItems()"
+                            SelectedKey="@_clientIp"
+                            SelectedKeyChanged="ViewClientByIpAsync" />
+        }
     </div>
 
     @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
@@ -137,14 +146,10 @@
             <h3>Select Your Device</h3>
             <p>This site is monitored remotely, so your device can't be identified automatically from here. Choose a device to view its performance.</p>
             <div class="client-picker-row">
-                <select class="form-control" @bind="_pickerSelection">
-                    <option value="">Choose a device...</option>
-                    @foreach (var c in _pickerClients)
-                    {
-                        <option value="@c.Ip">@c.Name (@c.Ip)@(c.IsWired ? " - wired" : "")</option>
-                    }
-                </select>
-                <button class="btn btn-primary" @onclick="ViewPickedClientAsync" disabled="@string.IsNullOrEmpty(_pickerSelection)">View</button>
+                <ClientSelector Items="PickerItems()"
+                                SelectedKey="@_pickerSelection"
+                                SelectedKeyChanged="ViewClientByIpAsync"
+                                Placeholder="Choose a device..." />
             </div>
         </div>
     }
@@ -1563,6 +1568,18 @@
         _awaitingSiteIdentity = false;
         _loading = false;
         StateHasChanged();
+    }
+
+    /// <summary>The picker's choices. Same shape Client Stats uses, so the two read alike.</summary>
+    private IReadOnlyList<ClientSelector.Item> PickerItems() =>
+        _pickerClients
+            .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip))
+            .ToList();
+
+    private async Task ViewClientByIpAsync(string ip)
+    {
+        _pickerSelection = ip;
+        await ViewPickedClientAsync();
     }
 
     private async Task ViewPickedClientAsync()
@@ -3030,6 +3047,20 @@
 
     .client-dashboard-page {
         padding: 0 0 32px;
+    }
+
+    .client-dashboard-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    @@media (max-width: 768px) {
+        .client-dashboard-header .client-selector-combo {
+            width: 100%;
+        }
     }
 
     /* Loading */
