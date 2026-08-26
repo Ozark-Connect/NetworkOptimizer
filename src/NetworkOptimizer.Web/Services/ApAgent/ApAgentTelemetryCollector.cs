@@ -164,16 +164,12 @@ public sealed class ApAgentTelemetryCollector
     private NetworkOptimizer.Core.Helpers.AgentClientPresence ResolvePresence(string? apMac, string? clientMac)
     {
         var now = DateTime.UtcNow;
-        if (string.IsNullOrEmpty(apMac) || !_coverage.Covers(apMac, now))
-        {
-            // Present can still come from another covered access point; Absent cannot, because
-            // only the claimed access point's own answer says anything about who is NOT on it.
-            var elsewhere = _membership.PresenceFor(null, clientMac, now);
-            return elsewhere == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present
-                ? elsewhere
-                : NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown;
-        }
-        return _membership.PresenceFor(apMac, clientMac, now);
+
+        // Only a covered access point's answer may assert the not-in-a-non-empty-answer form of
+        // absence. Present and the listed-as-stale form carry their own evidence, so the ledger
+        // resolves them from any fresh answer, claimed access point or none at all.
+        var claimed = !string.IsNullOrEmpty(apMac) && _coverage.Covers(apMac, now) ? apMac : null;
+        return _membership.PresenceFor(claimed, clientMac, now);
     }
 
     /// <summary>
@@ -299,6 +295,11 @@ public sealed class ApAgentTelemetryCollector
         _logger.LogDebug(
             "[Presence] agent {Ap} membership changed (site {Site}): joined [{Joined}], left [{Left}]",
             apMac, _siteSlug, string.Join(", ", delta.Joined), string.Join(", ", delta.Left));
+
+        // The change IS the re-evaluation trigger: resolve the affected clients now, so the
+        // verdict and its transition log move with the answer instead of waiting to be asked.
+        foreach (var mac in delta.Joined) PresenceFor(apMac, mac);
+        foreach (var mac in delta.Left) PresenceFor(apMac, mac);
     }
 
     /// <summary>
@@ -320,6 +321,7 @@ public sealed class ApAgentTelemetryCollector
             var sample = ApAgentWifiFieldMapper.ToSample(client, apMac, identityAt);
             if (sample == null) continue;
             if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+            if (_membership.IsClaimSuperseded(apMac, sample.ClientMac)) continue;
 
             PublishLive(sample, null, now, (null, null));
         }
@@ -427,6 +429,10 @@ public sealed class ApAgentTelemetryCollector
                     // onto the map once per write window and survived there until the add path found
                     // its entry too stale - in and out on a thirty second beat.
                     if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+
+                    // A discarded claim is a dead entry for a client that associated elsewhere;
+                    // writing or publishing it repaints the client onto the wrong access point.
+                    if (_membership.IsClaimSuperseded(target.Mac, sample.ClientMac)) continue;
 
                     accumulator.Add(sample, now);
 
