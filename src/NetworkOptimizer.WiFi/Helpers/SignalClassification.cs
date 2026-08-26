@@ -131,19 +131,22 @@ public static class SignalClassification
         };
 
         // The class boundaries are the anchors, so a reading at one is exactly its badge color, and
-        // the endpoints sit one step past them band-relative: a fixed top stop would span 25 dB on
-        // 2.4 GHz and 37 on 6 GHz, which reads as two different scales.
+        // the endpoints sit a fixed offset past them rather than at a fixed dBm: an absolute top
+        // stop would span 25 dB on 2.4 GHz and 37 on 6 GHz, which reads as two different scales.
         //
+        // The top reaches 25 dB above excellent because a client beside its access point sits far
+        // above that boundary on every band, and anything past the last stop is one flat color.
         // Hue travels the whole way - cyan, teal, emerald, green, lime, yellow, orange, rose, dark
-        // red - because most readings sit in the strong half and a narrow ramp there leaves twenty
-        // decibels looking like one color. The two mid-span stops are the only ones off a boundary.
+        // red - since most readings sit in the strong half. The three mid-span stops are the only
+        // ones off a boundary.
         var excellentToGood = (excellent + good) / 2;
         var fairToWeak = (fair + weak) / 2;
 
         return
         [
-            (excellent + 10, "#22d3ee"),
-            (excellent + 5, "#2dd4bf"),
+            (excellent + 25, "#a5f3fc"),
+            (excellent + 15, "#22d3ee"),
+            (excellent + 7, "#2dd4bf"),
             (excellent, "#10b981"),
             (excellentToGood, "#4ade80"),
             (good, "#84cc16"),
