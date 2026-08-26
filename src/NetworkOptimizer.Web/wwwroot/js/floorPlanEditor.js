@@ -3262,17 +3262,13 @@ window.fpEditor = {
             if (self._contourLayer) m.removeLayer(self._contourLayer);
             self._contourLayer = L.layerGroup().addTo(m);
 
-            var thresholds = [
-                { db: -45, color: '#22c55e', label: '-45' },
-                { db: -50, color: '#22c55e', label: '-50' },
-                { db: -55, color: '#16a34a', label: '-55' },
-                { db: -60, color: '#eab308', label: '-60' },
-                { db: -65, color: '#ca8a04', label: '-65' },
-                { db: -70, color: '#f97316', label: '-70' },
-                { db: -75, color: '#fb923c', label: '-75' },
-                { db: -80, color: '#ef4444', label: '-80' },
-                { db: -85, color: '#ef4444', label: '-85' }
-            ];
+            // Where the lines are drawn is fixed; their color is the ramp's at that dBm, so a
+            // contour sits in the shade it divides. The colors were hardcoded and band-blind:
+            // -60 drew yellow over a surface painting it excellent green.
+            var thresholds = [-45, -50, -55, -60, -65, -70, -75, -80, -85].map(function (db) {
+                var c = fpEditor._signalRamp(db);
+                return { db: db, color: 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')', label: String(db) };
+            });
             var latStep = (data.neLat - data.swLat) / data.height;
             var lngStep = (data.neLng - data.swLng) / data.width;
 
