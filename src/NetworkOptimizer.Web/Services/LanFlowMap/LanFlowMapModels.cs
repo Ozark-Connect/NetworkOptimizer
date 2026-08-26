@@ -106,6 +106,11 @@ public class LanNode
     public int? SignalBars => SignalDbm.HasValue && Band != null
         ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
         : null;
+
+    /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
+    public string? SignalColor => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+        : null;
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
     public string? Ssid { get; set; }
@@ -397,6 +402,11 @@ public class NodeClientStats
     /// <inheritdoc cref="SignalClass"/>
     public int? SignalBars => SignalDbm.HasValue && Band != null
         ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+        : null;
+
+    /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
+    public string? SignalColor => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
         : null;
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).

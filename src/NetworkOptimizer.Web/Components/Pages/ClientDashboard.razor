@@ -237,24 +237,19 @@
                     }
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
+                        var sigColor = SignalClassification.GetSignalColor(_client.SignalDbm.Value, _client.Band);
+                        var sigLit = SignalClassification.GetSignalBars(_client.SignalDbm.Value, _client.Band);
                         <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)"
+                             style="color: @sigColor"
                              data-tooltip="@(HasMloLinks ? MloLinksTooltip() : null)">
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
                         <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
-                            @{
-                                var thresholds = _client.Band switch
-                                {
-                                    "ng" => new[] { -82, -75, -67, -60, -50 },
-                                    "6e" => new[] { -97, -92, -87, -78, -67 },
-                                    _ => new[] { -92, -85, -78, -70, -60 }
-                                };
-                            }
                             @for (int i = 0; i < 5; i++)
                             {
-                                var barThreshold = thresholds[i];
-                                <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
+                                <div class="bar @(i < sigLit ? "active" : "")"
+                                     style="@(i < sigLit ? $"background: {sigColor}" : null)"></div>
                             }
                         </div>
                     }
@@ -746,7 +741,7 @@
                                                         <span class="source-dot" data-tooltip="UniFi Network historic data"></span>
                                                     }
                                                 </td>
-                                                <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
+                                                <td class="@GetSignalClass(entry.SignalDbm ?? 0)" style="color: @SignalClassification.GetSignalColor(entry.SignalDbm, _client?.Band)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "-")</td>
                                                 <td>@(entry.Channel?.ToString() ?? "-")@(entry.ChannelWidth.HasValue ? $" - {entry.ChannelWidth} MHz" : "")</td>
@@ -847,7 +842,7 @@
                                                 @if (!(_client?.IsWired == true))
                                                 {
                                                     <td>@(evt.GetRadioBandDisplay() ?? "—")</td>
-                                                    <td class="@GetSignalClass(evt.Signal ?? 0)">@(evt.Signal?.ToString() ?? "—") dBm</td>
+                                                    <td class="@GetSignalClass(evt.Signal ?? 0)" style="color: @SignalClassification.GetSignalColor(evt.Signal, _client?.Band)">@(evt.Signal?.ToString() ?? "—") dBm</td>
                                                 }
                                                 <td class="event-details-cell">
                                                     @if (evt.Type == ClientConnectionEventType.Roamed && evt.PreviousSignal.HasValue)

@@ -106,25 +106,13 @@ public static class SignalClassification
     };
 
     /// <summary>
-    /// How many of five bars are lit, 0-5. A different curve from <see cref="GetSignalClass"/>:
-    /// the class colors the bars, this fills them, and the two disagree by design.
+    /// How many of five bars are lit, 1-5, derived from the class so the two can never disagree.
+    ///
+    /// These were separate curves whose boundaries did not line up: on 2.4 GHz three bars spanned
+    /// -67 to -60 while good began at -65, so -66 drew three bars in yellow and -64 drew three in
+    /// green. Never reintroduce a second threshold table for the count.
     /// </summary>
-    public static int GetSignalBars(int dbm, RadioBand band)
-    {
-        var thresholds = band switch
-        {
-            RadioBand.Band2_4GHz => new[] { -82, -75, -67, -60, -50 },
-            RadioBand.Band6GHz => new[] { -97, -92, -87, -78, -67 },
-            _ => new[] { -92, -85, -78, -70, -60 }
-        };
-
-        var bars = 0;
-        foreach (var t in thresholds)
-        {
-            if (dbm >= t) bars++;
-        }
-        return bars;
-    }
+    public static int GetSignalBars(int dbm, RadioBand band) => GetBarCount(GetSignalClass(dbm, band));
 
     /// <summary>Bars for a band string, in either the UniFi or normalized form.</summary>
     public static int GetSignalBars(int dbm, string? bandString) => GetSignalBars(dbm, ParseBand(bandString));
@@ -160,6 +148,51 @@ public static class SignalClassification
 
     /// <summary>The ramp for a band string, in either the UniFi or normalized form.</summary>
     public static (int Dbm, string Hex)[] GetSignalGradient(string? bandString) => GetSignalGradient(ParseBand(bandString));
+
+    /// <summary>
+    /// The blended color for a reading, as "rgb(r,g,b)". Every surface that displays a dBm uses
+    /// this so the value reads continuously: a decibel of change moves the color a little, rather
+    /// than snapping a whole class at a threshold. The class is still what decides a verdict -
+    /// bar counts, scoring, distribution counts - but it is not what paints a number.
+    /// </summary>
+    public static string GetSignalColor(int dbm, RadioBand band)
+    {
+        var stops = GetSignalGradient(band);
+        if (dbm >= stops[0].Dbm) return Rgb(stops[0].Hex);
+        if (dbm <= stops[^1].Dbm) return Rgb(stops[^1].Hex);
+
+        for (var i = 0; i < stops.Length - 1; i++)
+        {
+            if (dbm > stops[i].Dbm || dbm < stops[i + 1].Dbm) continue;
+            var t = (double)(dbm - stops[i + 1].Dbm) / (stops[i].Dbm - stops[i + 1].Dbm);
+            var (ar, ag, ab) = Rgb3(stops[i].Hex);
+            var (br, bg, bb) = Rgb3(stops[i + 1].Hex);
+            return $"rgb({(int)(ar * t + br * (1 - t))},{(int)(ag * t + bg * (1 - t))},{(int)(ab * t + bb * (1 - t))})";
+        }
+        return Rgb(stops[^1].Hex);
+    }
+
+    /// <summary>The blended color for a band string, in either form.</summary>
+    public static string GetSignalColor(int dbm, string? bandString) => GetSignalColor(dbm, ParseBand(bandString));
+
+    /// <summary>The blended color for a nullable reading, or empty when there is none.</summary>
+    public static string GetSignalColor(int? dbm, string? bandString) =>
+        dbm.HasValue ? GetSignalColor(dbm.Value, ParseBand(bandString)) : "";
+
+    /// <inheritdoc cref="GetSignalColor(int?, string?)"/>
+    public static string GetSignalColor(int? dbm, RadioBand band) =>
+        dbm.HasValue ? GetSignalColor(dbm.Value, band) : "";
+
+    private static (int R, int G, int B) Rgb3(string hex) => (
+        Convert.ToInt32(hex.Substring(1, 2), 16),
+        Convert.ToInt32(hex.Substring(3, 2), 16),
+        Convert.ToInt32(hex.Substring(5, 2), 16));
+
+    private static string Rgb(string hex)
+    {
+        var (r, g, b) = Rgb3(hex);
+        return $"rgb({r},{g},{b})";
+    }
 
     // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
     // through here is classified on the 5 GHz curve, so a missing case is a silently wrong color.

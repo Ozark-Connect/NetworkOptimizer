@@ -170,7 +170,7 @@
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
                                 <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
-                                <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
+                                <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
                         }
                     </tbody>
@@ -258,7 +258,7 @@
                     {
                         <div class="info-item">
                             <span class="info-label">Signal:</span>
-                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)"
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)"
                                   data-tooltip="Signal of the active MLO link">@(_selectedClient.Signal?.ToString() ?? "-") dBm</span>
                             <span class="band-badge @GetBandCssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
                         </div>
@@ -277,7 +277,7 @@
                         </div>
                         <div class="info-item">
                             <span class="info-label">Signal:</span>
-                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)">
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)">
                                 @(_selectedClient.Signal?.ToString() ?? "-") dBm
                             </span>
                         </div>
@@ -306,7 +306,7 @@
                                 <span class="mlo-link-meta">Ch @(link.Channel?.ToString() ?? "-")@(link.ChannelWidth.HasValue ? $" - {link.ChannelWidth} MHz" : "")</span>
                                 @if (active)
                                 {
-                                    <span class="@SignalClassification.GetSignalClass(link.Signal, link.Band)">@(link.Signal?.ToString() ?? "-") dBm</span>
+                                    <span class="@SignalClassification.GetSignalClass(link.Signal, link.Band)" style="color: @SignalClassification.GetSignalColor(link.Signal, link.Band)">@(link.Signal?.ToString() ?? "-") dBm</span>
                                     <span><span class="wifi-speed-tx">TX @FormatRate(link.TxRate)</span> <span class="mlo-dim">/</span> <span class="wifi-speed-rx">RX @FormatRate(link.RxRate)</span></span>
                                     <span class="mlo-state mlo-state-active">Active</span>
                                 }

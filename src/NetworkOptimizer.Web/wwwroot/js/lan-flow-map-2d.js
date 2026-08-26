@@ -37,12 +37,8 @@ const C = {
 };
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
-// Signal palette, matching the Client Performance hero. Only the colors live here: which class a
-// reading falls in, and how many bars it lights, are per-band curves the server owns.
-const SIG = {
-    'signal-excellent':'#10b981', 'signal-good':'#22c55e', 'signal-fair':'#eab308',
-    'signal-weak':'#f97316', 'signal-poor':'#ef4444',
-};
+// Signal color arrives per node, blended on the server's per-band ramp. Nothing about the curve
+// is decided here - a palette in the browser is how the map drifted from the gauges before.
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
 const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
@@ -2061,8 +2057,8 @@ class LanFlowMap2D {
             // Live stats first, as the band lookup already does: the label reads that value, so
             // taking the class off the node colors the bars after a different, older reading.
             const sg=flowData.getClientStats()?.[n.d.id];
-            const sBars=sg?.signalBars??n.d.signalBars, sCls=sg?.signalClass??n.d.signalClass;
-            if(sBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,sCls,sBars);
+            const sBars=sg?.signalBars??n.d.signalBars, sColor=sg?.signalColor??n.d.signalColor;
+            if(sBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,sColor,sBars);
         } else {
             const s=r*0.9;
             ctx.fillStyle=color;
@@ -2086,8 +2082,8 @@ class LanFlowMap2D {
 
     // Five bars rising left to right, the Client Performance hero at map scale. Lit count and
     // color both arrive per node; nothing about the curve is decided here.
-    _drawSignalBars(ctx,x,y,cls,lit){
-        const w=1.6, gap=1, h=9.45, base=y+4.55, on=SIG[cls]||C.textMuted;
+    _drawSignalBars(ctx,x,y,color,lit){
+        const w=1.6, gap=1, h=9.45, base=y+4.55, on=color||C.textMuted;
         for(let i=0;i<5;i++){
             const bh=h*(0.2+i*0.2);
             ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';

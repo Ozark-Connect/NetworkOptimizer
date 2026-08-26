@@ -1,4 +1,4 @@
-﻿@page "/wifi-optimizer"
+@page "/wifi-optimizer"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
@@ -466,7 +466,7 @@
                         {
                             <div class="band-stat">
                                 <span class="band-stat-label">Avg Signal:</span>
-                                <span class="band-stat-value @SignalClassification.GetSignalClass(_summary.AvgSignal.Value, RadioBand.Band5GHz)">@_summary.AvgSignal dBm</span>
+                                <span class="band-stat-value @SignalClassification.GetSignalClass(_summary.AvgSignal.Value, RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(_summary.AvgSignal.Value, RadioBand.Band5GHz)">@_summary.AvgSignal dBm</span>
                             </div>
                         }
                     </div>
@@ -644,7 +644,7 @@
                                             @if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
                                                 <div class="mesh-signal">
-                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
                                                     {
                                                         <span class="mesh-rates">
@@ -671,7 +671,7 @@
                                                 <div class="mesh-signal">
                                                     @if (child.SignalDbm.HasValue)
                                                     {
-                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     }
                                                     @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
                                                     {

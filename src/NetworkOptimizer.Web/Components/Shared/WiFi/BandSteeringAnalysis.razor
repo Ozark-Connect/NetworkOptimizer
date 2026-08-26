@@ -228,7 +228,7 @@
                                 </div>
                                 <div class="legacy-stat">
                                     <span class="stat-label">Signal</span>
-                                    <span class="stat-value @SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.Signal ?? 0) dBm</span>
+                                    <span class="stat-value @SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.Signal ?? 0) dBm</span>
                                 </div>
                                 <div class="legacy-stat">
                                     <span class="stat-label">AP</span>
