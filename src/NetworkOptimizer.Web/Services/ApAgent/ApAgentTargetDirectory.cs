@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <summary>One access point that has an AP Agent this server may talk to.</summary>
 /// <param name="Mac">The access point's MAC, lower-case colon form.</param>
 /// <param name="Host">Address to reach it on, before tunnel routing.</param>
-/// <param name="Token">Bearer token, decrypted, or null when it would not decrypt.</param>
+/// <param name="Token">Signing token, decrypted, or null when it would not decrypt.</param>
 public sealed record ApAgentTarget(string Mac, string Host, string? Token, string? Name);
 
 /// <summary>

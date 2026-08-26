@@ -67,47 +67,18 @@ public sealed class ApAgentHttpTransport
         client.Timeout = timeout;
 
         var method = jsonBody is null ? HttpMethod.Get : HttpMethod.Post;
-        var endpoint = $"{host}:{port}";
-        var signs = _signs.GetValueOrDefault(endpoint, true);
 
-        var result = await SendOnceAsync(client, method, host, port, path, token, jsonBody, signs, maxBytes, ct);
-
-        // An agent too old to verify a signature answers 401. Fall back once, remember it, and stop
-        // signing to that host until it is upgraded - the alternative is a server going dark on its
-        // own access points for as long as the rollout takes.
-        if (result.Status == 401 && signs && !string.IsNullOrEmpty(token))
-        {
-            var retry = await SendOnceAsync(client, method, host, port, path, token, jsonBody, sign: false, maxBytes, ct);
-            if (retry.Status != 401)
-            {
-                _signs[endpoint] = false;
-                return retry;
-            }
-        }
-        else if (result.Status != 401 && signs)
-        {
-            _signs[endpoint] = true;
-        }
-
-        return result;
-    }
-
-    /// <summary>Endpoints known not to verify signatures, so we stop signing to them.</summary>
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _signs = new();
-
-    private async Task<ApAgentHttpResult> SendOnceAsync(
-        HttpClient client, HttpMethod method, string host, int port, string path,
-        string? token, string? jsonBody, bool sign, long maxBytes, CancellationToken ct)
-    {
         using var request = new HttpRequestMessage(method, $"http://{host}:{port}{path}");
         if (jsonBody is not null)
             request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
+        // The signature covers the path alone. The agent verifies against its own request path,
+        // which never carries the query, so signing "/events?since=7" cannot match.
         if (!string.IsNullOrEmpty(token))
         {
-            request.Headers.TryAddWithoutValidation("Authorization", sign
-                ? ApAgentRequestSigner.Sign(token, method.Method, path, jsonBody)
-                : $"Bearer {token}");
+            var signedPath = path.Split('?')[0];
+            request.Headers.TryAddWithoutValidation(
+                "Authorization", ApAgentRequestSigner.Sign(token, method.Method, signedPath, jsonBody));
         }
 
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);

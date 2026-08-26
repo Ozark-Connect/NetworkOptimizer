@@ -107,10 +107,8 @@ public static class SignalClassification
 
     /// <summary>
     /// How many of five bars are lit, 1-5, derived from the class so the two can never disagree.
-    ///
-    /// These were separate curves whose boundaries did not line up: on 2.4 GHz three bars spanned
-    /// -67 to -60 while good began at -65, so -66 drew three bars in yellow and -64 drew three in
-    /// green. Never reintroduce a second threshold table for the count.
+    /// Never give the count its own thresholds: boundaries that do not line up draw the same bar
+    /// count in two different class colors.
     /// </summary>
     public static int GetSignalBars(int dbm, RadioBand band) => GetBarCount(GetSignalClass(dbm, band));
 
@@ -133,19 +131,21 @@ public static class SignalClassification
         };
 
         // The class boundaries are the anchors, so a reading at one is exactly its badge color, and
-        // the endpoints reach one step past them band-relative like everything else - a fixed top
-        // stop stretched 25 dB on 2.4 and 37 on 6, which read as two different scales.
+        // the endpoints sit one step past them band-relative: a fixed top stop would span 25 dB on
+        // 2.4 GHz and 37 on 6 GHz, which reads as two different scales.
         //
-        // Hue travels the whole way: teal, emerald, lime, yellow, orange, rose, dark red. Three
-        // greens in a row left twenty decibels reading as one color. The extra stop between fair
-        // and weak is the only one off a boundary, and it is there because that span is short and
-        // is where a reading most needs to visibly move.
+        // Hue travels the whole way - cyan, teal, emerald, green, lime, yellow, orange, rose, dark
+        // red - because most readings sit in the strong half and a narrow ramp there leaves twenty
+        // decibels looking like one color. The two mid-span stops are the only ones off a boundary.
+        var excellentToGood = (excellent + good) / 2;
         var fairToWeak = (fair + weak) / 2;
 
         return
         [
-            (excellent + 10, "#2dd4bf"),
+            (excellent + 10, "#22d3ee"),
+            (excellent + 5, "#2dd4bf"),
             (excellent, "#10b981"),
+            (excellentToGood, "#4ade80"),
             (good, "#84cc16"),
             (fair, "#fde047"),
             (fairToWeak, "#fb923c"),

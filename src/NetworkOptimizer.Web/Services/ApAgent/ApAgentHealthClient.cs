@@ -38,7 +38,7 @@ public sealed class ApAgentHealthClient
     /// </summary>
     /// <param name="siteSlug">Site the AP belongs to.</param>
     /// <param name="apHost">The AP's management address.</param>
-    /// <param name="token">Bearer token the AP's agent was deployed with.</param>
+    /// <param name="token">Signing token the AP's agent was deployed with.</param>
     /// <param name="deviceOnline">Whether the console reports the AP as connected.</param>
     /// <param name="supportedArchitecture">Whether an AP Agent build exists for this hardware.</param>
     /// <param name="expectedBinaryVersion">Contract version this server ships.</param>
@@ -99,7 +99,7 @@ public sealed class ApAgentHealthClient
     /// </summary>
     /// <param name="siteSlug">Site the AP belongs to.</param>
     /// <param name="apHost">The AP's management address.</param>
-    /// <param name="token">Bearer token the AP's agent was deployed with.</param>
+    /// <param name="token">Signing token the AP's agent was deployed with.</param>
     /// <param name="timeout">How long to wait before giving up.</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<ApAgentCapabilityReport?> GetCapabilitiesAsync(

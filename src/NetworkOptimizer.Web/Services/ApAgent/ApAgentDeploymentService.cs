@@ -805,7 +805,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <summary>
-    /// The AP's bearer token, decrypted. A token that cannot be decrypted is replaced rather than
+    /// The AP's signing token, decrypted. A token that cannot be decrypted is replaced rather than
     /// used: the agent refuses anything under 16 characters, so a garbled one would fail every
     /// probe silently.
     /// </summary>

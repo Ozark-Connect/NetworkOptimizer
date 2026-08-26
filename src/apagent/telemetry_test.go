@@ -849,7 +849,7 @@ func decodeJSON(t *testing.T, resp *http.Response, into any) {
 
 func TestClientsEndpoint(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	resp := doRequest(t, srv, http.MethodGet, "/clients", auth)
 	if resp.StatusCode != http.StatusOK {
@@ -878,7 +878,7 @@ func TestClientsEndpoint(t *testing.T) {
 
 func TestClientsEndpointFilters(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	cases := []struct {
 		query string
@@ -928,7 +928,7 @@ func TestClientsEndpointFilters(t *testing.T) {
 // resolve to the same record.
 func TestClientEndpointResolvesLinkOrMldMac(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	for _, mac := range []string{fixtureMldMAC, fixtureLink6e, fixtureLink5, fixtureLink24, strings.ToUpper(fixtureLink6e)} {
 		resp := doRequest(t, srv, http.MethodGet, "/clients/"+mac, auth)
@@ -957,7 +957,7 @@ func TestClientEndpointResolvesLinkOrMldMac(t *testing.T) {
 
 func TestVapsAndRadiosEndpoints(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	resp := doRequest(t, srv, http.MethodGet, "/vaps", auth)
 	if resp.StatusCode != http.StatusOK {
@@ -1000,7 +1000,7 @@ func TestVapsAndRadiosEndpoints(t *testing.T) {
 
 func TestEventsEndpoint(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	resp := doRequest(t, srv, http.MethodGet, "/events", auth)
 	if resp.StatusCode != http.StatusOK {
@@ -1049,7 +1049,7 @@ func TestTelemetryEndpointsRequireAuth(t *testing.T) {
 // cost N times the collection.
 func TestRequestsDoNotCollect(t *testing.T) {
 	srv := newTelemetryServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	var before ClientsPayload
 	decodeJSON(t, doRequest(t, srv, http.MethodGet, "/clients", auth), &before)

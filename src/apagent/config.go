@@ -59,7 +59,7 @@ const (
 	defaultInstallDir = "/tmp/netopt-apagent"
 	defaultConfigPath = defaultInstallDir + "/config.json"
 
-	// tokenEnvVar keeps the bearer token off the command line, where ps would expose it.
+	// tokenEnvVar keeps the token off the command line, where ps would expose it.
 	tokenEnvVar = "APAGENT_TOKEN"
 )
 
@@ -227,10 +227,10 @@ func resolveToken(cfg *Config) error {
 func validateConfig(cfg *Config) error {
 	// The payload is client PII, so an unauthenticated listener is refused rather than warned about.
 	if cfg.Token == "" {
-		return fmt.Errorf("no bearer token: set %s, token_file, or token in the config file", tokenEnvVar)
+		return fmt.Errorf("no signing token: set %s, token_file, or token in the config file", tokenEnvVar)
 	}
 	if len(cfg.Token) < 16 {
-		return fmt.Errorf("bearer token is %d characters, 16 is the minimum", len(cfg.Token))
+		return fmt.Errorf("signing token is %d characters, 16 is the minimum", len(cfg.Token))
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return fmt.Errorf("port %d is out of range", cfg.Port)

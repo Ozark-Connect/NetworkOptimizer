@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,11 +10,20 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 const testToken = "0123456789abcdef0123"
+
+// signAuth asks doRequest to sign the request it is about to send. Tests cannot build one header
+// and reuse it: the nonce would be a replay on the second request.
+const signAuth = "sign"
+
+var testNonces atomic.Int64
+
+func nextTestNonce() string { return fmt.Sprintf("test-%d", testNonces.Add(1)) }
 
 func TestMachineToGOARCH(t *testing.T) {
 	cases := map[string]string{
@@ -319,7 +328,7 @@ func TestLoadConfigRefusesUnauthenticated(t *testing.T) {
 	dir := t.TempDir()
 
 	if _, err := loadConfig(filepath.Join(dir, "absent.json"), Overrides{}); err == nil {
-		t.Fatal("a configuration with no bearer token must be refused")
+		t.Fatal("a configuration with no signing token must be refused")
 	} else if !strings.Contains(err.Error(), tokenEnvVar) {
 		t.Errorf("the refusal must name how to set a token, got %q", err)
 	}
@@ -460,7 +469,7 @@ func TestProbeHostapdCtrlReportsMissingSocketReadably(t *testing.T) {
 
 func TestCapabilitiesSerialization(t *testing.T) {
 	state := NewState(time.Now().UTC().Add(-time.Minute), PlatformInfo{Machine: "armv7l", GOARCH: "arm"})
-	state.SetListener(ListenerInfo{Interface: "br0", Address: "192.168.1.20", Port: 8899, Auth: "bearer"})
+	state.SetListener(ListenerInfo{Interface: "br0", Address: "192.168.1.20", Port: 8899, Auth: "hmac"})
 	state.SetProbes(ProbeSet{
 		Results:  []ProbeResult{{Name: ProbeHostapdCtrl, Fatal: true, Available: true, CheckedAt: time.Now().UTC()}},
 		Vaps:     []string{"wifi2ap10"},
@@ -548,6 +557,10 @@ func doRequest(t *testing.T, srv *httptest.Server, method, path, auth string) *h
 	if err != nil {
 		t.Fatal(err)
 	}
+	if auth == signAuth {
+		// The signature covers the path, never the query string.
+		auth = signedHeader(testToken, method, strings.SplitN(path, "?", 2)[0], nextTestNonce(), nil, time.Now())
+	}
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -578,7 +591,7 @@ func TestServerRefusesUnauthenticated(t *testing.T) {
 
 func TestServerServesBothEndpoints(t *testing.T) {
 	srv, _ := newTestServer(t)
-	auth := "Bearer " + testToken
+	auth := signAuth
 
 	resp := doRequest(t, srv, http.MethodGet, "/capabilities", auth)
 	if resp.StatusCode != http.StatusOK {

@@ -18,7 +18,7 @@ public static class ApAgentPaths
     /// <summary>Architecture-gating wrapper, so a wrong-arch AP says why instead of "Exec format error".</summary>
     public const string RemoteWrapperPath = RemoteDir + "/apagent.sh";
 
-    /// <summary>Bearer token file, mode 0600. Used by the non-procd start path, which has no env to set.</summary>
+    /// <summary>Signing token file, mode 0600. Used by the non-procd start path, which has no env to set.</summary>
     public const string RemoteTokenPath = RemoteDir + "/token";
 
     public const string RemoteLogPath = RemoteDir + "/apagent.log";

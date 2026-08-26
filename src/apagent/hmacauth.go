@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// The agent serves plain HTTP on a management LAN, so a bearer token rides the wire in clear on
-// every poll - once every three seconds per access point - and anything that reads it can steer or
-// ban a client. Signing proves the caller holds the secret without ever sending it.
+// The agent serves plain HTTP on a management LAN and is polled once every three seconds per
+// access point, and anything holding the token can steer or ban a client. Signing proves the
+// caller holds the secret without ever sending it.
 //
 // Canonical string, newline separated: METHOD, path, timestamp, nonce, hex(sha256(body)).
 const (

@@ -56,7 +56,7 @@ func run() int {
 	listenIface := flag.String("listen-interface", "", "Interface to bind (default br0)")
 	listenAddr := flag.String("listen-address", "", "Explicit address to bind, overrides -listen-interface")
 	port := flag.Int("port", 0, "Listener port (default 8899)")
-	tokenFile := flag.String("token-file", "", "File holding the bearer token")
+	tokenFile := flag.String("token-file", "", "File holding the signing token")
 	hostapdDir := flag.String("hostapd-dir", "", "hostapd control socket directory (default /var/run/hostapd)")
 	syslogPath := flag.String("syslog", "", "Syslog file to probe for stahtd (default /var/log/messages)")
 	fastInterval := flag.Int("fast-interval-ms", 0, "Fast RF poll interval in milliseconds (default 1000)")
@@ -170,7 +170,7 @@ func run() int {
 		Address:   boundHost,
 		Port:      boundPort,
 		TLS:       false,
-		Auth:      "bearer",
+		Auth:      "hmac",
 	})
 
 	collectCtx, stopCollectors := context.WithCancel(ctx)

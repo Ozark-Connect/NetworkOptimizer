@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +36,7 @@ func newMux(state *State) *http.ServeMux {
 	return mux
 }
 
-// newServer puts every endpoint behind bearer authentication.
+// newServer puts every endpoint behind signature authentication.
 func newServer(state *State, token string) *http.Server {
 	return &http.Server{
 		Handler:           authMiddleware(state, token, newMux(state)),
@@ -118,7 +117,6 @@ func jsonRequestHandler(payload func(*http.Request) (any, error)) http.HandlerFu
 // authMiddleware refuses every unauthenticated request. The payload is hostnames, IPs, MACs, and
 // per-client traffic, so there is no unauthenticated path to open by accident.
 func authMiddleware(state *State, token string, next http.Handler) http.Handler {
-	want := []byte("Bearer " + token)
 	nonces := newNonceStore()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		state.counters.Requests.Add(1)
@@ -126,7 +124,10 @@ func authMiddleware(state *State, token string, next http.Handler) http.Handler 
 		header := r.Header.Get("Authorization")
 		var reason error
 
-		if strings.HasPrefix(header, "HMAC ") {
+		// Signed requests only, whatever a caller sends.
+		if !strings.HasPrefix(header, "HMAC ") {
+			reason = fmt.Errorf("request not signed")
+		} else {
 			// Read the body to sign over, then put it back for the handler.
 			body, err := io.ReadAll(io.LimitReader(r.Body, maxSignedBody))
 			r.Body.Close()
@@ -136,16 +137,11 @@ func authMiddleware(state *State, token string, next http.Handler) http.Handler 
 			} else {
 				reason = verifyHmac(token, header, r.Method, r.URL.Path, body, nonces, time.Now())
 			}
-		} else if subtle.ConstantTimeCompare([]byte(header), want) != 1 {
-			// Bearer still works so an agent keeps serving a server that has not been upgraded
-			// yet. Remove it once no deployed server sends it - until then the token is only as
-			// safe as the oldest caller.
-			reason = fmt.Errorf("bearer mismatch")
 		}
 
 		if reason != nil {
 			state.counters.AuthFailures.Add(1)
-			w.Header().Set("WWW-Authenticate", `Bearer realm="apagent"`)
+			w.Header().Set("WWW-Authenticate", `HMAC realm="apagent"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			slog.Warn("unauthorized request", "path", r.URL.Path, "remote", remoteHost(r.RemoteAddr), "reason", reason)
 			return
