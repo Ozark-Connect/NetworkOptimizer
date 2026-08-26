@@ -292,7 +292,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             // Backfill any fields still missing after merge re-analysis
             BackfillFromPathAnalysis(recentResult);
 
-            // Update WiFi rate fields from path analysis max values
+            // Series first, path analysis only if nothing there explains the measurement.
             await SettleWifiRatesAsync(recentResult);
 
             // Clean up snapshot after use
@@ -728,7 +728,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private async Task SettleWifiRatesAsync(Iperf3Result result)
     {
         if (await ReconcileWifiFromSeriesAsync(result)) return;
-        await SettleWifiRatesAsync(result);
+        UpdateWifiRatesFromPathAnalysis(result);
     }
 
     /// <summary>
@@ -841,7 +841,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             // UniFi client list yet but path analysis found it via topology)
             BackfillFromPathAnalysis(result);
 
-            // Update result's WiFi rate fields with max values from path analysis
+            // Series first, path analysis only if nothing there explains the measurement.
             await SettleWifiRatesAsync(result);
 
             // Clean up snapshot after use (iperf3 client snapshots cleaned up in merge path or auto-expire)
