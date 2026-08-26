@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -116,20 +119,44 @@ func jsonRequestHandler(payload func(*http.Request) (any, error)) http.HandlerFu
 // per-client traffic, so there is no unauthenticated path to open by accident.
 func authMiddleware(state *State, token string, next http.Handler) http.Handler {
 	want := []byte("Bearer " + token)
+	nonces := newNonceStore()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		state.counters.Requests.Add(1)
 
-		got := []byte(r.Header.Get("Authorization"))
-		if subtle.ConstantTimeCompare(got, want) != 1 {
+		header := r.Header.Get("Authorization")
+		var reason error
+
+		if strings.HasPrefix(header, "HMAC ") {
+			// Read the body to sign over, then put it back for the handler.
+			body, err := io.ReadAll(io.LimitReader(r.Body, maxSignedBody))
+			r.Body.Close()
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if err != nil {
+				reason = fmt.Errorf("unreadable body")
+			} else {
+				reason = verifyHmac(token, header, r.Method, r.URL.Path, body, nonces, time.Now())
+			}
+		} else if subtle.ConstantTimeCompare([]byte(header), want) != 1 {
+			// Bearer still works so an agent keeps serving a server that has not been upgraded
+			// yet. Remove it once no deployed server sends it - until then the token is only as
+			// safe as the oldest caller.
+			reason = fmt.Errorf("bearer mismatch")
+		}
+
+		if reason != nil {
 			state.counters.AuthFailures.Add(1)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="apagent"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			slog.Warn("unauthorized request", "path", r.URL.Path, "remote", remoteHost(r.RemoteAddr))
+			slog.Warn("unauthorized request", "path", r.URL.Path, "remote", remoteHost(r.RemoteAddr), "reason", reason)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+// maxSignedBody caps what we will buffer to verify a signature. Every signed request this agent
+// serves is a small JSON control message; anything larger is not ours.
+const maxSignedBody = 1 << 20
 
 func remoteHost(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
