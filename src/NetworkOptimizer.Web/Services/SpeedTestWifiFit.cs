@@ -6,6 +6,9 @@ namespace NetworkOptimizer.Web.Services;
 /// <param name="TxRateKbps">PHY the access point transmits at - the ceiling on To Device.</param>
 /// <param name="RxRateKbps">PHY the access point receives at - the ceiling on From Device.</param>
 /// <param name="SignalDbm">Signal over the window.</param>
+/// <param name="NoiseDbm">Noise floor over the window.</param>
+/// <param name="Channel">Channel the association was on.</param>
+/// <param name="ChannelWidth">Channel width in MHz.</param>
 /// <param name="Points">How many series points backed this candidate.</param>
 public sealed record WifiFitCandidate(
     string ApMac,
@@ -13,7 +16,10 @@ public sealed record WifiFitCandidate(
     long? TxRateKbps,
     long? RxRateKbps,
     double? SignalDbm,
-    int Points);
+    int Points,
+    double? NoiseDbm = null,
+    int? Channel = null,
+    int? ChannelWidth = null);
 
 /// <summary>A scored candidate. Efficiencies are measured throughput over the PHY that bounds it.</summary>
 /// <param name="Candidate">The association scored.</param>

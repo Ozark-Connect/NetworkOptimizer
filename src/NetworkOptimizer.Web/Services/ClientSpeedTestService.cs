@@ -662,7 +662,11 @@ public class ClientSpeedTestService : IClientSpeedTestService
                     RxRateKbps: Median(g.Select(p => p.RxRateKbps)),
                     SignalDbm: g.Where(p => p.SignalDbm.HasValue).Select(p => p.SignalDbm!.Value)
                         .DefaultIfEmpty().Average(),
-                    Points: g.Count()))
+                    Points: g.Count(),
+                    NoiseDbm: g.Where(p => p.NoiseDbm.HasValue).Select(p => p.NoiseDbm!.Value)
+                        .Cast<double?>().LastOrDefault(),
+                    Channel: g.Select(p => p.Channel).LastOrDefault(c => c.HasValue),
+                    ChannelWidth: g.Select(p => p.ChannelWidth).LastOrDefault(c => c.HasValue)))
                 .ToList();
 
             // Download is From Device and is bounded by RX; upload is To Device and is bounded by TX.
@@ -697,8 +701,15 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 best.Candidate.TxRateKbps, best.Candidate.RxRateKbps,
                 result.WifiTxRateKbps, result.WifiRxRateKbps);
 
+            // The whole association, not just the rates: band, channel and signal all describe the
+            // access point the client was actually on, and leaving them behind keeps the result
+            // half-describing the one it was not.
             if (best.Candidate.TxRateKbps is > 0) result.WifiTxRateKbps = best.Candidate.TxRateKbps;
             if (best.Candidate.RxRateKbps is > 0) result.WifiRxRateKbps = best.Candidate.RxRateKbps;
+            if (best.Candidate.SignalDbm is < 0) result.WifiSignalDbm = (int)Math.Round(best.Candidate.SignalDbm.Value);
+            if (best.Candidate.NoiseDbm is < 0) result.WifiNoiseDbm = (int)Math.Round(best.Candidate.NoiseDbm.Value);
+            if (best.Candidate.Channel is > 0) result.WifiChannel = best.Candidate.Channel;
+            if (RadioTokenFor(best.Candidate.Band) is { } radio) result.WifiRadio = radio;
 
             // The wireless hop is what the trace renders. Ingress is TX (To Device), egress is RX.
             var hop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
@@ -718,6 +729,15 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     private static string Pct(double? efficiency) => efficiency.HasValue ? $"{efficiency.Value * 100:F1}%" : "n/a";
+
+    /// <summary>The series band tag as the radio token the result stores. Null leaves the field alone.</summary>
+    private static string? RadioTokenFor(string? band) => band?.ToLowerInvariant() switch
+    {
+        "2.4ghz" => "ng",
+        "5ghz" => "na",
+        "6ghz" => "6e",
+        _ => null,
+    };
 
     private static long? Median(IEnumerable<long?> values)
     {
