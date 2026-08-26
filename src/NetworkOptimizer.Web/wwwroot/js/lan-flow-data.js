@@ -62,12 +62,19 @@ export function publishSnapshot(snap) {
     // Kept pristine. The 3D map keeps the object it passed in as the baseline it diffs the next
     // poll against, so merging into it would write our overlay into its baseline.
     _serverSnapshot = snap;
+    _snapshotStale = false;
     _rebuildMerged();
     // Only seed rates on first load. Subsequent refreshes must not clobber
     // the fresh 1s-polled rates with stale snapshot-time values.
     if (firstLoad) _liveRates = snap.liveRates || {};
     _notify('snapshot');
 }
+
+// True while a live tick has reported a snapshot generation this store does not hold yet. The
+// fetch owners (the 3D map, or the standalone poller below) re-fetch the snapshot on seeing it.
+let _snapshotStale = false;
+
+export function snapshotIsStale() { return _snapshotStale; }
 
 // Client leaves that are not in the server snapshot: rebuilt by the historic pass for a scrub
 // instant, and emitted on a live tick for a client an AP Agent knows about before the console
@@ -139,9 +146,20 @@ export function publishLive(update) {
     _measuredClients = _mode === 'historic' && update.measuredClientIds
         ? new Set(update.measuredClientIds)
         : null;
+    // The add/remove patch only means something relative to the snapshot it was computed
+    // against. When the server has rebuilt past the one held here, applying it would clear
+    // _removedIds and resurrect a departed client out of our stale copy - hold the current
+    // overlay untouched and flag for a re-fetch instead. Historic ticks patch by telemetry,
+    // not by presence, so they apply regardless.
+    const gen = update.snapshotGeneratedAt;
+    const held = _serverSnapshot?.generatedAt;
+    if (_mode === 'live' && gen && held && gen !== held) {
+        _snapshotStale = true;
+        _notify('snapshot-stale');
+    }
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
-    if (_applyAddedClients(update)) _notify('snapshot');
+    else if (_applyAddedClients(update)) _notify('snapshot');
     _notify('live');
 }
 
@@ -239,10 +257,10 @@ export function startPolling(intervalMs = 3000) {
     const signal = _pollAbort.signal;
     _fetchSnapshot(signal).catch(() => {});
     _pollTimer = setInterval(() => {
-        // The topology snapshot is fetched once at start. If it wasn't ready then (e.g. the
-        // site's console connection came up after the map mounted), keep retrying it until it
-        // has nodes - otherwise the map has no topology to draw and stays blank indefinitely.
-        if (!_snapshot || !_snapshot.nodes || _snapshot.nodes.length === 0)
+        // The topology snapshot is fetched once at start, then again whenever it wasn't ready
+        // (console connection came up after the mount) or a live tick reported a generation the
+        // store does not hold - a rebuild that dropped or gained clients server-side.
+        if (!_snapshot || !_snapshot.nodes || _snapshot.nodes.length === 0 || _snapshotStale)
             _fetchSnapshot(signal).catch(() => {});
         _fetchLive(signal).catch(() => {});
     }, intervalMs);

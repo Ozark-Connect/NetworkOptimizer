@@ -327,6 +327,15 @@ public class LanFlowMapBounds
 public class LanFlowMapLiveUpdate
 {
     public DateTime AsOf { get; set; }
+
+    /// <summary>
+    /// Generation of the snapshot this update was computed against. The client add/remove patch
+    /// only means something relative to that snapshot: applied to an older one it resurrects
+    /// clients the rebuild dropped, so the JS layer applies it only when the generations match
+    /// and re-fetches the snapshot when they do not. Null on historic ticks, which patch by
+    /// telemetry rather than by presence.
+    /// </summary>
+    public DateTime? SnapshotGeneratedAt { get; set; }
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
     public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();

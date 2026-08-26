@@ -317,6 +317,7 @@ public class LanFlowMapService
         // Read the cached snapshot or trigger its first build. Subsequent live ticks
         // will short-circuit on the freshness check inside the cache.
         var snapshot = await BuildSnapshotAsync(ct);
+        update.SnapshotGeneratedAt = snapshot.GeneratedAt;
 
         ApplyLiveClientStats(snapshot, update);
         AddLiveOnlyClients(snapshot, update);
