@@ -27,6 +27,9 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="TcpLatAvgMs">Mean TCP round-trip latency toward the client.</param>
 /// <param name="Ccq">Client connection quality.</param>
 /// <param name="Nss">Operating spatial streams.</param>
+/// <param name="CollectedAt">The access point's own clock when it produced this reading. What the
+/// point is stamped with, matching how loss, latency and SNMP are recorded from an agent: the
+/// server's clock describes when it heard, not when it happened.</param>
 public sealed record ApAgentWifiSample(
     string ClientMac,
     string ApMac,
@@ -53,7 +56,8 @@ public sealed record ApAgentWifiSample(
     int? Ccq,
     bool NegotiatedIdle,
     long? IdleSeconds,
-    int? Nss);
+    int? Nss,
+    DateTime? CollectedAt = null);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
 /// <param name="Sample">Field values, averaged or latest per the fold rules.</param>
@@ -90,7 +94,7 @@ public static class ApAgentWifiFieldMapper
     /// link rather than the client, so they are read off the active link - the same link the
     /// agent's scalars already describe.
     /// </summary>
-    public static ApAgentWifiSample? ToSample(ApAgentClient client, string apMac)
+    public static ApAgentWifiSample? ToSample(ApAgentClient client, string apMac, DateTime? collectedAt = null)
     {
         var clientMac = NormalizeMac(client.Key.Length > 0 ? client.Key : client.Mac);
         if (clientMac.Length == 0) return null;
@@ -117,6 +121,7 @@ public static class ApAgentWifiFieldMapper
             TxBytes: active?.TxBytes,
             RxBytes: active?.RxBytes,
             BytesAt: active?.BytesAt,
+            CollectedAt: collectedAt,
             NegotiatedIdle: active?.NegotiatedIdle ?? false,
             // The LOWEST idle across the client's links, not the active link's. An MLO client
             // associates once per band under its own randomised MAC, and a link that carried a few

@@ -224,7 +224,7 @@ public sealed class ApAgentTelemetryCollector
                 {
                     // One point per client, never one per link: the agent has already folded an MLO
                     // client's links onto its MLD MAC.
-                    var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac);
+                    var sample = ApAgentWifiFieldMapper.ToSample(client, target.Mac, payload.CollectedAt);
                     if (sample == null) continue;
 
                     // Before the gates on purpose: a claim they are about to drop is exactly the
@@ -261,7 +261,7 @@ public sealed class ApAgentTelemetryCollector
                             txThroughputBps: pass.Tx ?? 0,
                             rxThroughputBps: pass.Rx ?? 0,
                             signalDbm: sample.SignalDbm,
-                            timestamp: sample.BytesAt ?? now,
+                            timestamp: StampFor(sample.BytesAt ?? sample.CollectedAt, now),
                             txRateKbps: sample.TxRateKbps,
                             rxRateKbps: sample.RxRateKbps);
                     }
@@ -367,6 +367,25 @@ public sealed class ApAgentTelemetryCollector
     }
 
     /// <summary>
+    /// How far an access point's clock may differ from this server's before its own timestamps are
+    /// refused. Trusting the collector's clock is how loss, latency and SNMP are already recorded,
+    /// but a wedged clock would scatter that access point's points across the series instead of
+    /// producing an obvious fault, so an implausible one falls back to the server's.
+    /// </summary>
+    private static readonly TimeSpan MaxAgentClockSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>The reading's own time where it is plausible, the server's where it is not.</summary>
+    private static DateTime StampFor(DateTime? collectedAt, DateTime now)
+    {
+        if (collectedAt is not { } at) return now;
+
+        // AsUtc, never ToUniversalTime: the agent sends UTC, but a value that arrives Unspecified
+        // would be read as local and shifted by the container's offset.
+        var utc = NetworkOptimizer.Core.Helpers.DateTimeUtilities.AsUtc(at);
+        return (utc - now).Duration() > MaxAgentClockSkew ? now : utc;
+    }
+
+    /// <summary>
     /// Reports any client two access points both claimed this pass. Warning rather than debug: it
     /// means we wrote a point per access point for one association, and the map redraws the client
     /// onto whichever answered last.
@@ -419,7 +438,7 @@ public sealed class ApAgentTelemetryCollector
                     txThroughputBps: null,
                     rxThroughputBps: null,
                     signalDbm: s.SignalDbm,
-                    timestamp: now.AddTicks(tickOffset++),
+                    timestamp: StampFor(s.CollectedAt, now).AddTicks(tickOffset++),
                     txRateKbps: s.TxRateKbps,
                     rxRateKbps: s.RxRateKbps);
                 continue;
@@ -442,7 +461,7 @@ public sealed class ApAgentTelemetryCollector
                 txThroughputBps: entry.TxThroughputBps,
                 rxThroughputBps: entry.RxThroughputBps,
                 isMlo: s.IsMlo,
-                timestamp: now.AddTicks(tickOffset++),
+                timestamp: StampFor(s.CollectedAt, now).AddTicks(tickOffset++),
                 txRetries: s.TxRetries,
                 txAttempts: s.TxAttempts,
                 txDropped: s.TxDropped,
