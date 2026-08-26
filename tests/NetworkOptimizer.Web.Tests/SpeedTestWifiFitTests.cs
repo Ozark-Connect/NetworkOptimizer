@@ -29,26 +29,35 @@ public class SpeedTestWifiFitTests
         Assert.Equal("real", best!.Candidate.ApMac);
     }
 
+    /// <summary>
+    /// Efficiency no longer disqualifies. Points are stamped when the access point read them, so an
+    /// association present in the window is evidence; an implausible ratio means the PHY sample is
+    /// unrepresentative, not that this is the wrong access point.
+    /// </summary>
     [Fact]
-    public void A_phy_far_above_the_throughput_is_rejected_outright()
+    public void A_lone_candidate_survives_an_implausible_ratio()
     {
         var scored = SpeedTestWifiFit.Score(
-            new[] { Ap("mesh", txKbps: 1_921_000, rxKbps: 1_441_000) },
+            new[] { Ap("only", txKbps: 1_921_000, rxKbps: 1_441_000) },
             fromDeviceBps: 10.9e6, toDeviceBps: 21.3e6);
 
-        Assert.False(scored[0].IsViable);
-        Assert.Contains("too high", scored[0].Rejected);
+        Assert.True(scored[0].IsViable);
+        Assert.True(scored[0].Score < 0.05, "the ratio is still reported, it just does not disqualify");
     }
 
+    /// <summary>
+    /// A PHY under the measured throughput is a sampling artifact - the rate dipped between reads -
+    /// and the max over the window is what absorbs it. It must not throw the association away.
+    /// </summary>
     [Fact]
-    public void A_phy_below_the_measured_throughput_cannot_have_carried_it()
+    public void A_phy_under_the_throughput_is_a_dip_not_a_disqualification()
     {
         var scored = SpeedTestWifiFit.Score(
-            new[] { Ap("slow", txKbps: 10_000, rxKbps: 10_000) },
+            new[] { Ap("dipped", txKbps: 10_000, rxKbps: 10_000) },
             fromDeviceBps: 400e6, toDeviceBps: 400e6);
 
-        Assert.False(scored[0].IsViable);
-        Assert.Contains("exceeds", scored[0].Rejected);
+        Assert.True(scored[0].IsViable);
+        Assert.True(scored[0].FromDeviceEfficiency > 1);
     }
 
     /// <summary>Download pairs with RX. Swapping the pairing makes this candidate look impossible.</summary>
@@ -65,15 +74,18 @@ public class SpeedTestWifiFitTests
         Assert.Equal(0.667, scored[0].ToDeviceEfficiency!.Value, 2);
     }
 
+    /// <summary>
+    /// The direction guard: swap the rates and the same measurements produce an impossible ratio.
+    /// If this ever reads under 1, the pairing has been inverted somewhere.
+    /// </summary>
     [Fact]
-    public void The_reverse_pairing_would_be_rejected_which_is_what_makes_the_test_meaningful()
+    public void The_reverse_pairing_produces_an_impossible_ratio()
     {
-        // Same numbers with the directions swapped: 90 Mbps against a 30 Mbps TX is impossible.
         var swapped = Ap("ap", txKbps: 120_000, rxKbps: 30_000);
 
         var scored = SpeedTestWifiFit.Score(new[] { swapped }, fromDeviceBps: 90e6, toDeviceBps: 20e6);
 
-        Assert.False(scored[0].IsViable);
+        Assert.True(scored[0].FromDeviceEfficiency > 1, "90Mbps cannot cross a 30Mbps RX");
     }
 
     /// <summary>A distant or interfered link genuinely runs at low efficiency and must survive.</summary>
@@ -149,20 +161,24 @@ public class SpeedTestWifiFitTests
         Assert.True(scored[0].IsViable);
     }
 
+    /// <summary>No candidates at all is the only case that leaves the realtime result standing.</summary>
     [Fact]
-    public void Nothing_fitting_returns_null_so_the_caller_keeps_the_realtime_result()
+    public void No_candidates_returns_null_so_the_caller_keeps_the_realtime_result()
         => Assert.Null(SpeedTestWifiFit.Best(
-            new[] { Ap("mesh", txKbps: 2_000_000, rxKbps: 2_000_000) },
-            fromDeviceBps: 5e6, toDeviceBps: 5e6));
+            Array.Empty<WifiFitCandidate>(), fromDeviceBps: 5e6, toDeviceBps: 5e6));
 
+    /// <summary>
+    /// Coverage outranks efficiency. The access point seen through the window held the client, even
+    /// where another one's rates happen to divide more neatly into the measurement.
+    /// </summary>
     [Fact]
-    public void Viable_candidates_are_ordered_ahead_of_rejected_ones()
+    public void More_points_in_the_window_outranks_a_tidier_ratio()
     {
-        var scored = SpeedTestWifiFit.Score(
-            new[] { Ap("mesh", 1_921_000, 1_441_000), Ap("real", 144_000, 65_000) },
-            fromDeviceBps: 14.0e6, toDeviceBps: 47.3e6);
+        var brief = Ap("brief", txKbps: 150_000, rxKbps: 150_000, points: 1);
+        var present = Ap("present", txKbps: 900_000, rxKbps: 900_000, points: 4);
 
-        Assert.Equal("real", scored[0].Candidate.ApMac);
-        Assert.False(scored[^1].IsViable);
+        var scored = SpeedTestWifiFit.Score(new[] { brief, present }, fromDeviceBps: 100e6, toDeviceBps: 100e6);
+
+        Assert.Equal("present", scored[0].Candidate.ApMac);
     }
 }

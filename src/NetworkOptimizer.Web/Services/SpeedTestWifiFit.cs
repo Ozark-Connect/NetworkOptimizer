@@ -42,13 +42,10 @@ public sealed record WifiFitScore(
 }
 
 /// <summary>
-/// Picks which access point actually served a speed test, by asking which association's PHY explains
-/// the throughput that was measured.
-///
-/// A client that roams mid-test leaves the topology snapshot describing an access point it is no
-/// longer on, and on a meshed access point that snapshot can carry the mesh uplink's PHY instead of
-/// the client's - measured once at 1921/1441 Mbps against 10.9/21.3 Mbps of actual throughput.
-/// Absurdity is the signal: 0.6% efficiency is not a link, it is the wrong record.
+/// Picks which access point actually served a speed test. Time decides: points are stamped when the
+/// access point read them, so an association present through the test window is the one that held
+/// the client. Efficiency only breaks ties between access points that genuinely overlap a roam, and
+/// never disqualifies - an implausible ratio means the PHY sample is unrepresentative.
 ///
 /// Direction mapping, confirmed with TJ and load-bearing (see CLAUDE.md):
 ///   From Device (client to server) = DownloadBitsPerSecond, bounded by RX PHY (access point receives)
@@ -56,21 +53,6 @@ public sealed record WifiFitScore(
 /// </summary>
 public static class SpeedTestWifiFit
 {
-    /// <summary>
-    /// How far measured throughput may exceed the PHY before the candidate cannot be what carried
-    /// it. Generous on purpose: PHY is sampled every ten seconds and moves throughout a test, while
-    /// throughput is averaged across the whole of it, so the two are not measuring the same instant.
-    /// At 1.05 this rejected a correct association reading 110%, which is well inside that noise.
-    /// </summary>
-    public const double MaxEfficiency = 1.5;
-
-    /// <summary>
-    /// Below this the PHY does not describe the link at all. Deliberately far under any real link:
-    /// a genuinely bad one - interference, retries, a distant client - runs at low efficiency and
-    /// must not be discarded as impossible.
-    /// </summary>
-    public const double MinEfficiency = 0.02;
-
     /// <summary>
     /// Scores every candidate. Order is by score descending, rejected ones last, so a caller can log
     /// the whole comparison rather than only what won.
@@ -94,22 +76,18 @@ public static class SpeedTestWifiFit
                 continue;
             }
 
-            var rejected =
-                known.Any(e => e > MaxEfficiency) ? "throughput exceeds this PHY"
-                : known.Any(e => e < MinEfficiency) ? "PHY far too high to explain the throughput"
-                : null;
-
-            scored.Add(new WifiFitScore(c, from, to, known.Average(), rejected));
+            scored.Add(new WifiFitScore(c, from, to, known.Average(), null));
         }
 
-        // Traffic first among viable candidates: an access point that carried nothing during the
-        // window did not serve the test, whatever its PHY implies. Ranked rather than rejected,
-        // because a roam mid-test leaves both sides with no measurable throughput at all.
+        // Time first. Points are stamped when the access point read them, so an association present
+        // through the window IS the one that held the client - that is evidence, where efficiency is
+        // only a proxy for it. Coverage, then whether it carried traffic, then efficiency last as a
+        // tiebreak between access points that genuinely overlap a roam.
         return scored
             .OrderBy(s => s.IsViable ? 0 : 1)
+            .ThenByDescending(s => s.Candidate.Points)
             .ThenByDescending(s => s.Candidate.ObservedThroughputBps > 0 ? 1 : 0)
             .ThenByDescending(s => s.Score)
-            .ThenByDescending(s => s.Candidate.Points)
             .ToList();
     }
 

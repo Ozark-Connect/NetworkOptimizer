@@ -60,10 +60,17 @@ public class Iperf3Result
     [MaxLength(50)]
     public string? DeviceType { get; set; }
 
-    /// <summary>When the test was performed</summary>
+    /// <summary>
+    /// When the result was recorded, which is the end of the direction that produced it. A merged
+    /// bidirectional row keeps the FIRST direction's value: the merge updates the rates, not this.
+    /// </summary>
     public DateTime TestTime { get; set; } = DateTime.UtcNow;
 
-    /// <summary>Test duration in seconds</summary>
+    /// <summary>
+    /// Duration of ONE direction, not of the whole run - both the browser and iperf3 report per
+    /// direction, and a merge does not sum them. Deriving a start time from this understates the
+    /// span by a direction and the gap between them.
+    /// </summary>
     public int DurationSeconds { get; set; } = 10;
 
     /// <summary>Number of parallel streams used</summary>
