@@ -133,11 +133,16 @@ public static class SignalClassification
         };
 
         // The class boundaries are the anchors, so a reading at one is exactly its badge color. The
-        // two endpoints reach past them on purpose: a heat surface runs from the near field to the
-        // noise floor, and without them everything stronger than excellent flattens to one green.
+        // two endpoints reach one step past them, band-relative like everything else: a fixed top
+        // stop stretched 25 dB on 2.4 and 37 on 6, which read as two different scales. Above the
+        // top stop it clamps, which is honest - that strong is as good as it gets.
+        //
+        // Every color is the 500 step of its hue except the top, which is emerald-400: one step
+        // brighter than excellent, same hue, so the blend never rotates through a color that
+        // belongs to no family. Do not reach for a generic bright green here.
         return
         [
-            (-30, "#00dc00"),
+            (excellent + 10, "#34d399"),
             (excellent, "#10b981"),
             (good, "#22c55e"),
             (fair, "#eab308"),
