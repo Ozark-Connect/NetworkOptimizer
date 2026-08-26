@@ -207,10 +207,12 @@ public class ClientDashboardService
                 // followed through a roam is enriched from where it is now.
                 await EnrichWithApInfoAsync(identity, identity.ApMac);
 
-                // The console keeps a departed client in its active list for minutes. Where an
-                // agent covers the access point its verdict is the fresher answer, so the page
-                // shows offline now rather than when the console catches up.
-                if (_apAgentTelemetry?.GetFor(_siteContext.Slug)
+                // The console keeps a departed WIRELESS client in its active list for minutes.
+                // Where an agent covers the access point its verdict is the fresher answer, so the
+                // page shows offline now rather than when the console catches up. Wired clients are
+                // exempt: an agent only ever lists stations, so its silence about one says nothing.
+                if (!identity.IsWired
+                    && _apAgentTelemetry?.GetFor(_siteContext.Slug)
                         .PresenceFor(identity.ApMac, identity.Mac)
                     == NetworkOptimizer.Core.Helpers.AgentClientPresence.Absent)
                 {
