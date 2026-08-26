@@ -25,6 +25,11 @@ func filterVapNames(entries []string) []string {
 		if name == "" || name == hostapdGlobalSocket || strings.HasPrefix(name, ".") {
 			continue
 		}
+		// The wireless backhaul is never polled or controlled. hostapd services auth on the same
+		// loop, and a refused auth there re-pairs the child onto a worse parent.
+		if isFabricVap(name) {
+			continue
+		}
 		vaps = append(vaps, name)
 	}
 	sort.Strings(vaps)

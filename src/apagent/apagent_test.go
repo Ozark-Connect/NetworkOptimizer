@@ -68,9 +68,10 @@ func TestArchGate(t *testing.T) {
 }
 
 func TestFilterVapNames(t *testing.T) {
-	// Measured names differ per AP, and back-yard also carries mesh VAPs.
+	// Measured names differ per AP. The mesh VAPs a parent carries are dropped here: polling the
+	// backhaul has been seen to fail the child's auth, re-pairing it onto a worse parent.
 	entries := []string{"wifi2ap11", "global", "wifi0ap0", "vwireap14", ".hidden", "", "vwireap10"}
-	want := []string{"vwireap10", "vwireap14", "wifi0ap0", "wifi2ap11"}
+	want := []string{"wifi0ap0", "wifi2ap11"}
 	if got := filterVapNames(entries); !reflect.DeepEqual(got, want) {
 		t.Errorf("filterVapNames = %v, want %v", got, want)
 	}
