@@ -3330,8 +3330,12 @@ union(tables: [means, chan])
     private static string SanitizeFluxString(string value) =>
         value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "").Replace("${", "");
 
-    private static DateTime ToUtc(DateTime t) =>
-        t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
+    /// <summary>
+    /// Kept as a local name for the many read paths that call it; the rule itself is shared. It used
+    /// to relabel a Local timestamp as UTC rather than converting it, which was only ever safe
+    /// because every caller passes a value that came back from Influx already UTC.
+    /// </summary>
+    private static DateTime ToUtc(DateTime t) => NetworkOptimizer.Core.Helpers.DateTimeUtilities.AsUtc(t);
 
     private static double? AsDoubleOrNull(object? v) => v switch
     {

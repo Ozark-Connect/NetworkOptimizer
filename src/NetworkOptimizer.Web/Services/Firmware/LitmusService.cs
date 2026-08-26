@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -85,15 +86,6 @@ public class LitmusService : IRolloutLitmusService
         _logger = logger;
     }
 
-    /// <summary>
-    /// A window bound as the Influx client expects it. Half of these come from the clock and half
-    /// from a step's own record, and SQLite hands a DateTime back Unspecified - which the client
-    /// reads as LOCAL and converts, so a post-upgrade window asked for hours that had not happened
-    /// yet and came back with nothing. Every timestamp this app stores is UTC.
-    /// </summary>
-    internal static DateTime AsUtc(DateTime t) =>
-        t.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : t.ToUniversalTime();
-
     /// <inheritdoc />
     public async Task<RolloutResourceStats> CaptureStatsAsync(
         string deviceMac, DateTime from, DateTime to, CancellationToken cancellationToken = default)
@@ -101,8 +93,8 @@ public class LitmusService : IRolloutLitmusService
         if (string.IsNullOrWhiteSpace(deviceMac) || to <= from)
             return new RolloutResourceStats();
 
-        from = AsUtc(from);
-        to = AsUtc(to);
+        from = DateTimeUtilities.AsUtc(from);
+        to = DateTimeUtilities.AsUtc(to);
 
         try
         {

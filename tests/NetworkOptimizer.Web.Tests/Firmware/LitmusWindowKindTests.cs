@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Web.Services.Firmware;
 using Xunit;
 
@@ -17,7 +18,7 @@ public class LitmusWindowKindTests
     {
         var backAt = new DateTime(2026, 8, 15, 4, 24, 41, DateTimeKind.Unspecified);
 
-        var utc = LitmusService.AsUtc(backAt);
+        var utc = DateTimeUtilities.AsUtc(backAt);
 
         utc.Kind.Should().Be(DateTimeKind.Utc);
         utc.Should().Be(new DateTime(2026, 8, 15, 4, 24, 41, DateTimeKind.Utc));
@@ -28,7 +29,7 @@ public class LitmusWindowKindTests
     {
         var now = new DateTime(2026, 8, 15, 4, 24, 41, DateTimeKind.Utc);
 
-        LitmusService.AsUtc(now).Should().Be(now);
+        DateTimeUtilities.AsUtc(now).Should().Be(now);
     }
 
     [Fact]
@@ -36,6 +37,6 @@ public class LitmusWindowKindTests
     {
         var local = new DateTime(2026, 8, 15, 4, 24, 41, DateTimeKind.Local);
 
-        LitmusService.AsUtc(local).Should().Be(local.ToUniversalTime());
+        DateTimeUtilities.AsUtc(local).Should().Be(local.ToUniversalTime());
     }
 }

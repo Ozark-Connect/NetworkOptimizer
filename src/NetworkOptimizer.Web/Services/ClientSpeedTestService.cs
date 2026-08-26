@@ -636,14 +636,18 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
         try
         {
+            // Never hand the Influx client a raw stored timestamp: see DateTimeUtilities.AsUtc.
+            var anchor = DateTimeUtilities.AsUtc(result.TestTime);
             var duration = TimeSpan.FromSeconds(Math.Max(result.DurationSeconds, 1));
-            var to = result.TestTime - SeriesLag + SeriesSlack;
-            var from = result.TestTime - SeriesLag - duration - SeriesSlack;
+            var to = anchor - SeriesLag + SeriesSlack;
+            var from = anchor - SeriesLag - duration - SeriesSlack;
 
             var points = await _influx.QueryWifiClientSamplesAsync(result.ClientMac, from, to);
             if (points.Count == 0)
             {
-                _logger.LogDebug("Wi-Fi fit for {Mac}: no series points in {From:HH:mm:ss}-{To:HH:mm:ss}",
+                // Expected on the trace that runs during the test: the window reaches past now, so
+                // the points do not exist yet. The post-test trace is the one that should find them.
+                _logger.LogDebug("Wi-Fi fit for {Mac}: no series points in {From:yyyy-MM-dd HH:mm:ss}Z-{To:HH:mm:ss}Z",
                     result.ClientMac, from, to);
                 return false;
             }
