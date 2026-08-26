@@ -90,6 +90,9 @@ public sealed class ApAgentTelemetryCollector
 
     private readonly ApAgentCoverageLedger _coverage = new();
     private readonly ApAgentMembershipLedger _membership = new();
+
+    /// <summary>Access points the site expects to hear from, from the last membership pass.</summary>
+    private volatile int _targetCount;
     private readonly ApAgentAirtimeAggregator _airtime = new();
     private readonly ConcurrentDictionary<string, ApAgentWifiAccumulator> _accumulators = new(StringComparer.OrdinalIgnoreCase);
     private readonly ApAgentPassWitness _witness = new();
@@ -150,8 +153,9 @@ public sealed class ApAgentTelemetryCollector
             {
                 _lastVerdict[key] = verdict;
                 _logger.LogDebug(
-                    "[Presence] {Client} on {Ap} (site {Site}): {Previous} -> {Verdict}",
-                    clientMac, string.IsNullOrEmpty(apMac) ? "-" : apMac, _siteSlug, previous, verdict);
+                    "[Presence] {Client} on {Ap} (site {Site}): {Previous} -> {Verdict} (answers={Answers}/{Targets})",
+                    clientMac, string.IsNullOrEmpty(apMac) ? "-" : apMac, _siteSlug, previous, verdict,
+                    _membership.FreshAnswersNamingClients(DateTime.UtcNow), _targetCount);
             }
         }
 
@@ -169,7 +173,17 @@ public sealed class ApAgentTelemetryCollector
         // absence. Present and the listed-as-stale form carry their own evidence, so the ledger
         // resolves them from any fresh answer, claimed access point or none at all.
         var claimed = !string.IsNullOrEmpty(apMac) && _coverage.Covers(apMac, now) ? apMac : null;
-        return _membership.PresenceFor(claimed, clientMac, now);
+        var verdict = _membership.PresenceFor(claimed, clientMac, now);
+        if (verdict != NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown) return verdict;
+
+        // Nothing named this client and no access point was claimed. When every access point the
+        // site expects answered freshly and named someone, the agents can see the whole site, so
+        // absence from all of them is absence. Short of that the guard holds and this stays Unknown,
+        // because the client may be on an access point no agent covers.
+        var targets = _targetCount;
+        return targets > 0 && _membership.FreshAnswersNamingClients(now) >= targets
+            ? NetworkOptimizer.Core.Helpers.AgentClientPresence.Absent
+            : NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown;
     }
 
     /// <summary>
@@ -250,6 +264,7 @@ public sealed class ApAgentTelemetryCollector
         if (!await _directory.IsSiteEnabledAsync(_siteSlug, ct)) return;
 
         var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
+        _targetCount = targets.Count;
         if (targets.Count == 0) return;
 
         var now = DateTime.UtcNow;

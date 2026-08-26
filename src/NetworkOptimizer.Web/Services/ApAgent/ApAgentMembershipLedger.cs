@@ -269,6 +269,20 @@ public sealed class ApAgentMembershipLedger
     /// Unknown: an empty or missing answer must never read as departure, or an agent restart or
     /// tunnel blip would mass-drop a site.
     /// </summary>
+    /// <summary>
+    /// How many access points have a fresh answer that named at least one client. Compared against
+    /// the site's target count, this is what says the agents can see the whole site right now.
+    /// </summary>
+    public int FreshAnswersNamingClients(DateTime now)
+    {
+        var n = 0;
+        foreach (var answer in _answers.Values)
+        {
+            if (now - answer.At <= AnswerTtl && answer.NamedAnyClient) n++;
+        }
+        return n;
+    }
+
     public AgentClientPresence PresenceFor(string? apMac, string? clientMac, DateTime now)
     {
         var mac = Normalize(clientMac);
