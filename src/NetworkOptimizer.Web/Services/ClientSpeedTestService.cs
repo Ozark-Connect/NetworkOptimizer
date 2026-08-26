@@ -720,16 +720,20 @@ public class ClientSpeedTestService : IClientSpeedTestService
             }
 
             _logger.LogDebug(
-                "Wi-Fi fit [{Attempt} #{Id}] {Mac}: took {Ap} from the series, {Tx}/{Rx} Kbps (was {OldTx}/{OldRx} from realtime)",
+                "Wi-Fi fit [{Attempt} #{Id}] {Mac}: took {Ap} from the series, TX {Tx}{TxHeld} / RX {Rx}{RxHeld} Kbps (was {OldTx}/{OldRx} from realtime)",
                 attempt, result.Id, result.ClientMac, best.Candidate.ApMac,
-                best.Candidate.TxRateKbps, best.Candidate.RxRateKbps,
+                best.Candidate.TxRateKbps, best.TxIsPlausible ? "" : " HELD",
+                best.Candidate.RxRateKbps, best.RxIsPlausible ? "" : " HELD",
                 result.WifiTxRateKbps, result.WifiRxRateKbps);
 
             // The whole association, not just the rates: band, channel and signal all describe the
             // access point the client was actually on, and leaving them behind keeps the result
             // half-describing the one it was not.
-            if (best.Candidate.TxRateKbps is > 0) result.WifiTxRateKbps = best.Candidate.TxRateKbps;
-            if (best.Candidate.RxRateKbps is > 0) result.WifiRxRateKbps = best.Candidate.RxRateKbps;
+            // Per direction: TX and RX are sampled independently, so a dip in one must not withhold
+            // the other. The direction that is still implausible keeps what it had and a later
+            // attempt fills it in.
+            if (best.TxIsPlausible && best.Candidate.TxRateKbps is > 0) result.WifiTxRateKbps = best.Candidate.TxRateKbps;
+            if (best.RxIsPlausible && best.Candidate.RxRateKbps is > 0) result.WifiRxRateKbps = best.Candidate.RxRateKbps;
             if (best.Candidate.SignalDbm is < 0) result.WifiSignalDbm = (int)Math.Round(best.Candidate.SignalDbm.Value);
             if (best.Candidate.NoiseDbm is < 0) result.WifiNoiseDbm = (int)Math.Round(best.Candidate.NoiseDbm.Value);
             if (best.Candidate.Channel is > 0) result.WifiChannel = best.Candidate.Channel;
@@ -757,8 +761,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
             var hop = analysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
             if (hop != null)
             {
-                if (best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
-                if (best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
+                if (best.TxIsPlausible && best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
+                if (best.RxIsPlausible && best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
                 result.PathAnalysis = analysis;
             }
 

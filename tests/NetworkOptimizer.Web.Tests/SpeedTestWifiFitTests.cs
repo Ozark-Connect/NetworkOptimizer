@@ -182,6 +182,22 @@ public class SpeedTestWifiFitTests
         Assert.False(scored[0].IsPlausible, "but the rates are not worth writing");
     }
 
+    /// <summary>
+    /// The measured case again: RX was a dip at 240% while TX was a sound 35%. Judging them together
+    /// discards a good TX reading to wait for a bad RX.
+    /// </summary>
+    [Fact]
+    public void One_direction_dipping_does_not_hold_back_the_other()
+    {
+        var scored = SpeedTestWifiFit.Score(
+            new[] { Ap("backyard", txKbps: 432_000, rxKbps: 24_000) },
+            fromDeviceBps: 57.6e6, toDeviceBps: 151.7e6);
+
+        Assert.True(scored[0].TxIsPlausible, "TX at 35% is sound");
+        Assert.False(scored[0].RxIsPlausible, "RX at 240% is a dip");
+        Assert.False(scored[0].IsPlausible, "so there is still something to wait for");
+    }
+
     [Fact]
     public void A_normal_link_is_plausible()
     {

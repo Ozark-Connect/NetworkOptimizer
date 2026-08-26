@@ -41,14 +41,19 @@ public sealed record WifiFitScore(
     public bool IsViable => Rejected == null;
 
     /// <summary>
-    /// Whether the rates are worth recording. PHY moves through a test and these points sample it,
-    /// so a ratio at or above the link's own capacity means the sample caught a dip, not that the
-    /// access point is wrong. Worth waiting for another point rather than writing this one.
+    /// Whether the RX rate is worth recording. PHY moves through a test and these points sample it,
+    /// so a ratio at or above the link's own capacity means this sample caught a dip.
     /// </summary>
-    public bool IsPlausible =>
-        IsViable
-        && (FromDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling)
-        && (ToDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling);
+    public bool RxIsPlausible =>
+        IsViable && FromDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling;
+
+    /// <summary>Whether the TX rate is worth recording. Judged apart from RX: the two are sampled
+    /// independently and one can dip while the other is sound.</summary>
+    public bool TxIsPlausible =>
+        IsViable && ToDeviceEfficiency is null or <= SpeedTestWifiFit.PlausibleCeiling;
+
+    /// <summary>Both directions believable, which is when there is nothing left to wait for.</summary>
+    public bool IsPlausible => RxIsPlausible && TxIsPlausible;
 }
 
 /// <summary>
