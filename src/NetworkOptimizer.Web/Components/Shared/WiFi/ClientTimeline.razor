@@ -983,6 +983,11 @@
 
     private void SelectClient(string mac)
     {
+        // Re-picking the client already shown would reload its detail for the same answer.
+        if (!string.IsNullOrEmpty(_selectedClientMac)
+            && string.Equals(mac, _selectedClientMac, StringComparison.OrdinalIgnoreCase))
+            return;
+
         _selectedClientMac = mac;
         var client = _clients.FirstOrDefault(c => c.Mac == mac);
         _clientSearchText = client?.Name ?? mac;

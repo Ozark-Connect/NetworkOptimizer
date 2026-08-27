@@ -1668,6 +1668,11 @@
 
     private async Task ViewClientByIpAsync(string ip)
     {
+        // Picking the client already being viewed is not a navigation: the page below is already
+        // its page, and reloading would throw away the live state to arrive back where it started.
+        if (!string.IsNullOrEmpty(_clientIp) && string.Equals(ip, _clientIp, StringComparison.OrdinalIgnoreCase))
+            return;
+
         _pickerSelection = ip;
         await ViewPickedClientAsync();
     }
