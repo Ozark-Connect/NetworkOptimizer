@@ -1335,9 +1335,9 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// One port reading in the client's terms. The port's inbound is what the client sent, so each
-    /// pair is flipped. Rates prefer the client's own measured throughput where the collector has
-    /// it, because a shared port carries traffic that is not this device's.
+    /// One port reading in the client's terms: the port's inbound is what the client sent, so each
+    /// pair is flipped. The port's SNMP rate leads, because the client-level figure standing in
+    /// behind it only moves on the console poll.
     /// </summary>
     private static WiredPortStats ToWiredPortStats(
         NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint row,
@@ -1352,8 +1352,8 @@ public class ClientDashboardService
             Port = port,
             LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
             LinkSpeedBps = row.SpeedBps,
-            DownloadBps = own?.TxThroughputBps ?? row.RateOutBps,
-            UploadBps = own?.RxThroughputBps ?? row.RateInBps,
+            DownloadBps = row.RateOutBps ?? own?.TxThroughputBps,
+            UploadBps = row.RateInBps ?? own?.RxThroughputBps,
             ErrorsToClient = row.ErrorsOut,
             ErrorsFromClient = row.ErrorsIn,
             DropsToClient = row.DiscardsOut,
