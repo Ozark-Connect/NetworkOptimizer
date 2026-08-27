@@ -46,6 +46,9 @@ public class ClientDashboardService
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
+    // Which interfaces carry a device's console port number, resolved once per watched port.
+    private readonly ConcurrentDictionary<(string Mac, int Port), List<string>> _portIfNames = new();
+
     // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
     // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
     private readonly ApAgentClientLiveService? _apAgentLive;
@@ -1288,12 +1291,20 @@ public class ClientDashboardService
             // The console's port number reaches the counters through InterfaceNameMaps, exactly as
             // the Port Statistics table resolves it. The port_id tag is the SNMP side's own id and
             // is not this number.
-            await using var db = CreateSiteDb();
+            //
+            // Held for the page's lifetime because this runs on the live tick: cabling does not move
+            // while someone watches one client, and a port that gains a mapping shows on reload.
             var mac = client.SwitchMac.ToLowerInvariant();
-            var ifNames = await db.InterfaceNameMaps.AsNoTracking()
-                .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
-                .Select(m => m.IfName)
-                .ToListAsync();
+            if (!_portIfNames.TryGetValue((mac, port), out var ifNames))
+            {
+                await using var db = CreateSiteDb();
+                ifNames = await db.InterfaceNameMaps.AsNoTracking()
+                    .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
+                    .Select(m => m.IfName)
+                    .ToListAsync();
+                _portIfNames[(mac, port)] = ifNames;
+            }
+
             if (ifNames.Count == 0)
             {
                 _logger.LogDebug("No interface mapped to port {Port} on {Mac}", port, client.SwitchMac);
