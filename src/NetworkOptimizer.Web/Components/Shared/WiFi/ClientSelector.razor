@@ -68,7 +68,7 @@
     [Parameter] public string Placeholder { get; set; } = "Select or search for a client...";
 
     private string _search = "";
-    private int _highlight;
+    private int _highlight = NoHighlight;
     private bool _open;
     private ElementReference _filterInput;
 
