@@ -388,13 +388,13 @@
                     }
                     @if (port.ErrorsFromClient.HasValue || port.ErrorsToClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Port errors, from then to this device">
+                        <span class="identity-detail" data-tooltip="Port errors, from / to device">
                             Errors @(port.ErrorsFromClient ?? 0) / @(port.ErrorsToClient ?? 0)
                         </span>
                     }
                     @if (port.DropsFromClient.HasValue || port.DropsToClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Frames the port discarded, from then to this device">
+                        <span class="identity-detail" data-tooltip="Frames the port discarded, from / to device">
                             Drops @(port.DropsFromClient ?? 0) / @(port.DropsToClient ?? 0)
                         </span>
                     }
