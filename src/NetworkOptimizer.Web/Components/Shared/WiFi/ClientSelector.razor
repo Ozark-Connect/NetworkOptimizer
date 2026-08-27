@@ -336,6 +336,14 @@
         await SelectedKeyChanged.InvokeAsync(item.Key);
     }
 
+    /// <summary>
+    /// The hex of a MAC with nothing else, so both sides of a comparison are separator-blind: a
+    /// device is found by colons, dashes, dots, or none at all, in whole or in part, and an OUI on
+    /// its own is simply a short prefix.
+    /// </summary>
+    private static string HexDigits(string value) =>
+        new(value.Where(Uri.IsHexDigit).Select(char.ToLowerInvariant).ToArray());
+
     private IEnumerable<Item> Filtered()
     {
         var items = Items.AsEnumerable();
@@ -343,11 +351,13 @@
         if (!string.IsNullOrWhiteSpace(_search))
         {
             var filter = _search.Trim();
+            var hex = HexDigits(filter);
             items = items.Where(i =>
                 i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                 (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (i.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase));
+                i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                (hex.Length > 0 && HexDigits(i.Mac ?? "").Contains(hex, StringComparison.Ordinal)));
         }
 
         // The selector owns the order: a caller's sort would be discarded here anyway.
