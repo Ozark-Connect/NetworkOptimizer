@@ -11,7 +11,7 @@
       "selector": "[data-tour=\"ap-telemetry\"]",
       "title": "AP Telemetry",
       "listLabel": "Read Wi-Fi data straight from your access points",
-      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.\n\nMore performance, analysis, and recommendation features built on this data are coming soon.",
+      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.\n\nMore performance analysis and recommendation features built on this data are coming soon.",
       "placement": "top",
       "optional": true
     },
