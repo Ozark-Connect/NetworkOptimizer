@@ -10519,7 +10519,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .filterable-select-option[data-selected="true"] {
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(59, 130, 246, 0.26);
     box-shadow: inset 2px 0 0 var(--primary-color);
 }
 
