@@ -26,6 +26,7 @@
 @inject PullToRefreshState PtrState
 @inject ILogger<ClientDashboard> Logger
 @inject NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService ApAgentRoam
+@inject MonitoringReadinessService Readiness
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -345,16 +346,16 @@
                     {
                         <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
-                    @if (_wifiThroughput?.UploadBps is > 0)
+                    @if (_wifiThroughput?.UploadBps is { } wifiUp)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
+                            From <span class="speed-down">@DisplayFormatters.FormatRate(wifiUp)</span>
                         </span>
                     }
-                    @if (_wifiThroughput?.DownloadBps is > 0)
+                    @if (_wifiThroughput?.DownloadBps is { } wifiDown)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
+                            To <span class="speed-up">@DisplayFormatters.FormatRate(wifiDown)</span>
                         </span>
                     }
                     @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
@@ -373,16 +374,16 @@
                     {
                         <span class="identity-detail" data-tooltip="Negotiated link speed">@DisplayFormatters.FormatRate(port.LinkSpeedBps)</span>
                     }
-                    @if (port.UploadBps is > 0)
+                    @if (port.UploadBps is { } portUp)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(port.UploadBps)</span>
+                            From <span class="speed-down">@DisplayFormatters.FormatRate(portUp)</span>
                         </span>
                     }
-                    @if (port.DownloadBps is > 0)
+                    @if (port.DownloadBps is { } portDown)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
+                            To <span class="speed-up">@DisplayFormatters.FormatRate(portDown)</span>
                         </span>
                     }
                     @if (port.ErrorsToClient.HasValue || port.ErrorsFromClient.HasValue)
@@ -626,6 +627,7 @@
                                                     <td colspan="@(HidesApRates ? 6 : 8)">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
+                                                                              ShowLiveViewLink="_liveViewLinkEnabled"
                                                                               OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
                                                         </div>
                                                     </td>
@@ -1017,6 +1019,7 @@
     private bool _tabLoading;
     private ClientIdentity? _client;
     private WiredPortStats? _portStats;
+    private bool _liveViewLinkEnabled;
     private (double? DownloadBps, double? UploadBps, DateTime At)? _wifiThroughput;
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
@@ -1196,6 +1199,8 @@
     {
         PtrState.RefreshCallback = () => LoadTabDataAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
+
+        _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         // _canSteer is resolved after identity, since it depends on which client this is.
 

@@ -3,9 +3,19 @@
 ## Per-client data totals, WAN and LAN
 
 Client Performance shows live throughput and port counters for a wired client. Totals are the
-obvious next step, and both halves already exist: UniFi Network carries WAN bytes per client, and
-SNMP gives us LAN bytes per switch port (`interface_counters` holds `bytes_in` / `bytes_out`,
-tagged `device_mac` + `port_id`).
+obvious next step, over the same ranges the page's time filter already offers rather than a fixed
+24 hours, and UniFi Network carries the WAN half as bytes per client.
+
+The LAN half comes from a different place for each kind of client, which is the part to settle
+first:
+
+- **Wireless**: `wifi_client` already holds `tx_bytes` / `rx_bytes` per client. Written only on the
+  full points, not the thin throughput ones, so the sampling is coarser than the rates.
+- **Wired**: nothing stores per-client bytes today. `interface_counters` has `bytes_in` /
+  `bytes_out` tagged `device_mac` + `port_id`, which is the PORT. UniFi's own per-client
+  `WiredTxBytes` / `WiredRxBytes` are read live in `MonitoringCollectionAgent` but never persisted,
+  and `wired_client` carries throughput only. So wired needs a decision: accept port totals with
+  the caveat below, or start storing the client counters (additive fields on `wired_client`).
 
 Worth settling before building:
 
@@ -15,6 +25,8 @@ Worth settling before building:
   than subtracting endpoints.
 - WAN and LAN totals answer different questions and must not be added together: WAN is what left
   the site, LAN includes traffic that never did (NAS copies, casting, local speed tests).
+- Wireless and wired totals will not be comparable until they come from the same kind of source.
+  Say which a number is, rather than presenting one figure that quietly changes meaning.
 
 Real-time throughput charts belong with it, in the WAN Live Chart's shape, for wired and wireless
 clients alike. Build the two together.
