@@ -82,6 +82,10 @@
 
     private async Task Open()
     {
+        // Idempotent: click fires on every interaction with an already-open control, and re-running
+        // this re-renders and re-scrolls under whatever the user is doing.
+        if (_open) return;
+
         _open = true;
         _highlight = NoHighlight;
         await ScrollToSelectedAsync();
@@ -107,7 +111,9 @@
         if (string.IsNullOrEmpty(_search)) return;
         try
         {
-            await JS.InvokeVoidAsync("eval", $"document.getElementById('{_listId}-input')?.select()");
+            // Deferred: a render landing between the click and this would drop the selection.
+            await JS.InvokeVoidAsync("eval",
+                $"setTimeout(function(){{document.getElementById('{_listId}-input')?.select();}},0)");
         }
         catch (Exception ex)
         {
