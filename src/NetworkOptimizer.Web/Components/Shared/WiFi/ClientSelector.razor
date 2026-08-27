@@ -148,16 +148,11 @@
     /// </summary>
     private async Task HandOffSearchAsync()
     {
-        if (string.IsNullOrEmpty(PersistKey) || string.IsNullOrEmpty(_search))
-        {
-            Logger.LogDebug("Selector handoff skipped: key={Key} search={Search}", PersistKey, _search);
-            return;
-        }
+        if (string.IsNullOrEmpty(PersistKey) || string.IsNullOrEmpty(_search)) return;
         try
         {
             var value = System.Text.Json.JsonSerializer.Serialize(_search);
             await JS.InvokeVoidAsync("eval", $"sessionStorage.setItem('{PersistKey}', {value})");
-            Logger.LogDebug("Selector handoff wrote {Key}={Search}", PersistKey, _search);
         }
         catch (Exception ex)
         {
@@ -167,17 +162,12 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || string.IsNullOrEmpty(PersistKey))
-        {
-            if (firstRender) Logger.LogDebug("Selector restore skipped: no key");
-            return;
-        }
+        if (!firstRender || string.IsNullOrEmpty(PersistKey)) return;
         try
         {
             var stored = await JS.InvokeAsync<string?>("eval",
                 $"(function(){{var v=sessionStorage.getItem('{PersistKey}');" +
                 $"sessionStorage.removeItem('{PersistKey}');return v;}})()");
-            Logger.LogDebug("Selector restore read {Key}={Stored}", PersistKey, stored ?? "(null)");
             if (!string.IsNullOrEmpty(stored))
             {
                 _search = stored;
@@ -342,6 +332,7 @@
     private async Task Pick(Item item)
     {
         _open = false;
+        await HandOffSearchAsync();
         await SelectedKeyChanged.InvokeAsync(item.Key);
     }
 
