@@ -6,7 +6,9 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// Remembers which devices are inside their own firmware rollout window, so the standard
 /// <c>device.offline</c> and <c>device.rebooted</c> alerts stay quiet for a restart the rollout
 /// asked for. The rollout's own alerts always flow; this only mutes the generic ones, and only
-/// while the plan has <c>SuppressStandardAlerts</c> on.
+/// while the plan has <c>SuppressStandardAlerts</c> on. It also carries the AP Agent hold
+/// (<see cref="RefreshAgentHold"/>), which is independent of that flag: not redeploying a binary
+/// at a flashing access point is never a preference.
 ///
 /// Same shape and the same deliberate staleness as <c>DeviceTransitionTracker</c>: the orchestrator
 /// refreshes an entry on every pass while a device's window is open, so if the orchestrator stops,
@@ -26,6 +28,7 @@ public class RolloutSuppressionRegistry
     public static readonly TimeSpan WindowFreshness = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _windowRefreshedAt = new();
+    private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _agentHoldAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _osCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
@@ -86,15 +89,43 @@ public class RolloutSuppressionRegistry
     }
 
     /// <summary>
+    /// Marks the device's AP Agent as held off while its own upgrade step is in flight, so the
+    /// agent's supervisor does not push the binary back at a device that is flashing or booting.
+    /// Unlike the alert windows, never gated on <c>SuppressStandardAlerts</c>; same staleness rule,
+    /// so a crashed rollout releases the hold within <see cref="WindowFreshness"/>.
+    /// </summary>
+    /// <param name="siteSlug">Site the device belongs to.</param>
+    /// <param name="deviceMac">Device MAC in any format.</param>
+    /// <param name="observedAt">When the hold was last confirmed open.</param>
+    public void RefreshAgentHold(string siteSlug, string? deviceMac, DateTime observedAt)
+    {
+        if (string.IsNullOrWhiteSpace(deviceMac)) return;
+        _agentHoldAt[(NormalizeSite(siteSlug), Normalize(deviceMac))] = observedAt.ToUniversalTime();
+    }
+
+    /// <summary>Whether this device's AP Agent is held off by an in-flight rollout step.</summary>
+    /// <param name="siteSlug">Site the device belongs to.</param>
+    /// <param name="deviceMac">Device MAC in any format.</param>
+    /// <param name="now">Current time.</param>
+    public bool IsAgentHeld(string siteSlug, string? deviceMac, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(deviceMac)) return false;
+        return _agentHoldAt.TryGetValue((NormalizeSite(siteSlug), Normalize(deviceMac)), out var at)
+            && now.ToUniversalTime() - at <= WindowFreshness;
+    }
+
+    /// <summary>
     /// Ends a device's window at once, so a settled step is alertable again without waiting out
-    /// the staleness.
+    /// the staleness. Releases the AP Agent hold too: a settled step means the redeploy is welcome.
     /// </summary>
     /// <param name="siteSlug">Site the device belongs to.</param>
     /// <param name="deviceMac">Device MAC in any format.</param>
     public void Clear(string siteSlug, string? deviceMac)
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return;
-        _windowRefreshedAt.TryRemove((NormalizeSite(siteSlug), Normalize(deviceMac)), out _);
+        var key = (NormalizeSite(siteSlug), Normalize(deviceMac));
+        _windowRefreshedAt.TryRemove(key, out _);
+        _agentHoldAt.TryRemove(key, out _);
     }
 
     /// <summary>
@@ -129,6 +160,8 @@ public class RolloutSuppressionRegistry
         _osCyclingAt.TryRemove(site, out _);
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
+        foreach (var key in _agentHoldAt.Keys.Where(k => k.Site == site).ToList())
+            _agentHoldAt.TryRemove(key, out _);
     }
 
     private static string Normalize(string mac) =>

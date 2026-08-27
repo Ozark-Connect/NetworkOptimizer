@@ -945,6 +945,56 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task ApAgentHoldOpensWhenAnApIsCommandedAndReleasesWhenItSettles()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApAgentHoldIsArmedEvenWithAlertSuppressionOff()
+    {
+        using var harness = new RolloutHarness();
+        await harness.WithSettingsAsync(s => s.SuppressStandardAlerts = false);
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ApAgentHoldIsNotArmedForASwitchStep()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Switch 1", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Switch 1");
+
+        await harness.TickAsync();
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, SwitchMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public async Task EveryTransitionIsPersistedAsItHappens()
     {
         using var harness = new RolloutHarness();

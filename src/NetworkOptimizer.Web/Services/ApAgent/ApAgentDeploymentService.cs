@@ -49,6 +49,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+    private readonly Firmware.RolloutSuppressionRegistry _rolloutSuppression;
     private readonly string _siteSlug;
     private readonly DateTime _startedAtUtc = DateTime.UtcNow;
 
@@ -69,6 +70,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         SiteTunnelRouting tunnelRouting,
         ICredentialProtectionService credentialProtection,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
+        Firmware.RolloutSuppressionRegistry rolloutSuppression,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
@@ -81,6 +83,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         _tunnelRouting = tunnelRouting;
         _credentialProtection = credentialProtection;
         _siteWorkGate = siteWorkGate;
+        _rolloutSuppression = rolloutSuppression;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
 
         SubscribeToRebootSignal();
@@ -381,6 +384,10 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             var mac = NormalizeMac(ap.Mac);
             records.TryGetValue(mac, out var record);
             if (record is { Enabled: false }) continue;
+
+            // A firmware rollout holds the agent off an AP that is mid-upgrade. The hold lapses on
+            // its own if the rollout stops refreshing it, and the next pass redeploys as normal.
+            if (_rolloutSuppression.IsAgentHeld(_siteSlug, mac, now)) continue;
 
             // The stagger: a server restart must not fire a simultaneous transfer at every AP on
             // the site, so each one waits out its own offset before its first pass.

@@ -210,6 +210,67 @@ public class RolloutSuppressionRegistryTests
         registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
     }
 
+    // --- AP Agent hold (keeps the agent's supervisor off a device mid-upgrade) -----------------
+
+    [Fact]
+    public void AgentHoldIsSeparateFromTheAlertWindows()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AlertWindowAloneDoesNotHoldTheAgent()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.Refresh(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AgentHoldNobodyRefreshesLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness).Should().BeTrue();
+        registry.IsAgentHeld(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearReleasesTheAgentHold()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+        registry.Clear(Site, Mac);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearingASiteDropsItsAgentHolds()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+        registry.ClearSite(Site);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void EverySpellingOfTheSameMacIsTheSameAgentHold()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, "AA-BB-CC-DD-EE-01", Now).Should().BeTrue();
+    }
+
     // --- Evaluator integration ----------------------------------------------------------------
 
     [Fact]

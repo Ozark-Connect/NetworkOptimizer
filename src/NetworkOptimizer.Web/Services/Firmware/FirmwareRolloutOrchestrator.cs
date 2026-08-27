@@ -133,6 +133,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IReleaseMetadataSource _releases;
     private readonly IAlertEventBus _eventBus;
     private readonly SiteTunnelRouting? _tunnelRouting;
+    private readonly ApAgent.ApAgentRegistry? _apAgents;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
     private readonly string _siteSlug;
@@ -164,7 +165,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="health">Start-time health gate.</param>
     /// <param name="meshRepairs">Background mesh re-pair queue.</param>
     /// <param name="channels">Console channel set and restore.</param>
-    /// <param name="suppression">Standard-alert suppression windows.</param>
+    /// <param name="suppression">Standard-alert suppression windows and AP Agent holds.</param>
     /// <param name="autopilot">Unattended plan builder, driven by the registry's tick.</param>
     /// <param name="releases">Changelog links for the post-soak report.</param>
     /// <param name="eventBus">Site-stamped alert bus.</param>
@@ -174,6 +175,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="tunnelRouting">
     /// Agent tunnel state, where the app has it. Null falls back to console silence alone as the
     /// blindness signal, which is what a build without the routing service can tell.
+    /// </param>
+    /// <param name="apAgents">
+    /// AP Agent deployment services, for stopping the agent on an access point before it flashes.
+    /// Null skips the stop; the redeploy hold still applies.
     /// </param>
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
@@ -190,9 +195,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         TimeProvider time,
         ILogger<FirmwareRolloutOrchestrator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        SiteTunnelRouting? tunnelRouting = null)
+        SiteTunnelRouting? tunnelRouting = null,
+        ApAgent.ApAgentRegistry? apAgents = null)
     {
         _tunnelRouting = tunnelRouting;
+        _apAgents = apAgents;
         _repositories = repositories;
         _commands = commands;
         _observer = observer;
@@ -540,6 +547,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var observations = await _observer.ObserveAsync(cancellationToken);
         var observation = observations.FirstOrDefault(o => o.Mac == step.DeviceMac);
 
+        // The step settled after its upgrade, so the agent's supervisor has likely redeployed by now.
+        await HoldApAgentAsync(step, cancellationToken);
+
         var result = await _commands.TriggerSshUpgradeAsync(
             observation?.IpAddress ?? string.Empty, prior.Url, SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
@@ -801,6 +811,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (settings.SuppressStandardAlerts)
                 _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+
+            // Not gated on SuppressStandardAlerts: pushing a binary at a flashing AP is a hazard,
+            // not a preference. Clear releases the hold once the step settles.
+            if (IsAccessPointStep(step))
+                _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
 
             byMac.TryGetValue(step.DeviceMac, out var observation);
             await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
@@ -1850,6 +1865,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
+        await HoldApAgentAsync(step, cancellationToken);
+
         // The image this plan committed to, captured on this device's own channel. Only used when it
         // names the version this step is for - the catalog is matched by model code, so a
         // disagreement means the entry is not this step's build and the URL cannot be trusted.
@@ -1978,6 +1995,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (settings.SuppressStandardAlerts)
                 _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+
+            if (IsAccessPointStep(step))
+                _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
 
             byMac.TryGetValue(step.DeviceMac, out var observation);
             await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
@@ -2538,6 +2558,43 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private static bool IsGatewayStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.Gateway;
+
+    private static bool IsAccessPointStep(FirmwareRolloutStep step) =>
+        FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.AccessPoint;
+
+    /// <summary>
+    /// Stops the AP Agent on an access point about to flash, and opens the hold that keeps its
+    /// supervisor from redeploying mid-upgrade. Best effort: the stop is a precaution, not a
+    /// precondition, so the upgrade proceeds whatever happens here.
+    /// </summary>
+    private async Task HoldApAgentAsync(FirmwareRolloutStep step, CancellationToken cancellationToken)
+    {
+        if (!IsAccessPointStep(step)) return;
+
+        _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
+        if (_apAgents == null) return;
+
+        try
+        {
+            var agents = _apAgents.GetFor(_siteSlug);
+            if (!await agents.IsSiteEnabledAsync()) return;
+
+            var result = await agents.RemoveAsync(step.DeviceMac, cancellationToken);
+            if (!result.Success)
+            {
+                _logger.LogInformation("AP Agent could not be stopped on {Device} before its upgrade: {Error}",
+                    step.DeviceName, result.Error);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "AP Agent could not be stopped on {Device} before its upgrade", step.DeviceName);
+        }
+    }
 
     /// <summary>
     /// Whether the SSH path takes the UniFi OS gateway command. Legacy USG models (UGW*) predate
