@@ -347,13 +347,13 @@
                     }
                     @if (_wifiThroughput?.DownloadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the access point is sending to this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
                             Down <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
                         </span>
                     }
                     @if (_wifiThroughput?.UploadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the access point is receiving from this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
                             Up <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
                         </span>
                     }
@@ -375,25 +375,25 @@
                     }
                     @if (port.DownloadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the port is sending to this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
                             Down <span class="speed-down">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
                         </span>
                     }
                     @if (port.UploadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the port is receiving from this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
                             Up <span class="speed-up">@DisplayFormatters.FormatRate(port.UploadBps)</span>
                         </span>
                     }
                     @if (port.ErrorsToClient.HasValue || port.ErrorsFromClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Errors on this port, to the device then from it. Port counters, so anything else behind the same port counts here too.">
+                        <span class="identity-detail" data-tooltip="Port errors, to the device then from it">
                             Errors @(port.ErrorsToClient ?? 0) / @(port.ErrorsFromClient ?? 0)
                         </span>
                     }
                     @if (port.DropsToClient.HasValue || port.DropsFromClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Frames the port discarded, to the device then from it">
+                        <span class="identity-detail" data-tooltip="Frames the port discarded, to then from">
                             Drops @(port.DropsToClient ?? 0) / @(port.DropsFromClient ?? 0)
                         </span>
                     }
@@ -1705,10 +1705,24 @@
     /// Lightweight live poll: the access point's AP Agent where there is one, WiFiman otherwise,
     /// for signal/channel/band/rates. Merges into existing _client. No stat/sta, no trace, no DB write.
     /// </summary>
+    /// <summary>The live rate for whichever kind of client this is, or null while it has none.</summary>
+    private async Task RefreshThroughputAsync()
+    {
+        if (_client == null) return;
+        if (_client.IsWired)
+            _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
+        else
+            _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
+    }
+
     private async Task PollLiveAsync()
     {
         if (string.IsNullOrEmpty(_clientIp) || _client == null)
             return;
+
+        // Throughput refreshes on this tick, not the full poll: both readings are live and a wired
+        // client has no other reason to reach the full poll, so it would otherwise sit on its first.
+        await RefreshThroughputAsync();
 
         try
         {
@@ -1811,10 +1825,7 @@
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
-                if (_client.IsWired)
-                    _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
-                else
-                    _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
+                await RefreshThroughputAsync();
                 _pollCount++;
 
                 // Disable logging indicator for wired/offline devices (backend already skips storage)
