@@ -240,8 +240,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
                 _siteSlug);
         }
 
+        var osByChannel = console?.Firmware?.LatestByChannel;
+        var osByChannelSummary = osByChannel is { Count: > 0 }
+            ? string.Join(", ", osByChannel.Select(kv => $"{kv.Key}={kv.Value?.Version ?? "?"}"))
+            : "none";
+
         _logger.LogInformation(
-            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}",
+            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}, osByChannel=[{OsByChannel}]",
             _siteSlug,
             availability.CurrentDeviceChannel ?? "unknown",
             availability.AvailableDeviceChannels.Count > 0
@@ -249,7 +254,8 @@ public class FirmwareCommandClient : IFirmwareCommandClient
                 : "unreadable",
             availability.CurrentNetworkAppChannel ?? "unknown",
             availability.CurrentNetworkAppVersion ?? "unknown",
-            availability.CurrentUniFiOsChannel ?? "unknown");
+            availability.CurrentUniFiOsChannel ?? "unknown",
+            osByChannelSummary);
 
         return availability;
     }
