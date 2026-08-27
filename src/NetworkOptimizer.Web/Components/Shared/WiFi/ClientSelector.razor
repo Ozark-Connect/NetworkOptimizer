@@ -48,7 +48,7 @@
 
 @code {
     /// <summary>One choice. Key is whatever the host page identifies a client by - MAC or IP.</summary>
-    public sealed record Item(string Key, string Name, string? Mac, bool IsOnline, string? Ip = null);
+    public sealed record Item(string Key, string Name, string? Mac, bool IsOnline, string? Ip = null, bool IsWired = false);
 
     [Parameter] public IReadOnlyList<Item> Items { get; set; } = Array.Empty<Item>();
     [Parameter] public string? SelectedKey { get; set; }
@@ -136,6 +136,10 @@
                 i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase));
         }
 
-        return items.OrderByDescending(i => i.IsOnline).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase);
+        // The selector owns the order: a caller's sort would be discarded here anyway.
+        return items
+            .OrderBy(i => i.IsWired)
+            .ThenByDescending(i => i.IsOnline)
+            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase);
     }
 }

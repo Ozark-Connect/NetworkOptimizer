@@ -1606,7 +1606,7 @@
     /// <summary>The picker's choices. Same shape Client Stats uses, so the two read alike.</summary>
     private IReadOnlyList<ClientSelector.Item> PickerItems() =>
         _pickerClients
-            .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip))
+            .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip, c.IsWired))
             .ToList();
 
     private async Task ViewClientByIpAsync(string ip)

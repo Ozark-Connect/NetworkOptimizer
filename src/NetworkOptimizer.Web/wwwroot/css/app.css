@@ -10419,12 +10419,6 @@ a.path-hop.hop-clickable:hover {
     max-width: 400px;
 }
 
-@media (max-width: 768px) {
-    .filterable-select {
-        min-width: 80vw;
-        max-width: 80vw;
-    }
-}
 
 .filterable-select-input {
     width: 100%;
@@ -13049,8 +13043,13 @@ a.path-hop.hop-clickable:hover {
 
 @media (max-width: 768px) {
     .filterable-select {
-        min-width: 250px;
-        max-width: 250px;
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .client-selector-combo {
+        width: 100%;
     }
 
     .client-selector {
