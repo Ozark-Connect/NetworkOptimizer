@@ -119,6 +119,17 @@
         _highlight = string.IsNullOrWhiteSpace(_search) ? NoHighlight : 0;
     }
 
+    /// <summary>
+    /// Drops the search from the outside, for a host action that means "start over" - going back to
+    /// the whole list is exactly that, and leaving the query behind would contradict it.
+    /// </summary>
+    public void ClearSearch()
+    {
+        _search = "";
+        _highlight = NoHighlight;
+        StateHasChanged();
+    }
+
     /// <summary>The X. Empties the search without closing, so the full list is there to pick from.</summary>
     private async Task ClearSearchAsync()
     {
@@ -137,11 +148,16 @@
     /// </summary>
     private async Task HandOffSearchAsync()
     {
-        if (string.IsNullOrEmpty(PersistKey) || string.IsNullOrEmpty(_search)) return;
+        if (string.IsNullOrEmpty(PersistKey) || string.IsNullOrEmpty(_search))
+        {
+            Logger.LogDebug("Selector handoff skipped: key={Key} search={Search}", PersistKey, _search);
+            return;
+        }
         try
         {
             var value = System.Text.Json.JsonSerializer.Serialize(_search);
             await JS.InvokeVoidAsync("eval", $"sessionStorage.setItem('{PersistKey}', {value})");
+            Logger.LogDebug("Selector handoff wrote {Key}={Search}", PersistKey, _search);
         }
         catch (Exception ex)
         {
@@ -151,12 +167,17 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || string.IsNullOrEmpty(PersistKey)) return;
+        if (!firstRender || string.IsNullOrEmpty(PersistKey))
+        {
+            if (firstRender) Logger.LogDebug("Selector restore skipped: no key");
+            return;
+        }
         try
         {
             var stored = await JS.InvokeAsync<string?>("eval",
                 $"(function(){{var v=sessionStorage.getItem('{PersistKey}');" +
                 $"sessionStorage.removeItem('{PersistKey}');return v;}})()");
+            Logger.LogDebug("Selector restore read {Key}={Stored}", PersistKey, stored ?? "(null)");
             if (!string.IsNullOrEmpty(stored))
             {
                 _search = stored;

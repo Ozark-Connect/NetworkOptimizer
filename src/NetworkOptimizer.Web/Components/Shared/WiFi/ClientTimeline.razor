@@ -29,7 +29,8 @@
         }
 
         <!-- Client Selector -->
-        <ClientSelector Items="SelectorItems()"
+        <ClientSelector @ref="_selector"
+                        Items="SelectorItems()"
                         SelectedKey="@_selectedClientMac"
                         SelectedKeyChanged="SelectClient" />
 
@@ -395,6 +396,7 @@
 
     // Search/Filter
     private string _clientSearchText = "";
+    private ClientSelector? _selector;
     private string _statusFilter = "all"; // "all", "online", "offline"
     private string _apFilter = "";  // Empty = all APs
     private RadioBand? _bandFilter;  // null = all bands
@@ -975,6 +977,9 @@
     {
         _selectedClientMac = "";
         _clientSearchText = "";
+        // Going back to the whole list means start over, so a search left in the picker would
+        // contradict the list it sits above.
+        _selector?.ClearSearch();
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
