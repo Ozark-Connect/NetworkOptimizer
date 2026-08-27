@@ -3078,6 +3078,17 @@
         flex-wrap: wrap;
     }
 
+    /* The description reflows around the selector: its length is state-dependent, so letting it
+       push would move the selector between rows as the page changes. */
+    .client-dashboard-header > div:first-child {
+        flex: 1 1 340px;
+        min-width: 0;
+    }
+
+    .client-dashboard-header .client-selector-combo {
+        margin-left: auto;
+    }
+
     @@media (max-width: 768px) {
         .client-dashboard-header .client-selector-combo {
             width: 100%;
