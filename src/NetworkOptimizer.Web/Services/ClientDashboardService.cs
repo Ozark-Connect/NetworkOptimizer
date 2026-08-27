@@ -1283,7 +1283,7 @@ public class ClientDashboardService
 
         try
         {
-            using var scope = _scopeFactory.CreateScope();
+            await using var scope = _scopeFactory.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
 
@@ -1329,7 +1329,7 @@ public class ClientDashboardService
 
         try
         {
-            using var scope = _scopeFactory.CreateScope();
+            await using var scope = _scopeFactory.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
 
