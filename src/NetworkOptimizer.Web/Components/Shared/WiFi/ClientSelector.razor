@@ -344,6 +344,21 @@
     private static string HexDigits(string value) =>
         new(value.Where(Uri.IsHexDigit).Select(char.ToLowerInvariant).ToArray());
 
+    /// <summary>
+    /// A search read as a MAC, or empty when it is not one. Every character has to belong in a MAC:
+    /// a name is full of hex letters, and stripping the rest of "Kira" leaves "a", which is in
+    /// almost every address. Three digits in, so a single stray character cannot match the fleet.
+    /// </summary>
+    private static string MacQuery(string search)
+    {
+        foreach (var c in search)
+            if (!Uri.IsHexDigit(c) && c is not (':' or '-' or '.' or ' '))
+                return "";
+
+        var hex = HexDigits(search);
+        return hex.Length >= 3 ? hex : "";
+    }
+
     private IEnumerable<Item> Filtered()
     {
         var items = Items.AsEnumerable();
@@ -351,7 +366,7 @@
         if (!string.IsNullOrWhiteSpace(_search))
         {
             var filter = _search.Trim();
-            var hex = HexDigits(filter);
+            var hex = MacQuery(filter);
             items = items.Where(i =>
                 i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                 (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
