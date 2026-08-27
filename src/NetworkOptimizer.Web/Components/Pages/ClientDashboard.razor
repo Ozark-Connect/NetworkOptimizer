@@ -669,10 +669,18 @@
                     }
 
                     @* Signal History Chart (wireless only) *@
-                    @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
+                    @if (!(_client?.IsWired == true))
                     {
                         <div class="card chart-card">
                             <h3>Signal History</h3>
+                            @if (_signalChartData.Count == 0)
+                            {
+                                <div class="empty-state">
+                                    <p>No signal data found for this time range.</p>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="chart-container signal-chart-container">
                                 <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
@@ -707,6 +715,7 @@
                                                      OrderBy="e => e.X" />
                                 </ApexChart>
                             </div>
+                            }
                         </div>
                     }
 
