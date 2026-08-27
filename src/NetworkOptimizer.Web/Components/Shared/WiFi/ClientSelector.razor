@@ -31,6 +31,11 @@
                    @onclick="Open"
                    @onfocus="Open"
                    @onblur="CloseDelayed" />
+            @if (!string.IsNullOrEmpty(_search))
+            {
+                <button type="button" class="filterable-select-clear" aria-label="Clear search"
+                        @onmousedown="ClearSearchAsync" @onmousedown:preventDefault>&times;</button>
+            }
         }
         @if (_open)
         {
@@ -71,6 +76,13 @@
     [Parameter] public EventCallback<string> SelectedKeyChanged { get; set; }
     [Parameter] public string Placeholder { get; set; } = "Select or search for a client...";
 
+    /// <summary>
+    /// Storage slot for the search, so it survives a pick that reloads the page. Client Performance
+    /// navigates with forceLoad, which destroys this component, and retyping the query for every
+    /// candidate is the cost this exists to remove. Unset means the search lives only in memory.
+    /// </summary>
+    [Parameter] public string? PersistKey { get; set; }
+
     private string _search = "";
     private int _highlight = NoHighlight;
     private bool _open;
@@ -107,6 +119,56 @@
         _highlight = string.IsNullOrWhiteSpace(_search) ? NoHighlight : 0;
     }
 
+    /// <summary>The X. Empties the search without closing, so the full list is there to pick from.</summary>
+    private async Task ClearSearchAsync()
+    {
+        _search = "";
+        _highlight = NoHighlight;
+        _open = true;
+        StateHasChanged();
+        await Task.Delay(1); // the input has to be back before it can take focus
+        try { await _filterInput.FocusAsync(); } catch { /* gone from the DOM already */ }
+    }
+
+    /// <summary>
+    /// Hands the search to the page the pick is about to load. Written only here and consumed once
+    /// on the way back in, so it carries across a selection and nothing else: an F5, or leaving and
+    /// returning, finds nothing stored and starts clean.
+    /// </summary>
+    private async Task HandOffSearchAsync()
+    {
+        if (string.IsNullOrEmpty(PersistKey) || string.IsNullOrEmpty(_search)) return;
+        try
+        {
+            var value = System.Text.Json.JsonSerializer.Serialize(_search);
+            await JS.InvokeVoidAsync("eval", $"sessionStorage.setItem('{PersistKey}', {value})");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector could not hand off the search");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || string.IsNullOrEmpty(PersistKey)) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("eval",
+                $"(function(){{var v=sessionStorage.getItem('{PersistKey}');" +
+                $"sessionStorage.removeItem('{PersistKey}');return v;}})()");
+            if (!string.IsNullOrEmpty(stored))
+            {
+                _search = stored;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector could not restore the search");
+        }
+    }
+
     /// <summary>Opens the list the way a native select does, from the closed display.</summary>
     private async Task OnDisplayKeyDown(KeyboardEventArgs e)
     {
@@ -139,6 +201,9 @@
     {
         if (e.Key == "Escape")
         {
+            // Drops the search as the X does, and closes with it.
+            _search = "";
+            _highlight = NoHighlight;
             _open = false;
             return;
         }
@@ -208,7 +273,8 @@
 
     private async Task OpenForEdit()
     {
-        _search = "";
+        // The search survives: working through several candidates from one query is the normal way
+        // this gets used, and retyping it for each is the whole cost. Escape clears it.
         _open = true;
         // Opens without going through Open(), so it clears the highlight itself. Left stale, the
         // arrows move from wherever the last session ended instead of from the current client.
@@ -255,7 +321,6 @@
     private async Task Pick(Item item)
     {
         _open = false;
-        _search = "";
         await SelectedKeyChanged.InvokeAsync(item.Key);
     }
 

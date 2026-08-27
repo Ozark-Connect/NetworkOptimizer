@@ -48,6 +48,7 @@
         {
             <ClientSelector Items="PickerItems()"
                             SelectedKey="@_clientIp"
+                            PersistKey="@SearchHandoffKey"
                             SelectedKeyChanged="ViewClientByIpAsync" />
         }
     </div>
@@ -151,6 +152,7 @@
             <div class="client-picker-row">
                 <ClientSelector Items="PickerItems()"
                                 SelectedKey="@_pickerSelection"
+                                PersistKey="@SearchHandoffKey"
                                 SelectedKeyChanged="ViewClientByIpAsync"
                                 Placeholder="Choose a device..." />
             </div>
@@ -2544,6 +2546,9 @@
 
     // AP RX/TX rate columns only apply to Wi-Fi clients - hide for wired and VPN clients.
     private bool HidesApRates => _client?.IsWired == true || _client?.IsVpn == true;
+
+    /// <summary>Where the selector parks its search across the reload a pick performs.</summary>
+    private string SearchHandoffKey => $"netopt-client-search-{SiteContext.Slug}";
 
     /// <summary>
     /// A client that was online and drops has ten seconds to come back before it is called offline:
