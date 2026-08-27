@@ -482,9 +482,8 @@ public static class RolloutPlanComposer
 
     /// <summary>
     /// The newest UniFi OS release available at or below the configured channel's aggressiveness.
-    /// A version promoted from RC to GA disappears from the RC entry in the console's
-    /// <c>latestByChannel</c> map, so checking only the configured channel misses it. We walk
-    /// down the hierarchy (beta -> release-candidate -> release) and take the newest offering.
+    /// A promoted version can leave its origin channel (RC reverts to the prior RC build) and
+    /// the GA entry can go stale, so we walk all channels at or below and take the newest.
     /// </summary>
     private static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
