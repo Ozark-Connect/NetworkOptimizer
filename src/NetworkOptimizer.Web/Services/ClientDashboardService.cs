@@ -131,12 +131,12 @@ public class ClientDashboardService
                     IsOnline: true))
                 .ToList();
 
-            // Six hours of departed clients too, so a device that just dropped is still pickable.
+            // Two days of departed clients too, so a device that dropped yesterday is still pickable.
             // Not Client Stats' thirty days: in a picker that is noise.
             var seen = new HashSet<string>(online.Select(c => c.Ip), StringComparer.OrdinalIgnoreCase);
             try
             {
-                var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 6);
+                var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 48);
                 foreach (var h in history ?? new List<UniFiClientDetailResponse>())
                 {
                     if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
