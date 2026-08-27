@@ -1283,30 +1283,49 @@ public class ClientDashboardService
 
         var live = _liveStats.GetFor(_siteContext.Slug);
 
-        // The live cache holds the same per-port snapshot the collector last wrote, so the page and
-        // Live View agree and neither waits on a query. InfluxDB is the fallback for a site whose
-        // collection runs elsewhere and publishes nothing here.
-        var cached = live.GetPortStatsSnapshot(new[] { client.SwitchMac })
-            .FirstOrDefault(r => int.TryParse(r.PortId, out var p) && p == port);
-        if (cached != null)
-            return ToWiredPortStats(cached, client, port, live);
-
         try
         {
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
-            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            // The console's port number reaches the counters through InterfaceNameMaps, exactly as
+            // the Port Statistics table resolves it. The port_id tag is the SNMP side's own id and
+            // is not this number.
+            await using var db = CreateSiteDb();
+            var mac = client.SwitchMac.ToLowerInvariant();
+            var ifNames = await db.InterfaceNameMaps.AsNoTracking()
+                .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
+                .Select(m => m.IfName)
+                .ToListAsync();
+            if (ifNames.Count == 0)
+            {
+                _logger.LogDebug("No interface mapped to port {Port} on {Mac}", port, client.SwitchMac);
+                return null;
+            }
 
-            var rows = await influx.QueryPortStatsAsync(new[] { client.SwitchMac }, at: null);
-            var row = rows.FirstOrDefault(r => int.TryParse(r.PortId, out var p) && p == port);
+            // The live cache holds the same per-port snapshot the collector last wrote, so the page
+            // and Live View agree and neither waits on a query. InfluxDB is the fallback for a site
+            // whose collection runs elsewhere and publishes nothing here.
+            var row = Match(live.GetPortStatsSnapshot(new[] { client.SwitchMac }));
             if (row == null)
             {
-                _logger.LogDebug("No port {Port} counters for {Mac}; polled ports: {Ports}",
-                    port, client.SwitchMac, string.Join(",", rows.Select(r => $"{r.IfName}={r.PortId}")));
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+                var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+                row = Match(await influx.QueryPortStatsAsync(new[] { client.SwitchMac }, at: null));
+            }
+
+            if (row == null)
+            {
+                _logger.LogDebug("No counters for {Mac} port {Port} ({IfNames})",
+                    client.SwitchMac, port, string.Join(",", ifNames));
                 return null;
             }
 
             return ToWiredPortStats(row, client, port, live);
+
+            // The physical port, never a VLAN sub-interface sitting on it.
+            NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint? Match(
+                IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint> rows) =>
+                rows.FirstOrDefault(r => ifNames.Contains(r.IfName, StringComparer.OrdinalIgnoreCase)
+                                         && !r.IfName.Contains('.'));
         }
         catch (Exception ex)
         {
