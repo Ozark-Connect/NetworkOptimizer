@@ -347,13 +347,13 @@
                     }
                     @if (_wifiThroughput?.UploadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
                             From <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
                         </span>
                     }
                     @if (_wifiThroughput?.DownloadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
                             To <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
                         </span>
                     }
@@ -375,13 +375,13 @@
                     }
                     @if (port.UploadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
                             From <span class="speed-down">@DisplayFormatters.FormatRate(port.UploadBps)</span>
                         </span>
                     }
                     @if (port.DownloadBps is > 0)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
                             To <span class="speed-up">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
                         </span>
                     }
@@ -625,7 +625,8 @@
                                                 <tr class="result-details-row">
                                                     <td colspan="@(HidesApRates ? 6 : 8)">
                                                         <div class="result-details">
-                                                            <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true" />
+                                                            <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
+                                                                              OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -2343,6 +2344,23 @@
     private void ToggleResultExpand(int resultId)
     {
         _expandedResultId = _expandedResultId == resultId ? null : resultId;
+    }
+
+    private async Task HandleDeleteResult(int resultId)
+    {
+        if (!await SpeedTestService.DeleteResultAsync(resultId)) return;
+
+        // Reload rather than dropping the row: the charts and the map are built from the same
+        // list, and a deleted point has to leave all three.
+        _expandedResultId = null;
+        var (from, to) = GetTimeRange();
+        await LoadSpeedDataAsync(from, to);
+        StateHasChanged();
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await SpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
     }
 
     private void ToggleTraceExpand(DateTime timestamp)
