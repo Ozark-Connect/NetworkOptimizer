@@ -1532,6 +1532,16 @@ class LanFlowMap2D {
         return{x:atSource?e._x1:e._x2, y:(e._y1+e._y2)/2+stagger+off};
     }
 
+    // Throughput sits on the long run, biased toward the child so it reads as belonging to the
+    // device it feeds. Once depth runs sideways that run is the crossbar, the one vertical segment
+    // on the path; in the top-down frame it stays on the child's leg.
+    _rateLabel(e){
+        if(e._hz){
+            return{x:(e._x1+e._x2)/2+(e._midYOff||0), y:e._y1+(e._y2-e._y1)*0.75};
+        }
+        return this._elbowLabel(e,false,38);
+    }
+
     _placeClouds(){
         if(!this._root||this._clouds.length===0)return;
         const gx=this._root.x,gy=this._root.y;
@@ -2234,8 +2244,7 @@ class LanFlowMap2D {
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
-                // Place on the child's leg, past the capacity label
-                const lp=this._elbowLabel(e,false,38);
+                const lp=this._rateLabel(e);
                 const mx=lp.x,my=lp.y;
                 const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
                 const uTxt='↑'+(up>0?formatBps(up):'0 bps');
