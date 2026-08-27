@@ -108,7 +108,7 @@ public static class MeasuredClientReducer
         {
             var at = new DateTimeOffset(DateTime.SpecifyKind(row.Time, DateTimeKind.Utc));
             var key = at.ToUnixTimeMilliseconds() / ms * ms;
-            if (!newest.TryGetValue(key, out var held) || row.Time > held.Time)
+            if (!newest.TryGetValue(key, out var held) || Outranks(row, held))
                 newest[key] = row;
         }
 
@@ -144,6 +144,39 @@ public static class MeasuredClientReducer
         }
         return bands;
     }
+
+    /// <summary>
+    /// Which of two access points claiming a client in the same bucket is the one serving it.
+    ///
+    /// Recency alone answers "who wrote last", not "who has the client". An access point that still
+    /// holds a station it stopped serving keeps writing, and on a walk test it interleaves weak
+    /// readings between the strong ones from the access point the client is actually on - so a
+    /// bucket it happens to write last in shows the wrong access point at the wrong signal.
+    ///
+    /// Idle decides where both report it, because it is the only field that says when the access
+    /// point last heard from the client. Signal breaks a tie, and a point with no idle at all falls
+    /// back to recency, which is what every point written before the field existed carries.
+    /// </summary>
+    private static bool Outranks(
+        MonitoringInfluxClient.WifiClientSamplePoint row,
+        MonitoringInfluxClient.WifiClientSamplePoint held)
+    {
+        if (row.IdleSeconds is { } rowIdle && held.IdleSeconds is { } heldIdle && rowIdle != heldIdle)
+            return rowIdle < heldIdle;
+
+        if (row.SignalDbm is { } rowSignal && held.SignalDbm is { } heldSignal
+            && Math.Abs(rowSignal - heldSignal) >= ContestedSignalMarginDb)
+            return rowSignal > heldSignal;
+
+        return row.Time > held.Time;
+    }
+
+    /// <summary>
+    /// How much stronger one claim must read before signal decides it. Wide enough that ordinary
+    /// variation between two samples never reorders them, narrow enough to separate an access point
+    /// hearing a client across the house from the one it is standing next to.
+    /// </summary>
+    private const double ContestedSignalMarginDb = 12;
 
     private static int? Positive(int? value) => value is > 0 ? value : null;
 

@@ -1436,7 +1436,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     txThroughputBps: txThroughputBps,
                     rxThroughputBps: rxThroughputBps,
                     isMlo: c.IsMlo,
-                    timestamp: now.AddTicks(tickOffset++));
+                    timestamp: now.AddTicks(tickOffset++),
+                    idleSeconds: c.IdleTime);
             }
         }
 

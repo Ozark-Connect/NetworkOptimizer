@@ -573,7 +573,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         long? tcpStalls = null,
         double? tcpLatAvgMs = null,
         int? ccq = null,
-        int? nss = null)
+        int? nss = null,
+        long? idleSeconds = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("wifi_client")
@@ -609,6 +610,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (tcpLatAvgMs.HasValue) point = point.Field("tcp_lat_avg_ms", tcpLatAvgMs.Value);
         if (ccq.HasValue) point = point.Field("ccq", ccq.Value);
         if (nss.HasValue) point = point.Field("nss", nss.Value);
+
+        // Which access point is actually serving the client, when more than one holds it. Additive:
+        // points written before this carry no idle and readers fall back to recency as they did.
+        if (idleSeconds.HasValue) point = point.Field("idle_seconds", idleSeconds.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -3150,6 +3155,14 @@ union(tables: [means, chan])
         /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz").</summary>
         public string? Band { get; init; }
         public string? ClientMac { get; init; }
+
+        /// <summary>
+        /// Seconds since this access point last heard from the client. Absent on points written
+        /// before the field existed. Two access points can hold the same client at once, and this
+        /// is what says which one is actually serving it.
+        /// </summary>
+        public long? IdleSeconds { get; init; }
+
         public double? SignalDbm { get; init; }
         public double? NoiseDbm { get; init; }
         /// <summary>Signal-to-noise ratio in dB, which is what the access point calls RSSI.</summary>
@@ -3193,7 +3206,7 @@ union(tables: [means, chan])
         builder.AppendLine($@"from(bucket: ""{_bucket}"")");
         builder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
         builder.AppendLine(@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
-        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"" or r._field == ""idle_seconds"")");
         if (aggregateWindow is { } window)
             builder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
         builder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");
@@ -3210,6 +3223,7 @@ union(tables: [means, chan])
                 ApMac = record.GetValueByKey("device_mac") as string,
                 Band = record.GetValueByKey("band") as string,
                 ClientMac = record.GetValueByKey("client_mac") as string,
+                IdleSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("idle_seconds")),
                 SignalDbm = AsDoubleOrNull(record.GetValueByKey("signal_dbm")),
                 NoiseDbm = AsDoubleOrNull(record.GetValueByKey("noise_dbm")),
                 Rssi = (int?)AsDoubleOrNull(record.GetValueByKey("rssi")),

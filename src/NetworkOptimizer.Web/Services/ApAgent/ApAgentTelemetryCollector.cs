@@ -676,6 +676,7 @@ public sealed class ApAgentTelemetryCollector
                 latencyMaxMs: s.LatencyMaxMs,
                 tcpStalls: s.TcpStalls,
                 tcpLatAvgMs: s.TcpLatAvgMs,
+                idleSeconds: s.IdleSeconds,
                 ccq: s.Ccq,
                 nss: s.Nss);
         }
