@@ -6002,32 +6002,15 @@
 
         try
         {
-            (bool success, string message) result;
-
-            // If user entered a new password or key path, test with form values
-            // Otherwise test with saved settings (which handles decryption internally)
-            if (!string.IsNullOrEmpty(gatewayPassword) || !string.IsNullOrEmpty(gatewayPrivateKeyPath))
-            {
-                // Test with form values (new password is plain text)
-                result = await GatewaySshService.TestConnectionAsync(
-                    gatewayHost,
-                    gatewayPort,
-                    gatewayUsername,
-                    gatewayPassword,
-                    gatewayPrivateKeyPath);
-            }
-            else if (hasGatewayPassword || GatewayKeyPathSet || _sshKey is not null)
-            {
-                // No new credentials entered, test with saved settings. The key-file and stored-key
-                // cases have to reach here too: below global Admin the path above is redacted, so
-                // passing form values would test with no credential at all and the branch that reports
-                // none configured would answer for a gateway that is perfectly well configured.
-                result = await GatewaySshService.TestConnectionAsync();
-            }
-            else
-            {
-                result = (false, "No credentials configured");
-            }
+            // Always the fields as they are on screen. A blank password or key path means the
+            // stored credential, so editing the host and testing it does not silently test the
+            // saved one instead.
+            var result = await GatewaySshService.TestConnectionAsync(
+                gatewayHost,
+                gatewayPort,
+                gatewayUsername,
+                gatewayPassword,
+                gatewayPrivateKeyPath);
 
             if (result.success)
             {
