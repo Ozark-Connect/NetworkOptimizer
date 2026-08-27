@@ -1323,6 +1323,8 @@
         if (_showGpsWarning)
             StateHasChanged();
 
+        await LoadPickerClientsAsync();
+
         // GPS watcher is started from the first poll cycle (after _client is identified)
         // so we can skip it for wired devices
     }
@@ -1548,6 +1550,25 @@
                 catch { /* timer disposed - nothing to re-arm */ }
             }
         }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Fills the header selector's list. It is offered however this device was identified, so the
+    /// list cannot load only on the path that failed to identify one.
+    /// </summary>
+    private async Task LoadPickerClientsAsync()
+    {
+        if (_pickerClients.Count > 0) return;
+        try
+        {
+            _pickerClients = await DashboardService.GetSelectableClientsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector list could not be loaded (site {Site})", SiteContext.Slug);
+            return;
+        }
+        StateHasChanged();
     }
 
     private async Task ShowClientPickerAsync()
