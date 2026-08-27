@@ -1,5 +1,28 @@
 # Network Optimizer - TODO / Future Enhancements
 
+## Per-client data totals, WAN and LAN
+
+Client Performance shows live throughput and port counters for a wired client. Totals are the
+obvious next step, and both halves already exist: UniFi Network carries WAN bytes per client, and
+SNMP gives us LAN bytes per switch port (`interface_counters` holds `bytes_in` / `bytes_out`,
+tagged `device_mac` + `port_id`).
+
+Worth settling before building:
+
+- A port's totals are the PORT's, not the client's. An unmanaged switch or a daisy chain puts
+  several devices behind one port, and the number would read as one device's usage.
+- Counters reset on device reboot, so a total over any range has to detect and bridge resets rather
+  than subtracting endpoints.
+- WAN and LAN totals answer different questions and must not be added together: WAN is what left
+  the site, LAN includes traffic that never did (NAS copies, casting, local speed tests).
+
+Real-time throughput charts belong with it, in the WAN Live Chart's shape, for wired and wireless
+clients alike. Build the two together.
+
+That much on one page needs the tabs rethought - which of Speed, Data and Connection each of live
+rate, totals and port health belongs on, and whether those are still the right three names. Settle
+the UX when we build it, not before.
+
 ## SSH key placement on console gateways (udm-boot)
 
 TABLED, and quite likely overtaken by UniFi shipping key support for console SSH themselves.
@@ -1359,3 +1382,4 @@ Written to InfluxDB as FIELDS on `cellular` (`software_version`, `host_version`)
 performance against firmware is the point of collecting them. Never as tags: a tag is part of the
 series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
 modem and ONT measurements when their fields land.
+

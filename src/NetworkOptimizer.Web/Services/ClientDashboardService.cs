@@ -240,6 +240,8 @@ public class ClientDashboardService
                 // followed through a roam is enriched from where it is now.
                 await EnrichWithApInfoAsync(identity, identity.ApMac);
 
+                await EnrichWithSwitchNameAsync(identity);
+
                 // The console keeps a departed WIRELESS client in its active list for minutes.
                 // Where an agent covers the access point its verdict is the fresher answer, so the
                 // page shows offline now rather than when the console catches up. Wired clients are
@@ -1263,8 +1265,107 @@ public class ClientDashboardService
             Oui = client.Oui,
             NetworkName = client.Network,
             Essid = client.Essid,
-            Satisfaction = client.Satisfaction
+            Satisfaction = client.Satisfaction,
+            SwitchMac = client.SwMac,
+            SwitchPort = client.SwPort
         };
+    }
+
+    /// <summary>
+    /// The latest counters for the port a wired client is plugged into. Null whenever the answer
+    /// would be a guess: a wireless client, an unknown port, monitoring or InfluxDB not configured,
+    /// or nothing polled that port. The page then shows what it always did.
+    /// </summary>
+    public async Task<WiredPortStats?> GetWiredPortStatsAsync(ClientIdentity? client)
+    {
+        if (client is not { IsWired: true } || string.IsNullOrEmpty(client.SwitchMac) || client.SwitchPort is not int port)
+            return null;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+
+            var rows = await influx.QueryPortStatsAsync(new[] { client.SwitchMac }, at: null);
+            var row = rows.FirstOrDefault(r => int.TryParse(r.PortId, out var p) && p == port);
+            if (row == null)
+                return null;
+
+            // The port's inbound is what the client sent, so each pair is flipped on the way out.
+            return new WiredPortStats
+            {
+                SwitchName = client.SwitchName,
+                Port = port,
+                LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
+                LinkSpeedBps = row.SpeedBps,
+                DownloadBps = row.RateOutBps,
+                UploadBps = row.RateInBps,
+                ErrorsToClient = row.ErrorsOut,
+                ErrorsFromClient = row.ErrorsIn,
+                DropsToClient = row.DiscardsOut,
+                DropsFromClient = row.DiscardsIn,
+                PacketsToClient = row.UcastPktsOut,
+                PacketsFromClient = row.UcastPktsIn,
+                At = row.Time,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Port stats unavailable for {Mac} port {Port}", client.SwitchMac, port);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The most recent throughput sample for a wireless client, as download and upload from the
+    /// client's point of view. Null when nothing has been sampled in the last few minutes, so a
+    /// stale rate is never presented as live.
+    /// </summary>
+    public async Task<(double? DownloadBps, double? UploadBps, DateTime At)?> GetWifiThroughputAsync(ClientIdentity? client)
+    {
+        if (client is not { IsWired: false, IsOffline: false } || string.IsNullOrEmpty(client.Mac))
+            return null;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+
+            var now = DateTime.UtcNow;
+            var rows = await influx.QueryClientThroughputAsync("wifi_client", client.Mac, now.AddMinutes(-3), now);
+            var last = rows.LastOrDefault(r => r.TxThroughputBps.HasValue || r.RxThroughputBps.HasValue);
+            if (last == null)
+                return null;
+
+            // The access point transmits what the client downloads, so the pair is flipped on the way out.
+            return (last.TxThroughputBps, last.RxThroughputBps, last.Time);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wi-Fi throughput unavailable for {Mac}", client.Mac);
+            return null;
+        }
+    }
+
+    /// <summary>Names the switch or gateway a wired client is plugged into.</summary>
+    private async Task EnrichWithSwitchNameAsync(ClientIdentity identity)
+    {
+        if (!identity.IsWired || string.IsNullOrEmpty(identity.SwitchMac))
+            return;
+
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync();
+            var sw = devices.FirstOrDefault(d =>
+                string.Equals(d.Mac, identity.SwitchMac, StringComparison.OrdinalIgnoreCase));
+            identity.SwitchName = !string.IsNullOrWhiteSpace(sw?.Name) ? sw!.Name : sw?.Model;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not name the switch for {Mac}", identity.SwitchMac);
+        }
     }
 
     /// <summary>

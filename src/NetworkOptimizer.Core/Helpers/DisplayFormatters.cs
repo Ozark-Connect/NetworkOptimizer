@@ -288,6 +288,21 @@ public static class DisplayFormatters
     #region Port Status Display
 
     /// <summary>
+    /// Format a bit rate with the unit it is normally quoted in. Suits a live throughput reading or
+    /// a negotiated link speed. Sub-1 bps reads "-" rather than zero, so an idle port shows nothing
+    /// to read instead of a number.
+    /// </summary>
+    public static string FormatRate(double? bps)
+    {
+        if (!bps.HasValue || bps.Value < 1) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
+        return $"{v:0} bps";
+    }
+
+    /// <summary>
     /// Get link status display string for a port.
     /// </summary>
     public static string GetLinkStatus(bool isUp, int speed)

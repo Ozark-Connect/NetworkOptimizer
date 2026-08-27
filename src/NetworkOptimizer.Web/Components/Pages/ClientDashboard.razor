@@ -345,10 +345,57 @@
                     {
                         <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
+                    @if (_wifiThroughput?.DownloadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the access point is sending to this device">
+                            Down <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
+                        </span>
+                    }
+                    @if (_wifiThroughput?.UploadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the access point is receiving from this device">
+                            Up <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
+                        </span>
+                    }
                     @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
                     @if (_client.IsMlo && !HasMloLinks)
                     {
                         <span class="identity-detail badge-mlo">MLO</span>
+                    }
+                }
+                else if (_portStats is { } port)
+                {
+                    <span class="identity-detail">
+                        @(port.SwitchName ?? "Wired")@if (port.Port.HasValue)
+                        {<span class="detail-dim"> · Port @port.Port</span>}
+                    </span>
+                    @if (port.LinkSpeedBps is > 0)
+                    {
+                        <span class="identity-detail" data-tooltip="Negotiated link speed">@DisplayFormatters.FormatRate(port.LinkSpeedBps)</span>
+                    }
+                    @if (port.DownloadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the port is sending to this device">
+                            Down <span class="speed-down">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
+                        </span>
+                    }
+                    @if (port.UploadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic the port is receiving from this device">
+                            Up <span class="speed-up">@DisplayFormatters.FormatRate(port.UploadBps)</span>
+                        </span>
+                    }
+                    @if (port.ErrorsToClient.HasValue || port.ErrorsFromClient.HasValue)
+                    {
+                        <span class="identity-detail" data-tooltip="Errors on this port, to the device then from it. Port counters, so anything else behind the same port counts here too.">
+                            Errors @(port.ErrorsToClient ?? 0) / @(port.ErrorsFromClient ?? 0)
+                        </span>
+                    }
+                    @if (port.DropsToClient.HasValue || port.DropsFromClient.HasValue)
+                    {
+                        <span class="identity-detail" data-tooltip="Frames the port discarded, to the device then from it">
+                            Drops @(port.DropsToClient ?? 0) / @(port.DropsFromClient ?? 0)
+                        </span>
                     }
                 }
                 else
@@ -968,6 +1015,8 @@
     private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
+    private WiredPortStats? _portStats;
+    private (double? DownloadBps, double? UploadBps, DateTime At)? _wifiThroughput;
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
     private int _selectedTimeFilter = 24; // hours, default 24h
@@ -1350,6 +1399,8 @@
             // We don't have direct access to HttpContext IP in Blazor Server,
             // so we use JS interop to get the page URL and call the API
             _client = await GetClientIdentityAsync();
+            _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
+            _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
 
             // VPN clients only get the Speed tab; force it before loading so a stale
             // ?tab=signal/connection deep link doesn't load data they don't have.
@@ -1760,6 +1811,10 @@
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
+                if (_client.IsWired)
+                    _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
+                else
+                    _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
                 _pollCount++;
 
                 // Disable logging indicator for wired/offline devices (backend already skips storage)
@@ -3338,6 +3393,10 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    .identity-throughput {
+        font-size: 0.9375rem;
+        font-weight: 600;
     }
     .detail-dim {
         opacity: 0.6;
