@@ -17,9 +17,10 @@
         }
         else
         {
-            <input @ref="_filterInput"
+            <input @ref="_filterInput" id="@(_listId + "-input")"
                    type="text" class="form-select filterable-select-input"
                    placeholder="@Placeholder"
+                   @ondblclick="SelectAllAsync"
                    @bind="_search"
                    @bind:event="oninput"
                    @bind:after="OnSearchChanged"
@@ -97,6 +98,21 @@
     {
         _open = true;
         _highlight = string.IsNullOrWhiteSpace(_search) ? NoHighlight : 0;
+    }
+
+    /// <summary>Takes the whole search rather than the word under the cursor, so a second search
+    /// replaces the first by typing over it.</summary>
+    private async Task SelectAllAsync()
+    {
+        if (string.IsNullOrEmpty(_search)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("eval", $"document.getElementById('{_listId}-input')?.select()");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector could not select the search text");
+        }
     }
 
     /// <summary>Opens the list the way a native select does, from the closed display.</summary>
