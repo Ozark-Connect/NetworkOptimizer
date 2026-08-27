@@ -121,13 +121,23 @@
 
         if (shown.Count == 0) return;
 
-        // From nothing, either arrow enters the list at the end it points from.
-        if (_highlight == NoHighlight)
-            _highlight = e.Key == "ArrowDown" ? 0 : shown.Count - 1;
-        else
-            _highlight = e.Key == "ArrowDown"
-                ? Math.Min(_highlight + 1, shown.Count - 1)
-                : Math.Max(_highlight - 1, 0);
+        // Nothing is highlighted until an arrow is pressed, so the first one moves from wherever the
+        // client being viewed sits, and only enters at an end when it is not in the list at all.
+        var from = _highlight;
+        if (from == NoHighlight)
+        {
+            from = shown.FindIndex(x => x.Key == SelectedKey);
+            if (from == NoHighlight)
+            {
+                _highlight = e.Key == "ArrowDown" ? 0 : shown.Count - 1;
+                await ScrollToHighlightAsync();
+                return;
+            }
+        }
+
+        _highlight = e.Key == "ArrowDown"
+            ? Math.Min(from + 1, shown.Count - 1)
+            : Math.Max(from - 1, 0);
 
         await ScrollToHighlightAsync();
     }
