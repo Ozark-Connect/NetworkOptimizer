@@ -349,13 +349,13 @@
                     @if (_wifiThroughput?.UploadBps is { } wifiUp)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(wifiUp)</span>
+                            From Device <span class="speed-down">@DisplayFormatters.FormatRate(wifiUp)</span>
                         </span>
                     }
                     @if (_wifiThroughput?.DownloadBps is { } wifiDown)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(wifiDown)</span>
+                            To Device <span class="speed-up">@DisplayFormatters.FormatRate(wifiDown)</span>
                         </span>
                     }
                     @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
@@ -377,13 +377,13 @@
                     @if (port.UploadBps is { } portUp)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(portUp)</span>
+                            From Device <span class="speed-down">@DisplayFormatters.FormatRate(portUp)</span>
                         </span>
                     }
                     @if (port.DownloadBps is { } portDown)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(portDown)</span>
+                            To Device <span class="speed-up">@DisplayFormatters.FormatRate(portDown)</span>
                         </span>
                     }
                     @if (port.ErrorsFromClient.HasValue || port.ErrorsToClient.HasValue)
