@@ -476,10 +476,40 @@ public static class RolloutPlanComposer
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
         OfferedUniFiOsRelease(console, channel)?.Version;
 
+    /// <summary>
+    /// The newest UniFi OS release available at or below the configured channel's aggressiveness.
+    /// A version promoted from RC to GA disappears from the RC entry in the console's
+    /// <c>latestByChannel</c> map, so checking only the configured channel misses it. We walk
+    /// down the hierarchy (beta -> release-candidate -> release) and take the newest offering.
+    /// </summary>
     private static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
-        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
-        console?.Firmware?.LatestByChannel is { } byChannel
-        && byChannel.TryGetValue(channel, out var release) ? release : null;
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
+    {
+        if (console?.Firmware?.LatestByChannel is not { } byChannel)
+            return null;
+
+        NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? best = null;
+        foreach (var ch in ChannelsAtOrBelow(channel))
+        {
+            if (!byChannel.TryGetValue(ch, out var release) || string.IsNullOrEmpty(release?.Version))
+                continue;
+            if (best == null
+                || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(release.Version, best.Version!))
+                best = release;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Channels at or below the given aggressiveness: beta sees all three, release-candidate
+    /// sees RC and release, release sees only release.
+    /// </summary>
+    private static IEnumerable<string> ChannelsAtOrBelow(string channel) => channel switch
+    {
+        FirmwareChannels.Beta => [FirmwareChannels.Beta, FirmwareChannels.ReleaseCandidate, FirmwareChannels.Release],
+        FirmwareChannels.ReleaseCandidate => [FirmwareChannels.ReleaseCandidate, FirmwareChannels.Release],
+        _ => [channel],
+    };
 
     private static string? NetworkAppDebUrl(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
     {
@@ -493,17 +523,14 @@ public static class RolloutPlanComposer
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
     {
         if (!ConsoleReachable(console)) return false;
-        if (console?.Firmware?.LatestByChannel is not { } byChannel) return true;
-        if (!byChannel.TryGetValue(channel, out var release) || string.IsNullOrEmpty(release?.Version)) return true;
 
-        var installed = console.InstalledOsVersion;
+        var offered = OfferedUniFiOsRelease(console, channel);
+        if (offered == null || string.IsNullOrEmpty(offered.Version)) return true;
+
+        var installed = console!.InstalledOsVersion;
         if (string.IsNullOrEmpty(installed)) return true;
 
-        // Newer, not merely different. A channel holds its own line, so a less aggressive one can
-        // name a build far behind what is installed - GA at 4.4.7 against 5.1.28 - and treating any
-        // difference as an update turned that into a console downgrade.
-        // TODO: a deliberate downgrade is a separate opt-in mode, as for devices.
-        return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(release.Version, installed);
+        return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(offered.Version, installed);
     }
 
     /// <summary>Steps that would actually be commanded, i.e. everything not excluded up front.</summary>
