@@ -2205,44 +2205,53 @@
             finally
             {
                 _tabLoading = false;
-                // Only a chart that already exists needs the update. One the render below is about
-                // to create arrives with its data, and RenderAsync on a new chart destroys and
-                // recreates it - which is why a range with no data left the next one blank until
-                // it was changed twice.
-                _pendingChartUpdate = ActiveChartMounted();
+                _pendingChartUpdate = true;
                 StateHasChanged(); // triggers render → OnAfterRenderAsync → UpdateActiveChartsAsync
             }
         });
     }
 
-    /// <summary>Whether the active tab's chart is already on the page, as opposed to about to be created.</summary>
-    private bool ActiveChartMounted() => _activeTab switch
+    /// <summary>
+    /// ApexCharts initializes its JS after the component mounts, so an update issued in the render
+    /// cycle that created the chart throws. Retry rather than swallow: a range with no data leaves
+    /// the chart uncreated, and dropping that first update left the next range blank until it was
+    /// changed again.
+    /// </summary>
+    private static async Task WithChartRetry(Func<Task> update)
     {
-        "speed" => _speedChart != null || _latencyChart != null,
-        "signal" => _signalChart != null,
-        "connection" => _connectionChart != null,
-        _ => false,
-    };
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await update();
+                return;
+            }
+            catch (NullReferenceException)
+            {
+                await Task.Delay(150);
+            }
+            catch
+            {
+                return;
+            }
+        }
+    }
 
     private async Task UpdateActiveChartsAsync()
     {
-        try
+        switch (_activeTab)
         {
-            switch (_activeTab)
-            {
-                case "speed":
-                    if (_speedChart != null) await _speedChart.UpdateSeriesAsync(true);
-                    if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync(true);
-                    break;
-                case "signal":
-                    if (_signalChart != null) await _signalChart.RenderAsync();
-                    break;
-                case "connection":
-                    if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true);
-                    break;
-            }
+            case "speed":
+                if (_speedChart != null) await WithChartRetry(() => _speedChart.UpdateSeriesAsync(true));
+                if (_latencyChart != null) await WithChartRetry(() => _latencyChart.UpdateSeriesAsync(true));
+                break;
+            case "signal":
+                if (_signalChart != null) await WithChartRetry(() => _signalChart.RenderAsync());
+                break;
+            case "connection":
+                if (_connectionChart != null) await WithChartRetry(() => _connectionChart.UpdateSeriesAsync(true));
+                break;
         }
-        catch { /* Chart may not be mounted yet */ }
     }
 
     private (DateTime from, DateTime to) GetTimeRange()
