@@ -152,8 +152,11 @@ public class ClientDashboardService
                 _logger.LogDebug(ex, "Client history unavailable for the picker; showing connected clients only");
             }
 
+            // Wireless first: the page is about Wi-Fi performance, so those are what a viewer came
+            // to pick. Departed clients stay last whatever they connected over.
             return online
                 .OrderByDescending(c => c.IsOnline)
+                .ThenBy(c => c.IsWired)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
