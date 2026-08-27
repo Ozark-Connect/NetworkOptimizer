@@ -1,0 +1,53 @@
+{
+  "id": "2.8.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.8.0",
+  "summary": "Network Optimizer can read Wi-Fi data from the access points themselves now, which means live client data twice a second, a client that stays followed across a roam, a way to move one where you want it, and per-client LAN throughput the Console never counted.",
+  "steps": [
+    {
+      "id": "ap-telemetry",
+      "level": "major",
+      "url": "/settings?tab=aptelemetry",
+      "selector": "[data-tour=\"ap-telemetry\"]",
+      "title": "AP Telemetry",
+      "listLabel": "Read Wi-Fi data straight from your access points",
+      "body": "Network Optimizer can now read Wi-Fi data from the access points themselves instead of only from the UniFi Console. Switch it on and a small agent is pushed to each access point over SSH, which provides faster live client data, per-client LAN throughput, roam records, and radio health. It lives in the access point's temporary storage and leaves no footprint: a reboot removes it, and Network Optimizer puts it back. Entirely optional, and every page works exactly as it does today without it.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "client-live",
+      "level": "major",
+      "badge": "improved",
+      "url": "/client-dashboard",
+      "selector": "[data-tour=\"client-live\"]",
+      "title": "Client Performance",
+      "listLabel": "Live client data twice a second, and it keeps up through a roam",
+      "body": "With **AP Telemetry** on, this page reads the client's own access point twice a second. Signal, PHY rates, and throughput move as fast as the client does, and when it roams the page follows it to the new access point instead of stalling on the handoff.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "client-roam",
+      "level": "minor",
+      "url": "/client-dashboard",
+      "selector": "[data-tour=\"client-roam\"]",
+      "title": "Roam",
+      "listLabel": "Move a client to a better band or access point",
+      "body": "**Roam** asks a client to move: **Change Band** to push it up to a faster band it has used before, or **Change AP** to hand it to a neighbor. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging. Network Optimizer sends a short, targeted candidate list, because a long one gets ignored.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "live-client-throughput",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-client-throughput\"]",
+      "title": "Live View",
+      "listLabel": "See LAN traffic your Console never counted",
+      "body": "UniFi Network counts what crossed the gateway, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle no matter how hard the link was working. Reading the counters on the access point measures what is actually on the air, so that traffic shows up per client for the first time.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}

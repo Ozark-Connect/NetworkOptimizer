@@ -181,7 +181,7 @@
         @* Identity Bar *@
         <div class="card identity-bar">
             <div class="identity-row-1">
-                <div class="identity-info @(_client.IsVpn ? "identity-info-vpn" : null)">
+                <div class="identity-info @(_client.IsVpn ? "identity-info-vpn" : null)" data-tour="client-live">
                     @if (_client.IsVpn)
                     {
                         <span class="identity-vpn-icon @GetVpnTintClass(_client.VpnType)">
@@ -216,6 +216,7 @@
                            control that would refuse them. *@
                         <SiteOperatorOnly>
                         <button class="btn btn-secondary btn-sm btn-fit client-roam-btn" @onclick="OnRoamClickAsync"
+                                data-tour="client-roam"
                                 disabled="@_roamBusy"
                                 data-tooltip="Ask this device to move to another band or access point. It may briefly disconnect." data-tooltip-hover-only>
                             @if (_roamBusy)
