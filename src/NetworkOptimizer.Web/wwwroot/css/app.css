@@ -1,4 +1,4 @@
-﻿/* ============================================
+/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -10509,7 +10509,8 @@ a.path-hop.hop-clickable:hover {
     transition: background 0.1s ease;
 }
 
-.filterable-select-option:hover {
+.filterable-select-option:hover,
+.filterable-select-option.is-active {
     background: rgba(59, 130, 246, 0.15);
 }
 

@@ -18,6 +18,8 @@
                    placeholder="@Placeholder"
                    @bind="_search"
                    @bind:event="oninput"
+                   @bind:after="OnSearchChanged"
+                   @onkeydown="OnKeyDown"
                    @onclick="Open"
                    @onfocus="Open"
                    @onblur="CloseDelayed" />
@@ -25,10 +27,14 @@
         @if (_open)
         {
             <div class="filterable-select-overlay" @onclick="Close"></div>
-            <div class="filterable-select-dropdown" id="@_listId">
-                @foreach (var item in Filtered().Take(50))
+            <div class="filterable-select-dropdown" id="@_listId" role="listbox">
+                @{ var shown = Visible(); }
+                @for (var i = 0; i < shown.Count; i++)
                 {
-                    <div class="filterable-select-option @(item.IsOnline ? "" : "offline")"
+                    var item = shown[i];
+                    <div class="filterable-select-option @(item.IsOnline ? "" : "offline") @(i == _highlight ? "is-active" : "")"
+                         role="option"
+                         aria-selected="@(i == _highlight)"
                          data-selected="@(item.Key == SelectedKey ? "true" : null)"
                          @onmousedown="() => Pick(item)"
                          @onmousedown:preventDefault>
@@ -37,7 +43,7 @@
                         <span class="option-mac">@item.Mac</span>
                     </div>
                 }
-                @if (!Filtered().Any())
+                @if (shown.Count == 0)
                 {
                     <div class="filterable-select-empty">No clients found</div>
                 }
@@ -56,6 +62,7 @@
     [Parameter] public string Placeholder { get; set; } = "Select or search for a client...";
 
     private string _search = "";
+    private int _highlight;
     private bool _open;
     private ElementReference _filterInput;
 
@@ -69,7 +76,76 @@
     private async Task Open()
     {
         _open = true;
+        _highlight = IndexOfSelected();
         await ScrollToSelectedAsync();
+    }
+
+    /// <summary>The rows actually rendered, which is what the highlight indexes into.</summary>
+    private List<Item> Visible() => Filtered().Take(50).ToList();
+
+    private int IndexOfSelected()
+    {
+        var i = Visible().FindIndex(x => x.Key == SelectedKey);
+        return i < 0 ? 0 : i;
+    }
+
+    /// <summary>Typing re-ranks the list, so the top match takes the highlight.</summary>
+    private void OnSearchChanged()
+    {
+        _open = true;
+        _highlight = 0;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _open = false;
+            return;
+        }
+
+        var shown = Visible();
+        if (e.Key == "Enter")
+        {
+            if (_open && _highlight >= 0 && _highlight < shown.Count)
+                await Pick(shown[_highlight]);
+            return;
+        }
+
+        if (e.Key != "ArrowDown" && e.Key != "ArrowUp") return;
+
+        if (!_open)
+        {
+            await Open();
+            return;
+        }
+
+        if (shown.Count == 0) return;
+        _highlight = e.Key == "ArrowDown"
+            ? Math.Min(_highlight + 1, shown.Count - 1)
+            : Math.Max(_highlight - 1, 0);
+        await ScrollToHighlightAsync();
+    }
+
+    /// <summary>Keeps the highlighted row in view without moving the list when it already is.</summary>
+    private async Task ScrollToHighlightAsync()
+    {
+        StateHasChanged();
+        await Task.Delay(1);
+
+        var js = "(function(){var c=document.getElementById('" + _listId + "');"
+               + "if(!c)return;var o=c.querySelector('.filterable-select-option.is-active');"
+               + "if(!o)return;if(o.offsetTop<c.scrollTop)c.scrollTop=o.offsetTop;"
+               + "else if(o.offsetTop+o.offsetHeight>c.scrollTop+c.clientHeight)"
+               + "c.scrollTop=o.offsetTop+o.offsetHeight-c.clientHeight;})()";
+        try
+        {
+            await JS.InvokeVoidAsync("eval", js);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector could not scroll to the highlighted option");
+        }
     }
 
     private async Task OpenForEdit()
