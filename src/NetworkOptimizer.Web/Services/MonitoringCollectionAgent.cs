@@ -1377,6 +1377,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 Satisfaction = c.Satisfaction,
                 Rssi = c.Rssi,
                 IsMlo = c.IsMlo ?? false,
+                IdleSeconds = c.IdleTime,
                 Source = WifiClientSource.Console,
                 Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
                 LastUpdate = now

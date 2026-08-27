@@ -564,6 +564,7 @@ public sealed class ApAgentTelemetryCollector
                 Satisfaction = s.Satisfaction,
                 Rssi = s.Rssi,
                 IsMlo = s.IsMlo,
+                IdleSeconds = s.IdleSeconds,
                 Source = WifiClientSource.ApAgent,
                 LastUpdate = now,
             });

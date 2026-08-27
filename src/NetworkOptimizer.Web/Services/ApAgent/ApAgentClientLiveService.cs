@@ -119,6 +119,7 @@ public sealed class ApAgentClientLiveService
                 RxRateKbps = c.RxRateKbps > 0 ? c.RxRateKbps : null,
                 Rssi = c.Snr,
                 IsMlo = c.IsMlo,
+                IdleSeconds = idle,
                 TxThroughputBps = tx ?? prior?.TxThroughputBps,
                 RxThroughputBps = rx ?? prior?.RxThroughputBps,
                 Source = WifiClientSource.ApAgent,
