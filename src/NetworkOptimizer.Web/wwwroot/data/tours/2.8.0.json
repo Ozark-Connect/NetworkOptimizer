@@ -34,7 +34,7 @@
       "selector": "[data-tour=\"live-client-throughput\"]",
       "title": "Per-client Wi-Fi Traffic",
       "listLabel": "See Wi-Fi LAN traffic your Console never counted",
-      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.",
+      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.",
       "placement": "top",
       "optional": true
     }
