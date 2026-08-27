@@ -136,16 +136,16 @@ public static class SignalClassification
         //
         // The top reaches 25 dB above excellent because a client beside its access point sits far
         // above that boundary on every band, and anything past the last stop is one flat color.
-        // Hue travels the whole way - the primary blues, teal, emerald, green, lime, yellow,
-        // orange, rose, dark red - since most readings sit in the strong half. The three mid-span
-        // stops are the only ones off a boundary.
+        // Hue travels the whole way - blue, teal, emerald, green, lime, yellow, orange, rose, dark
+        // red - since most readings sit in the strong half. The three mid-span stops are the only
+        // ones off a boundary.
         var excellentToGood = (excellent + good) / 2;
         var fairToWeak = (fair + weak) / 2;
 
         return
         [
-            (excellent + 25, "#0550B5"),
-            (excellent + 15, "#2E79C4"),
+            (excellent + 25, "#2E79C4"),
+            (excellent + 15, "#4797ff"),
             (excellent + 7, "#2dd4bf"),
             (excellent, "#10b981"),
             (excellentToGood, "#4ade80"),
