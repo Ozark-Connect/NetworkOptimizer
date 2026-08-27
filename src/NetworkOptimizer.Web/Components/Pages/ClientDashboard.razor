@@ -1720,13 +1720,15 @@
         if (string.IsNullOrEmpty(_clientIp) || _client == null)
             return;
 
-        // Throughput refreshes on this tick, not the full poll: both readings are live and a wired
-        // client has no other reason to reach the full poll, so it would otherwise sit on its first.
-        await RefreshThroughputAsync();
-
         try
         {
             var update = await DashboardService.PollLiveClientAsync(_clientIp);
+
+            // After the poll, which is what publishes this tick's reading into the live cache.
+            // Here rather than the full poll: a wired client has no reason to reach that one often,
+            // so its rates would sit on whatever they loaded with.
+            await RefreshThroughputAsync();
+
             if (update == null)
                 return;
 
