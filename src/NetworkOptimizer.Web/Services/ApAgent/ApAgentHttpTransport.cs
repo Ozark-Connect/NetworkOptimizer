@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
@@ -22,12 +21,17 @@ public sealed class ApAgentHttpTransport
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly ILogger<ApAgentHttpTransport> _logger;
 
     /// <summary>Creates the transport.</summary>
-    public ApAgentHttpTransport(IHttpClientFactory httpClientFactory, SiteTunnelRouting tunnelRouting)
+    public ApAgentHttpTransport(
+        IHttpClientFactory httpClientFactory,
+        SiteTunnelRouting tunnelRouting,
+        ILogger<ApAgentHttpTransport> logger)
     {
         _httpClientFactory = httpClientFactory;
         _tunnelRouting = tunnelRouting;
+        _logger = logger;
     }
 
     /// <summary>Resolves the host and port to dial for one access point on one site.</summary>
@@ -83,6 +87,16 @@ public sealed class ApAgentHttpTransport
 
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         var (body, truncated) = await ReadBoundedAsync(response, maxBytes, ct);
+
+        // A refused signature is a misconfiguration that will not clear on its own, so it is never
+        // the debug-level noise the other failures are. Callers only see an unusable result.
+        if ((int)response.StatusCode == 401)
+        {
+            _logger.LogWarning(
+                "AP Agent at {Host}:{Port} refused {Method} {Path} as unauthorized - the access point's token or the request signature is wrong",
+                host, port, method.Method, path);
+        }
+
         return new ApAgentHttpResult((int)response.StatusCode, body, truncated);
     }
 
