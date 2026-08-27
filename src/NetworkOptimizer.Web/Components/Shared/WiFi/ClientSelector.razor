@@ -5,7 +5,11 @@
     <div class="filterable-select @(_open ? "open" : "")">
         @if (_selected != null && !_open)
         {
-            <div class="filterable-select-display" @onclick="OpenForEdit">
+            @* Focusable: closed over a selection this replaces the input, and a div is not in the
+               tab order on its own. *@
+            <div class="filterable-select-display" tabindex="0"
+                 role="combobox" aria-expanded="false" aria-haspopup="listbox"
+                 @onclick="OpenForEdit" @onkeydown="OnDisplayKeyDown">
                 <span class="status-dot @(_selected.IsOnline ? "online" : "offline")"></span>
                 <span class="option-text">@_selected.Name</span>
                 <span class="option-mac">@_selected.Mac</span>
@@ -93,6 +97,13 @@
     {
         _open = true;
         _highlight = string.IsNullOrWhiteSpace(_search) ? NoHighlight : 0;
+    }
+
+    /// <summary>Opens the list the way a native select does, from the closed display.</summary>
+    private async Task OnDisplayKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " " or "ArrowDown" or "ArrowUp")
+            await OpenForEdit();
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
