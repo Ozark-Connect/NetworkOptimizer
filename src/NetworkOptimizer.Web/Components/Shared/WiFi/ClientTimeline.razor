@@ -293,6 +293,10 @@
                         <input type="checkbox" @bind="_showTxRetries" @bind:after="OnChartFilterChanged" />
                         <span class="checkbox-label retries">TX Retries</span>
                     </label>
+                    @if (_chartZoomed)
+                    {
+                        <button type="button" class="btn btn-sm btn-secondary" @onclick="ResetZoomAsync">Reset zoom</button>
+                    }
                 </div>
             </div>
 
@@ -302,6 +306,7 @@
                 <ApexChart @ref="_signalChart" TItem="ClientChartPoint"
                            @key="_chartKey"
                            Options="_signalChartOptions"
+                           OnZoomed="OnChartZoomed"
                            Height="200">
 
                     @if (_showSignal)
@@ -403,6 +408,28 @@
     // Chart data
     private ApexChart<ClientChartPoint>? _signalChart;
     private ApexChartOptions<ClientChartPoint> _signalChartOptions = new();
+
+    private bool _chartZoomed;
+
+    private void OnChartZoomed(ZoomedData<ClientChartPoint> data)
+    {
+        _chartZoomed = data.IsZoomed;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Zooming to the full extent is the reset: the wrapper can set an x range but not clear one.
+    /// </summary>
+    private async Task ResetZoomAsync()
+    {
+        _chartZoomed = false;
+        if (_signalChart == null) return;
+
+        var points = _signalData.Concat(_txRetryData).ToList();
+        if (points.Count == 0) return;
+
+        await _signalChart.ZoomXAsync(points.Min(p => p.X), points.Max(p => p.X));
+    }
     private List<AnnotationsXAxis> _roamAnnotations = new();
     private List<ClientChartPoint> _signalData = new();
     private List<ClientChartPoint> _txRetryData = new();

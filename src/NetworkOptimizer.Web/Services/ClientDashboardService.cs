@@ -153,10 +153,10 @@ public class ClientDashboardService
             }
 
             // Wireless first: the page is about Wi-Fi performance, so those are what a viewer came
-            // to pick. Departed clients stay last whatever they connected over.
+            // to pick. Connected before departed within each group, then alphabetical.
             return online
-                .OrderByDescending(c => c.IsOnline)
-                .ThenBy(c => c.IsWired)
+                .OrderBy(c => c.IsWired)
+                .ThenByDescending(c => c.IsOnline)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
