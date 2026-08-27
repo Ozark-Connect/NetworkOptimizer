@@ -10523,6 +10523,11 @@ a.path-hop.hop-clickable:hover {
     box-shadow: inset 2px 0 0 var(--primary-color);
 }
 
+.filterable-select-option[data-selected="true"]:hover,
+.filterable-select-option[data-selected="true"].is-active {
+    background: rgba(59, 130, 246, 0.4);
+}
+
 .filterable-select-option .option-text {
     flex: 1;
     font-size: 0.8rem;

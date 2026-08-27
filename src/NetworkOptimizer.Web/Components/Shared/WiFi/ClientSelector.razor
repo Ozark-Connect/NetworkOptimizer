@@ -76,24 +76,21 @@
     private async Task Open()
     {
         _open = true;
-        _highlight = IndexOfSelected();
+        _highlight = NoHighlight;
         await ScrollToSelectedAsync();
     }
+
+    /// <summary>Nothing highlighted. Simply opening the list is not a choice about any row.</summary>
+    private const int NoHighlight = -1;
 
     /// <summary>The rows actually rendered, which is what the highlight indexes into.</summary>
     private List<Item> Visible() => Filtered().Take(50).ToList();
 
-    private int IndexOfSelected()
-    {
-        var i = Visible().FindIndex(x => x.Key == SelectedKey);
-        return i < 0 ? 0 : i;
-    }
-
-    /// <summary>Typing re-ranks the list, so the top match takes the highlight.</summary>
+    /// <summary>Searching ranks the list, so the top match leads. Clearing it leads nothing again.</summary>
     private void OnSearchChanged()
     {
         _open = true;
-        _highlight = 0;
+        _highlight = string.IsNullOrWhiteSpace(_search) ? NoHighlight : 0;
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
@@ -121,9 +118,15 @@
         }
 
         if (shown.Count == 0) return;
-        _highlight = e.Key == "ArrowDown"
-            ? Math.Min(_highlight + 1, shown.Count - 1)
-            : Math.Max(_highlight - 1, 0);
+
+        // From nothing, either arrow enters the list at the end it points from.
+        if (_highlight == NoHighlight)
+            _highlight = e.Key == "ArrowDown" ? 0 : shown.Count - 1;
+        else
+            _highlight = e.Key == "ArrowDown"
+                ? Math.Min(_highlight + 1, shown.Count - 1)
+                : Math.Max(_highlight - 1, 0);
+
         await ScrollToHighlightAsync();
     }
 
