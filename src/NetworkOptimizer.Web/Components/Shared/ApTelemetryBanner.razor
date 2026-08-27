@@ -1,11 +1,6 @@
-@* Offers AP Telemetry on the pages whose data it improves, until the site turns it on or the
-   viewer dismisses it. Dismissal is install-wide, like every other banner here: there is no
-   per-user preference store yet. *@
-
-@using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.ApAgent
-@inject ISystemSettingsService SettingsService
+@inject UiHintService UiHints
 @inject IApAgentDeploymentService ApAgents
 
 @if (_visible)
@@ -45,10 +40,7 @@
         try
         {
             if (await ApAgents.IsSiteEnabledAsync()) return;
-
-            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.ApTelemetryBannerDismissed);
-            if (!string.IsNullOrEmpty(dismissed) && dismissed.Equals("true", StringComparison.OrdinalIgnoreCase))
-                return;
+            if (!await UiHints.ShouldShowAsync(UiHintKeys.ApTelemetryOffer)) return;
 
             _visible = true;
             await InvokeAsync(StateHasChanged);
@@ -64,7 +56,7 @@
         _visible = false;
         try
         {
-            await SettingsService.SetGlobalAsync(SystemSettingKeys.ApTelemetryBannerDismissed, "true");
+            await UiHints.DismissAsync(UiHintKeys.ApTelemetryOffer);
         }
         catch
         {

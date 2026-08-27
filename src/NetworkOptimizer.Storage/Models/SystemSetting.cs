@@ -83,9 +83,6 @@ public static class SystemSettingKeys
     // Channel recommendation disclaimer
     public const string ChannelDisclaimerDismissed = "ui.channel_disclaimer_dismissed";
 
-    // AP Telemetry availability banner, shown on the pages its data feeds
-    public const string ApTelemetryBannerDismissed = "ui.ap_telemetry_banner_dismissed";
-
     // ISP Health hint pointing at where the expected ISP plan speeds are configured
     // (UniFi Network > Settings > Internet > Expected ISP Speeds). Global, not per-site:
     // once the operator knows where the setting lives, they know it for every site.
