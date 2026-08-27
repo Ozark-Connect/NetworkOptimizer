@@ -1281,6 +1281,16 @@ public class ClientDashboardService
         if (client is not { IsWired: true } || string.IsNullOrEmpty(client.SwitchMac) || client.SwitchPort is not int port)
             return null;
 
+        var live = _liveStats.GetFor(_siteContext.Slug);
+
+        // The live cache holds the same per-port snapshot the collector last wrote, so the page and
+        // Live View agree and neither waits on a query. InfluxDB is the fallback for a site whose
+        // collection runs elsewhere and publishes nothing here.
+        var cached = live.GetPortStatsSnapshot(new[] { client.SwitchMac })
+            .FirstOrDefault(r => int.TryParse(r.PortId, out var p) && p == port);
+        if (cached != null)
+            return ToWiredPortStats(cached, client, port, live);
+
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
@@ -1296,23 +1306,7 @@ public class ClientDashboardService
                 return null;
             }
 
-            // The port's inbound is what the client sent, so each pair is flipped on the way out.
-            return new WiredPortStats
-            {
-                SwitchName = client.SwitchName,
-                Port = port,
-                LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
-                LinkSpeedBps = row.SpeedBps,
-                DownloadBps = row.RateOutBps,
-                UploadBps = row.RateInBps,
-                ErrorsToClient = row.ErrorsOut,
-                ErrorsFromClient = row.ErrorsIn,
-                DropsToClient = row.DiscardsOut,
-                DropsFromClient = row.DiscardsIn,
-                PacketsToClient = row.UcastPktsOut,
-                PacketsFromClient = row.UcastPktsIn,
-                At = row.Time,
-            };
+            return ToWiredPortStats(row, client, port, live);
         }
         catch (Exception ex)
         {
@@ -1322,14 +1316,51 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// The most recent throughput sample for a wireless client, as download and upload from the
-    /// client's point of view. Null when nothing has been sampled in the last few minutes, so a
-    /// stale rate is never presented as live.
+    /// One port reading in the client's terms. The port's inbound is what the client sent, so each
+    /// pair is flipped. Rates prefer the client's own measured throughput where the collector has
+    /// it, because a shared port carries traffic that is not this device's.
+    /// </summary>
+    private static WiredPortStats ToWiredPortStats(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint row,
+        ClientIdentity client,
+        int port,
+        MonitoringLiveStats live)
+    {
+        var own = live.GetWiredClient(client.Mac);
+        return new WiredPortStats
+        {
+            SwitchName = client.SwitchName,
+            Port = port,
+            LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
+            LinkSpeedBps = row.SpeedBps,
+            DownloadBps = own?.TxThroughputBps ?? row.RateOutBps,
+            UploadBps = own?.RxThroughputBps ?? row.RateInBps,
+            ErrorsToClient = row.ErrorsOut,
+            ErrorsFromClient = row.ErrorsIn,
+            DropsToClient = row.DiscardsOut,
+            DropsFromClient = row.DiscardsIn,
+            PacketsToClient = row.UcastPktsOut,
+            PacketsFromClient = row.UcastPktsIn,
+            At = row.Time,
+        };
+    }
+
+    /// <summary>
+    /// Throughput for a wireless client, as download and upload from the client's point of view.
+    ///
+    /// The live cache first: that reading is resolved from the client's own byte counters on the
+    /// same poll that produced the PHY rates beside it, so the two move together. InfluxDB only
+    /// when nothing has published one, where the newest stored sample can be a write interval old.
     /// </summary>
     public async Task<(double? DownloadBps, double? UploadBps, DateTime At)?> GetWifiThroughputAsync(ClientIdentity? client)
     {
         if (client is not { IsWired: false, IsOffline: false } || string.IsNullOrEmpty(client.Mac))
             return null;
+
+        // The access point transmits what the client downloads, so each pair is flipped on the way out.
+        var snapshot = _liveStats.GetFor(_siteContext.Slug).GetWifiClient(client.Mac);
+        if (snapshot is { } s && (s.TxThroughputBps.HasValue || s.RxThroughputBps.HasValue))
+            return (s.TxThroughputBps, s.RxThroughputBps, s.LastUpdate);
 
         try
         {
@@ -1343,7 +1374,6 @@ public class ClientDashboardService
             if (last == null)
                 return null;
 
-            // The access point transmits what the client downloads, so the pair is flipped on the way out.
             return (last.TxThroughputBps, last.RxThroughputBps, last.Time);
         }
         catch (Exception ex)
