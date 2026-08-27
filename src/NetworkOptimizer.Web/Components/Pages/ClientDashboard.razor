@@ -142,7 +142,7 @@
     }
     else if (_showClientPicker)
     {
-        <div class="card empty-state">
+        <div class="card empty-state client-picker-card">
             <h3>Select Your Device</h3>
             <p>This site is monitored remotely, so your device can't be identified automatically from here. Choose a device to view its performance.</p>
             <div class="client-picker-row">
@@ -3087,6 +3087,12 @@
 
     .client-dashboard-header .client-selector-combo {
         margin-left: auto;
+        place-self: flex-end;
+    }
+
+    /* .card hides its overflow, which clips the selector's dropdown. */
+    .client-picker-card {
+        overflow: visible;
     }
 
     @@media (max-width: 768px) {

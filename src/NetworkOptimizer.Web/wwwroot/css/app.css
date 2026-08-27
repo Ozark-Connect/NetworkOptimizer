@@ -3208,6 +3208,7 @@ select.form-control {
     display: flex;
     gap: 0.5rem;
     justify-content: center;
+    text-align: left;
 }
 
 .client-picker-row select {
