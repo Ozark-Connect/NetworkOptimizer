@@ -146,16 +146,9 @@ public static class MeasuredClientReducer
     }
 
     /// <summary>
-    /// Which of two access points claiming a client in the same bucket is the one serving it.
-    ///
-    /// Recency alone answers "who wrote last", not "who has the client". An access point that still
-    /// holds a station it stopped serving keeps writing, and on a walk test it interleaves weak
-    /// readings between the strong ones from the access point the client is actually on - so a
-    /// bucket it happens to write last in shows the wrong access point at the wrong signal.
-    ///
-    /// Idle decides where both report it, because it is the only field that says when the access
-    /// point last heard from the client. Signal breaks a tie, and a point with no idle at all falls
-    /// back to recency, which is what every point written before the field existed carries.
+    /// Which of two access points claiming a client in the same bucket is serving it. Recency says
+    /// who wrote last, not who has the client: one still holding a departed station keeps writing.
+    /// Idle decides, signal breaks a tie, and a point without idle falls back to recency.
     /// </summary>
     private static bool Outranks(
         MonitoringInfluxClient.WifiClientSamplePoint row,
@@ -171,11 +164,7 @@ public static class MeasuredClientReducer
         return row.Time > held.Time;
     }
 
-    /// <summary>
-    /// How much stronger one claim must read before signal decides it. Wide enough that ordinary
-    /// variation between two samples never reorders them, narrow enough to separate an access point
-    /// hearing a client across the house from the one it is standing next to.
-    /// </summary>
+    /// <summary>Signal gap before it outranks recency. Wide enough that sample noise never reorders.</summary>
     private const double ContestedSignalMarginDb = 12;
 
     private static int? Positive(int? value) => value is > 0 ? value : null;

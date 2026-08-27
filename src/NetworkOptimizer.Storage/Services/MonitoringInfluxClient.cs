@@ -611,8 +611,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (ccq.HasValue) point = point.Field("ccq", ccq.Value);
         if (nss.HasValue) point = point.Field("nss", nss.Value);
 
-        // Which access point is actually serving the client, when more than one holds it. Additive:
-        // points written before this carry no idle and readers fall back to recency as they did.
+        // Additive: older points carry no idle and readers fall back to recency.
         if (idleSeconds.HasValue) point = point.Field("idle_seconds", idleSeconds.Value);
 
         Enqueue(point, longterm: false);
@@ -3156,11 +3155,7 @@ union(tables: [means, chan])
         public string? Band { get; init; }
         public string? ClientMac { get; init; }
 
-        /// <summary>
-        /// Seconds since this access point last heard from the client. Absent on points written
-        /// before the field existed. Two access points can hold the same client at once, and this
-        /// is what says which one is actually serving it.
-        /// </summary>
+        /// <summary>Seconds since this access point last heard from the client. Absent on older points.</summary>
         public long? IdleSeconds { get; init; }
 
         public double? SignalDbm { get; init; }
