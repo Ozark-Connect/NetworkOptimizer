@@ -14,6 +14,11 @@ using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Tests.Firmware;
 
+internal sealed class NullHttpClientFactory : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new();
+}
+
 /// <summary>Clock the executor's grace windows, budgets and cool-downs are driven by.</summary>
 internal sealed class FakeTimeProvider : TimeProvider
 {
@@ -483,6 +488,8 @@ internal sealed class RolloutHarness : IDisposable
         Repository = new FirmwareRolloutRepository(Db, NullLogger<FirmwareRolloutRepository>.Instance);
         SharedCatalog = new SharedFirmwareCatalogRepository(
             new HarnessDbContextFactory(this), NullLogger<SharedFirmwareCatalogRepository>.Instance);
+        var feed = new UbiquitiReleaseFeedClient(
+            new NullHttpClientFactory(), NullLogger<UbiquitiReleaseFeedClient>.Instance, Time);
         Autopilot = new RolloutAutopilot(
             new InMemoryRepositoryAccessor(Repository),
             new DirectPlanningScope(Planning),
@@ -491,7 +498,8 @@ internal sealed class RolloutHarness : IDisposable
             Bus,
             Time,
             NullLogger<RolloutAutopilot>.Instance,
-            SharedCatalog);
+            SharedCatalog,
+            feed);
         Orchestrator = NewOrchestrator();
 
         Caller.SetUser(new CallerInfo { ActorName = Actor });
@@ -504,6 +512,7 @@ internal sealed class RolloutHarness : IDisposable
             Audit,
             Caller,
             SharedCatalog,
+            feed,
             NullLogger<FirmwareRolloutService>.Instance);
     }
 

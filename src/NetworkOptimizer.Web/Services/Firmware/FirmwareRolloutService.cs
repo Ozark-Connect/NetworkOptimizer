@@ -28,6 +28,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private readonly IAuditContext _audit;
     private readonly ICallerContext _caller;
     private readonly ISharedFirmwareCatalogRepository _sharedCatalog;
+    private readonly UbiquitiReleaseFeedClient _feed;
     private readonly ILogger<FirmwareRolloutService> _logger;
 
     /// <param name="repository">This site's rollout store.</param>
@@ -38,6 +39,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// <param name="audit">Audit detail for the gated writes.</param>
     /// <param name="caller">Who is asking, recorded as the plan's author.</param>
     /// <param name="sharedCatalog">The install-wide firmware build store (main database).</param>
+    /// <param name="feed">Ubiquiti public release feed for GA fallback.</param>
     /// <param name="logger">Logger.</param>
     public FirmwareRolloutService(
         IFirmwareRolloutRepository repository,
@@ -48,6 +50,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         IAuditContext audit,
         ICallerContext caller,
         ISharedFirmwareCatalogRepository sharedCatalog,
+        UbiquitiReleaseFeedClient feed,
         ILogger<FirmwareRolloutService> logger)
     {
         _repository = repository;
@@ -58,6 +61,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         _audit = audit;
         _caller = caller;
         _sharedCatalog = sharedCatalog;
+        _feed = feed;
         _logger = logger;
     }
 
@@ -424,7 +428,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(
-            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, cancellationToken);
+            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs);
