@@ -194,6 +194,9 @@
     {
         _search = "";
         _open = true;
+        // Opens without going through Open(), so it clears the highlight itself. Left stale, the
+        // arrows move from wherever the last session ended instead of from the current client.
+        _highlight = NoHighlight;
         StateHasChanged();
         await Task.Delay(1); // let the input render before focusing it
         await _filterInput.FocusAsync();
