@@ -23,7 +23,7 @@
       "selector": "[data-tour=\"client-live\"]",
       "title": "Client Performance Upgrade",
       "listLabel": "Live client data twice a second, and move a client between APs",
-      "body": "Deploying **AP Telemetry** enhances this page, and unlocks **Roam**.\n\nSignal, PHY rates, and throughput now come from the client's own AP twice a second, so they move as fast as the client does, and when it roams the stats follow to the new AP immediately instead of stalling.\n\n**Roam** is new: ask a client to move to the nearest AP besides the current one, or to a more optimal band. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging.",
+      "body": "Deploying **AP Telemetry** enhances this page, and unlocks **Roam**.\n\nSignal, PHY rates, and throughput now come from the client's own AP twice a second, so they move as fast as the client does, and when it roams the stats follow to the new AP immediately instead of stalling.\n\nWired clients pick this up too from existing SNMP monitoring: their switch and port, link speed, live throughput rates, and port errors and drops.\n\n**Roam** is new: ask a client to move to the nearest AP besides the current one, or to a more optimal band. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging.",
       "placement": "bottom",
       "optional": true
     },
