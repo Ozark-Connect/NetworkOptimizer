@@ -1020,17 +1020,8 @@
     private ClientIdentity? _client;
     private WiredPortStats? _portStats;
     private bool _liveViewLinkEnabled;
-
-    /// <summary>
-    /// A roam takes the client off one access point before it appears on the next, and the console
-    /// reports that gap as offline. The banner waits it out rather than announcing a device that is
-    /// mid-handoff; anything genuinely gone is still offline when the grace period expires.
-    /// </summary>
-    private static readonly TimeSpan OfflineGrace = TimeSpan.FromSeconds(10);
+    private bool _seenOnline;
     private DateTime? _offlineSince;
-
-    private bool ShowOfflineBanner =>
-        _client?.IsOffline == true && _offlineSince is { } since && DateTime.UtcNow - since >= OfflineGrace;
     private (double? DownloadBps, double? UploadBps, DateTime At)? _wifiThroughput;
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
@@ -1416,7 +1407,7 @@
             // We don't have direct access to HttpContext IP in Blazor Server,
             // so we use JS interop to get the page URL and call the API
             _client = await GetClientIdentityAsync();
-        TrackOfflineSince();
+            TrackPresence();
             _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
             _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
 
@@ -1728,15 +1719,6 @@
     /// Lightweight live poll: the access point's AP Agent where there is one, WiFiman otherwise,
     /// for signal/channel/band/rates. Merges into existing _client. No stat/sta, no trace, no DB write.
     /// </summary>
-    /// <summary>Starts the clock the first time a client reads offline, and stops it when it returns.</summary>
-    private void TrackOfflineSince()
-    {
-        if (_client?.IsOffline != true)
-            _offlineSince = null;
-        else
-            _offlineSince ??= DateTime.UtcNow;
-    }
-
     /// <summary>The live rate for whichever kind of client this is, or null while it has none.</summary>
     private async Task RefreshThroughputAsync()
     {
@@ -1859,7 +1841,7 @@
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
-                TrackOfflineSince();
+                TrackPresence();
                 await RefreshThroughputAsync();
                 _pollCount++;
 
@@ -2562,6 +2544,35 @@
 
     // AP RX/TX rate columns only apply to Wi-Fi clients - hide for wired and VPN clients.
     private bool HidesApRates => _client?.IsWired == true || _client?.IsVpn == true;
+
+    /// <summary>
+    /// A client that was online and drops has ten seconds to come back before it is called offline:
+    /// a roam takes it off one access point before it reaches the next, and the console reports that
+    /// gap as gone. One that was already offline when the page opened is announced straight away.
+    /// </summary>
+    private bool ShowOfflineBanner
+    {
+        get
+        {
+            if (_client?.IsOffline != true) return false;
+            if (!_seenOnline) return true;
+            return _offlineSince is { } since && DateTime.UtcNow - since >= TimeSpan.FromSeconds(10);
+        }
+    }
+
+    /// <summary>Notes the online-to-offline transition the banner's grace period is measured from.</summary>
+    private void TrackPresence()
+    {
+        if (_client?.IsOffline != true)
+        {
+            if (_client != null) _seenOnline = true;
+            _offlineSince = null;
+        }
+        else
+        {
+            _offlineSince ??= DateTime.UtcNow;
+        }
+    }
 
     private IEnumerable<Iperf3Result> GetPagedSpeedResults()
     {

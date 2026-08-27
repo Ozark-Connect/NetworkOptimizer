@@ -111,9 +111,7 @@
         if (string.IsNullOrEmpty(_search)) return;
         try
         {
-            // Deferred: a render landing between the click and this would drop the selection.
-            await JS.InvokeVoidAsync("eval",
-                $"setTimeout(function(){{document.getElementById('{_listId}-input')?.select();}},0)");
+            await JS.InvokeVoidAsync("eval", $"document.getElementById('{_listId}-input')?.select()");
         }
         catch (Exception ex)
         {

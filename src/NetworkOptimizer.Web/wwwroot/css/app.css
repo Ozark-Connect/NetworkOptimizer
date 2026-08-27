@@ -10419,6 +10419,14 @@ a.path-hop.hop-clickable:hover {
     max-width: 400px;
 }
 
+/* The click-outside overlay is a sibling inside this control, so while the list is open it covers
+   the search box. Without this, every click on the box hits the overlay and closes the list.
+   Raising the control itself does not work: the overlay rises with it. */
+.filterable-select.open .filterable-select-input {
+    position: relative;
+    z-index: 1001;
+}
+
 
 .filterable-select-input {
     width: 100%;
