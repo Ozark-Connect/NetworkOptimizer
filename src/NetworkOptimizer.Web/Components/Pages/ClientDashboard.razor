@@ -51,6 +51,8 @@
         }
     </div>
 
+    <ApTelemetryBanner Message="AP Telemetry reads this client's data straight from its access point, twice a second, and follows it instantly across a roam." />
+
     @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
     {
         <div class="connection-banner">

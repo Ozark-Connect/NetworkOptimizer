@@ -33,6 +33,8 @@
 
 <RestrictedSiteNotice />
 
+<ApTelemetryBanner Message="AP Telemetry reads Wi-Fi data straight from your access points, for client stats, roam records, and radio health the UniFi Console does not report." />
+
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
 {
     <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
