@@ -386,16 +386,16 @@
                             To <span class="speed-up">@DisplayFormatters.FormatRate(portDown)</span>
                         </span>
                     }
-                    @if (port.ErrorsToClient.HasValue || port.ErrorsFromClient.HasValue)
+                    @if (port.ErrorsFromClient.HasValue || port.ErrorsToClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Port errors, to the device then from it">
-                            Errors @(port.ErrorsToClient ?? 0) / @(port.ErrorsFromClient ?? 0)
+                        <span class="identity-detail" data-tooltip="Port errors, from then to this device">
+                            Errors @(port.ErrorsFromClient ?? 0) / @(port.ErrorsToClient ?? 0)
                         </span>
                     }
-                    @if (port.DropsToClient.HasValue || port.DropsFromClient.HasValue)
+                    @if (port.DropsFromClient.HasValue || port.DropsToClient.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="Frames the port discarded, to then from">
-                            Drops @(port.DropsToClient ?? 0) / @(port.DropsFromClient ?? 0)
+                        <span class="identity-detail" data-tooltip="Frames the port discarded, from then to this device">
+                            Drops @(port.DropsFromClient ?? 0) / @(port.DropsToClient ?? 0)
                         </span>
                     }
                 }
