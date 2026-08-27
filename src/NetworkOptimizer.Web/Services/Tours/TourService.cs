@@ -263,7 +263,7 @@ public class TourService
         var url = TourUrlTokenResolver.Fill(step.Url, tokens);
         if (url == null)
         {
-            _logger.LogDebug("Tour step {StepId} dropped: its url needs a token this site cannot fill", step.Id);
+            _logger.LogDebug("Tour step {StepId} dropped: its url requires a token this site cannot fill", step.Id);
             return null;
         }
 

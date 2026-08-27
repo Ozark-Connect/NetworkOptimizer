@@ -1,23 +1,40 @@
+using System.Text.RegularExpressions;
+
 namespace NetworkOptimizer.Web.Services.Tours;
 
 /// <summary>
 /// Placeholders a step's url may carry, filled in against the site the tour is about to run on.
 ///
-/// A step that must land on a particular kind of thing cannot hard-code one: the client, access
-/// point or WAN that exists differs per install. A step whose token does not resolve is dropped
-/// rather than navigated to, because the literal placeholder in a query string lands the viewer on
-/// a page about nothing.
+/// A step that wants to land on a particular kind of thing cannot hard-code one: the client, access
+/// point or WAN that exists differs per install. Write <c>{name}</c> where landing there is a
+/// preference and <c>{!name}</c> where the step is pointless without it.
 /// </summary>
 public static class TourUrlTokens
 {
-    /// <summary>An online wireless client's address, for a step whose target only exists on one.</summary>
-    public const string WifiClientIp = "{wifi-client-ip}";
+    /// <summary>An online wireless client's address.</summary>
+    public const string WifiClientIp = "wifi-client-ip";
 
-    /// <summary>Every token this step's url depends on.</summary>
-    public static IEnumerable<string> Used(string url)
+    private static readonly string[] Names = [WifiClientIp];
+
+    /// <summary>One placeholder as it appears in a url.</summary>
+    /// <param name="Placeholder">The literal text to substitute, braces included.</param>
+    /// <param name="Name">Which token it is.</param>
+    /// <param name="Required">True when an unresolved value should drop the step.</param>
+    public readonly record struct Use(string Placeholder, string Name, bool Required);
+
+    /// <summary>Every placeholder this url carries.</summary>
+    public static IEnumerable<Use> Used(string url)
     {
-        if (url.Contains(WifiClientIp, StringComparison.Ordinal))
-            yield return WifiClientIp;
+        foreach (var name in Names)
+        {
+            var optional = "{" + name + "}";
+            if (url.Contains(optional, StringComparison.Ordinal))
+                yield return new Use(optional, name, false);
+
+            var required = "{!" + name + "}";
+            if (url.Contains(required, StringComparison.Ordinal))
+                yield return new Use(required, name, true);
+        }
     }
 }
 
@@ -43,31 +60,54 @@ public sealed class TourUrlTokenResolver
     /// </summary>
     public async Task<IReadOnlyDictionary<string, string?>> ResolveAsync(IEnumerable<string> urls, string siteSlug)
     {
-        var needed = urls.SelectMany(TourUrlTokens.Used).Distinct(StringComparer.Ordinal).ToList();
-        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var needed = urls.SelectMany(TourUrlTokens.Used)
+            .Select(u => u.Name)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
-        foreach (var token in needed)
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var name in needed)
         {
-            values[token] = token switch
+            values[name] = name switch
             {
                 TourUrlTokens.WifiClientIp => await WifiClientIpAsync(siteSlug),
                 _ => null,
             };
         }
-
         return values;
     }
 
-    /// <summary>Substitutes resolved tokens; null when one this url needs did not resolve.</summary>
+    /// <summary>
+    /// Substitutes resolved tokens. An unresolved optional token takes its query parameter with it,
+    /// leaving a url that still works; an unresolved required one returns null, and the caller drops
+    /// the step rather than send a viewer somewhere the step is not about.
+    /// </summary>
     public static string? Fill(string url, IReadOnlyDictionary<string, string?> values)
     {
-        foreach (var token in TourUrlTokens.Used(url))
+        foreach (var use in TourUrlTokens.Used(url))
         {
-            if (!values.TryGetValue(token, out var value) || string.IsNullOrEmpty(value))
+            values.TryGetValue(use.Name, out var value);
+            if (!string.IsNullOrEmpty(value))
+                url = url.Replace(use.Placeholder, Uri.EscapeDataString(value), StringComparison.Ordinal);
+            else if (use.Required)
                 return null;
-            url = url.Replace(token, Uri.EscapeDataString(value), StringComparison.Ordinal);
+            else
+                url = DropParameter(url, use.Placeholder);
         }
         return url;
+    }
+
+    private static string DropParameter(string url, string placeholder)
+    {
+        var cleaned = Regex.Replace(url, @"[?&][^?&=]*=" + Regex.Escape(placeholder), string.Empty);
+
+        // The dropped parameter may have been the one carrying the '?'.
+        if (!cleaned.Contains('?') && cleaned.Contains('&'))
+        {
+            var at = cleaned.IndexOf('&');
+            cleaned = string.Concat(cleaned.AsSpan(0, at), "?", cleaned.AsSpan(at + 1));
+        }
+        return cleaned;
     }
 
     private async Task<string?> WifiClientIpAsync(string siteSlug)
