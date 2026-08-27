@@ -1521,6 +1521,17 @@ class LanFlowMap2D {
         if(this._isFitted&&flowData.getMode()==='historic')this._fitAll();
     }
 
+    // Where a label sits on an elbow: on one end's leg, `off` clear of the crossbar. Which
+    // coordinate is the leg and which is the crossbar swaps with the layout, so every label anchor
+    // goes through here rather than assuming the top-down frame.
+    _elbowLabel(e,atSource,off){
+        const stagger=e._midYOff||0;
+        if(e._hz){
+            return{x:(e._x1+e._x2)/2+stagger+off, y:atSource?e._y1:e._y2};
+        }
+        return{x:atSource?e._x1:e._x2, y:(e._y1+e._y2)/2+stagger+off};
+    }
+
     _placeClouds(){
         if(!this._root||this._clouds.length===0)return;
         const gx=this._root.x,gy=this._root.y;
@@ -1829,10 +1840,9 @@ class LanFlowMap2D {
             if(!e._isCl){
                 ctx.globalAlpha=1;
                 const isWan=e._isWan;
-                const midY=(e._y1+e._y2)/2+(e._midYOff||0);
-                // WAN: on cloud's vertical above horizontal. Infra: on child's vertical below horizontal.
-                const mx=isWan?e._x1:e._x2;
-                const my=isWan?midY-28:midY+20;
+                // WAN: on the cloud's leg, before the crossbar. Infra: on the child's leg, after it.
+                const lp=this._elbowLabel(e,isWan,isWan?-28:20);
+                const mx=lp.x,my=lp.y;
                 let txt=null;
                 let txtColor=C.textMuted; // default muted; live rates override
                 let txtItalic=false;
@@ -2224,10 +2234,9 @@ class LanFlowMap2D {
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
-                // Place on child's vertical segment below the capacity label
-                const midY=(e._y1+e._y2)/2+(e._midYOff||0);
-                const mx=e._x2;
-                const my=midY+38;
+                // Place on the child's leg, past the capacity label
+                const lp=this._elbowLabel(e,false,38);
+                const mx=lp.x,my=lp.y;
                 const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
                 const uTxt='↑'+(up>0?formatBps(up):'0 bps');
                 const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
