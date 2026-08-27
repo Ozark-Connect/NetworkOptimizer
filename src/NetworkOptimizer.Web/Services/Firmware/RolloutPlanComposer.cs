@@ -43,6 +43,7 @@ public static class RolloutPlanComposer
         FirmwareRolloutSettings? settings = null,
         ILogger? logger = null,
         ISharedFirmwareCatalogRepository? sharedCatalog = null,
+        UbiquitiReleaseFeedClient? feed = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
@@ -66,6 +67,9 @@ public static class RolloutPlanComposer
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, images, catalog, sharedCatalog, logger, cancellationToken);
             console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
+
+            if (feed != null && settings.IncludeUniFiOs)
+                await PatchStaleGaFromFeedAsync(console, feed, logger, cancellationToken);
         }
 
         if (sharedCatalog != null)
@@ -510,6 +514,80 @@ public static class RolloutPlanComposer
         FirmwareChannels.ReleaseCandidate => [FirmwareChannels.ReleaseCandidate, FirmwareChannels.Release],
         _ => [channel],
     };
+
+    /// <summary>
+    /// The console's <c>latestByChannel["release"]</c> entry can go stale when the console sits
+    /// on beta or RC: the GA entry only refreshes when the console is actually put on that channel.
+    /// This checks Ubiquiti's public release feed and replaces the stale entry with the real GA
+    /// build, so the channel-walking logic in <see cref="OfferedUniFiOsRelease"/> picks it up.
+    /// </summary>
+    private static async Task PatchStaleGaFromFeedAsync(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        UbiquitiReleaseFeedClient feed,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (console?.Firmware?.LatestByChannel is not { } byChannel)
+            return;
+
+        var platform = console.Hardware?.Shortname;
+        if (string.IsNullOrWhiteSpace(platform))
+            return;
+
+        var installed = console.InstalledOsVersion;
+
+        // Check what the console thinks GA is.
+        byChannel.TryGetValue(FirmwareChannels.Release, out var consoleGa);
+        var consoleGaVersion = consoleGa?.Version;
+
+        // If the console's GA entry is already newer than installed, the channel walk will find it.
+        if (!string.IsNullOrEmpty(consoleGaVersion)
+            && !string.IsNullOrEmpty(installed)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(consoleGaVersion, installed))
+        {
+            logger?.LogDebug(
+                "UniFi OS GA from console ({Version}) is already newer than installed ({Installed}), feed check skipped",
+                consoleGaVersion, installed);
+            return;
+        }
+
+        var feedGa = await feed.GetLatestAsync(platform, UbiquitiReleaseFeedClient.GaChannel,
+            product: "unifi-dream", cancellationToken: cancellationToken);
+
+        if (feedGa == null || string.IsNullOrEmpty(feedGa.Version))
+        {
+            logger?.LogDebug("No GA build on the public feed for platform {Platform}", platform);
+            return;
+        }
+
+        // Only patch if the feed version is genuinely newer than what the console reported.
+        if (!string.IsNullOrEmpty(consoleGaVersion)
+            && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(feedGa.Version, consoleGaVersion))
+        {
+            logger?.LogDebug(
+                "Public feed GA ({FeedVersion}) is not newer than console GA ({ConsoleVersion})",
+                feedGa.Version, consoleGaVersion);
+            return;
+        }
+
+        var release = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+        {
+            Channel = FirmwareChannels.Release,
+            Version = feedGa.Version,
+            Created = feedGa.Created,
+            Links = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLinks
+            {
+                Data = feedGa.DownloadUrl != null
+                    ? new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLink { Href = feedGa.DownloadUrl }
+                    : null,
+            },
+        };
+
+        byChannel[FirmwareChannels.Release] = release;
+        logger?.LogInformation(
+            "Patched stale UniFi OS GA entry: console reported {ConsoleVersion}, public feed has {FeedVersion} for {Platform}",
+            consoleGaVersion ?? "(absent)", feedGa.Version, platform);
+    }
 
     private static string? NetworkAppDebUrl(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
     {
