@@ -345,16 +345,16 @@
                     {
                         <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
-                    @if (_wifiThroughput?.DownloadBps is > 0)
-                    {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
-                            Down <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
-                        </span>
-                    }
                     @if (_wifiThroughput?.UploadBps is > 0)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
-                            Up <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
+                            From <span class="speed-down">@DisplayFormatters.FormatRate(_wifiThroughput?.UploadBps)</span>
+                        </span>
+                    }
+                    @if (_wifiThroughput?.DownloadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
+                            To <span class="speed-up">@DisplayFormatters.FormatRate(_wifiThroughput?.DownloadBps)</span>
                         </span>
                     }
                     @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
@@ -373,16 +373,16 @@
                     {
                         <span class="identity-detail" data-tooltip="Negotiated link speed">@DisplayFormatters.FormatRate(port.LinkSpeedBps)</span>
                     }
-                    @if (port.DownloadBps is > 0)
-                    {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
-                            Down <span class="speed-down">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
-                        </span>
-                    }
                     @if (port.UploadBps is > 0)
                     {
                         <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device">
-                            Up <span class="speed-up">@DisplayFormatters.FormatRate(port.UploadBps)</span>
+                            From <span class="speed-down">@DisplayFormatters.FormatRate(port.UploadBps)</span>
+                        </span>
+                    }
+                    @if (port.DownloadBps is > 0)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device">
+                            To <span class="speed-up">@DisplayFormatters.FormatRate(port.DownloadBps)</span>
                         </span>
                     }
                     @if (port.ErrorsToClient.HasValue || port.ErrorsFromClient.HasValue)
