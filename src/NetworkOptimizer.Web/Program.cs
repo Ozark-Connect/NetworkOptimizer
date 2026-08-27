@@ -755,6 +755,8 @@ builder.Services.AddMutatingService<IDashboardLayoutAdminService>(
 builder.Services.AddScoped<PullToRefreshState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
+// Same instance by its interface, for components that may not inject the concrete type.
+builder.Services.AddSingleton<IIeeeOuiDatabase>(sp => sp.GetRequiredService<IeeeOuiDatabase>());
 builder.Services.AddScoped<PdfStorageService>(); // Scoped - namespaces PDF storage by the current site's slug
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
 // Running a scan and curating findings are gated separately from the audit read surface.

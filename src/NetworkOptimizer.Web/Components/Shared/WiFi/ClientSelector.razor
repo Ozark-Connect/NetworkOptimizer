@@ -1,5 +1,6 @@
 @inject IJSRuntime JS
 @inject ILogger<ClientSelector> Logger
+@inject NetworkOptimizer.Audit.Services.IIeeeOuiDatabase OuiDatabase
 
 <div class="client-selector-combo">
     @* The arrows drive the list, so they must not also scroll the page. Inline and on the wrapper:
@@ -359,6 +360,19 @@
         return hex.Length >= 3 ? hex : "";
     }
 
+    /// <summary>
+    /// Letters and digits only, lowercased, for comparing a typed vendor against a registry name.
+    /// Applied to the search side and to a copy of the name, never to the OUI data itself: "cisco"
+    /// has to reach "Cisco Systems, Inc", and every Cisco prefix at once, without the punctuation
+    /// and casing the registry ships deciding whether it does.
+    /// </summary>
+    private static string VendorKey(string value) =>
+        new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+    /// <summary>The registry's name for a MAC's vendor, or empty when it has none.</summary>
+    private string VendorOf(string? mac) =>
+        string.IsNullOrEmpty(mac) ? "" : OuiDatabase.GetVendor(mac) ?? "";
+
     private IEnumerable<Item> Filtered()
     {
         var items = Items.AsEnumerable();
@@ -367,12 +381,14 @@
         {
             var filter = _search.Trim();
             var hex = MacQuery(filter);
+            var vendor = VendorKey(filter);
             items = items.Where(i =>
                 i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                 (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (i.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                (hex.Length > 0 && HexDigits(i.Mac ?? "").Contains(hex, StringComparison.Ordinal)));
+                (hex.Length > 0 && HexDigits(i.Mac ?? "").Contains(hex, StringComparison.Ordinal)) ||
+                (vendor.Length > 1 && VendorKey(VendorOf(i.Mac ?? i.Key)).Contains(vendor, StringComparison.Ordinal)));
         }
 
         // The selector owns the order: a caller's sort would be discarded here anyway.
