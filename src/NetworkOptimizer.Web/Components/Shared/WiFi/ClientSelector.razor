@@ -2,7 +2,11 @@
 @inject ILogger<ClientSelector> Logger
 
 <div class="client-selector-combo">
-    <div class="filterable-select @(_open ? "open" : "")">
+    @* The arrows drive the list, so they must not also scroll the page. Inline and on the wrapper:
+       Blazor resolves :preventDefault at render, so a blanket one would swallow Tab, and it refuses
+       a plain onkeydown beside @onkeydown on the same element. *@
+    <div class="filterable-select @(_open ? "open" : "")"
+         onkeydown="if(event.key==='ArrowDown'||event.key==='ArrowUp')event.preventDefault();">
         @if (_selected != null && !_open)
         {
             @* Focusable: closed over a selection this replaces the input, and a div is not in the
@@ -106,7 +110,16 @@
     /// <summary>Opens the list the way a native select does, from the closed display.</summary>
     private async Task OnDisplayKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key is "Enter" or " " or "ArrowDown" or "ArrowUp")
+        if (e.Key is "ArrowDown" or "ArrowUp")
+        {
+            // Opens and steps in one press, from the client being viewed.
+            await OpenForEdit();
+            MoveHighlight(e.Key);
+            await ScrollToHighlightAsync();
+            return;
+        }
+
+        if (e.Key is "Enter" or " ")
         {
             await OpenForEdit();
             return;
@@ -141,32 +154,35 @@
         if (e.Key != "ArrowDown" && e.Key != "ArrowUp") return;
 
         if (!_open)
-        {
             await Open();
-            return;
-        }
 
+        MoveHighlight(e.Key);
+        await ScrollToHighlightAsync();
+    }
+
+    /// <summary>
+    /// One step of the highlight. From nothing it steps off the client being viewed, and only enters
+    /// the list at an end when there is no current selection to step from.
+    /// </summary>
+    private void MoveHighlight(string key)
+    {
+        var shown = Visible();
         if (shown.Count == 0) return;
 
-        // Nothing is highlighted until an arrow is pressed, so the first one moves from wherever the
-        // client being viewed sits, and only enters at an end when it is not in the list at all.
         var from = _highlight;
         if (from == NoHighlight)
         {
             from = shown.FindIndex(x => x.Key == SelectedKey);
             if (from == NoHighlight)
             {
-                _highlight = e.Key == "ArrowDown" ? 0 : shown.Count - 1;
-                await ScrollToHighlightAsync();
+                _highlight = key == "ArrowDown" ? 0 : shown.Count - 1;
                 return;
             }
         }
 
-        _highlight = e.Key == "ArrowDown"
+        _highlight = key == "ArrowDown"
             ? Math.Min(from + 1, shown.Count - 1)
             : Math.Max(from - 1, 0);
-
-        await ScrollToHighlightAsync();
     }
 
     /// <summary>Keeps the highlighted row in view without moving the list when it already is.</summary>
