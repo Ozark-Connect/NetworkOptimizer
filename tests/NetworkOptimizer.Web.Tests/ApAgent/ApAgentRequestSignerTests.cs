@@ -16,6 +16,17 @@ public class ApAgentRequestSignerTests
         Assert.Equal("jIrgeEUstgz5okESBy5t4t/LVTSW2/Mcf1kecvFgfoo=", sig);
     }
 
+    // The agent verifies against Go's unescaped, query-less path. Signing anything else 401s every
+    // request on that route, and both halves of this have shipped broken once.
+    [Theory]
+    [InlineData("/clients/10%3Aa2%3Ad3%3A1f%3Aec%3A32", "/clients/10:a2:d3:1f:ec:32")]
+    [InlineData("/events?since=7", "/events")]
+    [InlineData("/clients", "/clients")]
+    public void SignedPathIsWhatTheAgentSees(string sent, string signed)
+    {
+        Assert.Equal(signed, ApAgentHttpTransport.CanonicalPath(sent));
+    }
+
     [Fact]
     public void HeaderNeverCarriesTheToken()
     {

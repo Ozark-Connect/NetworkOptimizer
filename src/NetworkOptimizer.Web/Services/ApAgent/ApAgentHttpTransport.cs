@@ -76,13 +76,10 @@ public sealed class ApAgentHttpTransport
         if (jsonBody is not null)
             request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
-        // The signature covers the path alone. The agent verifies against its own request path,
-        // which never carries the query, so signing "/events?since=7" cannot match.
         if (!string.IsNullOrEmpty(token))
         {
-            var signedPath = path.Split('?')[0];
             request.Headers.TryAddWithoutValidation(
-                "Authorization", ApAgentRequestSigner.Sign(token, method.Method, signedPath, jsonBody));
+                "Authorization", ApAgentRequestSigner.Sign(token, method.Method, CanonicalPath(path), jsonBody));
         }
 
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -118,4 +115,11 @@ public sealed class ApAgentHttpTransport
 
         return (System.Text.Encoding.UTF8.GetString(buffered.GetBuffer(), 0, (int)buffered.Length), false);
     }
+
+    /// <summary>
+    /// The path in the form the agent signs against: decoded, and without the query. Go hands its
+    /// handler an unescaped path and no query, so signing a MAC's percent-encoded colons or a
+    /// trailing "?since=7" produces a signature the agent can never arrive at.
+    /// </summary>
+    internal static string CanonicalPath(string path) => Uri.UnescapeDataString(path.Split('?')[0]);
 }
