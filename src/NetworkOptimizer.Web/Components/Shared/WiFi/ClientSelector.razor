@@ -1,3 +1,6 @@
+@inject IJSRuntime JS
+@inject ILogger<ClientSelector> Logger
+
 <div class="client-selector-combo">
     <div class="filterable-select @(_open ? "open" : "")">
         @if (_selected != null && !_open)
@@ -22,10 +25,11 @@
         @if (_open)
         {
             <div class="filterable-select-overlay" @onclick="Close"></div>
-            <div class="filterable-select-dropdown">
+            <div class="filterable-select-dropdown" id="@_listId">
                 @foreach (var item in Filtered().Take(50))
                 {
                     <div class="filterable-select-option @(item.IsOnline ? "" : "offline")"
+                         data-selected="@(item.Key == SelectedKey ? "true" : null)"
                          @onmousedown="() => Pick(item)"
                          @onmousedown:preventDefault>
                         <span class="status-dot @(item.IsOnline ? "online" : "offline")"></span>
@@ -49,17 +53,24 @@
     [Parameter] public IReadOnlyList<Item> Items { get; set; } = Array.Empty<Item>();
     [Parameter] public string? SelectedKey { get; set; }
     [Parameter] public EventCallback<string> SelectedKeyChanged { get; set; }
-    [Parameter] public string Placeholder { get; set; } = "Select a client...";
+    [Parameter] public string Placeholder { get; set; } = "Select or search for a client...";
 
     private string _search = "";
     private bool _open;
     private ElementReference _filterInput;
 
+    /// <summary>Distinct per instance: two selectors can share a page.</summary>
+    private readonly string _listId = "client-selector-" + Guid.NewGuid().ToString("n")[..8];
+
     private Item? _selected => string.IsNullOrEmpty(SelectedKey)
         ? null
         : Items.FirstOrDefault(i => i.Key == SelectedKey);
 
-    private void Open() => _open = true;
+    private async Task Open()
+    {
+        _open = true;
+        await ScrollToSelectedAsync();
+    }
 
     private async Task OpenForEdit()
     {
@@ -68,6 +79,30 @@
         StateHasChanged();
         await Task.Delay(1); // let the input render before focusing it
         await _filterInput.FocusAsync();
+        await ScrollToSelectedAsync();
+    }
+
+    /// <summary>
+    /// Centers the current selection in the open list, so the options either side of it are visible.
+    /// The browser clamps scrollTop, so a selection near either end simply sits at that end.
+    /// </summary>
+    private async Task ScrollToSelectedAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedKey)) return;
+        StateHasChanged();
+        await Task.Delay(1); // the list has to exist before it can be scrolled
+
+        var js = "(function(){var c=document.getElementById('" + _listId + "');"
+               + "if(!c)return;var o=c.querySelector('[data-selected=\"true\"]');"
+               + "if(!o)return;c.scrollTop=o.offsetTop-(c.clientHeight-o.offsetHeight)/2;})()";
+        try
+        {
+            await JS.InvokeVoidAsync("eval", js);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client selector could not scroll to the current selection");
+        }
     }
 
     private void Close() => _open = false;

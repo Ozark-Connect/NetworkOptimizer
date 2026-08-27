@@ -2205,11 +2205,24 @@
             finally
             {
                 _tabLoading = false;
-                _pendingChartUpdate = true;
+                // Only a chart that already exists needs the update. One the render below is about
+                // to create arrives with its data, and RenderAsync on a new chart destroys and
+                // recreates it - which is why a range with no data left the next one blank until
+                // it was changed twice.
+                _pendingChartUpdate = ActiveChartMounted();
                 StateHasChanged(); // triggers render → OnAfterRenderAsync → UpdateActiveChartsAsync
             }
         });
     }
+
+    /// <summary>Whether the active tab's chart is already on the page, as opposed to about to be created.</summary>
+    private bool ActiveChartMounted() => _activeTab switch
+    {
+        "speed" => _speedChart != null || _latencyChart != null,
+        "signal" => _signalChart != null,
+        "connection" => _connectionChart != null,
+        _ => false,
+    };
 
     private async Task UpdateActiveChartsAsync()
     {
