@@ -107,7 +107,7 @@
         </div>
     }
 
-    @if (ShowOfflineBanner)
+    @if (PresumedOffline)
     {
         <div class="connection-banner">
             <div class="banner-content">
@@ -267,7 +267,7 @@
                     @if (!_client.IsVpn)
                     {
                     <div class="identity-live-group">
-                        @if (_client.IsOffline)
+                        @if (PresumedOffline)
                         {
                             <span class="identity-live">
                                     <span class="poll-label" style="color: var(--text-muted); opacity: 0.8; margin-left: 13px">Offline</span>
@@ -2554,8 +2554,11 @@
     /// A client that was online and drops has ten seconds to come back before it is called offline:
     /// a roam takes it off one access point before it reaches the next, and the console reports that
     /// gap as gone. One that was already offline when the page opened is announced straight away.
+    ///
+    /// Every offline treatment reads this, so the banner and the live indicator agree. Splitting
+    /// them let the indicator call a roaming client gone while its signal was still arriving.
     /// </summary>
-    private bool ShowOfflineBanner
+    private bool PresumedOffline
     {
         get
         {
@@ -2565,7 +2568,7 @@
         }
     }
 
-    /// <summary>Notes the online-to-offline transition the banner's grace period is measured from.</summary>
+    /// <summary>Notes the online-to-offline transition the grace period is measured from.</summary>
     private void TrackPresence()
     {
         if (_client?.IsOffline != true)
