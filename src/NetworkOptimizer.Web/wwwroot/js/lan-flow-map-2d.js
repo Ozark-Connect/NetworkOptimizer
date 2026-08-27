@@ -1525,9 +1525,19 @@ class LanFlowMap2D {
         if(!this._root||this._clouds.length===0)return;
         const gx=this._root.x,gy=this._root.y;
         const total=this._clouds.length,sp=G.cloudGap;
+        const stagger=45;
+        // Upstream of the gateway along the depth axis, spread across the other one.
+        if(this._hz){
+            const sy=gy-((total-1)*sp)/2;
+            const baseX=gx-G.tierGap*1.6;
+            for(let i=0;i<total;i++){
+                this._clouds[i].y=sy+i*sp;
+                this._clouds[i].x=baseX+(1-i%2)*stagger;
+            }
+            return;
+        }
         const sx=gx-((total-1)*sp)/2;
         const baseY=gy-G.tierGap*1.6;
-        const stagger=45;
         for(let i=0;i<total;i++){
             this._clouds[i].x=sx+i*sp;
             this._clouds[i].y=baseY+(1-i%2)*stagger;
