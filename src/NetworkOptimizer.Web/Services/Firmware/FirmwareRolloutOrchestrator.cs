@@ -1377,6 +1377,62 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _escalatedAt[step.Id] = Now;
     }
 
+    /// <summary>
+    /// One SSH retry for a device that cycled and came back on its prior firmware, instead of
+    /// failing the step on the first wrong-version return. The escalation stamp makes it once per
+    /// step, and the step re-enters the normal watch as a fresh cycle from its new command time.
+    /// </summary>
+    private async Task RetryPriorVersionOverSshAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        RolloutDeviceObservation observation,
+        CancellationToken cancellationToken)
+    {
+        var cameBack = $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}";
+
+        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        if (url == null)
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the console lists no image URL to retry over SSH.", cancellationToken);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(observation.IpAddress))
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the device has no address to reach over SSH.", cancellationToken);
+            return;
+        }
+
+        _logger.LogWarning(
+            "{Device} on site {Site} came back on {Version}, not {Target}; retrying the upgrade over SSH",
+            step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
+
+        // A second flash is still a flash, so the AP Agent hold applies to the retry too.
+        await HoldApAgentAsync(step, cancellationToken);
+
+        var result = await _commands.TriggerSshUpgradeAsync(
+            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+        if (!result.IsOk)
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the SSH retry failed: {result.Message}", cancellationToken);
+            return;
+        }
+
+        // The retry is judged on its own terms: command time reset, the first cycle's downtime
+        // bookkeeping cleared - the same reset a rollback gives its step.
+        step.State = FirmwareRolloutStepState.Commanded;
+        step.CommandedAt = Now;
+        step.WentDownAt = null;
+        step.BackAt = null;
+        step.DowntimeSeconds = null;
+        await PersistStepAsync(step, cancellationToken);
+        _escalatedAt[step.Id] = Now;
+    }
+
     private async Task ProgressDownAsync(
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
@@ -1473,13 +1529,23 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             step.DowntimeSeconds = (int)Math.Max(0, (Now - down).TotalSeconds);
 
         // rc:ok and a full offline/online cycle both lie. The reported version is the only proof.
-        // Through FailStepAsync, not inline: a device that came back on the old firmware is the
-        // clearest evidence the build is bad, so its model must stop here like any other failure.
         if (!string.IsNullOrWhiteSpace(step.ToVersion) && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
             _logger.LogError(
                 "{Device} on site {Site} rebooted but is still on {Version}, not {Target}",
                 step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
+
+            // One SSH retry first: some devices burn a reboot cycle without installing the
+            // console-delivered image. Spent is spent - and a rollback's stamp must hold, since
+            // its catalog URL carries the NEW build and retrying with it would undo the rollback.
+            if (!_escalatedAt.ContainsKey(step.Id))
+            {
+                await RetryPriorVersionOverSshAsync(document, steps, step, observation, cancellationToken);
+                return;
+            }
+
+            // Through FailStepAsync, not inline: a device that came back on the old firmware is the
+            // clearest evidence the build is bad, so its model must stop here like any other failure.
             await FailStepAsync(
                 document, steps, step,
                 $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}.",

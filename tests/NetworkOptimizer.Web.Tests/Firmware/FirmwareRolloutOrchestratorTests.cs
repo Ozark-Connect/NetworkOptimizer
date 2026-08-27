@@ -184,6 +184,144 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task FullCycleOnTheWrongVersion_RetriesOverSshAndReEntersTheWatch()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://fw-download.example.net/u6pro.bin");
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Commanded);
+        step.BackAt.Should().BeNull();
+        step.DowntimeSeconds.Should().BeNull();
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.SkuAborted);
+
+        // The retry took: the second cycle runs the normal watch to a passed litmus.
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+    }
+
+    [Fact]
+    public async Task SecondCycleStillOnTheWrongVersion_FailsAndDropsTheModel()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
+    }
+
+    [Fact]
+    public async Task NothingHappensAfterTheWrongVersionRetry_FailsTheStep()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        // Still sitting there on the old version, never cycling again.
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CommandGraceWindow + TimeSpan.FromSeconds(10));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Failed);
+        step.Error.Should().Contain("never started the upgrade");
+    }
+
+    [Fact]
+    public async Task RollbackComingBackOnTheNewBuild_FailsWithoutASecondSshPush()
+    {
+        // A rollback stamps the escalation as spent on purpose: the catalog URL carries the NEW
+        // build, so a wrong-version retry here would undo the rollback it is meant to verify.
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro-new.bin",
+        });
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.PriorVersions.Add(new PlanPriorVersion
+        {
+            Mac = ApMac,
+            Version = FromVersion,
+            Url = "https://fw-download.example.net/u6pro-old.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunCanaryToLitmusAsync(harness, ApMac);
+        var passed = await harness.StepAsync(plan.Id, ApMac);
+        (await harness.Orchestrator.RollbackStepAsync(passed.Id)).Should().BeTrue();
+
+        // The rollback burns a cycle and the device returns still on the new build.
+        harness.Observer.Set(ApMac, Offline, ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Failed);
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://fw-download.example.net/u6pro-old.bin");
+    }
+
+    [Fact]
     public async Task BackOnTheTargetVersionReportedWithoutItsBuildNumber_Passes()
     {
         // The catalog names 7.5.10.17129; the switch that installed it reports 7.5.10. Comparing
