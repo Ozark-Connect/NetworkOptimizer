@@ -32,10 +32,12 @@
                 @for (var i = 0; i < shown.Count; i++)
                 {
                     var item = shown[i];
+                    var index = i;
                     <div class="filterable-select-option @(item.IsOnline ? "" : "offline") @(i == _highlight ? "is-active" : "")"
                          role="option"
                          aria-selected="@(i == _highlight)"
                          data-selected="@(item.Key == SelectedKey ? "true" : null)"
+                         @onmouseenter="() => _highlight = index"
                          @onmousedown="() => Pick(item)"
                          @onmousedown:preventDefault>
                         <span class="status-dot @(item.IsOnline ? "online" : "offline")"></span>
