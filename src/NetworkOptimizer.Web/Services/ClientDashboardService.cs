@@ -442,6 +442,10 @@ public class ClientDashboardService
                     result.TraceChanged = true; // First poll for this client
                 _lastTraceHashes[identity.Mac] = result.TraceHash;
 
+                // The path is what a port resolution was read against, so a changed one retires it.
+                if (result.TraceChanged)
+                    _portIfNames.Clear();
+
                 // Trace changes always store immediately (with full trace data).
                 // Regular polls buffer signal values and flush the mean every 5 seconds.
                 if (result.TraceChanged)
@@ -1292,8 +1296,8 @@ public class ClientDashboardService
             // the Port Statistics table resolves it. The port_id tag is the SNMP side's own id and
             // is not this number.
             //
-            // Held for the page's lifetime because this runs on the live tick: cabling does not move
-            // while someone watches one client, and a port that gains a mapping shows on reload.
+            // Held because this runs on the live tick. Retired when the path trace changes, which is
+            // what a client moving ports or switches shows up as.
             var mac = client.SwitchMac.ToLowerInvariant();
             if (!_portIfNames.TryGetValue((mac, port), out var ifNames))
             {
