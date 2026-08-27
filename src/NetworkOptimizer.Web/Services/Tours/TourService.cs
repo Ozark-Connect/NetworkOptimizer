@@ -18,6 +18,7 @@ public class TourService
     private readonly TourStateService _state;
     private readonly TourPredicateResolver _predicates;
     private readonly SiteContextService _siteContext;
+    private readonly TourUrlTokenResolver _tokens;
     private readonly ILogger<TourService> _logger;
 
     public TourService(
@@ -25,12 +26,14 @@ public class TourService
         TourStateService state,
         TourPredicateResolver predicates,
         SiteContextService siteContext,
+        TourUrlTokenResolver tokens,
         ILogger<TourService> logger)
     {
         _definitions = definitions;
         _state = state;
         _predicates = predicates;
         _siteContext = siteContext;
+        _tokens = tokens;
         _logger = logger;
     }
 
@@ -81,7 +84,7 @@ public class TourService
         // and never what's-new for releases that predate them.
         if (highlightsPossible)
         {
-            var highlightsOffer = BuildHighlightsOffer(tours, snapshot, current, ctx);
+            var highlightsOffer = await BuildHighlightsOffer(tours, snapshot, current, ctx);
             if (highlightsOffer != null)
                 return highlightsOffer;
         }
@@ -97,18 +100,30 @@ public class TourService
             _logger.LogDebug("No tour due: every step of {Count} eligible tour(s) was filtered out (seen or predicate)", eligible.Count);
             return null;
         }
-        _logger.LogInformation("Tour offer built: {Steps} step(s) from {Tours}", plan.Steps.Count,
-            string.Join(", ", plan.Steps.Select(s => s.Tour.Id).Distinct()));
+        var tokens = await _tokens.ResolveAsync(plan.Steps.Select(s => s.Step.Url), _siteContext.Slug);
+        var resolved = plan.Steps
+            .Select(s => Resolve(s.Tour, s.Step, ctx, tokens))
+            .OfType<ResolvedTourStep>()
+            .ToList();
+        if (resolved.Count == 0)
+        {
+            _logger.LogDebug("No tour due: every step's url needed a token this site cannot fill");
+            return null;
+        }
 
-        var contributing = plan.Steps.Select(s => s.Tour.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var newest = plan.Steps.Select(s => s.Tour).OrderBy(t => t.ParsedVersion).Last();
+        _logger.LogInformation("Tour offer built: {Steps} step(s) from {Tours}", resolved.Count,
+            string.Join(", ", resolved.Select(s => s.TourId).Distinct()));
+
+        var contributing = resolved.Select(s => s.TourId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var newest = plan.Steps.Where(s => contributing.Contains(s.Tour.Id, StringComparer.OrdinalIgnoreCase))
+            .Select(s => s.Tour).OrderBy(t => t.ParsedVersion).Last();
         var single = contributing.Count == 1;
         return new TourOffer
         {
             Title = single ? newest.Title : "What's new since your last update",
             Summary = single ? newest.Summary : null,
             IsHighlights = false,
-            Steps = plan.Steps.Select(s => Resolve(s.Tour, s.Step, ctx)).ToList(),
+            Steps = resolved,
             TourIds = contributing,
             DroppedCount = plan.DroppedCount,
             Automatic = true,
@@ -128,7 +143,9 @@ public class TourService
             return null;
 
         var ctx = await _predicates.ResolveAsync();
-        var steps = EligibleSteps(tour, ctx).Select(s => Resolve(tour, s, ctx)).ToList();
+        var eligible = EligibleSteps(tour, ctx).ToList();
+        var tokens = await _tokens.ResolveAsync(eligible.Select(s => s.Url), _siteContext.Slug);
+        var steps = eligible.Select(s => Resolve(tour, s, ctx, tokens)).OfType<ResolvedTourStep>().ToList();
         if (steps.Count == 0)
             return null;
 
@@ -188,7 +205,7 @@ public class TourService
 
     public Task ResetAsync() => _state.ResetAsync();
 
-    private TourOffer? BuildHighlightsOffer(
+    private async Task<TourOffer?> BuildHighlightsOffer(
         IReadOnlyList<TourDefinition> tours,
         TourStateService.Snapshot snapshot,
         Version current,
@@ -207,10 +224,11 @@ public class TourService
         if (tour == null)
             return null;
 
-        var steps = EligibleSteps(tour, ctx)
+        var unseen = EligibleSteps(tour, ctx)
             .Where(s => !snapshot.SeenStepIds.Contains(s.Id))
-            .Select(s => Resolve(tour, s, ctx))
             .ToList();
+        var tokens = await _tokens.ResolveAsync(unseen.Select(s => s.Url), _siteContext.Slug);
+        var steps = unseen.Select(s => Resolve(tour, s, ctx, tokens)).OfType<ResolvedTourStep>().ToList();
         if (steps.Count == 0)
             return null;
 
@@ -238,14 +256,23 @@ public class TourService
         }
     }
 
-    private ResolvedTourStep Resolve(TourDefinition tour, TourStep step, TourPredicateResolver.PredicateContext ctx)
+    private ResolvedTourStep? Resolve(
+        TourDefinition tour, TourStep step, TourPredicateResolver.PredicateContext ctx,
+        IReadOnlyDictionary<string, string?> tokens)
     {
+        var url = TourUrlTokenResolver.Fill(step.Url, tokens);
+        if (url == null)
+        {
+            _logger.LogDebug("Tour step {StepId} dropped: its url needs a token this site cannot fill", step.Id);
+            return null;
+        }
+
         ctx.Satisfies(step.Requires, _siteContext.Slug, out var siteSlug);
         return new ResolvedTourStep
         {
             Step = step,
             TourId = tour.Id,
-            NavigateUrl = ctx.MultiSiteEnabled ? SiteContextService.WithSiteParam(step.Url, siteSlug) : step.Url,
+            NavigateUrl = ctx.MultiSiteEnabled ? SiteContextService.WithSiteParam(url, siteSlug) : url,
         };
     }
 

@@ -2,7 +2,7 @@
   "id": "2.8.0",
   "kind": "whats-new",
   "title": "What's new in v2.8.0",
-  "summary": "Network Optimizer can read Wi-Fi data from the access points themselves now, which means live client data twice a second, a client that stays followed across a roam, a way to move one where you want it, and per-client LAN throughput the Console never counted.",
+  "summary": "Network Optimizer can read Wi-Fi data from your access points directly now, providing live client data twice a second, real-time roaming data and AP / band switching while walk testing, and per-client Wi-Fi throughput UniFi Network never showed.",
   "steps": [
     {
       "id": "ap-telemetry",
@@ -11,7 +11,7 @@
       "selector": "[data-tour=\"ap-telemetry\"]",
       "title": "AP Telemetry",
       "listLabel": "Read Wi-Fi data straight from your access points",
-      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.",
+      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.\n\nMore performance, analysis, and recommendation features built on this data are coming soon.",
       "placement": "top",
       "optional": true
     },
@@ -23,18 +23,18 @@
       "selector": "[data-tour=\"client-live\"]",
       "title": "Client Performance",
       "listLabel": "Live client data twice a second, and it keeps up through a roam",
-      "body": "With **AP Telemetry** on, this page reads the client's own access point twice a second. Signal, PHY rates, and throughput move as fast as the client does, and when it roams the page follows it to the new access point instead of stalling on the handoff.",
+      "body": "With **AP Telemetry** on, this page reads the client's AP data twice a second. Signal, PHY rates, and throughput move as fast as the client does, and when it roams the stats follow to the new AP immediately instead of stalling.",
       "placement": "bottom",
       "optional": true
     },
     {
       "id": "client-roam",
       "level": "minor",
-      "url": "/client-dashboard",
+      "url": "/client-dashboard?ip={wifi-client-ip}",
       "selector": "[data-tour=\"client-roam\"]",
       "title": "Roam",
-      "listLabel": "Move a client to a better band or access point",
-      "body": "**Roam** asks a client to move: **Change Band** to push it up to a faster band it has used before, or **Change AP** to hand it to a neighbor. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging. Network Optimizer sends a short, targeted candidate list, because a long one gets ignored.",
+      "listLabel": "Move your client to the next AP while walk testing or troubleshooting",
+      "body": "**Roam** asks a client to move to the nearest AP besides the current one, or to a more optimal band. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging.",
       "placement": "bottom",
       "optional": true
     },
@@ -44,8 +44,8 @@
       "url": "/monitoring?tab=live",
       "selector": "[data-tour=\"live-client-throughput\"]",
       "title": "Live View",
-      "listLabel": "See LAN traffic your Console never counted",
-      "body": "UniFi Network counts what crossed the gateway, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle no matter how hard the link was working. Reading the counters on the access point measures what is actually on the air, so that traffic shows up per client for the first time.",
+      "listLabel": "See Wi-Fi LAN traffic your Console never counted",
+      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.",
       "placement": "top",
       "optional": true
     }

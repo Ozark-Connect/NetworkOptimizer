@@ -596,6 +596,7 @@ builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourDefinitionService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourStateService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourPredicateResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourUrlTokenResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourService>();
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Tours.TourStartupService>();
 
