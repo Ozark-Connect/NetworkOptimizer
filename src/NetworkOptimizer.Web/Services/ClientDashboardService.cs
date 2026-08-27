@@ -1290,7 +1290,11 @@ public class ClientDashboardService
             var rows = await influx.QueryPortStatsAsync(new[] { client.SwitchMac }, at: null);
             var row = rows.FirstOrDefault(r => int.TryParse(r.PortId, out var p) && p == port);
             if (row == null)
+            {
+                _logger.LogDebug("No port {Port} counters for {Mac}; polled ports: {Ports}",
+                    port, client.SwitchMac, string.Join(",", rows.Select(r => $"{r.IfName}={r.PortId}")));
                 return null;
+            }
 
             // The port's inbound is what the client sent, so each pair is flipped on the way out.
             return new WiredPortStats
