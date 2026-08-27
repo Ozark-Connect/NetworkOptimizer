@@ -103,7 +103,19 @@
     private async Task OnDisplayKeyDown(KeyboardEventArgs e)
     {
         if (e.Key is "Enter" or " " or "ArrowDown" or "ArrowUp")
+        {
             await OpenForEdit();
+            return;
+        }
+
+        // Typing a character searches with it, rather than being swallowed by a control that has to
+        // be opened first.
+        if (e.Key.Length == 1 && !e.CtrlKey && !e.AltKey && !e.MetaKey)
+        {
+            await OpenForEdit();
+            _search = e.Key;
+            OnSearchChanged();
+        }
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
