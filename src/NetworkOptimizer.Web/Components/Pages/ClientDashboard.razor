@@ -1696,9 +1696,31 @@
         }
         catch { /* remembering is best-effort */ }
         Logger.LogDebug("Client identity (site {Site}): device picked manually ({Ip})", SiteContext.Slug, _pickerSelection);
-        NavigationManager.NavigateTo(
-            await SiteSwitch.StampSiteAsync($"/client-dashboard?ip={Uri.EscapeDataString(_pickerSelection)}"),
-            forceLoad: true);
+        var target = await IsOwnAddressAsync(_pickerSelection)
+            ? "/client-dashboard"
+            : $"/client-dashboard?ip={Uri.EscapeDataString(_pickerSelection)}";
+        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+    }
+
+    /// <summary>
+    /// Whether the picked address is the viewer's own, so picking yourself lands on the bare page
+    /// rather than pinning an address that only means you from this browser.
+    /// </summary>
+    private async Task<bool> IsOwnAddressAsync(string ip)
+    {
+        try
+        {
+            var address = await JS.InvokeAsync<string?>("eval",
+                "fetch('/api/client-dashboard/address').then(r => r.json()).then(j => j.address)");
+            if (string.IsNullOrEmpty(address) || address == "unknown") return false;
+            return string.Equals(NetworkUtilities.NormalizeToIPv4String(address), ip, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            // No answer keeps the explicit address, which always works.
+            Logger.LogDebug(ex, "Own-address lookup failed while picking a client");
+            return false;
+        }
     }
 
     /// <summary>
