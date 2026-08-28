@@ -737,6 +737,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             if (best.Candidate.SignalDbm is < 0) result.WifiSignalDbm = (int)Math.Round(best.Candidate.SignalDbm.Value);
             if (best.Candidate.NoiseDbm is < 0) result.WifiNoiseDbm = (int)Math.Round(best.Candidate.NoiseDbm.Value);
             if (best.Candidate.Channel is > 0) result.WifiChannel = best.Candidate.Channel;
+            if (best.Candidate.ChannelWidth is > 0) result.WifiChannelWidthMhz = best.Candidate.ChannelWidth;
             if (RadioTokenFor(best.Candidate.Band) is { } radio) result.WifiRadio = radio;
 
             // A different access point means a different path above it, so the trace is rebuilt

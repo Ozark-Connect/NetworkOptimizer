@@ -1111,7 +1111,12 @@
                 if (!string.IsNullOrEmpty(clientBand))
                     linkParts.Add($"<span class='wifi-band-badge wifi-band-{clientBand}'>{FormatRadioBand(clientBand)}</span>");
                 if (Result.WifiChannel.HasValue)
-                    linkParts.Add($"Ch {Result.WifiChannel.Value}");
+                {
+                    var ch = $"Ch {Result.WifiChannel.Value}";
+                    if (Result.WifiChannelWidthMhz is > 0)
+                        ch += $" ({Result.WifiChannelWidthMhz.Value} MHz)";
+                    linkParts.Add(ch);
+                }
                 lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
             }
 

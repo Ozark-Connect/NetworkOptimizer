@@ -1611,6 +1611,29 @@
         return false;
     }
 
+    /// <summary>Channel and its width, or nothing when the channel is unknown.</summary>
+    private static string FormatChannelForTooltip(int? channel, int? widthMhz)
+    {
+        if (channel is not > 0) return "";
+        return widthMhz is > 0 ? $"ch {channel} ({widthMhz} MHz)" : $"ch {channel}";
+    }
+
+    /// <summary>An MLO result's per-link detail, or an empty list when it is not one.</summary>
+    private static List<MapMloLink> ParseMloLinks(Iperf3Result result)
+    {
+        if (string.IsNullOrEmpty(result.WifiMloLinksJson)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<MapMloLink>>(result.WifiMloLinksJson) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private record MapMloLink(string? radio, int? channel, int? channelWidth, int? signal);
+
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
         var deviceName = result.DeviceName ?? result.DeviceHost;
@@ -1661,8 +1684,25 @@
                 html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
         }
 
-        // Band and signal if available
-        if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
+        // An MLO client is several links at once; one band badge cannot describe it.
+        var mloLinks = ParseMloLinks(result);
+        if (mloLinks.Count > 0)
+        {
+            foreach (var link in mloLinks.OrderByDescending(l => l.channelWidth ?? 0))
+            {
+                html += "<div class='wifi-tooltip-link-signal'>";
+                if (!string.IsNullOrEmpty(link.radio))
+                {
+                    var linkRadio = link.radio.ToLowerInvariant();
+                    html += $"<span class='wifi-band-badge wifi-band-{linkRadio}'>{RadioFormatHelper.FormatBand(linkRadio)}</span> ";
+                }
+                html += FormatChannelForTooltip(link.channel, link.channelWidth);
+                if (link.signal.HasValue)
+                    html += $"{(link.channel is > 0 ? ", " : "")}{link.signal} dBm";
+                html += "</div>";
+            }
+        }
+        else if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio) || result.WifiChannel.HasValue)
         {
             html += "<div class='wifi-tooltip-link-signal'>";
             if (!string.IsNullOrEmpty(result.WifiRadio))
@@ -1670,9 +1710,10 @@
                 var radio = result.WifiRadio.ToLowerInvariant();
                 html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
             }
+            html += FormatChannelForTooltip(result.WifiChannel, result.WifiChannelWidthMhz);
             if (result.WifiSignalDbm.HasValue)
             {
-                html += $"{result.WifiSignalDbm} dBm";
+                html += $"{(result.WifiChannel is > 0 ? ", " : "")}{result.WifiSignalDbm} dBm";
             }
             html += "</div>";
         }

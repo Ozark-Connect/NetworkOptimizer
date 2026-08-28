@@ -1714,6 +1714,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 result.WifiSignalDbm = client.Signal;
                 result.WifiNoiseDbm = client.Noise;
                 result.WifiChannel = client.Channel;
+                result.WifiChannelWidthMhz = client.ChannelWidth;
                 result.WifiRadioProto = client.RadioProto;
                 result.WifiRadio = client.Radio;
                 result.WifiTxRateKbps = client.TxRate;
