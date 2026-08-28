@@ -3387,11 +3387,9 @@ window.fpEditor = {
         var markerMap = {};
         var markerToReopen = null;
 
-        // A finger covers more than a cursor, and the dot is the whole hit area.
-        var dotRadius = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 12 : 8;
         markers.forEach(function (m) {
             var marker = L.circleMarker([m.lat, m.lng], {
-                radius: dotRadius,
+                radius: 8,
                 fillColor: m.color,
                 color: '#fff',
                 weight: 2,

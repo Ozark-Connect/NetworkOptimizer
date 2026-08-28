@@ -1024,11 +1024,9 @@
                     let markerToReopen = null;
                     const markerMap = {{}};
 
-                    // A finger covers more than a cursor, and the dot is the whole hit area.
-                    const dotRadius = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 12 : 8;
                     markers.forEach(m => {{
                         const marker = L.circleMarker([m.lat, m.lng], {{
-                            radius: dotRadius,
+                            radius: 8,
                             fillColor: m.color,
                             color: m.isExternal ? '#888' : '#fff',
                             weight: 2,
