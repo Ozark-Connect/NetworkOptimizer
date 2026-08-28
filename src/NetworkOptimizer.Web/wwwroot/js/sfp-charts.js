@@ -369,10 +369,13 @@ async function updatePonCharts(data) {
 function renderPonDetails(container, withPon) {
     const el = container.querySelector('.sfp-pon-details');
     if (!el) return;
-    el.innerHTML = ponDetailsHtml(withPon, 'Module');
+    const html = ponDetailsHtml(withPon, 'Module');
+    el.innerHTML = html ? `<div class="chart-header"><h3 class="chart-title">PON Status</h3></div>${html}` : '';
 
     const totalsEl = container.querySelector('.sfp-pon-error-totals');
-    if (totalsEl) totalsEl.innerHTML = ponErrorTotalsHtml(withPon, 'Module');
+    if (!totalsEl) return;
+    const totalsHtml = ponErrorTotalsHtml(withPon, 'Module');
+    totalsEl.innerHTML = totalsHtml ? `<div class="chart-header"><h3 class="chart-title">PON Error Totals</h3></div>${totalsHtml}` : '';
 }
 
 function renderStatsTable(container, showAll) {

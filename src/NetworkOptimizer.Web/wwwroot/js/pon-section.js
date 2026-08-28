@@ -132,7 +132,7 @@ export function ponErrorTotalsHtml(items, labelHeader) {
         : [];
     const columns = [
         ...nameCol,
-        { header: '<span data-tooltip="Bit-interleaved parity errors (cumulative since ONT boot)">BIP</span>', cell: item => fmtCount(lastOf(item).bipTotal) },
+        { header: '<span data-tooltip="Bit-interleaved parity errors">BIP</span>', cell: item => fmtCount(lastOf(item).bipTotal) },
         { header: '<span data-tooltip="Corrected GTC header errors">HEC Corr</span>', cell: item => fmtCount(lastOf(item).hecCorrTotal) },
         { header: '<span data-tooltip="Uncorrectable GTC header errors">HEC Uncorr</span>', cell: item => fmtCount(lastOf(item).hecTotal) },
     ];
@@ -145,9 +145,9 @@ export function ponErrorTotalsHtml(items, labelHeader) {
     columns.push(
         { header: '<span data-tooltip="Corrected upstream bandwidth-map errors">BWmap Corr</span>', cell: item => fmtCount(lastOf(item).bwmapCorrTotal) },
         { header: '<span data-tooltip="Uncorrectable upstream bandwidth-map errors">BWmap Uncorr</span>', cell: item => fmtCount(lastOf(item).bwmapUncorrTotal) },
-        { header: '<span data-tooltip="Upstream bandwidth allocations lost">Allocs Lost</span>', cell: item => fmtCount(lastOf(item).allocLostTotal) },
+        { header: '<span data-tooltip="Lost upstream bandwidth allocations">Allocs Lost</span>', cell: item => fmtCount(lastOf(item).allocLostTotal) },
         { header: '<span data-tooltip="GEM frames dropped at reassembly">GEM Drops</span>', cell: item => fmtCount(lastOf(item).gemDropTotal) },
-        { header: '<span data-tooltip="Host-side FCS (checksum) errors">FCS Errors</span>', cell: item => fmtCount(lastOf(item).lanFcsTotal) },
+        { header: '<span data-tooltip="Host-side FCS checksum errors">FCS Errors</span>', cell: item => fmtCount(lastOf(item).lanFcsTotal) },
         { header: '<span data-tooltip="Host-side transmit drop events">TX Drops</span>', cell: item => fmtCount(lastOf(item).lanDropTotal) },
         { header: '<span data-tooltip="Host-side buffer overflows">Buf Overflows</span>', cell: item => fmtCount(lastOf(item).lanOvflTotal) },
     );

@@ -314,10 +314,16 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
 
     const el = container.querySelector('.ont-pon-details');
-    if (el) el.innerHTML = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
+    if (el) {
+        const html = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
+        el.innerHTML = html ? `<div class="chart-header"><h3 class="chart-title">PON Status</h3></div>${html}` : '';
+    }
 
     const totalsEl = container.querySelector('.ont-pon-error-totals');
-    if (totalsEl) totalsEl.innerHTML = ponErrorTotalsHtml(withErrors, 'ONT');
+    if (totalsEl) {
+        const totalsHtml = ponErrorTotalsHtml(withErrors, 'ONT');
+        totalsEl.innerHTML = totalsHtml ? `<div class="chart-header"><h3 class="chart-title">PON Error Totals</h3></div>${totalsHtml}` : '';
+    }
 }
 
 // Columns this tab adds to the shared table. Ones no ONT fills are dropped by the renderer.
