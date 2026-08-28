@@ -146,6 +146,7 @@ public class RolloutChannelManager
             return false;
         }
 
+        await _commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
         await _commands.CheckForUpdatesAsync(cancellationToken);
         _logger.LogInformation("Site {Site} is now on the {Channel} device firmware channel", _siteSlug, channel);
         return true;

@@ -49,6 +49,7 @@ public static class RolloutPlanComposer
         ArgumentNullException.ThrowIfNull(planning);
         ArgumentNullException.ThrowIfNull(commands);
 
+        await commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
         var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
         var context = await planning.GetContextAsync(cancellationToken);
@@ -63,7 +64,10 @@ public static class RolloutPlanComposer
         if (settings != null)
         {
             if (!string.IsNullOrEmpty(currentChannel))
+            {
+                ReconcileWithCatalog(context, settings, currentChannel, catalog, logger);
                 CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
+            }
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, images, catalog, sharedCatalog, logger, cancellationToken);
             console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
@@ -131,9 +135,14 @@ public static class RolloutPlanComposer
 
             // A refused write is the Early Access gate being off. Those devices keep no target
             // rather than being quoted the channel we failed to leave.
-            if (!await commands.SetDeviceChannelAsync(channel, cancellationToken)) continue;
+            if (!await commands.SetDeviceChannelAsync(channel, cancellationToken))
+            {
+                DropChannel(context, settings, channel);
+                continue;
+            }
             currentChannel = channel;
 
+            await commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
             var catalog = await WaitForCatalogAsync(commands, priorCatalog, channel, logger, cancellationToken);
             priorCatalog = catalog;
 
@@ -154,12 +163,86 @@ public static class RolloutPlanComposer
 
             }
 
+            ReconcileWithCatalog(context, settings, channel, catalog, logger);
             CaptureImages(images, context, settings, channel, channel, catalog);
         }
 
         DropDowngrades(context);
         return currentChannel;
     }
+
+    /// <summary>
+    /// Holds every device planned on <paramref name="channel"/> to the build that channel's catalog
+    /// actually carries for its model.
+    ///
+    /// A device record's upgrade_to_firmware and the catalog restage independently after a channel
+    /// change, so the record can still name the previous channel's build while the catalog has
+    /// moved on - which is how a release-candidate plan came to carry an Early Access build. The
+    /// catalog IS the channel, so it settles the version, and a model it does not carry cannot be
+    /// commanded on this channel at all.
+    ///
+    /// An empty catalog is no evidence either way and never drops anything: the console answering
+    /// with nothing must not empty a plan. Devices left without a target here can still be picked
+    /// up from the shared catalog afterwards.
+    /// </summary>
+    private static void ReconcileWithCatalog(
+        RolloutPlanningContext context,
+        FirmwareRolloutSettings settings,
+        string channel,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog,
+        ILogger? logger)
+    {
+        if (catalog.Count == 0)
+        {
+            logger?.LogWarning(
+                "Not checking targets against the {Channel} catalog: the console returned no builds", channel);
+            return;
+        }
+
+        foreach (var device in context.Devices.Where(d => d.Upgradable
+            && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+        {
+            var entry = FindCatalogEntry(catalog, device.Model);
+            if (string.IsNullOrWhiteSpace(entry?.Version))
+            {
+                logger?.LogInformation(
+                    "Dropping {Model} ({Mac}) from the plan: the {Channel} catalog carries no build for it",
+                    device.Model, device.Mac, channel);
+                device.ToVersion = null;
+                device.Upgradable = false;
+                continue;
+            }
+
+            if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(entry.Version, device.ToVersion))
+                continue;
+
+            logger?.LogInformation(
+                "Retargeting {Model} ({Mac}) to {Version}, what {Channel} carries; the console still offered {Stale}",
+                device.Model, device.Mac, entry.Version, channel, device.ToVersion ?? "nothing");
+            device.ToVersion = entry.Version;
+        }
+    }
+
+    /// <summary>Takes every device planned on a channel out of the plan.</summary>
+    private static void DropChannel(
+        RolloutPlanningContext context, FirmwareRolloutSettings settings, string channel)
+    {
+        foreach (var device in context.Devices.Where(d => d.Upgradable
+            && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+        {
+            device.ToVersion = null;
+            device.Upgradable = false;
+        }
+    }
+
+    /// <summary>The catalog entry for a device's model code, by either name the catalog uses.</summary>
+    private static NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry? FindCatalogEntry(
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog, string? model) =>
+        string.IsNullOrWhiteSpace(model)
+            ? null
+            : catalog.FirstOrDefault(e =>
+                string.Equals(e.BaseModel, model, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(e.Device, model, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Drops every device the console is offering an OLDER build than it already runs.
@@ -196,6 +279,9 @@ public static class RolloutPlanComposer
     /// one. The catalog changing is the console having restaged; unchanged means still working, or
     /// two channels genuinely offering the same builds, which is why this is bounded rather than
     /// waited on indefinitely.
+    ///
+    /// An empty catalog is never a restage. It is this app's own "could not read it" answer, and
+    /// counting it as changed ends the wait on a list that describes no channel at all.
     /// </summary>
     private static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
         IFirmwareCommandClient commands,
@@ -208,16 +294,19 @@ public static class RolloutPlanComposer
             string.Join("|", c.Select(e => $"{e.BaseModel ?? e.Device}={e.Version}").OrderBy(x => x, StringComparer.Ordinal));
 
         var was = Fingerprint(before);
+        bool Restaged(IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> c) =>
+            c.Count > 0 && Fingerprint(c) != was;
+
         var deadline = DateTime.UtcNow + CatalogReflectWait;
         var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
-        while (Fingerprint(catalog) == was && DateTime.UtcNow < deadline)
+        while (!Restaged(catalog) && DateTime.UtcNow < deadline)
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             catalog = await commands.CheckForUpdatesAsync(cancellationToken);
         }
 
-        if (Fingerprint(catalog) == was)
+        if (!Restaged(catalog))
         {
             logger?.LogWarning(
                 "The console did not restage after moving devices to {Channel} within {Seconds}s; "
@@ -248,9 +337,7 @@ public static class RolloutPlanComposer
         {
             if (images.Any(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))) continue;
 
-            var entry = catalog.FirstOrDefault(e =>
-                string.Equals(e.BaseModel, device.Model, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(e.Device, device.Model, StringComparison.OrdinalIgnoreCase));
+            var entry = FindCatalogEntry(catalog, device.Model);
             if (string.IsNullOrWhiteSpace(entry?.Url)) continue;
 
             images.Add(new PlanTargetImage { Mac = device.Mac, Version = entry.Version ?? device.ToVersion, Url = entry.Url });

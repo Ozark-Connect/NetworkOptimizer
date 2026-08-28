@@ -91,6 +91,14 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     };
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
+    /// <summary>
+    /// Per-channel catalogs, keyed by the channel the console is on. A channel with an entry here
+    /// answers with it; anything else falls back to <see cref="Catalog"/>. This is what lets a test
+    /// have one channel offer a build another does not.
+    /// </summary>
+    public Dictionary<string, List<UniFiFirmwareCatalogEntry>> CatalogByChannel { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>What the console offers as a UniFi OS build; null means it is current.</summary>
     public UniFiConsoleFirmwareRelease? PendingUniFiOs { get; set; }
 
@@ -109,6 +117,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public List<string> Calls { get; } = [];
 
     public int CheckForUpdatesCalls { get; private set; }
+    public int DeviceFirmwareChecks { get; private set; }
     public int ApplicationUpdateChecks { get; private set; }
     public int BackupCalls { get; private set; }
     public int NetworkAppUpdateCalls { get; private set; }
@@ -135,7 +144,16 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
     {
         CheckForUpdatesCalls++;
-        return Task.FromResult<IReadOnlyList<UniFiFirmwareCatalogEntry>>(Catalog);
+        Calls.Add("list-available");
+        return Task.FromResult<IReadOnlyList<UniFiFirmwareCatalogEntry>>(
+            CatalogByChannel.TryGetValue(DeviceChannel, out var staged) ? staged : Catalog);
+    }
+
+    public Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        DeviceFirmwareChecks++;
+        Calls.Add("device-firmware-check");
+        return Task.FromResult(true);
     }
 
     public Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default) =>
