@@ -133,6 +133,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IReleaseMetadataSource _releases;
     private readonly IAlertEventBus _eventBus;
     private readonly SiteTunnelRouting? _tunnelRouting;
+    private readonly IRolloutRebootWitness? _rebootWitness;
     private readonly ApAgent.ApAgentRegistry? _apAgents;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
@@ -196,10 +197,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         ILogger<FirmwareRolloutOrchestrator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         SiteTunnelRouting? tunnelRouting = null,
-        ApAgent.ApAgentRegistry? apAgents = null)
+        ApAgent.ApAgentRegistry? apAgents = null,
+        IRolloutRebootWitness? rebootWitness = null)
     {
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
+        _rebootWitness = rebootWitness;
         _repositories = repositories;
         _commands = commands;
         _observer = observer;
@@ -1455,6 +1458,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (elapsed < budget)
             return;
 
+        // The console has not called it back, but a recorded boot may already say it upgraded - a
+        // device that comes up close to the deadline would otherwise fail and drop its whole model.
+        if (await SettledByRecordedBootAsync(document, steps, step, wentDownAt, cancellationToken))
+            return;
+
         await FailStepAsync(document, steps, step,
             $"The device has been offline for over {budget.TotalMinutes:0} minutes and has not come back.",
             cancellationToken);
@@ -1467,6 +1475,39 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             step.DeviceMac,
             step.DeviceName,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Settles a step from a recorded boot when the device came up on its target version but the
+    /// console never reported it Online. Returns true when the step was settled.
+    /// </summary>
+    private async Task<bool> SettledByRecordedBootAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        DateTime wentDownAt,
+        CancellationToken cancellationToken)
+    {
+        if (_rebootWitness == null || string.IsNullOrWhiteSpace(step.ToVersion)) return false;
+
+        var booted = await _rebootWitness.FirstBootSinceAsync(step.DeviceMac, wentDownAt, cancellationToken);
+        if (booted == null || !VersionsMatch(booted.FirmwareVersion, step.ToVersion)) return false;
+
+        _logger.LogInformation(
+            "{Device} on site {Site} was recorded booting {Version} at {BootedAt} while offline; settling the step instead of failing it",
+            step.DeviceName, _siteSlug, booted.FirmwareVersion, booted.BootedAt);
+
+        // The version already matched, so MarkBackOnlineAsync cannot take its mismatch branch and
+        // the observation only has to carry what that check reads.
+        var observed = new RolloutDeviceObservation
+        {
+            Mac = step.DeviceMac,
+            Name = step.DeviceName,
+            Model = step.Model,
+            Firmware = booted.FirmwareVersion
+        };
+        await MarkBackOnlineAsync(document, steps, step, observed, cancellationToken, booted.BootedAt);
+        return true;
     }
 
     private async Task ProgressCoolDownAsync(
@@ -1522,11 +1563,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         RolloutDeviceObservation observation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTime? backAt = null)
     {
-        step.BackAt = Now;
+        // backAt is supplied when a recorded boot, not a console observation, is the evidence: the
+        // device was back before we noticed, and charging it the difference would teach the timing
+        // store a downtime it never had.
+        step.BackAt = backAt ?? Now;
         if (step.WentDownAt is DateTime down)
-            step.DowntimeSeconds = (int)Math.Max(0, (Now - down).TotalSeconds);
+            step.DowntimeSeconds = (int)Math.Max(0, (step.BackAt.Value - down).TotalSeconds);
 
         // rc:ok and a full offline/online cycle both lie. The reported version is the only proof.
         if (!string.IsNullOrWhiteSpace(step.ToVersion) && !VersionsMatch(observation.Firmware, step.ToVersion))

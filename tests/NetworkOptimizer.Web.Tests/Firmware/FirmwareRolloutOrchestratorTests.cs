@@ -467,6 +467,51 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task RecordedBootOnTheTargetSettlesTheStepInsteadOfFailingIt()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, budgetSeconds: 900)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        // Came up on the target just before the budget ran out, which the console never reported.
+        harness.Reboots.Set(ApMac, ToVersion, harness.Time.GetUtcNow().UtcDateTime.AddMinutes(14));
+        await harness.TickAsync(TimeSpan.FromMinutes(16));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.BackOnline);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().NotBe(FirmwareRolloutStepState.AbortedSku);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
+    public async Task RecordedBootOnTheOldVersionStillFailsTheStep()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, budgetSeconds: 900))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        // It booted, but onto the build it started on, so this is not evidence of an upgrade.
+        harness.Reboots.Set(ApMac, FromVersion, harness.Time.GetUtcNow().UtcDateTime.AddMinutes(14));
+        await harness.TickAsync(TimeSpan.FromMinutes(16));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
     public async Task CloudGatewayGetsItsLongerBudget()
     {
         using var harness = new RolloutHarness();
