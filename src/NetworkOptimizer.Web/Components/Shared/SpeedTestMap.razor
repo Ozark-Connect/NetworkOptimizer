@@ -1616,8 +1616,8 @@
     {
         if (channel is not > 0) return "";
         return widthMhz is > 0
-            ? $"Ch {channel} <span class='text-muted'>{widthMhz} MHz</span>"
-            : $"Ch {channel}";
+            ? $"<span class='wifi-tooltip-ch'>Ch {channel}</span> {widthMhz} MHz"
+            : $"<span class='wifi-tooltip-ch'>Ch {channel}</span>";
     }
 
     /// <summary>An MLO result's per-link detail, or an empty list when it is not one.</summary>

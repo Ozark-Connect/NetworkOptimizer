@@ -6475,6 +6475,10 @@ tr:hover .snmp-row-chevron {
     padding-left: 0.25rem;
 }
 
+.wifi-tooltip-ch {
+    color: var(--text-secondary);
+}
+
 .wifi-tooltip-link-speed {
     font-size: 0.75rem;
     color: var(--text-secondary);
