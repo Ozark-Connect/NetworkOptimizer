@@ -144,8 +144,10 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
             if (!result.IsUsable)
             {
-                _logger.LogWarning("BTM request for {Mac} on {Ap} answered {Status}",
-                    mac, current.Name ?? current.Host, result.Status);
+                // The body carries the access point's own reason; without it a 500 says only that
+                // something went wrong, on the one surface that cannot be reproduced on demand.
+                _logger.LogWarning("BTM request for {Mac} on {Ap} answered {Status}: {Body}",
+                    mac, current.Name ?? current.Host, result.Status, result.Body);
                 // The access point distinguishes a refusal from a failure, so say which. A client
                 // that moved between choosing this access point and the request arriving is the
                 // common case, and reporting it as a server error made it look like a defect.

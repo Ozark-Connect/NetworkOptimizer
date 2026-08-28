@@ -70,6 +70,13 @@ func jsonMutatingHandler(payload func(*http.Request) (any, error)) http.HandlerF
 			if errors.As(err, &he) {
 				status = he.status
 			}
+			// A refusal we chose (404, 400) is routine and stays quiet. A 500 is the case nobody
+			// can explain later, so it is the one that has to reach the log.
+			if status >= http.StatusInternalServerError {
+				slog.Warn("request failed", "path", r.URL.Path, "status", status, "error", err)
+			} else {
+				slog.Debug("request refused", "path", r.URL.Path, "status", status, "error", err)
+			}
 			w.WriteHeader(status)
 			body = map[string]string{"error": err.Error()}
 		}
@@ -101,6 +108,13 @@ func jsonRequestHandler(payload func(*http.Request) (any, error)) http.HandlerFu
 			var he httpError
 			if errors.As(err, &he) {
 				status = he.status
+			}
+			// A refusal we chose (404, 400) is routine and stays quiet. A 500 is the case nobody
+			// can explain later, so it is the one that has to reach the log.
+			if status >= http.StatusInternalServerError {
+				slog.Warn("request failed", "path", r.URL.Path, "status", status, "error", err)
+			} else {
+				slog.Debug("request refused", "path", r.URL.Path, "status", status, "error", err)
 			}
 			w.WriteHeader(status)
 			body = map[string]string{"error": err.Error()}
