@@ -744,7 +744,9 @@
                         showCoverageOnHover: false,
                         zoomToBoundsOnClick: true,
                         iconCreateFunction: function(cluster) {{
-                            const markers = cluster.getAllChildMarkers();
+                            // Tap targets ride along with their dots; counting them would double
+                            // every badge and halve the average.
+                            const markers = cluster.getAllChildMarkers().filter(m => !m.options.isHit);
                             let totalSpeed = 0;
                             markers.forEach(m => {{ totalSpeed += m.options.speed || 0; }});
                             const avgSpeed = totalSpeed / markers.length;
@@ -1025,6 +1027,20 @@
                     const markerMap = {{}};
 
                     markers.forEach(m => {{
+                        // Concentric invisible target, so a finger has 12px around the dot to land in
+                        // without the dot itself growing. pointer-events comes from the class: an
+                        // unpainted fill takes no taps on its own.
+                        const hit = L.circleMarker([m.lat, m.lng], {{
+                            radius: 12,
+                            stroke: false,
+                            fillOpacity: 0,
+                            className: 'map-dot-hit',
+                            isHit: true,
+                            resultId: m.id
+                        }});
+                        hit.bindPopup(m.popup);
+                        clusterGroup.addLayer(hit);
+
                         const marker = L.circleMarker([m.lat, m.lng], {{
                             radius: 8,
                             fillColor: m.color,

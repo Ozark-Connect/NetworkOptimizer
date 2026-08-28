@@ -10493,6 +10493,11 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Overlay for click-outside-to-close */
+/* An unpainted fill takes no taps without this, which is the whole point of the target. */
+.map-dot-hit {
+    pointer-events: all;
+}
+
 .filterable-select-clear {
     position: absolute;
     right: 2rem;
