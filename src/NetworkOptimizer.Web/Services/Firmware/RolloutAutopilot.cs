@@ -337,7 +337,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         var age = ReleaseRipeness.AgeDays(created, Now) ?? 0;
         document.IncludesUniFiOsUpdate = false;
         document.Notes.Add(
-            $"UniFi OS {version ?? "the pending build"} is waiting to age {minAgeDays} days; it was published {age} day{(age == 1 ? "" : "s")} ago, so the console keeps its current build.");
+            $"UniFi OS {version ?? "the pending build"} is waiting to age {minAgeDays} days; it was published {age} day{(age == 1 ? "" : "s")} ago, so the Console keeps its current build.");
     }
 
     /// <summary>

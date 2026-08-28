@@ -17,6 +17,9 @@ public class RolloutPlannerTests
 {
     private static readonly int Cd = (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds;
     private static readonly int GwCd = (int)FirmwareRolloutOrchestrator.GatewayCoolDown.TotalSeconds;
+    private static readonly int ApSeed = FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.AccessPoint);
+    private static readonly int GwSeed = FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.GatewayNetworkOnly);
+    private static readonly int OldApSeed = FirmwareTimingEstimator.SeedDowntimeSeconds(FirmwareDeviceClass.OlderAccessPoint);
     private const string GatewayMac = "aa:bb:cc:dd:ee:01";
     private const string DistSwitchMac = "aa:bb:cc:dd:ee:02";
     private const string AccessSwitchMac = "aa:bb:cc:dd:ee:03";
@@ -1004,7 +1007,7 @@ public class RolloutPlannerTests
         doc.IncludesUniFiNetworkUpdate.Should().BeTrue();
         doc.UniFiNetworkUpdateSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds);
         doc.Waves[0].StartOffsetSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds);
-        doc.TotalEstimatedSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds + 240 + (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(RolloutPlanner.UniFiNetworkUpdateSeconds + ApSeed + (int)FirmwareRolloutOrchestrator.CoolDown.TotalSeconds + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -1030,7 +1033,7 @@ public class RolloutPlannerTests
         doc.ChannelGroups.Single().RequiresConsoleChange.Should().BeTrue();
         doc.Waves[0].StartOffsetSeconds.Should().Be(RolloutPlanner.ChannelChangeSeconds);
         doc.TotalEstimatedSeconds.Should().Be(
-            RolloutPlanner.ChannelChangeSeconds + 240 + Cd + RolloutPlanner.CommandOverheadSeconds
+            RolloutPlanner.ChannelChangeSeconds + ApSeed + Cd + RolloutPlanner.CommandOverheadSeconds
             + RolloutPlanner.ChannelChangeSeconds);
     }
 
@@ -1043,7 +1046,7 @@ public class RolloutPlannerTests
 
         doc.ChannelGroups.Single().RequiresConsoleChange.Should().BeFalse();
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
-        doc.TotalEstimatedSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(ApSeed + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -1063,9 +1066,9 @@ public class RolloutPlannerTests
 
         doc.Waves[0].Steps.Should().HaveCount(2);
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
-        // Slowest of the pair (the older AP at 420s), the command allowance, then the AP gap.
-        doc.Waves[1].StartOffsetSeconds.Should().Be(420 + Cd + RolloutPlanner.CommandOverheadSeconds + 100);
-        doc.TotalEstimatedSeconds.Should().Be(550 + Cd + 240 + Cd + RolloutPlanner.CommandOverheadSeconds);
+        // Slowest of the pair (the older AP), the command allowance, then the AP gap.
+        doc.Waves[1].StartOffsetSeconds.Should().Be(OldApSeed + Cd + RolloutPlanner.CommandOverheadSeconds + 100);
+        doc.TotalEstimatedSeconds.Should().Be(doc.Waves[1].StartOffsetSeconds + ApSeed + Cd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -1083,13 +1086,13 @@ public class RolloutPlannerTests
         doc.Waves[0].StartOffsetSeconds.Should().Be(0);
         // The gap belongs to the wave about to START, matching what the executor waits for before
         // commanding it: the switch wave follows the AP wave's cycle plus the 180s switch gap.
-        doc.Waves[1].StartOffsetSeconds.Should().Be(240 + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
+        doc.Waves[1].StartOffsetSeconds.Should().Be(ApSeed + Cd + RolloutPlanner.CommandOverheadSeconds + 180);
         // Gateway wave: the switch's cycle, then the 300s gateway gap.
         var w1 = doc.Waves[1].StartOffsetSeconds;
         doc.Waves[2].StartOffsetSeconds.Should().Be(w1 + 480 + Cd + RolloutPlanner.CommandOverheadSeconds + 300);
         // The gateway closes the only group, so its gateway gap is never charged.
         var w2 = doc.Waves[2].StartOffsetSeconds;
-        doc.TotalEstimatedSeconds.Should().Be(w2 + 240 + GwCd + RolloutPlanner.CommandOverheadSeconds);
+        doc.TotalEstimatedSeconds.Should().Be(w2 + GwSeed + GwCd + RolloutPlanner.CommandOverheadSeconds);
     }
 
     [Fact]
@@ -1158,7 +1161,7 @@ public class RolloutPlannerTests
 
         var step = StepOf(doc, GatewayMac);
         step.OfflineBudgetSeconds.Should().Be(FirmwareTimingEstimator.DefaultOfflineBudgetSeconds);
-        step.EstimatedDowntimeSeconds.Should().Be(240);
+        step.EstimatedDowntimeSeconds.Should().Be(GwSeed);
         doc.IncludesUniFiOsUpdate.Should().BeFalse();
     }
 

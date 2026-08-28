@@ -615,7 +615,16 @@ public class FirmwareRolloutOrchestratorTests
 
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
         (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
-        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
+
+        // A device that took its firmware and then failed a check is not a device that failed to
+        // upgrade, and the two do not call for the same response.
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.SkuAborted);
+        var alert = harness.Bus.Published.Should()
+            .ContainSingle(e => e.EventType == RolloutAlerts.PostUpgradeCheckFailed).Subject;
+        alert.Severity.Should().Be(AlertSeverity.Info);
+        alert.Message.Should().Contain("failed its post-upgrade check")
+            .And.Contain("CPU is pinned since the upgrade.")
+            .And.Contain("1 remaining");
 
         await harness.TickAsync(PastWaveGap);
         (await harness.StepAsync(plan.Id, SwitchMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
@@ -927,7 +936,7 @@ public class FirmwareRolloutOrchestratorTests
         var stored = await harness.PlanAsync(plan.Id);
         var persisted = JsonSerializer.Deserialize<RolloutPlanDocument>(stored!.PlanJson)!;
         persisted.IncludesUniFiOsUpdate.Should().BeFalse();
-        persisted.Notes.Should().Contain(n => n.Contains("UniFi OS is not updated on a self-hosted console"));
+        persisted.Notes.Should().Contain(n => n.Contains("UniFi OS is not updated on a self-hosted Console"));
     }
 
     [Fact]

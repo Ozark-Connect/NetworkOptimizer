@@ -51,12 +51,22 @@ public class CrossSiteTimingSource
     }
 
     /// <summary>
+    /// How much of its own history a site needs before it stops borrowing the pool.
+    ///
+    /// Deliberately not <see cref="FirmwareTimingEstimator.MinLearnedSamples"/>, which answers a
+    /// different question: one local measurement beats a generic seed, but it does not beat a
+    /// well-sampled pool from other sites. Tying them together let a single unrepresentative
+    /// upgrade lock a site out of the pool for that model.
+    /// </summary>
+    public const int MinOwnHistoryToKeep = 3;
+
+    /// <summary>
     /// The merge rule, with no database in sight.
     /// <para>
-    /// A model the site has measured <see cref="FirmwareTimingEstimator.MinLearnedSamples"/> times
-    /// keeps its own numbers untouched. Otherwise the other sites' rows for that model are pooled -
-    /// each weighted by how many upgrades it represents - and used when the pool itself clears the
-    /// same bar. Anything else is left exactly as the site had it.
+    /// A model the site has measured <see cref="MinOwnHistoryToKeep"/> times keeps its own numbers
+    /// untouched. Otherwise the other sites' rows for that model are pooled - each weighted by how
+    /// many upgrades it represents - and used when the pool itself clears the same bar. Anything
+    /// else is left exactly as the site had it.
     /// </para>
     /// </summary>
     /// <param name="own">The planning site's rows.</param>
@@ -73,14 +83,14 @@ public class CrossSiteTimingSource
         foreach (var group in pooledByModel)
         {
             if (merged.TryGetValue(group.Key, out var mine) &&
-                mine.SampleCount >= FirmwareTimingEstimator.MinLearnedSamples &&
+                mine.SampleCount >= MinOwnHistoryToKeep &&
                 mine.MedianDowntimeSeconds > 0)
             {
                 continue;
             }
 
             var samples = group.Sum(t => t.SampleCount);
-            if (samples < FirmwareTimingEstimator.MinLearnedSamples)
+            if (samples < MinOwnHistoryToKeep)
                 continue;
 
             merged[group.Key] = new FirmwareModelTiming

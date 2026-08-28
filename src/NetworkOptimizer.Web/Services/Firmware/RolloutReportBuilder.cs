@@ -243,14 +243,14 @@ public static class RolloutReportBuilder
         switch (report.UniFiOsUpdateOutcome)
         {
             case "stuck":
-                report.Issues.Add("The console has not answered since its UniFi OS update.");
+                report.Issues.Add("The Console has not answered since its UniFi OS update.");
                 break;
             case "unchanged":
                 report.Issues.Add(
-                    $"The console accepted UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"} but is still offering it.");
+                    $"The Console accepted UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"} but is still offering it.");
                 break;
             case "refused":
-                report.Issues.Add("The console would not take its UniFi OS update.");
+                report.Issues.Add("The Console would not take its UniFi OS update.");
                 break;
         }
     }
