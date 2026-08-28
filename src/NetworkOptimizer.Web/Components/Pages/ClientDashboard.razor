@@ -607,7 +607,7 @@
                                     <tbody>
                                         @foreach (var r in GetPagedSpeedResults())
                                         {
-                                            <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
+                                            <tr id="result-@r.Id" class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@FormatTimeShort(r.TestTime)</td>
                                                 <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
@@ -656,6 +656,7 @@
                                      ApMarkers="_apMapMarkers" AllowApEditing="false"
                                      ShowExternalByDefault="_client?.IsVpn == true"
                                      TimeFilterHours="_selectedTimeFilter"
+                                     OnResultClick="ScrollToResult"
                                      ShowTimeSlider="false" />
                     }
                 </div>
@@ -2360,6 +2361,21 @@
     private void ToggleResultExpand(int resultId)
     {
         _expandedResultId = _expandedResultId == resultId ? null : resultId;
+    }
+
+    /// <summary>Takes the map's View link to its row, paging to it and opening it on the way.</summary>
+    private async Task ScrollToResult(int resultId)
+    {
+        var index = _speedResults.FindIndex(r => r.Id == resultId);
+        if (index >= 0) _speedPage = (index / SpeedPageSize) + 1;
+
+        _expandedResultId = resultId;
+        _activeTab = "speed";
+        StateHasChanged();
+
+        await Task.Delay(100); // the row has to be on the page before it can be scrolled to
+        try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not scroll to speed test result {Id}", resultId); }
     }
 
     private async Task HandleDeleteResult(int resultId)
