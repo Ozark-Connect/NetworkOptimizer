@@ -92,9 +92,8 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
     /// <summary>
-    /// Per-channel catalogs, keyed by the channel the console is on. A channel with an entry here
-    /// answers with it; anything else falls back to <see cref="Catalog"/>. This is what lets a test
-    /// have one channel offer a build another does not.
+    /// Catalogs by the channel the console is on, so one channel can offer what another does not.
+    /// A channel with no entry here falls back to <see cref="Catalog"/>.
     /// </summary>
     public Dictionary<string, List<UniFiFirmwareCatalogEntry>> CatalogByChannel { get; } =
         new(StringComparer.OrdinalIgnoreCase);

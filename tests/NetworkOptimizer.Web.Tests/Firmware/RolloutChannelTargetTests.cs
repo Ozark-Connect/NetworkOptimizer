@@ -9,12 +9,8 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests.Firmware;
 
 /// <summary>
-/// The target version a plan commits a device to, and which channel it belongs to.
-///
-/// A device record's pending target and the console's catalog restage independently, so the record
-/// can still name the channel before this one. The catalog is the channel, so it settles the
-/// version - and the console is asked to re-derive the records in the first place, which is the
-/// half of "Check for Updates" that list-available does not do.
+/// The target version a plan commits a device to, and which channel it belongs to. The catalog
+/// settles it, because a device record can still name the channel before this one.
 /// </summary>
 public class RolloutChannelTargetTests
 {

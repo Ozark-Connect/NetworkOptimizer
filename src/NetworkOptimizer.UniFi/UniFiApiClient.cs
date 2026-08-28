@@ -2856,13 +2856,9 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// POST cmd/productinfo {"cmd":"check-firmware-update"} - what the console's own "Check for
-    /// Updates" button sends. It re-derives every device's pending target against the channel now in
-    /// force; list-available alone does not, so a device keeps the target the LAST check produced.
-    /// <para>
-    /// Answers rc:ok with an empty data array the moment it accepts the work, so the result says
-    /// nothing about whether the re-derivation has finished.
-    /// </para>
+    /// POST cmd/productinfo {"cmd":"check-firmware-update"} - the half of the console's "Check for
+    /// Updates" that re-derives each device's pending target against the channel in force.
+    /// Accepted immediately and worked in the background, so rc:ok says nothing about it finishing.
     /// </summary>
     [VendorSpecific("UniFi", "cmd/productinfo check-firmware-update")]
     public async Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)

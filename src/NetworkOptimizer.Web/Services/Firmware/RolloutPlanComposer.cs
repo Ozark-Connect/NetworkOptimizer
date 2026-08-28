@@ -173,17 +173,9 @@ public static class RolloutPlanComposer
 
     /// <summary>
     /// Holds every device planned on <paramref name="channel"/> to the build that channel's catalog
-    /// actually carries for its model.
-    ///
-    /// A device record's upgrade_to_firmware and the catalog restage independently after a channel
-    /// change, so the record can still name the previous channel's build while the catalog has
-    /// moved on - which is how a release-candidate plan came to carry an Early Access build. The
-    /// catalog IS the channel, so it settles the version, and a model it does not carry cannot be
-    /// commanded on this channel at all.
-    ///
-    /// An empty catalog is no evidence either way and never drops anything: the console answering
-    /// with nothing must not empty a plan. Devices left without a target here can still be picked
-    /// up from the shared catalog afterwards.
+    /// carries for its model. A device record and the catalog restage independently after a channel
+    /// change, so the record can still name the channel before this one.
+    /// An empty catalog is a failed read rather than an empty channel, so it drops nothing.
     /// </summary>
     private static void ReconcileWithCatalog(
         RolloutPlanningContext context,
@@ -280,8 +272,7 @@ public static class RolloutPlanComposer
     /// two channels genuinely offering the same builds, which is why this is bounded rather than
     /// waited on indefinitely.
     ///
-    /// An empty catalog is never a restage. It is this app's own "could not read it" answer, and
-    /// counting it as changed ends the wait on a list that describes no channel at all.
+    /// An empty catalog is never a restage: it is this app's own "could not read it" answer.
     /// </summary>
     private static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
         IFirmwareCommandClient commands,

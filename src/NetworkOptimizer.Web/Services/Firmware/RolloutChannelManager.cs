@@ -207,7 +207,7 @@ public class RolloutChannelManager
     }
 
     /// <summary>
-    /// Puts the captured channels back and refreshes the catalog. Runs between channel groups, at
+    /// Puts the captured channels back and re-checks against them. Runs between channel groups, at
     /// the end of a rollout, on abort, and on the first pass after a restart that found a leftover
     /// capture.
     /// </summary>
@@ -244,6 +244,9 @@ public class RolloutChannelManager
                 original.NetworkAppChannel, original.UniFiOsChannel, cancellationToken);
         }
 
+        // Re-derive against the restored channel, so the console describes the site's own choice
+        // rather than the one this rollout ran on.
+        await _commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
         await _commands.CheckForUpdatesAsync(cancellationToken);
         _logger.LogInformation("Restored the original firmware channels on site {Site}", _siteSlug);
         return restored;
