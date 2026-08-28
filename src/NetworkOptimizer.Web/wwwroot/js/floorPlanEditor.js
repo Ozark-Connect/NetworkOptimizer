@@ -324,8 +324,7 @@ window.fpEditor = {
                 showCoverageOnHover: false,
                 zoomToBoundsOnClick: true,
                 iconCreateFunction: function (cluster) {
-                    // Tap targets ride along with their dots and must not be counted or averaged.
-                    var markers = cluster.getAllChildMarkers().filter(function (mk) { return !mk.options.isHit; });
+                    var markers = cluster.getAllChildMarkers();
                     var totalSignal = 0;
                     markers.forEach(function (mk) { totalSignal += mk.options.signalDbm || -85; });
                     var avgSignal = totalSignal / markers.length;
@@ -3389,17 +3388,6 @@ window.fpEditor = {
         var markerToReopen = null;
 
         markers.forEach(function (m) {
-            // Concentric invisible target, so a finger has room around the dot without the dot
-            // growing. pointer-events comes from the class: an unpainted fill takes no taps.
-            var hit = L.circleMarker([m.lat, m.lng], {
-                radius: 12,
-                stroke: false,
-                fillOpacity: 0,
-                className: 'map-dot-hit',
-                isHit: true,
-                markerKey: m.key
-            });
-
             var marker = L.circleMarker([m.lat, m.lng], {
                 radius: 8,
                 fillColor: m.color,
@@ -3410,11 +3398,7 @@ window.fpEditor = {
                 signalDbm: m.signalDbm,
                 markerKey: m.key
             });
-            if (m.popup) {
-                marker.bindPopup(m.popup);
-                hit.bindPopup(m.popup);
-            }
-            self._signalClusterGroup.addLayer(hit);
+            if (m.popup) marker.bindPopup(m.popup);
             self._signalClusterGroup.addLayer(marker);
             if (m.key) markerMap[m.key] = marker;
 
