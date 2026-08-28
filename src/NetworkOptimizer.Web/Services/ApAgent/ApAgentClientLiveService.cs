@@ -182,6 +182,9 @@ public sealed class ApAgentClientLiveService
         if (aps.Contains(mac, StringComparer.Ordinal)) follower.Seen(mac);
     }
 
+    /// <summary>Idle past which a station is a leftover, not the association serving the client.</summary>
+    private const long StaleStationSeconds = 45;
+
     /// <summary>
     /// Polls the access point the client is believed to be on. Its answer that the client is not
     /// there is the roam signal, and is what starts the search in the same tick.
@@ -191,12 +194,21 @@ public sealed class ApAgentClientLiveService
     {
         var lookup = await _reader.ReadClientAsync(siteSlug, apMac, clientMac, ct);
 
+        // An access point can keep a station long after the client left, and it answers Found for it
+        // like any other. Only a departure it noticed starts the search, so a quiet station pins the
+        // page to the wrong access point for as long as the stale entry survives.
+        var quiet = lookup.Status == ApAgentClientLookupStatus.Found && lookup.Client != null
+            && NetworkOptimizer.Core.Helpers.ClientPresence.LowestIdle(
+                lookup.Client.Links.Select(l => l.IdleSeconds)) is { } idle
+            && idle > StaleStationSeconds;
+
         switch (lookup.Status)
         {
-            case ApAgentClientLookupStatus.Found when lookup.Client != null:
+            case ApAgentClientLookupStatus.Found when lookup.Client != null && !quiet:
                 follower.Seen(apMac);
                 return new ApAgentLiveClient(lookup.Client, apMac);
 
+            case ApAgentClientLookupStatus.Found:
             case ApAgentClientLookupStatus.NotOnAp:
                 var hint = await _reader.ReadPeerHintAsync(siteSlug, apMac, clientMac, now - HintLookback, ct);
                 _logger.LogDebug("Client {Mac} left {Ap}; following the roam (peer hint {Hint})",
