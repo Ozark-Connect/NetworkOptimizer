@@ -1307,7 +1307,8 @@ class LanFlowMap2D {
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
-        const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
+        const cellCross=this._hz?G.clientCellH:G.clientCellW;
+        const selfW=isClient(n.d.kind)?cellCross:(this._hz?G.boxH:G.boxW)+40;
         n._isGrid=false;
         const visCl=n.clients.filter(c=>this._isNodeVisible(c));
         const nc=Math.min(visCl.length,G.maxClients);
@@ -1315,7 +1316,7 @@ class LanFlowMap2D {
 
         // VirtualHub: treat as a leaf (children won't be rendered)
         if(n.d.kind===NK.VirtualHub){
-            const hubW=G.clientCellW;
+            const hubW=cellCross;
             n._contour=[{l:-hubW/2,r:hubW/2}];
             n._kidOffsets=[];
             n._kids=[];
@@ -1326,8 +1327,8 @@ class LanFlowMap2D {
         if(n.infra.length===0&&nc>0){
             const cols=Math.min(nc,G.clientCols);
             const rows=Math.ceil(nc/cols);
-            const gridW=cols*G.clientCellW;
-            const staggerExtra=rows>1?G.clientCellW/2:0;
+            const gridW=cols*cellCross;
+            const staggerExtra=rows>1?cellCross/2:0;
             n._isGrid=true;
             n._gridCols=cols;
             // Contour: node at depth 0, grid rectangle at depth 1 (widened for stagger)
@@ -1345,8 +1346,8 @@ class LanFlowMap2D {
         if(nc>0){
             const cols=Math.min(nc,G.clientCols);
             const rows=Math.ceil(nc/cols);
-            const gridW=cols*G.clientCellW;
-            const staggerExtra=rows>1?G.clientCellW/2:0;
+            const gridW=cols*cellCross;
+            const staggerExtra=rows>1?cellCross/2:0;
             n._isGrid=true;
             n._gridCols=cols;
             const gp={_isGridPlaceholder:true,_contour:[{l:-gridW/2,r:gridW/2+staggerExtra}]};
