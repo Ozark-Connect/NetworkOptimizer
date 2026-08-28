@@ -1700,7 +1700,7 @@
                 }
                 html += FormatChannelForTooltip(link.channel, link.channelWidth);
                 if (link.signal.HasValue)
-                    html += $"{(link.channel is > 0 ? ", " : "")}{link.signal} dBm";
+                    html += $"{(link.channel is > 0 ? " · " : "")}{link.signal} dBm";
                 html += "</div>";
             }
         }
@@ -1715,7 +1715,7 @@
             html += FormatChannelForTooltip(result.WifiChannel, result.WifiChannelWidthMhz);
             if (result.WifiSignalDbm.HasValue)
             {
-                html += $"{(result.WifiChannel is > 0 ? ", " : "")}{result.WifiSignalDbm} dBm";
+                html += $"{(result.WifiChannel is > 0 ? " · " : "")}{result.WifiSignalDbm} dBm";
             }
             html += "</div>";
         }
