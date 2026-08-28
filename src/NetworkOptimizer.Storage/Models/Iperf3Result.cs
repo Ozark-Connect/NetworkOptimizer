@@ -158,6 +158,12 @@ public class Iperf3Result
     /// <summary>Wi-Fi channel (wireless clients only)</summary>
     public int? WifiChannel { get; set; }
 
+    /// <summary>
+    /// Channel width in MHz - 20, 40, 80, 160, 320 (wireless clients only). An MLO client's
+    /// per-link widths are in <see cref="WifiMloLinksJson"/>; this is the single-link case.
+    /// </summary>
+    public int? WifiChannelWidthMhz { get; set; }
+
     /// <summary>Wi-Fi radio protocol - ax, ac, n, etc. (wireless clients only)</summary>
     [MaxLength(10)]
     public string? WifiRadioProto { get; set; }
