@@ -409,6 +409,18 @@ public sealed class ApAgentTelemetryCollector
                 ?? payload.Sources?.Slow?.LastCollectedAt
                 ?? payload.CollectedAt;
 
+            // The envelope stays fresh while a tier underneath it fails - mca-dump returns nothing
+            // usable while an access point reprovisions - so the station read's own age decides
+            // whether this payload can vouch for the clients. Claiming on the envelope alone held
+            // the console out of an access point the agent had stopped describing.
+            if (now - identityAt > ApAgentCoverageLedger.ClaimTtl)
+            {
+                _coverage.Release(target.Mac);
+                _membership.Release(target.Mac);
+                _accumulators.TryRemove(target.Mac, out _);
+                return;
+            }
+
             _coverage.Claim(target.Mac, now);
             RecordMembership(target.Mac, payload, now);
 
