@@ -1615,7 +1615,9 @@
     private static string FormatChannelForTooltip(int? channel, int? widthMhz)
     {
         if (channel is not > 0) return "";
-        return widthMhz is > 0 ? $"ch {channel} ({widthMhz} MHz)" : $"ch {channel}";
+        return widthMhz is > 0
+            ? $"Ch {channel} <span class='text-muted'>{widthMhz} MHz</span>"
+            : $"Ch {channel}";
     }
 
     /// <summary>An MLO result's per-link detail, or an empty list when it is not one.</summary>
