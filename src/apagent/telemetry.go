@@ -936,6 +936,30 @@ func FindClient(clients []Client, mac string) (Client, bool) {
 	return Client{}, false
 }
 
+// LinkAddrForVap reports the address hostapd on vap knows this client by. hostapd keys its station
+// table per link, so an MLO client is not addressable there by its MLD MAC. Empty when there is
+// nothing to substitute - not MLO, link unknown, or the address given is already the link one - so
+// a caller can leave what it had untouched.
+func (t *Table) LinkAddrForVap(mac, vap string) string {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	vap = strings.TrimSpace(vap)
+	if mac == "" || vap == "" {
+		return ""
+	}
+
+	for _, c := range t.Clients(time.Now()) {
+		if !strings.EqualFold(c.MAC, mac) && !strings.EqualFold(c.MldMAC, mac) && !strings.EqualFold(c.Key, mac) {
+			continue
+		}
+		for _, l := range c.Links {
+			if strings.EqualFold(l.Vap, vap) && l.MAC != "" && !strings.EqualFold(l.MAC, mac) {
+				return normalizeMAC(l.MAC)
+			}
+		}
+	}
+	return ""
+}
+
 // VapForClient reports which VAP currently holds a client, by link MAC or MLD MAC. Empty when the
 // table has not seen it: an MLO client is keyed on its MLD, so either address resolves.
 func (t *Table) VapForClient(mac string) string {

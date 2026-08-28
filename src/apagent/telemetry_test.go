@@ -327,6 +327,58 @@ func findClient(t *testing.T, clients []Client, key string) Client {
 	return Client{}
 }
 
+// hostapd keys its station table per link, so a BTM request addressed to an MLO client's MLD MAC
+// is answered "Not found" and the steer fails. The link address for the VAP being commanded is
+// what hostapd knows.
+func TestLinkAddrForVapResolvesAnMloClient(t *testing.T) {
+	table, _ := newFixtureTable(t)
+	phone := findClient(t, table.Clients(time.Now().UTC()), fixtureMldMAC)
+
+	for _, l := range phone.Links {
+		got := table.LinkAddrForVap(fixtureMldMAC, l.Vap)
+		if !strings.EqualFold(got, l.MAC) {
+			t.Errorf("LinkAddrForVap(mld, %s) = %q, want the link MAC %q", l.Vap, got, l.MAC)
+		}
+		if strings.EqualFold(got, fixtureMldMAC) {
+			t.Errorf("VAP %s resolved to the MLD MAC, which hostapd cannot address", l.Vap)
+		}
+	}
+}
+
+// The substitution must be inert for everything that is not MLO: an empty answer tells the caller
+// to send exactly the address it already had.
+func TestLinkAddrForVapIsEmptyWhenThereIsNothingToSubstitute(t *testing.T) {
+	table, _ := newFixtureTable(t)
+	now := time.Now().UTC()
+
+	for _, c := range table.Clients(now) {
+		if c.IsMlo {
+			continue
+		}
+		for _, l := range c.Links {
+			if got := table.LinkAddrForVap(c.MAC, l.Vap); got != "" {
+				t.Errorf("LinkAddrForVap(%s, %s) = %q, want empty: a non-MLO request must go out unchanged",
+					c.MAC, l.Vap, got)
+			}
+		}
+	}
+
+	// A link address already names the link, so there is still nothing to swap.
+	phone := findClient(t, table.Clients(now), fixtureMldMAC)
+	for _, l := range phone.Links {
+		if got := table.LinkAddrForVap(l.MAC, l.Vap); got != "" {
+			t.Errorf("LinkAddrForVap(link %s, %s) = %q, want empty", l.MAC, l.Vap, got)
+		}
+	}
+
+	if got := table.LinkAddrForVap(fixtureMldMAC, "wifi9ap9"); got != "" {
+		t.Errorf("unknown VAP resolved to %q, want empty", got)
+	}
+	if got := table.LinkAddrForVap("", "wifi0ap0"); got != "" {
+		t.Errorf("empty MAC resolved to %q, want empty", got)
+	}
+}
+
 // One Wi-Fi 7 device is one client. Keying on the link MAC would invent three.
 func TestMloLinksMergeIntoOneClient(t *testing.T) {
 	table, _ := newFixtureTable(t)
