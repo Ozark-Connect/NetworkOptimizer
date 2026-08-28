@@ -1016,6 +1016,7 @@
 
     // State
     private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
+    private string? _ownIp;    // the viewer's own address, once anything has resolved it
     private bool _isLogging; // true when actively persisting signal data
     private bool _loading = true;
     private bool _pendingChartUpdate;
@@ -1367,6 +1368,7 @@
                 if (!string.IsNullOrEmpty(address) && address != "unknown")
                 {
                     _clientIp = NetworkUtilities.NormalizeToIPv4String(address);
+                    _ownIp = _clientIp;
                     await IdentifyAndLoadAsync();
                 }
             }
@@ -1560,6 +1562,7 @@
         // The agent's nginx whoami returns $remote_addr, which can be ::ffff:a.b.c.d on a
         // dual-stack listener; unwrap so it matches the console client list.
         _clientIp = NetworkUtilities.NormalizeToIPv4String(ip);
+        _ownIp = _clientIp;
         await IdentifyAndLoadAsync();
         if (_client != null)
         {
@@ -1710,6 +1713,9 @@
     /// </summary>
     private async Task<bool> IsOwnAddressAsync(string ip)
     {
+        if (_ownIp != null)
+            return string.Equals(_ownIp, ip, StringComparison.OrdinalIgnoreCase);
+
         try
         {
             string? address;
@@ -1728,7 +1734,8 @@
             }
 
             if (string.IsNullOrEmpty(address) || address == "unknown") return false;
-            return string.Equals(NetworkUtilities.NormalizeToIPv4String(address), ip, StringComparison.OrdinalIgnoreCase);
+            _ownIp = NetworkUtilities.NormalizeToIPv4String(address);
+            return string.Equals(_ownIp, ip, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
