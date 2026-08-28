@@ -1465,16 +1465,29 @@ public class FirewallRuleAnalyzer
                 });
             }
 
-            // Firmware downloads come from fw-download.ubnt.com, not ui.com. A rule allowing
-            // ui.com keeps cloud management working but devices cannot download firmware updates.
-            var fwDownloadRule = rules.FirstOrDefault(r =>
-                r.Enabled &&
-                r.ActionType.IsAllowAction() &&
-                r.AppliesToSourceNetwork(mgmtNetwork) &&
-                r.WebDomains?.Any(d => d.Contains("ubnt.com", StringComparison.OrdinalIgnoreCase)) == true &&
-                FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
+            // Firmware downloads come from fw-download.ubnt.com and the release feed from
+            // fw-update.ubnt.com, neither of which is ui.com. A rule allowing ui.com keeps cloud
+            // management working but devices cannot download firmware updates.
+            // Both hosts are required unless a rule covers the domain as a whole: a rule naming
+            // only one of them leaves the other blocked, which is what the recommendation says.
+            var allowedUbntDomains = rules
+                .Where(r =>
+                    r.Enabled &&
+                    r.ActionType.IsAllowAction() &&
+                    r.AppliesToSourceNetwork(mgmtNetwork) &&
+                    r.WebDomains?.Any(d => d.Contains("ubnt.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                    FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp") &&
+                    !IsAllowRuleEclipsedByBlockRule(rules, r, mgmtNetwork, externalZoneId))
+                .SelectMany(r => r.WebDomains!)
+                .Where(d => d.Contains("ubnt.com", StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-            var hasFwDownloadAccess = fwDownloadRule != null && !IsAllowRuleEclipsedByBlockRule(rules, fwDownloadRule, mgmtNetwork, externalZoneId);
+            var coversWholeDomain = allowedUbntDomains
+                .Any(d => d.TrimStart('*', '.').Equals("ubnt.com", StringComparison.OrdinalIgnoreCase));
+
+            var hasFwDownloadAccess = coversWholeDomain || (
+                allowedUbntDomains.Any(d => d.Contains("fw-download.ubnt.com", StringComparison.OrdinalIgnoreCase)) &&
+                allowedUbntDomains.Any(d => d.Contains("fw-update.ubnt.com", StringComparison.OrdinalIgnoreCase)));
 
             if (!hasFwDownloadAccess)
             {
@@ -1489,11 +1502,11 @@ public class FirewallRuleAnalyzer
                     {
                         { "network", mgmtNetwork.Name },
                         { "vlan", mgmtNetwork.VlanId },
-                        { "required_domain", "fw-download.ubnt.com" }
+                        { "required_domain", "fw-download.ubnt.com, fw-update.ubnt.com" }
                     },
                     RuleId = "FW-MGMT-004",
                     ScoreImpact = 0,
-                    RecommendedAction = "Add firewall rule allowing TCP 443 to fw-download.ubnt.com (or ubnt.com) for firmware downloads. Without this, devices on this network cannot download firmware updates from Ubiquiti."
+                    RecommendedAction = "Add firewall rule allowing TCP 443 to fw-download.ubnt.com and fw-update.ubnt.com (or ubnt.com) for firmware downloads. Without this, devices on this network cannot download firmware updates from Ubiquiti."
                 });
             }
 
