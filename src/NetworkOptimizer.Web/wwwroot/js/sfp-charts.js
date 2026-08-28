@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=4';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -370,6 +370,9 @@ function renderPonDetails(container, withPon) {
     const el = container.querySelector('.sfp-pon-details');
     if (!el) return;
     el.innerHTML = ponDetailsHtml(withPon, 'Module');
+
+    const totalsEl = container.querySelector('.sfp-pon-error-totals');
+    if (totalsEl) totalsEl.innerHTML = ponErrorTotalsHtml(withPon, 'Module');
 }
 
 function renderStatsTable(container, showAll) {

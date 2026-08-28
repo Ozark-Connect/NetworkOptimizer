@@ -883,7 +883,7 @@ from(bucket: ""{_longtermBucket}"")
     private static readonly string[] PonFieldNames =
     {
         "pon_link_status", "pon_link_status_prev", "onu_id", "ds_fec_enabled", "us_fec_enabled",
-        "onu_response_time", "sfp_uptime_s", "bip_errors", "fec_errors", "fec_corrected_words",
+        "onu_response_time", "sfp_uptime_s", "ploam_elapsed_ms", "bip_errors", "fec_errors", "fec_corrected_words",
         "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
@@ -907,6 +907,7 @@ from(bucket: ""{_longtermBucket}"")
             UsFecEnabled = AsLongOrNull(record.GetValueByKey("us_fec_enabled")),
             OnuResponseTime = AsLongOrNull(record.GetValueByKey("onu_response_time")),
             SfpUptimeS = AsLongOrNull(record.GetValueByKey("sfp_uptime_s")),
+            PloamElapsedMs = AsLongOrNull(record.GetValueByKey("ploam_elapsed_ms")),
             BipErrors = AsLongOrNull(record.GetValueByKey("bip_errors")),
             FecErrors = AsLongOrNull(record.GetValueByKey("fec_errors")),
             FecCorrectedWords = AsLongOrNull(record.GetValueByKey("fec_corrected_words")),
@@ -2506,6 +2507,7 @@ from(bucket: ""{_longtermBucket}"")
         public long? UsFecEnabled { get; set; }
         public long? OnuResponseTime { get; set; }
         public long? SfpUptimeS { get; set; }
+        public long? PloamElapsedMs { get; set; }
         public long? BipErrors { get; set; }
         public long? FecErrors { get; set; }
         public long? FecCorrectedWords { get; set; }

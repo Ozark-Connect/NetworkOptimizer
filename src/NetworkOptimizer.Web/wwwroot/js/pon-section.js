@@ -92,9 +92,13 @@ export function updatePonCard(container, cardSelector, chart, series, prepare = 
 export function ponDetailsHtml(items, labelHeader, extras = []) {
     const lastOf = item => [...item.pon].reverse().find(p => p.state != null) || item.pon[item.pon.length - 1];
 
+    const nameCol = items.length > 1
+        ? [{ header: escapeHtml(labelHeader), cell: item => escapeHtml(item.label), always: true }]
+        : [];
     return detailsTableHtml(items, [
-        { header: escapeHtml(labelHeader), cell: item => escapeHtml(item.label), always: true },
+        ...nameCol,
         { header: 'PLOAM State', cell: item => { const l = lastOf(item); return l.state == null ? null : escapeHtml(PLOAM_LABELS[l.state] || l.state); } },
+        { header: 'PLOAM Uptime', cell: item => fmtUptimeMs(lastOf(item).ploamMs) },
         { header: 'ONU ID', cell: item => lastOf(item).onuId },
         {
             header: 'FEC DS / US',
@@ -105,9 +109,48 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
             header: '<span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span>',
             cell: item => { const l = lastOf(item); return l.lanLink == null && l.lanMode == null ? null : `${l.lanLink ?? '-'} / ${l.lanMode ?? '-'}`; },
         },
-        // Module uptime where the ONT reports it, link uptime where it reports that instead.
-        // No provider serves both, so the column never has to choose between them.
         { header: 'ONT Uptime', cell: item => fmtUptime(lastOf(item).uptime ?? item.linkUptime) },
         ...extras,
     ]);
+}
+
+function fmtUptimeMs(ms) {
+    if (ms == null) return null;
+    return fmtUptime(Math.floor(ms / 1000));
+}
+
+function fmtCount(v) { return v != null ? v.toLocaleString() : null; }
+
+/// Cumulative error counter totals from the latest PON sample. Columns with no data across
+/// any item are dropped; FEC columns are also hidden when FEC is off on every item.
+export function ponErrorTotalsHtml(items, labelHeader) {
+    const lastOf = item => item.pon[item.pon.length - 1];
+    const anyFec = items.some(item => (item.pon || []).some(p => p.dsFec || p.usFec));
+
+    const nameCol = items.length > 1
+        ? [{ header: escapeHtml(labelHeader), cell: item => escapeHtml(item.label), always: true }]
+        : [];
+    const columns = [
+        ...nameCol,
+        { header: '<span data-tooltip="Bit-interleaved parity errors (cumulative since ONT boot)">BIP</span>', cell: item => fmtCount(lastOf(item).bipTotal) },
+        { header: '<span data-tooltip="Corrected GTC header errors">HEC Corr</span>', cell: item => fmtCount(lastOf(item).hecCorrTotal) },
+        { header: '<span data-tooltip="Uncorrectable GTC header errors">HEC Uncorr</span>', cell: item => fmtCount(lastOf(item).hecTotal) },
+    ];
+    if (anyFec) {
+        columns.push(
+            { header: '<span data-tooltip="Corrected FEC codewords">FEC Corr</span>', cell: item => fmtCount(lastOf(item).fecCorrTotal) },
+            { header: '<span data-tooltip="Uncorrectable FEC codewords">FEC Uncorr</span>', cell: item => fmtCount(lastOf(item).fecTotal) },
+        );
+    }
+    columns.push(
+        { header: '<span data-tooltip="Corrected upstream bandwidth-map errors">BWmap Corr</span>', cell: item => fmtCount(lastOf(item).bwmapCorrTotal) },
+        { header: '<span data-tooltip="Uncorrectable upstream bandwidth-map errors">BWmap Uncorr</span>', cell: item => fmtCount(lastOf(item).bwmapUncorrTotal) },
+        { header: '<span data-tooltip="Upstream bandwidth allocations lost">Allocs Lost</span>', cell: item => fmtCount(lastOf(item).allocLostTotal) },
+        { header: '<span data-tooltip="GEM frames dropped at reassembly">GEM Drops</span>', cell: item => fmtCount(lastOf(item).gemDropTotal) },
+        { header: '<span data-tooltip="Host-side FCS (checksum) errors">FCS Errors</span>', cell: item => fmtCount(lastOf(item).lanFcsTotal) },
+        { header: '<span data-tooltip="Host-side transmit drop events">TX Drops</span>', cell: item => fmtCount(lastOf(item).lanDropTotal) },
+        { header: '<span data-tooltip="Host-side buffer overflows">Buf Overflows</span>', cell: item => fmtCount(lastOf(item).lanOvflTotal) },
+    );
+
+    return detailsTableHtml(items, columns);
 }

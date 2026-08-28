@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=4';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -315,6 +315,9 @@ async function updateErrorsChart() {
 
     const el = container.querySelector('.ont-pon-details');
     if (el) el.innerHTML = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
+
+    const totalsEl = container.querySelector('.ont-pon-error-totals');
+    if (totalsEl) totalsEl.innerHTML = ponErrorTotalsHtml(withErrors, 'ONT');
 }
 
 // Columns this tab adds to the shared table. Ones no ONT fills are dropped by the renderer.

@@ -37,6 +37,7 @@ public static class PonChartSeries
                 usFec = p.UsFecEnabled,
                 respTime = p.OnuResponseTime,
                 uptime = p.SfpUptimeS,
+                ploamMs = p.PloamElapsedMs,
                 lanLink = p.LanLinkStatus,
                 lanMode = p.LanMode,
                 bip = Delta(p.BipErrors, prev?.BipErrors),
@@ -54,6 +55,19 @@ public static class PonChartSeries
                 lanFcs = Delta(p.LanRxFcsErrors, prev?.LanRxFcsErrors),
                 lanDrop = Delta(p.LanTxDropEvents, prev?.LanTxDropEvents),
                 lanOvfl = Delta(p.LanBufferOverflow, prev?.LanBufferOverflow),
+                // Raw cumulative values for the error totals table
+                bipTotal = p.BipErrors,
+                fecTotal = p.FecErrors,
+                fecCorrTotal = p.FecCorrectedWords,
+                hecTotal = p.HecUncorrected,
+                hecCorrTotal = p.HecCorrected,
+                bwmapCorrTotal = p.BwmapCorrected,
+                bwmapUncorrTotal = p.BwmapUncorrected,
+                allocLostTotal = p.AllocLost,
+                gemDropTotal = p.GemRxDropped,
+                lanFcsTotal = p.LanRxFcsErrors,
+                lanDropTotal = p.LanTxDropEvents,
+                lanOvflTotal = p.LanBufferOverflow,
             });
             prev = p;
         }
