@@ -155,6 +155,10 @@
                                 PersistKey="@SearchHandoffKey"
                                 SelectedKeyChanged="ViewClientByIpAsync"
                                 Placeholder="Choose a device..." />
+                @if (!string.IsNullOrEmpty(_pickerSelection))
+                {
+                    <button class="btn btn-primary" @onclick="ViewPickedClientAsync">View</button>
+                }
             </div>
         </div>
     }
