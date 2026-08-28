@@ -1704,14 +1704,29 @@
 
     /// <summary>
     /// Whether the picked address is the viewer's own, so picking yourself lands on the bare page
-    /// rather than pinning an address that only means you from this browser.
+    /// rather than pinning an address that only means you from this browser. Asked of whoever can
+    /// see the viewer's LAN address: this server on the default site, the on-site agent elsewhere,
+    /// since a managed site's circuit arrives over the WAN.
     /// </summary>
     private async Task<bool> IsOwnAddressAsync(string ip)
     {
         try
         {
-            var address = await JS.InvokeAsync<string?>("eval",
-                "fetch('/api/client-dashboard/address').then(r => r.json()).then(j => j.address)");
+            string? address;
+            if (SiteContext.IsDefault)
+            {
+                address = await JS.InvokeAsync<string?>("eval",
+                    "fetch('/api/client-dashboard/address').then(r => r.json()).then(j => j.address)");
+            }
+            else
+            {
+                var target = await SiteTarget.ResolveAsync();
+                if (!target.UsesAgent || string.IsNullOrEmpty(target.BaseUrl)) return false;
+                address = await JS.InvokeAsync<string?>("eval",
+                    $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
+                    ".then(r => r.json()).then(j => j.ip).catch(() => null)");
+            }
+
             if (string.IsNullOrEmpty(address) || address == "unknown") return false;
             return string.Equals(NetworkUtilities.NormalizeToIPv4String(address), ip, StringComparison.OrdinalIgnoreCase);
         }
