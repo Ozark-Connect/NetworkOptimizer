@@ -94,11 +94,10 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         if (current == null)
             return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
 
-        // A sleeping client holds an association through standby but will not scan and authenticate
-        // until it wakes, so evicting one leaves it off the network until somebody turns it on.
+        // A sleeping client holds its association but will not scan until it wakes, so moving it
+        // off leaves it off.
         if (idleSeconds is { } idle && idle > MaxIdleSecondsToSteer)
-            return ApAgentRoamResult.Fail(
-                $"That client has been idle for {idle}s and may be asleep. A sleeping client can be moved off but cannot rejoin on its own.");
+            return ApAgentRoamResult.Fail($"Idle {idle}s. Moving a sleeping client off leaves it off.");
 
         var own = await FetchNeighborsAsync(current, ssid, ct);
         var wanted = intent == ApAgentRoamIntent.Band
@@ -276,6 +275,9 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     private async Task<(ApAgentTarget? Ap, long? IdleSeconds, IReadOnlyCollection<string> Bands)> FindHoldingApAsync(
         IReadOnlyList<ApAgentTarget> targets, string mac, CancellationToken ct)
     {
+        (ApAgentTarget? Target, long? Idle, IReadOnlyCollection<string> Bands) best =
+            (null, null, Array.Empty<string>());
+
         foreach (var target in targets)
         {
             // Through the reader rather than a second hand-rolled fetch: it unwraps the reply, and
@@ -298,10 +300,22 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 bands.Add(client.Band);
             }
 
-            return (target, idle, bands);
+            // Keep looking. More than one access point can answer Found - one of them holding a
+            // station the client left - and taking the first refused a live client as asleep on
+            // another access point's hour-old entry. Least idle is the one actually serving it.
+            if (best.Target == null || Fresher(idle, best.Idle))
+                best = (target, idle, bands);
         }
-        return (null, null, Array.Empty<string>());
+        return best;
     }
+
+    /// <summary>Whether one station reading is fresher. A known idle beats an unknown one.</summary>
+    private static bool Fresher(long? candidate, long? held) => (candidate, held) switch
+    {
+        (null, _) => false,
+        (_, null) => true,
+        var (c, h) => c < h,
+    };
 
     /// <summary>Gathers neighbor reports from every access point except the one to move off.</summary>
     private async Task<List<string>> CollectCandidatesAsync(
