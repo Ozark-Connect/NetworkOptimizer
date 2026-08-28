@@ -356,6 +356,108 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("AdminSettings", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApAgentDeployment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Architecture")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DeployedBinaryVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeployedVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastDeployedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastHealthyAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Token")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac")
+                        .IsUnique();
+
+                    b.HasIndex("Enabled");
+
+                    b.ToTable("ApAgentDeployments", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApAgentEventCursor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("AgentStartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("DroppedEvents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastPolledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastSeq")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastTruncatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TruncationCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac")
+                        .IsUnique();
+
+                    b.ToTable("ApAgentEventCursors", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApChannelChange", b =>
                 {
                     b.Property<int>("Id")
@@ -543,6 +645,176 @@ namespace NetworkOptimizer.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("ApNeighborSightings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApRadioHealthSample", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("BusyRatio")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("CycleDelta")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("PdevResetDelta")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("PdevResets")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("PhyErrDelta")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Radio")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RxClearDelta")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("SampleAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TxFrameDelta")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Wedged")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("WindowSeconds")
+                        .HasColumnType("REAL");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SampleAt");
+
+                    b.HasIndex("ApMac", "Radio", "SampleAt");
+
+                    b.ToTable("ApRadioHealthSamples", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApRoamRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AfterEventGap")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AssocDeltaMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuthAlgo")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AuthDeltaMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AuthRssiDbm")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Band")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Channel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClientMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("DwellSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("FromApMac")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromBand")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromBssid")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("FromChannel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LinkMac")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ObservationCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObservedByApMacs")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RoamedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToApMac")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToBssid")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("WpaAuthDeltaMs")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoamedAt");
+
+                    b.HasIndex("ClientMac", "RoamedAt");
+
+                    b.HasIndex("ToApMac", "RoamedAt");
+
+                    b.ToTable("ApRoamRecords", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.AuditResult", b =>

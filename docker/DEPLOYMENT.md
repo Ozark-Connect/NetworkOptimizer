@@ -831,7 +831,7 @@ sudo systemctl start network-optimizer
 
 On ARM64 hardware, publish with `-r linux-arm64` instead.
 
-Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional helpers (`uwnspeedtest`, `wansteer`, `apagent`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
 
 ### Verify Update
 

@@ -94,6 +94,26 @@ public class DeviceRebootTracker
     /// <param name="FirmwareVersion">Firmware seen on this boot, used to spot an upgrade across the next one.</param>
     public record DeviceBootRecord(DateTime BootedAt, DeviceRebootReason? Reason, string? FirmwareVersion = null);
 
+    /// <summary>A device seen on a boot it was not on before.</summary>
+    /// <param name="DeviceMac">The device's MAC.</param>
+    /// <param name="DeviceName">Its name, when the sample carried one.</param>
+    /// <param name="DeviceType">What kind of device it is.</param>
+    /// <param name="Host">Its address, when the sample carried one.</param>
+    /// <param name="BootedAt">When the new boot started.</param>
+    public sealed record DeviceBootEvent(
+        string DeviceMac, string? DeviceName, DeviceType DeviceType, string? Host, DateTime BootedAt);
+
+    /// <summary>
+    /// Raised once per device per new boot, for anything that has work to do when a device comes
+    /// back - the AP Agent lives in tmpfs, so a reboot is what makes it need redeploying.
+    ///
+    /// Not raised on a first sighting: the server cannot tell a device that just rebooted from one
+    /// it has simply never seen, and treating a restart of this server as a fleet-wide reboot would
+    /// be exactly wrong. Subscribers must therefore carry their own periodic check rather than
+    /// treating this as complete.
+    /// </summary>
+    public event Action<DeviceBootEvent>? DeviceRebooted;
+
     /// <summary>
     /// The reason behind the boot a device is reporting right now, or null while that boot has no
     /// reason yet. Served from memory so the dashboard costs nothing.
@@ -217,6 +237,8 @@ public class DeviceRebootTracker
             _logger.LogInformation(
                 "Device {Device} ({Mac}) rebooted: uptime {Uptime}s puts boot at {BootedAt:u} (was {PreviousBoot:u})",
                 deviceName ?? "unknown", mac, uptimeSeconds, bootedAt, known.BootedAt);
+
+            RaiseRebooted(new DeviceBootEvent(mac, deviceName, deviceType, host, bootedAt));
         }
         else
         {
@@ -248,6 +270,22 @@ public class DeviceRebootTracker
         _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
             previousFirmware: known?.FirmwareVersion, currentFirmware: firmwareVersion,
             model: model);
+    }
+
+    /// <summary>
+    /// Notifies subscribers on the calling thread. A subscriber that throws must not take the
+    /// uptime sample down with it, so the whole fan-out is contained.
+    /// </summary>
+    private void RaiseRebooted(DeviceBootEvent boot)
+    {
+        try
+        {
+            DeviceRebooted?.Invoke(boot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A reboot subscriber threw for {Mac}", boot.DeviceMac);
+        }
     }
 
     /// <summary>

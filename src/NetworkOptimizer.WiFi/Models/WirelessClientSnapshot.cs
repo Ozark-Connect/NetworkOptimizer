@@ -105,6 +105,55 @@ public class WirelessClientSnapshot
     /// Client capability flags discovered from connection
     /// </summary>
     public ClientCapabilities Capabilities { get; set; } = new();
+
+    /// <summary>Whether this client is connected over Wi-Fi 7 MLO (Multi-Link Operation)</summary>
+    public bool IsMlo { get; set; }
+
+    /// <summary>
+    /// Per-link breakdown of an MLO connection, empty for everything else. The scalar fields above
+    /// describe the active link only, so an idle link never stands in for the whole connection.
+    /// </summary>
+    public List<MloLinkSnapshot> MloLinks { get; set; } = new();
+}
+
+/// <summary>
+/// One radio link of a Wi-Fi 7 MLO connection. A client negotiates several links at once and can
+/// leave some idle, so a link is part of one client rather than a client of its own.
+/// </summary>
+public class MloLinkSnapshot
+{
+    /// <summary>Per-link MAC address. Locally administered, so it is not the client's identity</summary>
+    public string? Mac { get; set; }
+
+    /// <summary>Radio band this link runs on</summary>
+    public RadioBand Band { get; set; }
+
+    /// <summary>Channel number</summary>
+    public int? Channel { get; set; }
+
+    /// <summary>Channel width in MHz (20, 40, 80, 160, 320)</summary>
+    public int? ChannelWidth { get; set; }
+
+    /// <summary>Signal strength in dBm</summary>
+    public int? Signal { get; set; }
+
+    /// <summary>Noise floor in dBm</summary>
+    public int? Noise { get; set; }
+
+    /// <summary>RSSI (often same as signal)</summary>
+    public int? Rssi { get; set; }
+
+    /// <summary>Spatial streams in use on this link</summary>
+    public int? Nss { get; set; }
+
+    /// <summary>TX rate in Kbps</summary>
+    public long? TxRate { get; set; }
+
+    /// <summary>RX rate in Kbps</summary>
+    public long? RxRate { get; set; }
+
+    /// <summary>Satisfaction score (0-100) for this link</summary>
+    public int? Satisfaction { get; set; }
 }
 
 /// <summary>

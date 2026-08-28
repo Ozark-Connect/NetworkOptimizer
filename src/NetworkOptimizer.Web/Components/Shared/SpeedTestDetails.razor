@@ -946,11 +946,16 @@
             ? SignalClassification.GetBarCount(signalClass)
             : 0;
 
+        var signalColor = signalDbm.HasValue
+            ? SignalClassification.GetSignalColor(signalDbm.Value, band)
+            : "";
+
         <span class="wireless-icon">
             <span class="mini-signal-bars @signalClass">
                 @for (int i = 1; i <= 5; i++)
                 {
-                    <span class="bar @(i <= activeBars ? "active" : "")"></span>
+                    <span class="bar @(i <= activeBars ? "active" : "")"
+                          style="@(i <= activeBars ? $"background: {signalColor}" : null)"></span>
                 }
             </span>
         </span>

@@ -92,6 +92,25 @@ public class LanNode
     /// <summary>WiFi client band ("2.4", "5", "6") if Kind = WifiClient.</summary>
     public string? Band { get; set; }
     public int? SignalDbm { get; set; }
+
+    /// <summary>
+    /// Signal class for coloring and how many of five bars are lit, from the shared per-band
+    /// curves. Computed here so the map cannot drift from every other surface that shows signal -
+    /// the thresholds never reach the browser.
+    /// </summary>
+    public string? SignalClass => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+        : null;
+
+    /// <inheritdoc cref="SignalClass"/>
+    public int? SignalBars => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+        : null;
+
+    /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
+    public string? SignalColor => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+        : null;
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
     public string? Ssid { get; set; }
@@ -327,13 +346,38 @@ public class LanFlowMapBounds
 public class LanFlowMapLiveUpdate
 {
     public DateTime AsOf { get; set; }
+
+    /// <summary>
+    /// Generation of the snapshot this update was computed against. The client add/remove patch
+    /// only means something relative to that snapshot: applied to an older one it resurrects
+    /// clients the rebuild dropped, so the JS layer applies it only when the generations match
+    /// and re-fetches the snapshot when they do not. Null on historic ticks, which patch by
+    /// telemetry rather than by presence.
+    /// </summary>
+    public DateTime? SnapshotGeneratedAt { get; set; }
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
     public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
 
+    /// <summary>Clients the live cache knows about that the cached snapshot does not carry yet.
+    /// The snapshot rebuild is expensive and runs on its own slow interval, so without these a
+    /// client that reconnects waits for it. Same shape the historic path emits, and the data layer
+    /// merges both the same way.</summary>
+    public List<LanNode> AddedClientNodes { get; set; } = new();
+
+    /// <summary>Links for <see cref="AddedClientNodes"/>.</summary>
+    public List<LanLink> AddedClientLinks { get; set; } = new();
+
+    /// <summary>Client node ids the snapshot still lists but the access point serving them reports
+    /// are gone. The console can lag a departure by a good while; an AP Agent sees the
+    /// disassociation on the control socket.</summary>
+    public List<string> RemovedClientIds { get; set; } = new();
+
     /// <summary>Per-client connection stats (band/signal/PHY rate) keyed by client node id.
-    /// Lets the maps override the snapshot-frozen values. Populated for historic playback;
-    /// the live tick leaves it empty (snapshot rebuilds keep live values fresh enough).</summary>
+    /// Lets the maps override the snapshot-frozen values. Populated for historic playback, and on
+    /// a live tick for any client whose live-cache entry came from a source faster than the console
+    /// (an AP Agent, or Client Performance watching it), which the slow snapshot rebuild cannot
+    /// keep up with.</summary>
     public Dictionary<string, NodeClientStats> ClientStats { get; set; } = new();
 }
 
@@ -345,6 +389,25 @@ public class NodeClientStats
     public int? SignalDbm { get; set; }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+
+    /// <summary>
+    /// The same per-band class and bar count the snapshot node carries. A client's signal often
+    /// arrives on the live tick before the snapshot rebuild catches up, and reading the class off
+    /// the node then colors the bars after a different, staler reading than the label shows.
+    /// </summary>
+    public string? SignalClass => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+        : null;
+
+    /// <inheritdoc cref="SignalClass"/>
+    public int? SignalBars => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+        : null;
+
+    /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
+    public string? SignalColor => SignalDbm.HasValue && Band != null
+        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+        : null;
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
     /// Null when unknown.</summary>

@@ -24,6 +24,7 @@ public class LanFlowMapService
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringPathView _pathView;
     private readonly ApMapService _apMap;
@@ -33,10 +34,12 @@ public class LanFlowMapService
     private readonly SiteContextService _siteContext;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
 
     public LanFlowMapService(
         UniFiConnectionService connection,
         MonitoringLiveStats liveStats,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         MonitoringInfluxClient influx,
         MonitoringPathView pathView,
         ApMapService apMap,
@@ -44,11 +47,14 @@ public class LanFlowMapService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
     {
         _connection = connection;
         _liveStats = liveStats;
+        _apAgentTelemetry = apAgentTelemetry;
+        _agentPresence = agentPresence;
         _influx = influx;
         _pathView = pathView;
         _apMap = apMap;
@@ -74,7 +80,15 @@ public class LanFlowMapService
     /// rates on top of the cached snapshot.
     /// </summary>
     public Task<LanFlowMapSnapshot> BuildSnapshotAsync(CancellationToken ct = default)
-        => _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    {
+        // An agent-observed association change marks the cached topology stale about ten seconds
+        // later, so the map converges on the Console's fresh roster without waiting out the TTL.
+        var nudge = _apAgentTelemetry.GetFor(_siteContext.Slug).RosterNudge;
+        if (_cache.Current is { } current && nudge.ShouldRefresh(current.GeneratedAt, DateTime.UtcNow))
+            _cache.MarkStale();
+
+        return _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    }
 
     /// <summary>Force the next snapshot read to rebuild (e.g. on controller reconnect).</summary>
     public void InvalidateCache() => _cache.Invalidate();
@@ -88,7 +102,7 @@ public class LanFlowMapService
             return snapshot;
         }
 
-        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>());
+        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>(), _agentPresence);
         var topology = await discovery.DiscoverTopologyAsync(ct);
 
         var markers = await _apMap.GetApMapMarkersAsync();
@@ -266,7 +280,13 @@ public class LanFlowMapService
     /// leaving a client on the map one sample too long is a smaller error than blinking one out
     /// that was really there.
     /// </summary>
-    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// How long after its last point a client is still drawn as present. Three times the write
+    /// cadence: enough to ride out one missed write (an agent restart, a slow poll) without a
+    /// connected client blinking out, and no more. It was three minutes only because points were
+    /// traffic-driven and a quiet client left real gaps; presence is written every window now.
+    /// </summary>
+    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromSeconds(90);
 
     /// <summary>
     /// Instants within this many seconds of now are the "live edge". The historic cache
@@ -297,6 +317,11 @@ public class LanFlowMapService
         // Read the cached snapshot or trigger its first build. Subsequent live ticks
         // will short-circuit on the freshness check inside the cache.
         var snapshot = await BuildSnapshotAsync(ct);
+        update.SnapshotGeneratedAt = snapshot.GeneratedAt;
+
+        ApplyLiveClientStats(snapshot, update);
+        AddLiveOnlyClients(snapshot, update);
+        MarkDepartedClients(snapshot, update);
 
         // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
         // so this is cheap).
@@ -664,12 +689,38 @@ public class LanFlowMapService
 
         // Resolve closest client throughput points from cached data.
         var wifiClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        // How a client is connected is written once per write window, while its throughput is
+        // written every time it is measured - so the point nearest an instant usually carries a
+        // rate and nothing else. Tracked separately and merged below, or a client would lose its
+        // band and signal at most instants and only regain them on a window boundary.
+        var wifiClientConnection = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WifiClients)
         {
             if (string.IsNullOrEmpty(p.ClientMac)) continue;
             if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wifiClientRates[p.ClientMac] = p;
+
+            // PHY rate is the discriminator: it is written only on a full point. Band is a tag on
+            // every point and signal rides on the thin ones too, so neither can tell them apart.
+            if (p.TxRateKbps == null && p.RxRateKbps == null) continue;
+            if (!wifiClientConnection.TryGetValue(p.ClientMac, out var describedBy)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((describedBy.Time - at).TotalMilliseconds))
+                wifiClientConnection[p.ClientMac] = p;
+        }
+        foreach (var (mac, described) in wifiClientConnection)
+        {
+            // Copy rather than mutate: these points are cached and re-read for every other instant
+            // in the window.
+            var nearest = wifiClientRates[mac];
+            if (nearest.TxRateKbps != null || nearest.RxRateKbps != null) continue;
+            wifiClientRates[mac] = nearest with
+            {
+                SignalDbm = described.SignalDbm,
+                Band = described.Band,
+                TxRateKbps = described.TxRateKbps,
+                RxRateKbps = described.RxRateKbps,
+            };
         }
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
@@ -1653,6 +1704,19 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>
+    /// How old a cached client reading may be before the console's own value is preferred. Keeps
+    /// the overlay strictly an improvement: past this it is no fresher than what it would replace.
+    /// </summary>
+    private static readonly TimeSpan LiveClientMaxAge = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How recently the cache must have been refreshed for a client to be ADDED back to the map.
+    /// Bounds how long a client that left can be resurrected: the agent drops it from its own
+    /// table within seconds, after which nothing refreshes its entry.
+    /// </summary>
+    private static readonly TimeSpan LiveClientAddMaxAge = TimeSpan.FromSeconds(15);
+
     private void BuildClientLeaves(
         NetworkTopology topology,
         Dictionary<string, LanPlacement> anchors,
@@ -1666,6 +1730,23 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(clientMac)) continue;
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
+
+            // The live cache is fed far faster than the console client list: every 500 ms while
+            // Client Performance is watching a client, every 10 s from an AP Agent otherwise,
+            // against the console's 30 s. Prefer it so a roam and a signal change reach the map at
+            // that rate. Bounded by age so it can only ever be fresher than what it replaces.
+            var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
+            // A Console-sourced entry is the same wifi tier data this build already holds, only on
+            // an independent clock, so preferring it is as often staler as fresher.
+            if (live is { Source: WifiClientSource.Console }) live = null;
+            if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
+
+            // Deliberately NOT re-parenting from the cache here. The snapshot is built from one
+            // console topology and is internally consistent; pointing a client at an access point
+            // this build did not draw leaves its node and link referencing a parent that does not
+            // exist, and the renderers drop it - a returning client vanishes rather than pops in.
+            // Fast roam re-attach belongs on the live tick (ApplyLiveClientStats), which validates
+            // the candidate against the nodes actually in the snapshot.
 
             anchors.TryGetValue(clientMac, out var anchor);
             var nodeId = "cli-" + clientMac;
@@ -1684,10 +1765,12 @@ public class LanFlowMapService
             };
             if (!c.IsWired)
             {
-                node.Band = NormalizeBand(c.Radio);
-                node.SignalDbm = c.SignalStrength ?? c.Rssi;
-                node.PhyTxKbps = c.TxRate > 0 ? c.TxRate : null;
-                node.PhyRxKbps = c.RxRate > 0 ? c.RxRate : null;
+                node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
+                node.SignalDbm = live?.SignalDbm is { } dbm
+                    ? (int)Math.Round(dbm)
+                    : c.SignalStrength ?? c.Rssi;
+                node.PhyTxKbps = live?.TxRateKbps > 0 ? live.TxRateKbps : (c.TxRate > 0 ? c.TxRate : null);
+                node.PhyRxKbps = live?.RxRateKbps > 0 ? live.RxRateKbps : (c.RxRate > 0 ? c.RxRate : null);
             }
 
             var link = new LanLink
@@ -1696,7 +1779,7 @@ public class LanFlowMapService
                 FromNodeId = "dev-" + parentMac,
                 ToNodeId = nodeId,
                 Kind = c.IsWired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
-                Band = c.IsWired ? null : NormalizeBand(c.Radio),
+                Band = c.IsWired ? null : (NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio)),
             };
 
             if (c.IsWired && c.SwitchPort.HasValue)
@@ -2410,6 +2493,158 @@ public class LanFlowMapService
         var idx = key.IndexOf('|');
         if (idx <= 0) return (string.Empty, string.Empty);
         return (key.Substring(0, idx), key.Substring(idx + 1));
+    }
+
+    /// <summary>
+    /// Emits client leaves the live cache holds but the cached snapshot does not, so a client that
+    /// reconnects appears without waiting for the next topology rebuild. The cache learns of an
+    /// association from the AP Agent within a poll, where the console client list the snapshot is
+    /// built from can take considerably longer.
+    ///
+    /// Console-sourced entries are skipped: those came from the same client list the snapshot was
+    /// built from, so anything they could add is already either in it or about to be.
+    /// </summary>
+    private void AddLiveOnlyClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
+        var nodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var live in _liveStats.AllWifiClients())
+        {
+            if (live.Source == WifiClientSource.Console) continue;
+            // Tighter than the overlay's window on purpose. Overlaying RF onto a client the
+            // snapshot still lists is harmless when slightly stale; ADDING one back after the
+            // snapshot dropped it resurrects a client that left. A still-associated client is
+            // refreshed every agent poll, so anything staler than that is one that went away.
+            if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
+
+            var clientMac = NormalizeMac(live.ClientMac);
+            var nodeId = "cli-" + clientMac;
+            if (string.IsNullOrEmpty(clientMac) || nodeIds.Contains(nodeId)) continue;
+
+            // Never accelerate a client the agent says has gone: MarkDepartedClients is removing
+            // this same id on this same tick, and the age window above cannot tell a departure
+            // from a quiet moment. The verdict can.
+            if (collector.PresenceFor(live.ApMac, clientMac) == AgentClientPresence.Absent) continue;
+
+            // A client whose access point this build did not draw is skipped rather than parented
+            // to a guess: a node pointing at a parent that does not exist is dropped by the
+            // renderers, which is worse than waiting for the rebuild.
+            if (string.IsNullOrEmpty(live.ApMac)) continue;
+            var parentId = "dev-" + NormalizeMac(live.ApMac);
+            if (!nodeIds.Contains(parentId)) continue;
+
+            // Only ever ACCELERATE a client the console can corroborate, never invent one. An
+            // access point reports per-link randomized MACs for an MLO client, and any that does
+            // not fold onto its MLD MAC is a station the console will never list - so it read as
+            // "missing from the snapshot" on every tick and became a permanent nameless node.
+            // Requiring a known name is also what keeps a raw MAC off the map.
+            if (!snapshot.RecentClientNames.ContainsKey(clientMac)) continue;
+
+            var band = NormalizeBand(live.Band);
+            update.AddedClientNodes.Add(new LanNode
+            {
+                Id = nodeId,
+                Kind = LanNodeKind.WifiClient,
+                Mac = clientMac,
+                Name = snapshot.RecentClientNames[clientMac],
+                ParentId = parentId,
+                Band = band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : null,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : null,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : null,
+                Placement = snapshot.AnchorsByMac.GetValueOrDefault(clientMac),
+            });
+
+            var linkId = $"cli-link-{clientMac}";
+            update.AddedClientLinks.Add(new LanLink
+            {
+                Id = linkId,
+                FromNodeId = parentId,
+                ToNodeId = nodeId,
+                Kind = LanLinkKind.WifiClient,
+                Band = band,
+            });
+
+            // The rate pass walks the snapshot's links and this one is not in it, so without this
+            // the new leaf draws a dead line while its throughput sits right here.
+            update.LinkRates[linkId] = new LinkLiveRates
+            {
+                DownstreamBps = live.TxThroughputBps ?? 0,
+                UpstreamBps = live.RxThroughputBps ?? 0,
+                AsOf = live.LastUpdate,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Marks clients the snapshot still lists that the access point serving them says are gone.
+    /// The console can take a while to notice a client left; an AP Agent knows within seconds,
+    /// because a disassociation reaches it on the hostapd control socket.
+    ///
+    /// The judge is the same presence verdict the Console entry points use, so this tick-rate
+    /// accelerator can never disagree with the next topology rebuild - and it inherits the
+    /// verdict's guards: an agent that stopped answering, or answered empty, says Unknown rather
+    /// than departure, and a client another covered access point holds is Present mid-roam.
+    /// </summary>
+    private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
+            if (string.IsNullOrEmpty(node.ParentId) || !node.ParentId.StartsWith("dev-", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var apMac = node.ParentId["dev-".Length..];
+            if (collector.PresenceFor(apMac, node.Mac) == AgentClientPresence.Absent)
+                update.RemovedClientIds.Add(node.Id);
+        }
+    }
+
+    /// <summary>
+    /// Carries per-client RF onto the live tick for clients whose cache entry beats the snapshot.
+    /// The snapshot rebuilds on its own slow cadence, which used to be fresh enough because the
+    /// console was the only source; an AP Agent updates a client every 10 s and Client Performance
+    /// drives it to 500 ms, so waiting for a rebuild strands the map minutes behind what the same
+    /// client's page is showing.
+    ///
+    /// Console-sourced entries are skipped: that is the very data the snapshot was built from, so
+    /// emitting it would cost payload to say nothing. A site with no AP Agent and nobody watching a
+    /// client therefore sends exactly what it sent before.
+    /// </summary>
+    private void ApplyLiveClientStats(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        HashSet<string>? nodeIds = null;
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
+
+            var live = _liveStats.GetWifiClient(node.Mac);
+            if (live == null || live.Source == WifiClientSource.Console) continue;
+            if (now - live.LastUpdate > LiveClientMaxAge) continue;
+
+            // Re-attaching to an access point the map never drew would strand the client's link.
+            string? apNodeId = null;
+            if (!string.IsNullOrEmpty(live.ApMac))
+            {
+                nodeIds ??= snapshot.Nodes.Select(n => n.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var candidate = "dev-" + NormalizeMac(live.ApMac);
+                if (nodeIds.Contains(candidate)) apNodeId = candidate;
+            }
+
+            update.ClientStats[node.Id] = new NodeClientStats
+            {
+                Band = NormalizeBand(live.Band) ?? node.Band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : node.SignalDbm,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : node.PhyTxKbps,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : node.PhyRxKbps,
+                ApNodeId = apNodeId,
+            };
+        }
     }
 
     private static string? NormalizeBand(string? radio) => radio switch

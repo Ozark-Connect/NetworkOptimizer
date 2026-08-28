@@ -311,6 +311,9 @@
             var spinner = indicator.querySelector('.ptr-spinner');
 
             container.addEventListener('touchstart', function(e) {
+                // The client selector's list scrolls itself. Arming here would charge the refresh
+                // while someone is scrolling the options, since the page behind it is still at top.
+                if (e.target.closest && e.target.closest('.filterable-select-dropdown')) return;
                 if (container.scrollTop <= 0) {
                     startY = e.touches[0].pageY;
                     pulling = true;

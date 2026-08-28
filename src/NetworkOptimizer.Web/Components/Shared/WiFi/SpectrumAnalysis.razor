@@ -252,7 +252,7 @@
                                         @{
                                             var displaySignal = GetDisplaySignal(item);
                                         }
-                                        <span class="signal-indicator @GetSignalClass(displaySignal)">
+                                        <span class="signal-indicator @GetSignalClass(displaySignal)" style="color: @SignalClassification.GetSignalColor(displaySignal, selectedBand)">
                                             @displaySignal dBm
                                         </span>
                                     </td>

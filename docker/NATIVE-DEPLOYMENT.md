@@ -324,10 +324,20 @@ cd src/wansteer
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w" -o /opt/network-optimizer/tools/wansteer-linux-arm64 .
 cd ../..
+
+# Optional: AP Agent (only if you want on-AP Wi-Fi telemetry)
+# Access points are armv7l, not arm64, whatever your gateway or host is.
+cd src/apagent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath     -ldflags "-s -w" -o /opt/network-optimizer/tools/apagent-linux-arm .
+cd ../..
 ```
 
 Without this, the app runs fine but the gateway WAN speed test reports
 "Gateway speed test binary not found."
+
+Without the AP Agent binary, Settings - AP Telemetry loads but has nothing to
+deploy. Everything else keeps working on UniFi Console data, which is what the
+feature falls back to anyway.
 
 ### Create Startup Script
 
@@ -438,7 +448,7 @@ chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 sudo systemctl start network-optimizer
 ```
 
-Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them when a release changes them.
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional helpers (`uwnspeedtest`, `wansteer`, `apagent`), rebuild them when a release changes them.
 
 ---
 

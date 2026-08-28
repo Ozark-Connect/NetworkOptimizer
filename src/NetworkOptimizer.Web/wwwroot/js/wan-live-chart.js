@@ -1,9 +1,9 @@
-﻿// WAN live chart — real-time area+line chart showing download, upload, packet
+// WAN live chart — real-time area+line chart showing download, upload, packet
 // loss, and mean ISP/transit RTT. Pre-loads history from InfluxDB, then polls
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=10';
+import * as flowData from './lan-flow-data.js?v=16';
 import { valueSortedTooltip } from './chart-tooltip.js?v=15';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 

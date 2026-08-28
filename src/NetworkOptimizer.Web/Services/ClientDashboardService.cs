@@ -9,6 +9,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.Web.Services.ApAgent;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Models;
 
@@ -45,6 +46,22 @@ public class ClientDashboardService
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
+    // Which interfaces carry a device's console port number, resolved once per watched port.
+    private readonly ConcurrentDictionary<(string Mac, int Port), List<string>> _portIfNames = new();
+
+    // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
+    // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
+    private readonly ApAgentClientLiveService? _apAgentLive;
+    private readonly ApAgentTelemetryRegistry? _apAgentTelemetry;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
+
+    /// <summary>Roam-follow state per client. One page follows one client, so the cap is a guard.</summary>
+    private const int MaxTrackedFollowers = 8;
+    private readonly Dictionary<string, ApAgentRoamFollower> _followers = new(StringComparer.OrdinalIgnoreCase);
+
+    // Where each client was last known to be, so a roam is recognized as a change of access point.
+    private readonly ConcurrentDictionary<string, string> _lastApMacByClient = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -58,11 +75,15 @@ public class ClientDashboardService
         SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
-        SiteContextService siteContext)
+        SiteContextService siteContext,
+        MonitoringLiveStatsRegistry liveStats,
+        ApAgentClientLiveService? apAgentLive = null,
+        ApAgentTelemetryRegistry? apAgentTelemetry = null)
     {
         _logger = logger;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
+        _liveStats = liveStats;
         _connectionService = connectionService;
         // The path analyzer must be this site's, not the main-pinned singleton, so L2 traces
         // resolve against the current site's topology.
@@ -71,13 +92,15 @@ public class ClientDashboardService
         _speedTestService = siteServices.ClientSpeedTest;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
+        _apAgentLive = apAgentLive;
+        _apAgentTelemetry = apAgentTelemetry;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
     private NetworkOptimizerDbContext CreateSiteDb() => _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>A device choice for the Client Performance page's manual picker.</summary>
-    public sealed record SelectableClient(string Ip, string Name, bool IsWired);
+    public sealed record SelectableClient(string Ip, string Name, bool IsWired, string? Mac = null, bool IsOnline = true);
 
     /// <summary>
     /// This site's online clients as picker choices for the Client Performance page. Used on
@@ -95,7 +118,7 @@ public class ClientDashboardService
             // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
             // picker matches the name shown on the page and in Client Stats.
             var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
-            return (clients ?? new List<UniFiClientResponse>())
+            var online = (clients ?? new List<UniFiClientResponse>())
                 .Where(c => !string.IsNullOrEmpty(c.BestIp))
                 .Select(c => new SelectableClient(
                     c.BestIp!,
@@ -103,8 +126,41 @@ public class ClientDashboardService
                         : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
                         : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
                         : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
-                    c.IsWired))
-                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    c.IsWired,
+                    c.Mac,
+                    IsOnline: true))
+                .ToList();
+
+            // Two days of departed clients too, so a device that dropped yesterday is still pickable.
+            // Not Client Stats' thirty days: in a picker that is noise.
+            var seen = new HashSet<string>(online.Select(c => c.Ip), StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 48);
+                foreach (var h in history ?? new List<UniFiClientDetailResponse>())
+                {
+                    if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
+                    online.Add(new SelectableClient(
+                        h.BestIp!,
+                        !string.IsNullOrWhiteSpace(h.DisplayName) ? h.DisplayName
+                            : !string.IsNullOrWhiteSpace(h.Name) ? h.Name
+                            : !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname : h.BestIp!,
+                        h.IsWired,
+                        h.Mac,
+                        IsOnline: false));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Client history unavailable for the picker; showing connected clients only");
+            }
+
+            // Wireless first: the page is about Wi-Fi performance, so those are what a viewer came
+            // to pick. Connected before departed within each group, then alphabetical.
+            return online
+                .OrderBy(c => c.IsWired)
+                .ThenByDescending(c => c.IsOnline)
+                .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
         catch (Exception ex)
@@ -179,9 +235,38 @@ public class ClientDashboardService
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
 
-                await EnrichWithApInfoAsync(identity, client.ApMac);
+                // Then the access point's own agent, where there is one. Last overlay wins because
+                // it is the only source that measured the client rather than reporting on it.
+                await OverlayApAgentDataAsync(identity);
+
+                // The AP is read off the identity, not the console record, so a client the agent
+                // followed through a roam is enriched from where it is now.
+                await EnrichWithApInfoAsync(identity, identity.ApMac);
+
+                await EnrichWithSwitchNameAsync(identity);
+
+                // The console keeps a departed WIRELESS client in its active list for minutes.
+                // Where an agent covers the access point its verdict is the fresher answer, so the
+                // page shows offline now rather than when the console catches up. Wired clients are
+                // exempt: an agent only ever lists stations, so its silence about one says nothing.
+                if (!identity.IsWired
+                    && _apAgentTelemetry?.GetFor(_siteContext.Slug)
+                        .PresenceFor(identity.ApMac, identity.Mac)
+                    == NetworkOptimizer.Core.Helpers.AgentClientPresence.Absent)
+                {
+                    identity.IsOffline = true;
+                }
+
                 return identity;
             }
+
+            // Not in the console's active list. Before concluding offline, ask the AP Agents: on a
+            // covered access point the agent knows the client and its IP from association, seconds
+            // before the console lists it. The console's active answer is never overridden - this
+            // runs only when it had none.
+            var fromAgent = await IdentifyFromApAgentAsync(clientIp);
+            if (fromAgent != null)
+                return fromAgent;
 
             // Device not in active list - check offline cache
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
@@ -217,6 +302,36 @@ public class ClientDashboardService
             _logger.LogWarning(ex, "Failed to identify client {Ip}", clientIp);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Builds an online identity for a client an agent-covered access point currently holds but
+    /// the console does not yet list as active. Null everywhere the agent path cannot vouch, which
+    /// leaves the offline-history and VPN fallbacks exactly as they were.
+    /// </summary>
+    private async Task<ClientIdentity?> IdentifyFromApAgentAsync(string clientIp)
+    {
+        var known = _apAgentTelemetry?.GetFor(_siteContext.Slug).FindClientByIp(clientIp);
+        if (known == null) return null;
+
+        var identity = new ClientIdentity
+        {
+            Mac = known.ClientMac,
+            Name = known.Hostname,
+            Hostname = known.Hostname,
+            Ip = clientIp,
+            IsWired = false,
+            ApMac = known.ApMac,
+        };
+
+        _offlineIdentityCache.TryRemove(clientIp, out _);
+        _ipToMacCache[clientIp] = known.ClientMac;
+        _logger.LogDebug("Identified client {Ip} as {Mac} from its access point's agent", clientIp, known.ClientMac);
+
+        // The same enrichment shape as the console path, so the page renders identically.
+        await OverlayApAgentDataAsync(identity);
+        await EnrichWithApInfoAsync(identity, identity.ApMac);
+        return identity;
     }
 
     /// <summary>
@@ -326,6 +441,10 @@ public class ClientDashboardService
                 else
                     result.TraceChanged = true; // First poll for this client
                 _lastTraceHashes[identity.Mac] = result.TraceHash;
+
+                // The path is what a port resolution was read against, so a changed one retires it.
+                if (result.TraceChanged)
+                    _portIfNames.Clear();
 
                 // Trace changes always store immediately (with full trace data).
                 // Regular polls buffer signal values and flush the mean every 5 seconds.
@@ -904,6 +1023,133 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// Live poll for the page's fast tick. Prefers the access point's own AP Agent, which keeps
+    /// reporting across a roam because the access point that just took the client is the authority
+    /// on holding it, and falls back to <see cref="PollWiFiManOnlyAsync"/> - today's path, byte for
+    /// byte - whenever no agent can answer. Returns null when neither source has anything.
+    /// </summary>
+    public async Task<ClientIdentity?> PollLiveClientAsync(string clientIp)
+    {
+        var fromAgent = await PollApAgentAsync(clientIp);
+        return fromAgent ?? await PollWiFiManOnlyAsync(clientIp);
+    }
+
+    /// <summary>
+    /// One AP Agent poll for the client at this IP, or null when the agent path cannot answer:
+    /// no agents on the site, this access point not enrolled, the agent unreachable, or a roam
+    /// still in flight. Every one of those is a fall-through to the console path, never an error.
+    /// </summary>
+    private async Task<ClientIdentity?> PollApAgentAsync(string clientIp)
+    {
+        if (_apAgentLive == null) return null;
+        if (!_ipToMacCache.TryGetValue(clientIp, out var mac)) return null;
+        if (_offlineIdentityCache.ContainsKey(clientIp)) return null;
+
+        try
+        {
+            _lastApMacByClient.TryGetValue(mac, out var lastAp);
+            var live = await _apAgentLive.PollAsync(
+                _siteContext.Slug, mac, lastAp, FollowerFor(mac), DateTime.UtcNow);
+            if (live == null) return null;
+
+            var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
+            if (update == null) return null;
+
+            update.Ip = clientIp;
+            // Only a roam needs the access point resolved again, so the steady state costs one
+            // request to one access point and nothing else.
+            if (!string.Equals(lastAp, live.ApMac, StringComparison.OrdinalIgnoreCase))
+            {
+                await EnrichWithApInfoAsync(update, live.ApMac);
+                _lastApMacByClient[mac] = live.ApMac;
+            }
+            return update;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent live poll failed for {Ip}, using the console path", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Overlays AP Agent data onto a full-poll identity, on top of whatever WiFiman supplied. Only
+    /// fields the access point reported are replaced, so a value it does not carry keeps its
+    /// console-sourced reading.
+    /// </summary>
+    private async Task OverlayApAgentDataAsync(ClientIdentity identity)
+    {
+        if (_apAgentLive == null || identity.IsWired || identity.IsOffline) return;
+        if (string.IsNullOrEmpty(identity.Mac)) return;
+
+        if (!string.IsNullOrEmpty(identity.ApMac))
+            _lastApMacByClient.TryAdd(identity.Mac, identity.ApMac);
+
+        try
+        {
+            _lastApMacByClient.TryGetValue(identity.Mac, out var lastAp);
+            var live = await _apAgentLive.PollAsync(
+                _siteContext.Slug, identity.Mac, lastAp ?? identity.ApMac, FollowerFor(identity.Mac), DateTime.UtcNow);
+            if (live == null) return;
+
+            var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
+            if (update == null) return;
+
+            ApplyLiveFields(identity, update);
+            _lastApMacByClient[identity.Mac] = live.ApMac;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP Agent overlay failed for {Mac}, using the console path", identity.Mac);
+        }
+    }
+
+    /// <summary>
+    /// Copies the live fields an AP Agent reported onto an identity, leaving absent ones alone.
+    /// Shared by the full poll and the page's merge so both agree on what the agent owns.
+    /// </summary>
+    public static void ApplyLiveFields(ClientIdentity target, ClientIdentity update)
+    {
+        if (update.SignalDbm.HasValue) target.SignalDbm = update.SignalDbm;
+        if (update.NoiseDbm.HasValue) target.NoiseDbm = update.NoiseDbm;
+        if (update.Channel.HasValue) target.Channel = update.Channel;
+        if (update.ChannelWidth.HasValue) target.ChannelWidth = update.ChannelWidth;
+        if (!string.IsNullOrEmpty(update.Band)) target.Band = update.Band;
+        if (!string.IsNullOrEmpty(update.Protocol)) target.Protocol = update.Protocol;
+        if (update.TxRateKbps.HasValue) target.TxRateKbps = update.TxRateKbps;
+        if (update.RxRateKbps.HasValue) target.RxRateKbps = update.RxRateKbps;
+        if (update.Satisfaction.HasValue) target.Satisfaction = update.Satisfaction;
+
+        target.IsMlo = update.IsMlo;
+        if (update.MloLinks is { Count: > 0 }) target.MloLinks = update.MloLinks;
+        else if (!update.IsMlo) target.MloLinks = null;
+
+        if (!string.IsNullOrEmpty(update.ApMac)) target.ApMac = update.ApMac;
+        if (!string.IsNullOrEmpty(update.ApName)) target.ApName = update.ApName;
+        if (!string.IsNullOrEmpty(update.ApModel)) target.ApModel = update.ApModel;
+        if (update.ApChannel.HasValue) target.ApChannel = update.ApChannel;
+        if (update.ApTxPower.HasValue) target.ApTxPower = update.ApTxPower;
+        if (update.ApEirp.HasValue) target.ApEirp = update.ApEirp;
+        if (update.ApClientCount.HasValue) target.ApClientCount = update.ApClientCount;
+        if (!string.IsNullOrEmpty(update.ApRadioBand)) target.ApRadioBand = update.ApRadioBand;
+
+        target.HasApAgentData = true;
+    }
+
+    /// <summary>This client's roam-follow state, capped so a long-lived circuit cannot grow it.</summary>
+    private ApAgentRoamFollower FollowerFor(string clientMac)
+    {
+        lock (_followers)
+        {
+            if (_followers.TryGetValue(clientMac, out var existing)) return existing;
+            if (_followers.Count >= MaxTrackedFollowers) _followers.Clear();
+            var follower = new ApAgentRoamFollower();
+            _followers[clientMac] = follower;
+            return follower;
+        }
+    }
+
+    /// <summary>
     /// Lightweight 1s poll: only hits the WiFiman endpoint to refresh signal/channel/band/rates
     /// on an existing identity. No stat/sta, no trace, no storage. Returns null if WiFiman
     /// is unavailable or identity is unknown.
@@ -914,7 +1160,7 @@ public class ClientDashboardService
             return null;
 
         // Need a known MAC to have an existing identity
-        if (!_ipToMacCache.TryGetValue(clientIp, out _))
+        if (!_ipToMacCache.TryGetValue(clientIp, out var clientMac))
             return null;
 
         // Fetch WiFiman data only
@@ -928,6 +1174,10 @@ public class ClientDashboardService
             // We don't call stat/sta here — just overlay WiFiman onto whatever we last knew
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached) && cached.IsOffline)
                 return null;
+
+            // Anything asking about this client between console polls should see the walk test's
+            // numbers, not a value up to 30 seconds old.
+            PublishWiFiManLive(clientMac, wifiman);
 
             // Build a lightweight update (caller merges into their existing _client)
             return new ClientIdentity
@@ -947,6 +1197,45 @@ public class ClientDashboardService
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Publishes a WiFiman reading into the site's live client cache. WiFiman is the 1 Hz source on
+    /// a site with no AP Agent; the AP Agent replaces it where it runs, so the two never race.
+    /// </summary>
+    private void PublishWiFiManLive(string clientMac, WiFiManClientResponse wifiman)
+    {
+        try
+        {
+            var live = _liveStats.GetFor(_siteContext.Slug);
+            var prior = live.GetWifiClient(clientMac);
+
+            // WiFiman reports the link, not who is serving it and not how much it is carrying.
+            // Those come from whichever poller last knew, so publishing must not claim them as zero.
+            live.RecordWifiClient(new WifiClientLiveSnapshot
+            {
+                ClientMac = clientMac,
+                ApMac = _lastApMacByClient.TryGetValue(clientMac, out var ap) ? ap : prior?.ApMac ?? string.Empty,
+                Band = wifiman.RadioCode ?? prior?.Band ?? string.Empty,
+                Channel = wifiman.Channel ?? prior?.Channel,
+                ChannelWidth = wifiman.ChannelWidth ?? prior?.ChannelWidth,
+                SignalDbm = wifiman.Signal,
+                NoiseDbm = wifiman.Noise,
+                TxRateKbps = wifiman.LinkUploadRateKbps,
+                RxRateKbps = wifiman.LinkDownloadRateKbps,
+                TxThroughputBps = prior?.TxThroughputBps,
+                RxThroughputBps = prior?.RxThroughputBps,
+                Satisfaction = wifiman.WiFiExperience ?? prior?.Satisfaction,
+                Rssi = prior?.Rssi,
+                IsMlo = prior?.IsMlo ?? false,
+                Source = WifiClientSource.WiFiMan,
+                LastUpdate = DateTime.UtcNow,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not publish WiFiman reading to the live cache");
         }
     }
 
@@ -983,8 +1272,168 @@ public class ClientDashboardService
             Oui = client.Oui,
             NetworkName = client.Network,
             Essid = client.Essid,
-            Satisfaction = client.Satisfaction
+            Satisfaction = client.Satisfaction,
+            SwitchMac = client.SwMac,
+            SwitchPort = client.SwPort
         };
+    }
+
+    /// <summary>
+    /// The latest counters for the port a wired client is plugged into. Null whenever the answer
+    /// would be a guess: a wireless client, an unknown port, monitoring or InfluxDB not configured,
+    /// or nothing polled that port. The page then shows what it always did.
+    /// </summary>
+    public async Task<WiredPortStats?> GetWiredPortStatsAsync(ClientIdentity? client)
+    {
+        if (client is not { IsWired: true } || string.IsNullOrEmpty(client.SwitchMac) || client.SwitchPort is not int port)
+            return null;
+
+        var live = _liveStats.GetFor(_siteContext.Slug);
+
+        try
+        {
+            // The console's port number reaches the counters through InterfaceNameMaps, exactly as
+            // the Port Statistics table resolves it. The port_id tag is the SNMP side's own id and
+            // is not this number.
+            //
+            // Held because this runs on the live tick. Retired when the path trace changes, which is
+            // what a client moving ports or switches shows up as.
+            var mac = client.SwitchMac.ToLowerInvariant();
+            if (!_portIfNames.TryGetValue((mac, port), out var ifNames))
+            {
+                await using var db = CreateSiteDb();
+                ifNames = await db.InterfaceNameMaps.AsNoTracking()
+                    .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
+                    .Select(m => m.IfName)
+                    .ToListAsync();
+                _portIfNames[(mac, port)] = ifNames;
+            }
+
+            if (ifNames.Count == 0)
+            {
+                _logger.LogDebug("No interface mapped to port {Port} on {Mac}", port, client.SwitchMac);
+                return null;
+            }
+
+            // The live cache holds the same per-port snapshot the collector last wrote, so the page
+            // and Live View agree and neither waits on a query. InfluxDB is the fallback for a site
+            // whose collection runs elsewhere and publishes nothing here.
+            var row = Match(live.GetPortStatsSnapshot(new[] { client.SwitchMac }));
+            if (row == null)
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+                var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+                row = Match(await influx.QueryPortStatsAsync(new[] { client.SwitchMac }, at: null));
+            }
+
+            if (row == null)
+            {
+                _logger.LogDebug("No counters for {Mac} port {Port} ({IfNames})",
+                    client.SwitchMac, port, string.Join(",", ifNames));
+                return null;
+            }
+
+            return ToWiredPortStats(row, client, port, live);
+
+            // The physical port, never a VLAN sub-interface sitting on it.
+            NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint? Match(
+                IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint> rows) =>
+                rows.FirstOrDefault(r => ifNames.Contains(r.IfName, StringComparer.OrdinalIgnoreCase)
+                                         && !r.IfName.Contains('.'));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Port stats unavailable for {Mac} port {Port}", client.SwitchMac, port);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// One port reading in the client's terms: the port's inbound is what the client sent, so each
+    /// pair is flipped. The port's SNMP rate leads, because the client-level figure standing in
+    /// behind it only moves on the console poll.
+    /// </summary>
+    private static WiredPortStats ToWiredPortStats(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint row,
+        ClientIdentity client,
+        int port,
+        MonitoringLiveStats live)
+    {
+        var own = live.GetWiredClient(client.Mac);
+        return new WiredPortStats
+        {
+            SwitchName = client.SwitchName,
+            Port = port,
+            LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
+            LinkSpeedBps = row.SpeedBps,
+            DownloadBps = row.RateOutBps ?? own?.TxThroughputBps,
+            UploadBps = row.RateInBps ?? own?.RxThroughputBps,
+            ErrorsToClient = row.ErrorsOut,
+            ErrorsFromClient = row.ErrorsIn,
+            DropsToClient = row.DiscardsOut,
+            DropsFromClient = row.DiscardsIn,
+            PacketsToClient = row.UcastPktsOut,
+            PacketsFromClient = row.UcastPktsIn,
+            At = row.Time,
+        };
+    }
+
+    /// <summary>
+    /// Throughput for a wireless client, as download and upload from the client's point of view.
+    ///
+    /// The live cache first: that reading is resolved from the client's own byte counters on the
+    /// same poll that produced the PHY rates beside it, so the two move together. InfluxDB only
+    /// when nothing has published one, where the newest stored sample can be a write interval old.
+    /// </summary>
+    public async Task<(double? DownloadBps, double? UploadBps, DateTime At)?> GetWifiThroughputAsync(ClientIdentity? client)
+    {
+        if (client is not { IsWired: false, IsOffline: false } || string.IsNullOrEmpty(client.Mac))
+            return null;
+
+        // The access point transmits what the client downloads, so each pair is flipped on the way out.
+        var snapshot = _liveStats.GetFor(_siteContext.Slug).GetWifiClient(client.Mac);
+        if (snapshot is { } s && (s.TxThroughputBps.HasValue || s.RxThroughputBps.HasValue))
+            return (s.TxThroughputBps, s.RxThroughputBps, s.LastUpdate);
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+
+            var now = DateTime.UtcNow;
+            var rows = await influx.QueryClientThroughputAsync("wifi_client", client.Mac, now.AddMinutes(-3), now);
+            var last = rows.LastOrDefault(r => r.TxThroughputBps.HasValue || r.RxThroughputBps.HasValue);
+            if (last == null)
+                return null;
+
+            return (last.TxThroughputBps, last.RxThroughputBps, last.Time);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wi-Fi throughput unavailable for {Mac}", client.Mac);
+            return null;
+        }
+    }
+
+    /// <summary>Names the switch or gateway a wired client is plugged into.</summary>
+    private async Task EnrichWithSwitchNameAsync(ClientIdentity identity)
+    {
+        if (!identity.IsWired || string.IsNullOrEmpty(identity.SwitchMac))
+            return;
+
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync();
+            var sw = devices.FirstOrDefault(d =>
+                string.Equals(d.Mac, identity.SwitchMac, StringComparison.OrdinalIgnoreCase));
+            identity.SwitchName = !string.IsNullOrWhiteSpace(sw?.Name) ? sw!.Name : sw?.Model;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not name the switch for {Mac}", identity.SwitchMac);
+        }
     }
 
     /// <summary>

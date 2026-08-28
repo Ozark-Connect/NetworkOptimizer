@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Helpers;
@@ -41,6 +41,20 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly ChannelPlanCache _planCache;
 
     /// <summary>
+    /// AP-measured client readings, laid over the console data the provider builds. Optional in
+    /// every sense: with no AP Agent covering an access point it yields nothing and the console
+    /// path stands alone.
+    /// </summary>
+    private readonly NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource _measuredClients;
+
+    /// <summary>
+    /// The agent's presence verdict for the roster's online gate, plus the roster nudge that says
+    /// when the cached console client list is worth re-reading. Both no-op without AP Agents.
+    /// </summary>
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
+    private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
+
+    /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
     /// is never worth making the analysis feel broken.
     /// </summary>
@@ -80,9 +94,15 @@ public class WiFiOptimizerService : IWiFiScanService
         ChannelPlanCache planCache,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
+        NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource measuredClients,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
+        _measuredClients = measuredClients;
+        _agentPresence = agentPresence;
+        _apAgentTelemetry = apAgentTelemetry;
         _licenseState = licenseState;
         _siteSlug = siteContext.Slug;
         _connectionService = connectionService;
@@ -108,12 +128,24 @@ public class WiFiOptimizerService : IWiFiScanService
     {
         var discovery = new UniFiDiscovery(
             _connectionService.Client!,
-            _loggerFactory.CreateLogger<UniFiDiscovery>());
+            _loggerFactory.CreateLogger<UniFiDiscovery>(),
+            _agentPresence);
         return new UniFiLiveDataProvider(
             _connectionService.Client!,
             discovery,
-            _loggerFactory.CreateLogger<UniFiLiveDataProvider>());
+            _loggerFactory.CreateLogger<UniFiLiveDataProvider>(),
+            _measuredClients,
+            _agentPresence);
     }
+
+    /// <summary>
+    /// Whether the cached data still stands: inside the TTL, and no agent-observed membership
+    /// change has come due since it was fetched. The nudge is what converges Client Stats about
+    /// ten seconds after an association changes instead of a full cache period later.
+    /// </summary>
+    private bool CacheFresh()
+        => DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry
+        && !_apAgentTelemetry.GetFor(_siteSlug).RosterNudge.ShouldRefresh(_lastRefresh.UtcDateTime, DateTime.UtcNow);
 
     /// <summary>
     /// Get current site health score
@@ -126,7 +158,7 @@ public class WiFiOptimizerService : IWiFiScanService
             return null;
         }
 
-        if (!forceRefresh && _cachedHealthScore != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        if (!forceRefresh && _cachedHealthScore != null && CacheFresh())
         {
             return _cachedHealthScore;
         }
@@ -135,7 +167,7 @@ public class WiFiOptimizerService : IWiFiScanService
         try
         {
             // Re-check under the lock: a concurrent caller may have refreshed while we waited.
-            if (!forceRefresh && _cachedHealthScore != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+            if (!forceRefresh && _cachedHealthScore != null && CacheFresh())
             {
                 return _cachedHealthScore;
             }
@@ -216,7 +248,7 @@ public class WiFiOptimizerService : IWiFiScanService
             return new List<AccessPointSnapshot>();
         }
 
-        if (!forceRefresh && _cachedAps != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        if (!forceRefresh && _cachedAps != null && CacheFresh())
         {
             return _cachedAps;
         }
@@ -235,7 +267,7 @@ public class WiFiOptimizerService : IWiFiScanService
             return new List<WirelessClientSnapshot>();
         }
 
-        if (!forceRefresh && _cachedClients != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        if (!forceRefresh && _cachedClients != null && CacheFresh())
         {
             return _cachedClients;
         }
@@ -254,7 +286,7 @@ public class WiFiOptimizerService : IWiFiScanService
             return null;
         }
 
-        if (!forceRefresh && _cachedRoamingData != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        if (!forceRefresh && _cachedRoamingData != null && CacheFresh())
         {
             return _cachedRoamingData;
         }
@@ -273,7 +305,7 @@ public class WiFiOptimizerService : IWiFiScanService
             return new List<WlanConfiguration>();
         }
 
-        if (!forceRefresh && _cachedWlanConfigs != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        if (!forceRefresh && _cachedWlanConfigs != null && CacheFresh())
         {
             return _cachedWlanConfigs;
         }

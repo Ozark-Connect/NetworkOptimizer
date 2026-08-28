@@ -15,10 +15,20 @@ public class UniFiDiscovery
     private readonly UniFiApiClient _apiClient;
     private readonly ILogger<UniFiDiscovery> _logger;
 
-    public UniFiDiscovery(UniFiApiClient apiClient, ILogger<UniFiDiscovery> logger)
+    /// <summary>
+    /// Optional, and absent everywhere the AP Agent is not in play. Lets an agent's answer about
+    /// who its access point holds beat the Console's idle tolerance at the client filter below.
+    /// </summary>
+    private readonly Core.Interfaces.IAgentClientPresenceSource? _agentPresence;
+
+    public UniFiDiscovery(
+        UniFiApiClient apiClient,
+        ILogger<UniFiDiscovery> logger,
+        Core.Interfaces.IAgentClientPresenceSource? agentPresence = null)
     {
         _apiClient = apiClient;
         _logger = logger;
+        _agentPresence = agentPresence;
     }
 
     /// <summary>
@@ -441,7 +451,18 @@ public class UniFiDiscovery
         // 2D/3D maps show the same name as Wi-Fi Optimizer - Client Stats instead of a raw MAC.
         var displayNames = await ClientDisplayNameCache.GetAsync(_apiClient, cancellationToken);
 
-        var discoveredClients = clients.Select(c =>
+        // An access point keeps a wireless client associated long after it has left, and the
+        // Console reports that table faithfully, so a device twenty miles away is still "connected"
+        // here. Filtered at the point the Console's list becomes ours, because every surface that
+        // draws clients reads it from here. Where an AP Agent covers the access point, its own
+        // association table beats the idle tolerance in both directions.
+        var discoveredClients = clients
+            .Where(c => c.IsWired || NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(
+                c.IdleTime, c.ApMac, c.Radio, c.Signal,
+                hasMloLinks: c.MloDetails is { Count: > 0 },
+                agent: _agentPresence?.PresenceFor(c.ApMac, c.Mac)
+                    ?? NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown))
+            .Select(c =>
         {
             // Use stat/sta BestIp (ip > last_ip > fixed_ip), then active clients endpoint (UX/UX7 bug workaround)
             var ipAddress = ClientIpEnricher.GetEnrichedIp(c.BestIp, c.Mac, macToIp);

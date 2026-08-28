@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=10';
+import * as flowData from './lan-flow-data.js?v=16';
 
 const COLORS = {
     background: 0x202023,
@@ -682,6 +682,9 @@ export class LanFlowMap {
             if (!res.ok) return;
             const update = await res.json();
             flowData.publishLive(update);
+            // The tick was computed against a snapshot generation the store does not hold: its
+            // patch was withheld, and the rebuilt snapshot is what carries the change - get it.
+            if (flowData.snapshotIsStale()) this._refreshSnapshot();
             // Live ticks carry no historic clients, so this drops any still on the scene.
             this._applyHistoricClients(update);
             this._currentBadges = update.nodeBadges || {};
@@ -1497,11 +1500,26 @@ export class LanFlowMap {
         const nodes = update.addedClientNodes || [];
         const links = update.addedClientLinks || [];
         if (!this._historicClientIds) this._historicClientIds = new Set();
-        if (nodes.length === 0 && this._historicClientIds.size === 0) return;
+
+        // Clients their access point reports gone. The server snapshot still lists them until the
+        // console notices, so they are removed explicitly rather than by the sweep below. The
+        // snapshot diff will not re-add them: they are in both its previous and current snapshots.
+        const departed = update.removedClientIds || [];
+        for (const id of departed) {
+            if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
+            this._historicClientIds.delete(id);
+        }
+
+        if (nodes.length === 0 && departed.length === 0 && this._historicClientIds.size === 0) return;
 
         const wanted = new Set(nodes.map(n => n.id));
+        // Ids the server snapshot already carries. The overlay stops emitting a client the moment
+        // the console catches up and the snapshot includes it, so without this the handoff removes
+        // a CONNECTED client and it stays gone until the next snapshot poll re-adds it.
+        const inSnapshot = new Set((this._snapshot?.nodes || []).map(n => n.id));
         for (const id of [...this._historicClientIds]) {
             if (wanted.has(id)) continue;
+            if (inSnapshot.has(id)) { this._historicClientIds.delete(id); continue; }
             if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
             this._historicClientIds.delete(id);
         }
@@ -1924,53 +1942,64 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
-        // Periodic light snapshot refresh (30s) to pick up data changes
-        // (mesh PHY rates, online status, ISP speeds) without re-running
-        // force layout or resetting the camera.
+        // Periodic light snapshot refresh to pick up data changes (mesh PHY rates, online
+        // status, ISP speeds) without re-running force layout or resetting the camera.
+        // The endpoint serves a cached snapshot and only rebuilds on its own slow interval, so
+        // asking often costs a serialize, not a rebuild. Polling at the rebuild interval was
+        // the mistake: two unaligned 30s timers stacked, and a reconnecting client could wait a
+        // minute to appear.
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
-        this._snapshotTimer = setInterval(async () => {
-            if (this._mode === 'live' && !this._paused && !this._destroyed) {
-                try {
-                    const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
-                    if (!res.ok) return;
-                    const snap = await res.json();
-                    const prev = this._snapshot;
-                    this._snapshot = snap;
-                    flowData.publishSnapshot(snap);
+        this._snapshotTimer = setInterval(() => this._refreshSnapshot(), 5000);
+    }
 
-                    // Diff: infrastructure change = full rebuild; client churn = incremental
-                    const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
-                    const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
-                    const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
-                    const infraChanged = prevInfraIds.size !== newInfraIds.size
-                        || [...prevInfraIds].some(id => !newInfraIds.has(id));
+    // One snapshot refresh pass. Runs on the 5s timer, and immediately when a live tick reports
+    // a snapshot generation the data store does not hold - a server rebuild that dropped or
+    // gained clients, which must reach the scene now rather than at the next timer beat.
+    async _refreshSnapshot() {
+        if (this._snapshotFetchInFlight) return;
+        if (this._mode === 'live' && !this._paused && !this._destroyed) {
+            this._snapshotFetchInFlight = true;
+            try {
+                const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const snap = await res.json();
+                const prev = this._snapshot;
+                this._snapshot = snap;
+                flowData.publishSnapshot(snap);
 
-                    if (infraChanged) {
-                        // Rebuilt from the snapshot, which carries no historic-only clients.
-                        this._historicClientIds = new Set();
-                        await this._reloadSnapshot();
-                    } else {
-                        // Incremental client add/remove
-                        const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
-                        const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
-                        const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
-                        const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
-                        for (const id of removed) this._removeNodeIncremental(id);
-                        for (const node of added) this._addNodeIncremental(node, snap);
-                        // Seamless roam keeps the client's node id, so add/remove misses
-                        // it - re-attach any persisting client whose parent AP changed.
-                        this._applyLiveRoam(prev, snap);
-                        // Don't apply snapshot liveRates - they're stale vs the 1s
-                        // live poll and would clobber fresh rates momentarily.
-                        this._refreshCloudRttLabels();
-                    }
-                    // Anchor count can flip (e.g. user just placed APs on the
-                    // Signal Map) without infra membership changing, so refresh
-                    // the discovery hint on every snapshot poll.
-                    this._updateSignalMapHint();
-                } catch { /* transient */ }
-            }
-        }, 30000);
+                // Diff: infrastructure change = full rebuild; client churn = incremental
+                const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
+                const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                const infraChanged = prevInfraIds.size !== newInfraIds.size
+                    || [...prevInfraIds].some(id => !newInfraIds.has(id));
+
+                if (infraChanged) {
+                    // Rebuilt from the snapshot, which carries no historic-only clients.
+                    this._historicClientIds = new Set();
+                    await this._reloadSnapshot();
+                } else {
+                    // Incremental client add/remove
+                    const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
+                    const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
+                    const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
+                    const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
+                    for (const id of removed) this._removeNodeIncremental(id);
+                    for (const node of added) this._addNodeIncremental(node, snap);
+                    // Seamless roam keeps the client's node id, so add/remove misses
+                    // it - re-attach any persisting client whose parent AP changed.
+                    this._applyLiveRoam(prev, snap);
+                    // Don't apply snapshot liveRates - they're stale vs the 1s
+                    // live poll and would clobber fresh rates momentarily.
+                    this._refreshCloudRttLabels();
+                }
+                // Anchor count can flip (e.g. user just placed APs on the
+                // Signal Map) without infra membership changing, so refresh
+                // the discovery hint on every snapshot poll.
+                this._updateSignalMapHint();
+            } catch { /* transient */ }
+            finally { this._snapshotFetchInFlight = false; }
+        }
     }
 
 
@@ -2118,6 +2147,10 @@ export class LanFlowMap {
     // Incremental client add: create mesh near parent, create link pipe + particles.
     _addNodeIncremental(node, snap) {
         if (node.kind === NODE_KIND.Cloud) return;
+        // Adding a node that already has a mesh overwrites its map entry and orphans the old mesh
+        // and pipe in the scene forever, while the live sweep then removes the tracked copy. The
+        // overlay path checks this; the snapshot diff path did not.
+        if (this._nodeMeshes.has(node.id)) return;
         // Position near parent: find the link to this node
         const link = (snap.links ?? []).find(l => l.toNodeId === node.id || l.fromNodeId === node.id);
         if (!link) return;

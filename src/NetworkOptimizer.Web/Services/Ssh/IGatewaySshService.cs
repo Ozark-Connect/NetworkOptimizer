@@ -34,13 +34,16 @@ public interface IGatewaySshService
     Task<bool> IsAwaitingAgentTunnelAsync();
 
     /// <summary>
-    /// Test SSH connection to the gateway using provided settings (for testing form values before save)
+    /// Test SSH connection to the gateway using provided settings (for testing form values before save).
+    /// With no password and no key path, the stored credential is used against the given host, port
+    /// and username - the saved password never reaches the browser, so a page editing the host has
+    /// nothing else to send.
     /// </summary>
     /// <param name="host">Gateway hostname or IP</param>
     /// <param name="port">SSH port</param>
     /// <param name="username">SSH username</param>
-    /// <param name="password">Plain text password (not encrypted)</param>
-    /// <param name="privateKeyPath">Path to private key file</param>
+    /// <param name="password">Plain text password (not encrypted), or null to use the stored credential</param>
+    /// <param name="privateKeyPath">Path to private key file, or null to use the stored credential</param>
     Task<(bool success, string message)> TestConnectionAsync(
         string host,
         int port,

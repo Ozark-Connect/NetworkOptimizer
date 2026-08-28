@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -16,11 +16,30 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private readonly UniFiDiscovery _discovery;
     private readonly ILogger<UniFiLiveDataProvider> _logger;
 
-    public UniFiLiveDataProvider(UniFiApiClient client, UniFiDiscovery discovery, ILogger<UniFiLiveDataProvider> logger)
+    /// <summary>
+    /// Optional, and absent everywhere the AP Agent is not in play. The console path below is
+    /// unconditional; this only lays measured readings over the access points an agent covers.
+    /// </summary>
+    private readonly IMeasuredWirelessClientSource? _measuredClients;
+
+    /// <summary>
+    /// Optional for the same reason. Lets an agent's answer about who its access point holds beat
+    /// the Console's idle tolerance when the roster judges a client online.
+    /// </summary>
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? _agentPresence;
+
+    public UniFiLiveDataProvider(
+        UniFiApiClient client,
+        UniFiDiscovery discovery,
+        ILogger<UniFiLiveDataProvider> logger,
+        IMeasuredWirelessClientSource? measuredClients = null,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? agentPresence = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _measuredClients = measuredClients;
+        _agentPresence = agentPresence;
     }
 
     public string ProviderName => "UniFi Live";
@@ -125,8 +144,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             .ToDictionary(g => g.Key, g => g.First().DisplayName!);
 
         var result = activeWireless
-            .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp, isOnline: true))
+            .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp,
+                isOnline: NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(
+                    c.IdleTime, c.ApMac, c.Radio, c.Signal,
+                    hasMloLinks: c.MloDetails is { Count: > 0 },
+                    agent: _agentPresence?.PresenceFor(c.ApMac, c.Mac)
+                        ?? NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown)))
             .ToList();
+
+        await ApplyMeasuredClientsAsync(result, cancellationToken);
 
         // Get historical clients (includes offline) - last 30 days
         try
@@ -140,7 +166,26 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             _logger.LogDebug("Found {Online} online and {Offline} offline wireless clients",
                 result.Count, offlineWireless.Count);
 
-            result.AddRange(offlineWireless.Select(c => MapHistoricalToWirelessClientSnapshot(c, apNames, timestamp)));
+            var historical = offlineWireless
+                .Select(c => MapHistoricalToWirelessClientSnapshot(c, apNames, timestamp))
+                .ToList();
+
+            // The console lists a returning client minutes after its access point has it, so a
+            // history row is already stale when it is built. Where an agent holds the client the
+            // verdict outranks that row: mark it online and let the measured overlay say which
+            // access point it is on now, rather than the one it left.
+            var returned = historical
+                .Where(c => _agentPresence?.PresenceFor(c.ApMac, c.Mac)
+                    == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present)
+                .ToList();
+            foreach (var c in returned) c.IsOnline = true;
+            if (returned.Count > 0)
+            {
+                _logger.LogDebug("Promoted {Count} client(s) the console still lists as offline; their agents hold them", returned.Count);
+                await ApplyMeasuredClientsAsync(returned, cancellationToken);
+            }
+
+            result.AddRange(historical);
         }
         catch (Exception ex)
         {
@@ -433,6 +478,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             // Second query: fetch channel info using dynamic keys
             // We now know the AP MAC(s) and band(s) from the first query
             await EnrichWithChannelInfoAsync(metrics, reportType, clientMac, startMs, endMs, cancellationToken);
+
+            await ApplyMeasuredHistoryAsync(metrics, clientMac, start, end, granularity, cancellationToken);
 
             _logger.LogDebug("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
             return metrics;
@@ -1108,7 +1155,92 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return snapshot;
     }
 
-    private WirelessClientSnapshot MapToWirelessClientSnapshot(
+    /// <summary>
+    /// Lays AP-measured readings over the console snapshots for the access points an AP Agent
+    /// covers. Anything that goes wrong leaves the console data as it stands: the measured source
+    /// is an enhancement, and the console path must never be worse off for its presence.
+    /// </summary>
+    private async Task ApplyMeasuredClientsAsync(
+        List<WirelessClientSnapshot> clients,
+        CancellationToken cancellationToken)
+    {
+        if (_measuredClients == null || clients.Count == 0) return;
+
+        try
+        {
+            var apMacs = clients
+                .Where(c => !string.IsNullOrEmpty(c.ApMac))
+                .Select(c => c.ApMac.ToLowerInvariant())
+                .Distinct()
+                .ToList();
+            if (apMacs.Count == 0) return;
+
+            var measured = await _measuredClients.GetMeasuredClientsAsync(apMacs, cancellationToken);
+            MeasuredClientOverlay.Apply(clients, measured);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP-measured client readings unavailable, using console data");
+        }
+    }
+
+    /// <summary>
+    /// Bucket duration for a report granularity, matching the console report's own resolution.
+    /// </summary>
+    internal static TimeSpan BucketFor(MetricGranularity granularity) => granularity switch
+    {
+        MetricGranularity.Hourly => TimeSpan.FromHours(1),
+        MetricGranularity.Daily => TimeSpan.FromDays(1),
+        _ => TimeSpan.FromMinutes(5)
+    };
+
+    /// <summary>
+    /// Lays AP-measured history over the console's client report. Our own measurements win on every
+    /// bucket we hold; the console report fills the buckets we do not, which is what covers an
+    /// access point that had no agent, a period we were not running for, or data older than we have.
+    /// </summary>
+    private async Task ApplyMeasuredHistoryAsync(
+        List<ClientWiFiMetrics> metrics,
+        string clientMac,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        MetricGranularity granularity,
+        CancellationToken cancellationToken)
+    {
+        if (_measuredClients == null) return;
+
+        try
+        {
+            var bucket = BucketFor(granularity);
+            var measured = await _measuredClients.GetMeasuredClientHistoryAsync(
+                clientMac, start, end, bucket, cancellationToken);
+            if (measured.Count == 0) return;
+
+            var (missing, longestRun) = MeasuredClientOverlay.MeasureGaps(start, end, measured, bucket);
+            if (longestRun >= MeasuredClientOverlay.ReportableGapBuckets)
+            {
+                _logger.LogDebug(
+                    "Client {ClientMac}: {Missing} of the measured buckets are absent, longest run {Run}; the console report fills them",
+                    clientMac, missing, longestRun);
+            }
+
+            MeasuredClientOverlay.ApplyHistory(metrics, measured, bucket);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "AP-measured client history unavailable for {ClientMac}, using console history", clientMac);
+        }
+    }
+
+    internal static WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
         Dictionary<string, string> displayNames,
@@ -1118,8 +1250,31 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var apMac = client.ApMac?.ToLowerInvariant() ?? "";
         apNames.TryGetValue(apMac, out var apName);
 
+        // A client marked offline because the access point stopped hearing from it needs a last-seen
+        // or it cannot be found or ordered anywhere. Idle time is exactly how long ago that was, and
+        // it is a better answer than the Console's own last_seen, which keeps advancing for as long
+        // as the Console believes the stale association.
+        DateTimeOffset? lastSeen = null;
+        if (!isOnline && client.IdleTime > 0)
+        {
+            lastSeen = timestamp.AddSeconds(-client.IdleTime);
+        }
+        else if (!isOnline && client.LastSeen > 0)
+        {
+            lastSeen = DateTimeOffset.FromUnixTimeSeconds(client.LastSeen);
+        }
+
         // Use v2 display name (system-selected friendly name) first, then fall back to v1 fields
         displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
+
+        var isMlo = client.IsMlo == true;
+        var mloLinks = MapMloLinks(client.MloDetails);
+
+        // Every scalar below must describe the SAME link, and it has to be the active one: one
+        // client's links measured 56 dB apart, so an idle link renders a healthy client as dying.
+        // The console's own top-level fields already report the active link, so they win here; the
+        // per-link pick below only covers a console that leaves them empty.
+        var activeLink = isMlo && client.Signal is null or 0 ? SelectActiveMloLink(mloLinks) : null;
 
         return new WirelessClientSnapshot
         {
@@ -1132,31 +1287,71 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             ApMac = client.ApMac ?? "",
             ApName = apName,
             Essid = client.Essid ?? "",
-            Band = RadioBandExtensions.FromUniFiCode(client.Radio),
-            Channel = client.Channel,
-            ChannelWidth = client.ChannelWidth,
-            Signal = client.Signal,
-            Noise = client.Noise,
-            Rssi = client.Rssi,
+            Band = activeLink?.Band ?? RadioBandExtensions.FromUniFiCode(client.Radio),
+            Channel = activeLink?.Channel ?? client.Channel,
+            ChannelWidth = activeLink?.ChannelWidth ?? client.ChannelWidth,
+            Signal = activeLink?.Signal ?? client.Signal,
+            Noise = activeLink?.Noise ?? client.Noise,
+            Rssi = activeLink?.Rssi ?? client.Rssi,
             Satisfaction = client.Satisfaction,
             WifiProtocol = client.RadioProto,
             WifiGeneration = ParseWifiGeneration(client.RadioProto),
-            TxRate = client.TxRate,
-            RxRate = client.RxRate,
+            TxRate = activeLink?.TxRate ?? client.TxRate,
+            RxRate = activeLink?.RxRate ?? client.RxRate,
             TxBytes = client.TxBytes,
             RxBytes = client.RxBytes,
             Uptime = client.Uptime,
             IsAuthorized = !client.Blocked,
             IsGuest = client.IsGuest,
             IsOnline = isOnline,
+            LastSeen = lastSeen,
             FixedApEnabled = client.FixedApEnabled == true,
             FixedApMac = client.FixedApMac,
             FixedApName = client.FixedApEnabled == true && !string.IsNullOrEmpty(client.FixedApMac)
                 ? (apNames.TryGetValue(client.FixedApMac.ToLowerInvariant(), out var fixedApName) ? fixedApName : null)
                 : null,
             Manufacturer = client.Oui,
+            IsMlo = isMlo,
+            MloLinks = mloLinks,
             Timestamp = timestamp
         };
+    }
+
+    private static List<MloLinkSnapshot> MapMloLinks(List<MloLinkDetail>? details)
+    {
+        if (details == null || details.Count == 0) return new List<MloLinkSnapshot>();
+
+        return details.Select(d => new MloLinkSnapshot
+        {
+            Mac = d.Mac,
+            Band = RadioBandExtensions.FromUniFiCode(d.Radio),
+            Channel = d.Channel,
+            ChannelWidth = d.ChannelWidth,
+            Signal = d.Signal,
+            Noise = d.Noise,
+            Rssi = d.Rssi,
+            Nss = d.Nss,
+            TxRate = d.TxRate,
+            RxRate = d.RxRate,
+            Satisfaction = d.Satisfaction
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Pick the MLO link that is actually carrying traffic. Rates are the evidence, since an idle
+    /// link reports zero; the strongest signal is the fallback because a client whose links all read
+    /// zero still has to resolve to exactly one link.
+    /// </summary>
+    private static MloLinkSnapshot? SelectActiveMloLink(List<MloLinkSnapshot> links)
+    {
+        if (links.Count == 0) return null;
+
+        var carrying = links
+            .Where(l => (l.TxRate ?? 0) > 0 || (l.RxRate ?? 0) > 0)
+            .OrderByDescending(l => (l.TxRate ?? 0) + (l.RxRate ?? 0))
+            .FirstOrDefault();
+
+        return carrying ?? links.OrderByDescending(l => l.Signal ?? int.MinValue).First();
     }
 
     private WirelessClientSnapshot MapHistoricalToWirelessClientSnapshot(

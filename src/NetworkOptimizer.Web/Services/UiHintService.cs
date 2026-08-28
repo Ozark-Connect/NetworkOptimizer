@@ -159,4 +159,11 @@ public static class UiHintKeys
 
     /// <summary>Firmware wizard notice that a Console backup is attempted before rollout.</summary>
     public const string FirmwareBackupNotice = "firmware-backup-notice";
+
+    /// <summary>
+    /// AP Telemetry offered on the pages its data improves, to a site that has not enabled it.
+    /// Dismissed rather than counted down: it is a banner on the page, not a passing tooltip. One
+    /// message in two placements, so one dismissal retires both.
+    /// </summary>
+    public const string ApTelemetryOffer = "ap-telemetry-offer";
 }

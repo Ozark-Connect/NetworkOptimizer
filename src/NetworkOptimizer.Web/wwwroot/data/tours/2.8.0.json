@@ -1,0 +1,42 @@
+{
+  "id": "2.8.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.8.0",
+  "summary": "Network Optimizer can read Wi-Fi data from your access points directly now, providing live client data twice a second, real-time roaming data and AP / band switching while walk testing, and per-client Wi-Fi throughput UniFi Network never showed.",
+  "steps": [
+    {
+      "id": "ap-telemetry",
+      "level": "major",
+      "url": "/settings?tab=aptelemetry",
+      "selector": "[data-tour=\"ap-telemetry\"]",
+      "title": "AP Telemetry",
+      "listLabel": "Read Wi-Fi data straight from your access points",
+      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.\n\nMore performance analysis and recommendation features built on this data are coming soon.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "client-live",
+      "level": "major",
+      "badge": "improved",
+      "url": "/client-dashboard?ip={wifi-client-ip}",
+      "selector": "[data-tour=\"client-live\"]",
+      "title": "Client Performance Upgrade",
+      "listLabel": "Live client data twice a second, and move a client between APs",
+      "body": "Deploying **AP Telemetry** enhances this page, and unlocks **Roam**.\n\nSignal, PHY rates, and throughput now come from the client's own AP twice a second, so they move as fast as the client does, and when it roams the stats follow to the new AP immediately instead of stalling.\n\nWired clients pick this up too from existing SNMP monitoring: their switch and port, link speed, live throughput rates, and port errors and drops.\n\n**Roam** is new: ask a client to move to the nearest AP besides the current one, or to a more optimal band. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "live-client-throughput",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-client-throughput\"]",
+      "title": "Per-client Wi-Fi Traffic",
+      "listLabel": "See Wi-Fi LAN traffic your Console never counted",
+      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}

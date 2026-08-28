@@ -60,6 +60,12 @@ public class LanFlowMapCache
         }
     }
 
+    /// <summary>
+    /// Forces the next read to rebuild while keeping the current snapshot and the historic-data
+    /// cache in place. For roster staleness, where a rebuild is wanted but nothing else changed.
+    /// </summary>
+    public void MarkStale() => _snapshotAt = DateTime.MinValue;
+
     /// <summary>Hard-invalidate, e.g. when the user reconnects to a different controller.</summary>
     public void Invalidate()
     {

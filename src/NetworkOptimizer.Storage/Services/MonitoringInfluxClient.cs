@@ -564,7 +564,17 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? txThroughputBps,
         double? rxThroughputBps,
         bool? isMlo,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? txRetries = null,
+        long? txAttempts = null,
+        long? txDropped = null,
+        double? latencyAvgMs = null,
+        double? latencyMaxMs = null,
+        long? tcpStalls = null,
+        double? tcpLatAvgMs = null,
+        int? ccq = null,
+        int? nss = null,
+        long? idleSeconds = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("wifi_client")
@@ -586,6 +596,78 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
         if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
         if (isMlo.HasValue) point = point.Field("is_mlo", isMlo.Value);
+
+        // Additive fields, written only by the AP Agent path: the console's stat/sta does not
+        // report any of them. The tag set is deliberately unchanged - device_mac and band stay the
+        // tags and client_mac stays a field, because promoting it would explode the series count on
+        // a measurement whose per-client queries already cost 33 s.
+        if (txRetries.HasValue) point = point.Field("tx_retries", txRetries.Value);
+        if (txAttempts.HasValue) point = point.Field("tx_attempts", txAttempts.Value);
+        if (txDropped.HasValue) point = point.Field("tx_dropped", txDropped.Value);
+        if (latencyAvgMs.HasValue) point = point.Field("latency_avg_ms", latencyAvgMs.Value);
+        if (latencyMaxMs.HasValue) point = point.Field("latency_max_ms", latencyMaxMs.Value);
+        if (tcpStalls.HasValue) point = point.Field("tcp_stalls", tcpStalls.Value);
+        if (tcpLatAvgMs.HasValue) point = point.Field("tcp_lat_avg_ms", tcpLatAvgMs.Value);
+        if (ccq.HasValue) point = point.Field("ccq", ccq.Value);
+        if (nss.HasValue) point = point.Field("nss", nss.Value);
+
+        // Additive: older points carry no idle and readers fall back to recency.
+        if (idleSeconds.HasValue) point = point.Field("idle_seconds", idleSeconds.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes throughput and/or presence alone, between the full points.
+    ///
+    /// With throughput, this stores a rate as often as it is measured without paying for the rest
+    /// of the point. With throughput null it is a presence point: this client was connected here at
+    /// this instant and moved nothing. Both are needed, because a client that is merely idle used
+    /// to write nothing at all and so read back as departed - the one axis where we were worse than
+    /// the console, which shows it connected throughout.
+    ///
+    /// Same measurement and same tags, so these land in the existing series and every reader picks
+    /// them up unchanged - fields are sparse, and the historic query pivots on whatever a row has.
+    /// Throughput and signal only: the rest describe how a client is connected rather than what it
+    /// is doing, and none change meaningfully inside one interval, so repeating all 23 would roughly
+    /// triple the measurement to add nothing.
+    ///
+    /// Signal rides along even though it is slow-moving, because the per-client history query
+    /// aggregates on a window that floors at 5 s - so on any range under about 75 minutes there are
+    /// windows holding only these points, and a window with no signal sample renders as a gap in
+    /// the signal line rather than a flat one. Filling forward in Flux cannot fix it: after the
+    /// pivot, rows for different clients on one access point and band interleave, so a fill would
+    /// carry one client's signal onto another's row.
+    /// </summary>
+    public Task WriteWifiClientThroughputAsync(
+        string apMac,
+        string band,
+        string clientMac,
+        double? txThroughputBps,
+        double? rxThroughputBps,
+        double? signalDbm,
+        DateTime timestamp,
+        long? txRateKbps = null,
+        long? rxRateKbps = null)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("wifi_client")
+            .Tag("device_mac", NormalizeMac(apMac))
+            .Tag("band", band.ToLowerInvariant())
+            .Field("client_mac", NormalizeMac(clientMac))
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
+        if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
+        if (signalDbm.HasValue) point = point.Field("signal_dbm", signalDbm.Value);
+
+        // PHY rides along with signal. Without it signal is 10 s and the rates are 30 s, so a reader
+        // pairs a fresh signal with a rate up to a window old - and a speed test short enough to sit
+        // between two full points has no rate to match against at all.
+        if (txRateKbps is > 0) point = point.Field("tx_rate_kbps", txRateKbps.Value);
+        if (rxRateKbps is > 0) point = point.Field("rx_rate_kbps", rxRateKbps.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -2946,7 +3028,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm)";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -3057,6 +3139,145 @@ union(tables: [means, chan])
         return results;
     }
 
+    /// <summary>
+    /// One wifi_client row, pivoted. The agent-only fields are carried so the caller can tell which
+    /// source wrote the row: the console's stat/sta reports none of them.
+    ///
+    /// The counter fields are CUMULATIVE as stored, unlike the console report's per-bucket deltas,
+    /// so they are a source marker here rather than something to chart directly.
+    /// </summary>
+    public record WifiClientSamplePoint
+    {
+        public required DateTime Time { get; init; }
+        /// <summary>Access point the client was on (device_mac tag).</summary>
+        public string? ApMac { get; init; }
+        /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz").</summary>
+        public string? Band { get; init; }
+        public string? ClientMac { get; init; }
+
+        /// <summary>Seconds since this access point last heard from the client. Absent on older points.</summary>
+        public long? IdleSeconds { get; init; }
+
+        public double? SignalDbm { get; init; }
+        public double? NoiseDbm { get; init; }
+        /// <summary>Signal-to-noise ratio in dB, which is what the access point calls RSSI.</summary>
+        public int? Rssi { get; init; }
+        public long? TxRateKbps { get; init; }
+        public long? RxRateKbps { get; init; }
+        /// <summary>Measured access point to client throughput, where the point carried one.</summary>
+        public double? TxThroughputBps { get; init; }
+        /// <summary>Measured client to access point throughput, where the point carried one.</summary>
+        public double? RxThroughputBps { get; init; }
+        public int? Channel { get; init; }
+        public int? ChannelWidth { get; init; }
+        public int? Satisfaction { get; init; }
+        public int? Nss { get; init; }
+        public int? Ccq { get; init; }
+        public long? TxRetries { get; init; }
+        public long? TxAttempts { get; init; }
+        public double? LatencyAvgMs { get; init; }
+    }
+
+    /// <summary>
+    /// wifi_client rows, for one client or for every client on the site. Rows come back unreduced:
+    /// which row is newest, and which source wrote it, are both the caller's judgment.
+    ///
+    /// Pass no <paramref name="aggregateWindow"/> for live state, which wants raw samples over a
+    /// short range; pass one for a history read, which wants a point per bucket. Leave
+    /// <paramref name="clientMac"/> null for the whole site.
+    /// </summary>
+    public async Task<IReadOnlyList<WifiClientSamplePoint>> QueryWifiClientSamplesAsync(
+        string? clientMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WifiClientSamplePoint>();
+
+        // client_mac is a field rather than a tag (cardinality control), so the pivot is what makes
+        // a row readable at all, and filtering on a client can only happen after it.
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine($@"from(bucket: ""{_bucket}"")");
+        builder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"" or r._field == ""idle_seconds"")");
+        if (aggregateWindow is { } window)
+            builder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
+        builder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");
+        builder.AppendLine(@"  |> filter(fn: (r) => exists r.client_mac)");
+        if (!string.IsNullOrEmpty(clientMac))
+            builder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == ""{NormalizeMac(clientMac)}"")");
+
+        var results = new List<WifiClientSamplePoint>();
+        await foreach (var record in QueryFluxAsync(builder.ToString(), ct))
+        {
+            results.Add(new WifiClientSamplePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                ApMac = record.GetValueByKey("device_mac") as string,
+                Band = record.GetValueByKey("band") as string,
+                ClientMac = record.GetValueByKey("client_mac") as string,
+                IdleSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("idle_seconds")),
+                SignalDbm = AsDoubleOrNull(record.GetValueByKey("signal_dbm")),
+                NoiseDbm = AsDoubleOrNull(record.GetValueByKey("noise_dbm")),
+                Rssi = (int?)AsDoubleOrNull(record.GetValueByKey("rssi")),
+                TxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("tx_rate_kbps")),
+                RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps")),
+                Channel = (int?)AsDoubleOrNull(record.GetValueByKey("channel")),
+                ChannelWidth = (int?)AsDoubleOrNull(record.GetValueByKey("channel_width")),
+                Satisfaction = (int?)AsDoubleOrNull(record.GetValueByKey("satisfaction")),
+                Nss = (int?)AsDoubleOrNull(record.GetValueByKey("nss")),
+                Ccq = (int?)AsDoubleOrNull(record.GetValueByKey("ccq")),
+                TxRetries = (long?)AsDoubleOrNull(record.GetValueByKey("tx_retries")),
+                TxAttempts = (long?)AsDoubleOrNull(record.GetValueByKey("tx_attempts")),
+                LatencyAvgMs = AsDoubleOrNull(record.GetValueByKey("latency_avg_ms")),
+            });
+        }
+        // Order on assembly: pivot emits a separate table whenever a row's field set differs, and
+        // those tables arrive after the main one, so the Flux result is not globally ordered.
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
+    /// Which bands each client has been seen on over the range, as raw band tags keyed by client
+    /// MAC. A client that has associated on a band demonstrably supports it, which is the only
+    /// client capability evidence wifi_client carries.
+    ///
+    /// distinct() on the single client_mac field is what keeps this cheap over a long range; do not
+    /// widen the field filter, which would turn it into a full pivot over the measurement.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>> QueryWifiClientBandsAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var bands = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
+        if (!IsConfigured) return bands;
+
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"")
+  |> group(columns: [""band""])
+  |> distinct(column: ""_value"")";
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("_value") is not string mac || mac.Length == 0) continue;
+            if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
+
+            if (!bands.TryGetValue(mac, out var seen))
+            {
+                seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bands[mac] = seen;
+            }
+            ((HashSet<string>)seen).Add(band);
+        }
+        return bands;
+    }
+
     private async IAsyncEnumerable<InfluxDB.Client.Core.Flux.Domain.FluxRecord> QueryFluxAsync(
         string flux,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
@@ -3122,8 +3343,12 @@ union(tables: [means, chan])
     private static string SanitizeFluxString(string value) =>
         value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "").Replace("${", "");
 
-    private static DateTime ToUtc(DateTime t) =>
-        t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
+    /// <summary>
+    /// Kept as a local name for the many read paths that call it; the rule itself is shared. It used
+    /// to relabel a Local timestamp as UTC rather than converting it, which was only ever safe
+    /// because every caller passes a value that came back from Influx already UTC.
+    /// </summary>
+    private static DateTime ToUtc(DateTime t) => NetworkOptimizer.Core.Helpers.DateTimeUtilities.AsUtc(t);
 
     private static double? AsDoubleOrNull(object? v) => v switch
     {

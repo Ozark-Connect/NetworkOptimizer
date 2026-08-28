@@ -1,4 +1,4 @@
-﻿@page "/wifi-optimizer"
+@page "/wifi-optimizer"
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
@@ -32,6 +32,8 @@
 </div>
 
 <RestrictedSiteNotice />
+
+<ApTelemetryBanner Message="AP Telemetry reads Wi-Fi data straight from your access points, for client stats, roam records, and radio health the UniFi Console does not report." />
 
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
 {
@@ -216,6 +218,10 @@
             <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("environment"))">
                 Environment
+            </button>
+            @* Jumps to Settings rather than rendering here, matching Monitoring's Data Usage tab. *@
+            <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/settings#ap-telemetry")'>
+                AP Telemetry
             </button>
         </div>
         <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
@@ -462,7 +468,7 @@
                         {
                             <div class="band-stat">
                                 <span class="band-stat-label">Avg Signal:</span>
-                                <span class="band-stat-value @SignalClassification.GetSignalClass(_summary.AvgSignal.Value, RadioBand.Band5GHz)">@_summary.AvgSignal dBm</span>
+                                <span class="band-stat-value @SignalClassification.GetSignalClass(_summary.AvgSignal.Value, RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(_summary.AvgSignal.Value, RadioBand.Band5GHz)">@_summary.AvgSignal dBm</span>
                             </div>
                         }
                     </div>
@@ -640,7 +646,7 @@
                                             @if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
                                                 <div class="mesh-signal">
-                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
                                                     {
                                                         <span class="mesh-rates">
@@ -667,7 +673,7 @@
                                                 <div class="mesh-signal">
                                                     @if (child.SignalDbm.HasValue)
                                                     {
-                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     }
                                                     @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
                                                     {

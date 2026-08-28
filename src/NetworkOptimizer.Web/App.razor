@@ -485,6 +485,15 @@
         document.addEventListener('click', function(e) {
             var link = e.target.closest('a[href^="/"], a[href^="./"]');
             if (link) {
+                // Destroy the instances, not just their poppers: one left alive on an element Blazor
+                // then removes re-mounts in the top-left corner and cannot be dismissed.
+                document.querySelectorAll('[data-tooltip-bound]').forEach(function(el) {
+                    if (el._tippy) el._tippy.destroy();
+                    el.removeAttribute('data-tooltip-bound');
+                });
+                document.querySelectorAll('.tooltip-icon').forEach(function(el) {
+                    if (el._tippy) el._tippy.destroy();
+                });
                 document.querySelectorAll('[data-tippy-root]').forEach(function(el) {
                     el.remove();
                 });

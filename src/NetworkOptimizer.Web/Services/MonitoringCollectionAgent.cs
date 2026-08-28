@@ -61,6 +61,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _ontAlertEvaluator;
     private readonly Dictionary<string, ISfpSupplementalOntProvider> _supplementalOntProviders;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly ApAgent.ApAgentTelemetryCollector _apAgentTelemetry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -167,6 +168,7 @@ public class MonitoringCollectionAgent : BackgroundService
         Licensing.LicenseStateService licenseState,
         IEnumerable<IOntProvider> ontProviders,
         SiteTunnelRouting tunnelRouting,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetryRegistry,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -195,6 +197,7 @@ public class MonitoringCollectionAgent : BackgroundService
             .OfType<ISfpSupplementalOntProvider>()
             .ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
         _tunnelRouting = tunnelRouting;
+        _apAgentTelemetry = apAgentTelemetryRegistry.GetFor(_siteSlug);
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -337,6 +340,22 @@ public class MonitoringCollectionAgent : BackgroundService
             WifiClientTierCollectAsync,
             TimeSpan.FromSeconds(30),
             stoppingToken);
+        // AP Agent telemetry, on a shorter cadence than it writes. The access point measures far
+        // faster than 30 s, so sampling here and folding min/max/avg gives a richer point without
+        // multiplying the write volume on wifi_client.
+        var apAgentTask = RunTierAsync("apagent",
+            _ => TimeSpan.FromSeconds(10),
+            (_, ct) => _apAgentTelemetry.SampleAsync(ct),
+            TimeSpan.FromSeconds(35),
+            stoppingToken);
+        // Membership on its own short cadence, because presence truth must not wait for the
+        // sampling pass: /clients serves the agent's in-memory table, so reading it often costs
+        // the access point a serialization and nothing else. Writes stay with the pass above.
+        var apAgentMembershipTask = RunTierAsync("apagent-membership",
+            _ => ApAgent.ApAgentTelemetryCollector.MembershipInterval,
+            (_, ct) => _apAgentTelemetry.SampleMembershipAsync(ct),
+            TimeSpan.FromSeconds(8),
+            stoppingToken);
         // SNMP credential self-heal on its own short cadence. It must NOT ride the fast
         // tier's cycle: when every SNMP call is timing out (the exact failure it exists to
         // detect), a fast cycle stretches to minutes of stacked timeouts and an end-of-cycle
@@ -348,7 +367,7 @@ public class MonitoringCollectionAgent : BackgroundService
             TimeSpan.FromSeconds(12),
             stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, selfHealTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, apAgentTask, apAgentMembershipTask, selfHealTask);
         _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 
@@ -1358,12 +1377,47 @@ public class MonitoringCollectionAgent : BackgroundService
                 Satisfaction = c.Satisfaction,
                 Rssi = c.Rssi,
                 IsMlo = c.IsMlo ?? false,
+                IdleSeconds = c.IdleTime,
+                Source = WifiClientSource.Console,
                 Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
                 LastUpdate = now
             };
+            // Per AP, not per site: an access point served by its own AP Agent supplies both its
+            // live snapshot and its wifi_client points, and every other access point keeps the
+            // console's. One source per access point at a time, so a client's readings never
+            // alternate between two pollers on different clocks. Coverage expires on a missed poll,
+            // which hands the access point straight back here.
+            if (_apAgentTelemetry.CoversAp(apMac)) continue;
+
+            // A client the access point has not heard from in a long time is not connected NOW,
+            // whatever the association table still says. Leaving it out lets it age out of the
+            // cache, so Live View and the maps stop drawing a device that has physically left -
+            // the console goes on listing it, which is precisely the gap worth closing.
+            if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+
             _liveStats.RecordWifiClient(snapshot);
 
-            if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
+            if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
+            {
+                // Presence without a rate. An idle client that writes nothing is indistinguishable
+                // from a departed one when the series is read back.
+                //
+                // Unless the access point has not heard from it in a long time, which is what it
+                // looks like when it is holding a client that physically left. Presence for that
+                // draws a departed device forever.
+                if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+                _ = _influx.WriteWifiClientThroughputAsync(
+                    apMac: apMac,
+                    band: band,
+                    clientMac: clientMac,
+                    txThroughputBps: null,
+                    rxThroughputBps: null,
+                    signalDbm: c.Signal,
+                    timestamp: now.AddTicks(tickOffset++),
+                    txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                    rxRateKbps: c.RxRate > 0 ? c.RxRate : null);
+            }
+            else
             {
                 _ = _influx.WriteWifiClientAsync(
                     apMac: apMac,
@@ -1382,7 +1436,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     txThroughputBps: txThroughputBps,
                     rxThroughputBps: rxThroughputBps,
                     isMlo: c.IsMlo,
-                    timestamp: now.AddTicks(tickOffset++));
+                    timestamp: now.AddTicks(tickOffset++),
+                    idleSeconds: c.IdleTime);
             }
         }
 

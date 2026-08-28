@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -580,6 +580,12 @@ public class MonitoringLiveStats
         };
         _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
         {
+            // One entry per client, so two access points claiming the same one race, and the later
+            // write wins whether or not it is the live association. An access point can hold a
+            // station long after the client left: idle separates them, and without this the maps
+            // and Client Performance follow whichever poll landed last.
+            if (KeepPriorApClaim(prior, fresh)) return prior;
+
             var newTx = fresh.TxThroughputBps ?? 0;
             var newRx = fresh.RxThroughputBps ?? 0;
             var priorTx = prior.TxThroughputBps ?? 0;
@@ -603,13 +609,41 @@ public class MonitoringLiveStats
                     Satisfaction = fresh.Satisfaction,
                     Rssi = fresh.Rssi,
                     IsMlo = fresh.IsMlo,
-                    Hostname = fresh.Hostname,
+                    Source = fresh.Source,
+                    Hostname = fresh.Hostname ?? prior.Hostname,
                     LastUpdate = fresh.LastUpdate,
                     ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
                 };
             }
-            return fresh;
+            // Hostname is identity, not a reading. Sources that carry no name (the AP Agent knows
+            // MACs only) must not blank the one a source that does carry it already established.
+            return fresh.Hostname is null ? fresh with { Hostname = prior.Hostname } : fresh;
         });
+    }
+
+    /// <summary>
+    /// How stale an incoming claim must be before a different access point's fresher one outranks
+    /// it. Well past any normal poll gap, so two access points genuinely serving a client in turn
+    /// hand over immediately and only an abandoned station is held back.
+    /// </summary>
+    private const long ContestedClaimIdleSeconds = 60;
+
+    /// <summary>How long a held claim stays authoritative without being reasserted by its own poll.</summary>
+    private static readonly TimeSpan ClaimFreshness = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// Whether an existing claim on a client outranks an incoming one from a different access
+    /// point. Only when both report idle, the incoming one is itself stale, and the held one is
+    /// both fresher and still being reasserted - so a client that really did leave still moves
+    /// once its old access point stops answering.
+    /// </summary>
+    private static bool KeepPriorApClaim(WifiClientLiveSnapshot prior, WifiClientLiveSnapshot fresh)
+    {
+        if (string.Equals(prior.ApMac, fresh.ApMac, StringComparison.OrdinalIgnoreCase)) return false;
+        if (prior.IdleSeconds is not { } priorIdle || fresh.IdleSeconds is not { } freshIdle) return false;
+        if (freshIdle < ContestedClaimIdleSeconds || freshIdle <= priorIdle) return false;
+
+        return DateTime.UtcNow - prior.LastUpdate <= ClaimFreshness;
     }
 
     /// <summary>Latest snapshot for a specific client MAC, or null if unknown / stale.</summary>
@@ -711,6 +745,18 @@ public class MonitoringLiveStats
 /// throughput and uses PHY rate as the "pipe width" / utilization denominator.
 /// Don't conflate them.
 /// </summary>
+/// <summary>
+/// Where a live client reading came from, fastest first. The AP Agent polls every 10 s and Client
+/// Performance drives it to 500 ms; WiFiman runs at 1 Hz on sites with no agent; the console wifi
+/// tier is the 30 s baseline every site has.
+/// </summary>
+public enum WifiClientSource
+{
+    Console,
+    WiFiMan,
+    ApAgent,
+}
+
 public record WifiClientLiveSnapshot
 {
     public required string ClientMac { get; init; }
@@ -734,7 +780,22 @@ public record WifiClientLiveSnapshot
     public int? Rssi { get; init; }
     public bool IsMlo { get; init; }
     public string? Hostname { get; init; }
+
+    /// <summary>
+    /// Seconds since the access point reporting this last heard from the client. Null where the
+    /// source does not carry it. Two access points can both claim a client - one of them holding a
+    /// station that has physically left - and this is what tells them apart.
+    /// </summary>
+    public long? IdleSeconds { get; init; }
+
     public DateTime LastUpdate { get; init; }
+
+    /// <summary>
+    /// Which poller wrote this. Readers that must decide whether the cache beats their own copy of
+    /// the same console data need it: age cannot separate the sources, since a console write is
+    /// zero seconds old at the moment it lands.
+    /// </summary>
+    public WifiClientSource Source { get; init; } = WifiClientSource.Console;
 
     /// <summary>Internal: tracks consecutive 0/0 throughput polls so a single
     /// transient zero between active samples doesn't blink the UI to silent.</summary>

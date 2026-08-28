@@ -1,0 +1,383 @@
+packets dropped on rx
+	packets dropped because nsdu_done bit not set        :	1
+	Multicast Echo check                                 :	0
+	Mesh Filtered packets                                :	0
+	total buffers replenished                            :	0
+	rxdma errors replenished                             :	4294967295
+	nbuf_alloc_fail                                      :	0
+	frag_alloc_fail                                      :	0
+	map_err                                              :	0
+	x86_fail                                             :	0
+	low_thresh_intrs                                     :	0
+
+	Rx Raw pkts                                          :	0
+	Mesh Rx Stats Alloc fail                             :	0
+	Rx errors desc_alloc_fail_err                        :	0
+	buffers added back in freelist                       :	0
+
+Tx ingress stats
+	Total bytes received for transmission                :	2932785612
+	Total packets received for transmission              :	2264733
+	Tx packets processed                                 :	2397730
+	Tx bytes processed                                   :	2953016945
+	Total packets passed Reinject handler                :	0
+	Total bytes passed Reinject handler                  :	0
+	Total bytes passed to inspect handler                :	0
+	Total packets passed to inspect handler              :	0
+	NAWDS  Multicast byte Count                          :	0
+	NAWDS  Multicast Packet Count                        :	0
+	Total Raw packets                                    :	0
+	Total Raw bytes                                      :	0
+	DMA map error                                        :	0
+	Total no of TSO bytes                                :	0
+	Total no of TSO packets                              :	0
+	TSO packets dropped by host                          :	0
+	TSO packets dropped by target                        :	0
+	Total scatter gather bytes                           :	0
+	Total scatter gather packets                         :	0
+	SG packets dropped by host                           :	0
+	SG packets dropped by target                         :	0
+	Dma map error                                        :	0
+	total no of multicast conversion bytes               :	0
+	total no of multicast conversion packets             :	0
+	packets dropped due to map error                     :	0
+	packets dropped due to self Mac address              :	0
+	Packets dropped due to send fail                     :	0
+	total unicast packets transmitted                    :	0
+	Segment allocation failure                           :	0
+	NBUF clone failure                                   :	0
+	total no of received igmp packets                    :	0
+	total no of multicast igmp converted packets         :	0
+
+Packets dropped on the Tx ingress side
+	Total scatter gather packets dropped                 :	0
+	Desc Not Available                                   :	0
+	Ring Full                                            :	0
+	Hwenqueue failed                                     :	0
+	DMA failed                                           :	0
+	Resource Full: Congestion Control                    :	0
+	Number of packets classified by CCE                  :	0
+	Number of raw packets classified by CCE              :	0
+	Number of sniffer packets                            :	0
+	Number of sniffer bytes                              :	0
+
+Tx  Stats
+	Pkts for which completions were received             :	2397307
+	Bytes Info for which completions were received       :	2977575015
+	Unicast bytes Count                                  :	2932744898
+	Unicast Packet Count                                 :	2264703
+	Multicast bytes Count                                :	20162706
+	Multicast Packet Count                               :	132576
+	NAWDS  Multicast Byte Count                          :	0
+	NAWDS  Multicast Packet Count                        :	0
+	NAWDS  Multicast Drop Count                          :	0
+	Successful Tx bytes                                  :	2920019938
+	Successful Tx Packets                                :	2256292
+	Total Tx failure                                     :	8419
+	Total Packets as ofdma                               :	0
+	Packets in STBC                                      :	0
+	Packets in LDPC                                      :	2254893
+	Packet retries                                       :	38834
+	Number of MSDUs with no MSDU level aggregation       :	24460
+	Number of MSDUs part of AMSDU                        :	2230844
+	Number of MSDUs with no MPDU level aggregation       :	959
+	Number of MSDUs part of AMSPU                        :	396000
+	Number of stand alone received                       :	0
+	RSSI of last packet                                  :	37
+Tx Rate Info:
+	 OFDM 48 Mbps = 0
+	 OFDM 24 Mbps = 0
+	 OFDM 12 Mbps = 0
+	 OFDM 6 Mbps  = 952
+	 OFDM 54 Mbps = 0
+	 OFDM 36 Mbps = 0
+	 OFDM 18 Mbps = 0
+	 OFDM 9 Mbps  = 0
+
+	 CCK 11 Mbps Long   = 0
+	 CCK 5.5 Mbps Long  = 0
+	 CCK 2 Mbps Long    = 0
+	 CCK 1 Mbps Long    = 0
+	 CCK 11 Mbps Short  = 0
+	 CCK 5.5 Mbps Short = 0
+	 CCK 2 Mbps Short   = 0
+
+	 HT MCS 0 (BPSK 1/2)   = 0
+	 HT MCS 1 (QPSK 1/2)   = 0
+	 HT MCS 2 (QPSK 3/4)   = 0
+	 HT MCS 3 (16-QAM 1/2) = 0
+	 HT MCS 4 (16-QAM 3/4) = 0
+	 HT MCS 5 (64-QAM 2/3) = 0
+	 HT MCS 6 (64-QAM 3/4) = 0
+	 HT MCS 7 (64-QAM 5/6) = 0
+
+	 VHT MCS 0 (BPSK 1/2)      = 0
+	 VHT MCS 1 (QPSK 1/2)      = 0
+	 VHT MCS 2 (QPSK 3/4)      = 0
+	 VHT MCS 3 (16-QAM 1/2)    = 0
+	 VHT MCS 4 (16-QAM 3/4)    = 0
+	 VHT MCS 5 (64-QAM 2/3)    = 0
+	 VHT MCS 6 (64-QAM 3/4)    = 0
+	 VHT MCS 7 (64-QAM 5/6)    = 0
+	 VHT MCS 8 (256-QAM 3/4)   = 0
+	 VHT MCS 9 (256-QAM 5/6)   = 0
+	 VHT MCS 10 (1024-QAM 3/4) = 0
+	 VHT MCS 11 (1024-QAM 5/6) = 0
+
+	 HE MCS 0 (BPSK 1/2)      = 0
+	 HE MCS 1 (QPSK 1/2)      = 0
+	 HE MCS 2 (QPSK 3/4)      = 0
+	 HE MCS 3 (16-QAM 1/2)    = 0
+	 HE MCS 4 (16-QAM 3/4)    = 0
+	 HE MCS 5 (64-QAM 2/3)    = 1430
+	 HE MCS 6 (64-QAM 3/4)    = 12361
+	 HE MCS 7 (64-QAM 5/6)    = 49666
+	 HE MCS 8 (256-QAM 3/4)   = 409170
+	 HE MCS 9 (256-QAM 5/6)   = 972466
+	 HE MCS 10 (1024-QAM 3/4) = 660913
+	 HE MCS 11 (1024-QAM 5/6) = 148887
+	 HE MCS 12 (4096-QAM 3/4) = 0
+	 HE MCS 13 (4096-QAM 5/6) = 0
+
+	 EHT MCS 0 (BPSK 1/2)      = 0
+	 EHT MCS 1 (QPSK 1/2)      = 0
+	 EHT MCS 2 (QPSK 3/4)      = 0
+	 EHT MCS 3 (16-QAM 1/2)    = 0
+	 EHT MCS 4 (16-QAM 3/4)    = 0
+	 EHT MCS 5 (64-QAM 2/3)    = 0
+	 EHT MCS 6 (64-QAM 3/4)    = 0
+	 EHT MCS 7 (64-QAM 5/6)    = 0
+	 EHT MCS 8 (256-QAM 3/4)   = 0
+	 EHT MCS 9 (256-QAM 5/6)   = 0
+	 EHT MCS 10 (1024-QAM 3/4) = 0
+	 EHT MCS 11 (1024-QAM 5/6) = 0
+	 EHT MCS 12 (4096-QAM 3/4) = 0
+	 EHT MCS 13 (4096-QAM 5/6) = 0
+	 EHT MCS 14 (BPSK-DCM 1/2) = 0
+	 EHT MCS 15 (BPSK-DCM 1/2) = 0
+
+
+	SGI                               = 0.8us 2255845 0.4us 0 1.6us 0 3.2us 0
+	BW Counts                         = 20MHZ 952, 40MHZ 0, 80MHZ 0, 160MHZ 2254893, 320MHZ 0
+	nss                                                 = 1856  2253989  0  0  0  0  0  0 
+	Wireless Multimedia type Count                      = 2244122  0  10746  977 
+Packets dropped on the Tx side
+	Discarded by firmware                                :	0
+	firmware_discard_untransmitted                       :	0
+	firmware_discard_transmitted                         :	0
+	aged out in mpdu/msdu queues                         :	0
+
+Rx Level Stats
+Total packets sent up the stack
+	Total packets sent up the stack                      :	1384333
+	Total bytes sent up the stack                        :	1867992818
+	Packets received on the reo ring
+		bytes_rcvd_reo[0] = 810963877
+		num_rcvd_reo[0] = 587716
+		bytes_rcvd_reo[1] = 549920928
+		num_rcvd_reo[1] = 409872
+		bytes_rcvd_reo[2] = 507452940
+		num_rcvd_reo[2] = 387728
+		bytes_rcvd_reo[3] = 0
+		num_rcvd_reo[3] = 0
+		bytes_rcvd_reo[4] = 0
+		num_rcvd_reo[4] = 0
+		bytes_rcvd_reo[5] = 0
+		num_rcvd_reo[5] = 0
+		bytes_rcvd_reo[6] = 0
+		num_rcvd_reo[6] = 0
+		bytes_rcvd_reo[7] = 0
+		num_rcvd_reo[7] = 0
+	Total unicast bytes                                  :	1867430278
+	Total unicast packets                                :	1381774
+	Total multicast bytes                                :	562540
+	Total multicast packets                              :	2559
+	Raw Pakets received                                  :	0
+	Raw bytes received                                   :	0
+	Total packets nawds mcast dropped                    :	0
+	Intra BSS bytes received                             :	0
+	Intra BSS packets received                           :	0
+	Intra BSS bytes failed                               :	0
+	Intra BSS packets failed                             :	0
+	Rx MIC errors                                        :	0
+	Rx Decryption Errors                                 :	0
+	Wireless Multimedia type Count
+		wme_ac_type[0] = 1381561
+		wme_ac_type[1] = 9585
+		wme_ac_type[2] = 450
+		wme_ac_type[3] = 3984
+Rx Rate Info:
+	 OFDM 48 Mbps = 0
+	 OFDM 24 Mbps = 10257
+	 OFDM 12 Mbps = 0
+	 OFDM 6 Mbps  = 2
+	 OFDM 54 Mbps = 0
+	 OFDM 36 Mbps = 0
+	 OFDM 18 Mbps = 0
+	 OFDM 9 Mbps  = 0
+
+	 CCK 11 Mbps Long   = 0
+	 CCK 5.5 Mbps Long  = 0
+	 CCK 2 Mbps Long    = 0
+	 CCK 1 Mbps Long    = 0
+	 CCK 11 Mbps Short  = 0
+	 CCK 5.5 Mbps Short = 0
+	 CCK 2 Mbps Short   = 0
+
+	 HT MCS 0 (BPSK 1/2)   = 0
+	 HT MCS 1 (QPSK 1/2)   = 0
+	 HT MCS 2 (QPSK 3/4)   = 0
+	 HT MCS 3 (16-QAM 1/2) = 0
+	 HT MCS 4 (16-QAM 3/4) = 0
+	 HT MCS 5 (64-QAM 2/3) = 0
+	 HT MCS 6 (64-QAM 3/4) = 0
+	 HT MCS 7 (64-QAM 5/6) = 0
+
+	 VHT MCS 0 (BPSK 1/2)      = 0
+	 VHT MCS 1 (QPSK 1/2)      = 0
+	 VHT MCS 2 (QPSK 3/4)      = 0
+	 VHT MCS 3 (16-QAM 1/2)    = 0
+	 VHT MCS 4 (16-QAM 3/4)    = 0
+	 VHT MCS 5 (64-QAM 2/3)    = 0
+	 VHT MCS 6 (64-QAM 3/4)    = 0
+	 VHT MCS 7 (64-QAM 5/6)    = 0
+	 VHT MCS 8 (256-QAM 3/4)   = 0
+	 VHT MCS 9 (256-QAM 5/6)   = 0
+	 VHT MCS 10 (1024-QAM 3/4) = 0
+	 VHT MCS 11 (1024-QAM 5/6) = 0
+
+	 HE MCS 0 (BPSK 1/2)      = 13490
+	 HE MCS 1 (QPSK 1/2)      = 0
+	 HE MCS 2 (QPSK 3/4)      = 216
+	 HE MCS 3 (16-QAM 1/2)    = 117
+	 HE MCS 4 (16-QAM 3/4)    = 3437
+	 HE MCS 5 (64-QAM 2/3)    = 121926
+	 HE MCS 6 (64-QAM 3/4)    = 229943
+	 HE MCS 7 (64-QAM 5/6)    = 39822
+	 HE MCS 8 (256-QAM 3/4)   = 826858
+	 HE MCS 9 (256-QAM 5/6)   = 142165
+	 HE MCS 10 (1024-QAM 3/4) = 4236
+	 HE MCS 11 (1024-QAM 5/6) = 3111
+	 HE MCS 12 (4096-QAM 3/4) = 0
+	 HE MCS 13 (4096-QAM 5/6) = 0
+
+	 EHT MCS 0 (BPSK 1/2)      = 0
+	 EHT MCS 1 (QPSK 1/2)      = 0
+	 EHT MCS 2 (QPSK 3/4)      = 0
+	 EHT MCS 3 (16-QAM 1/2)    = 0
+	 EHT MCS 4 (16-QAM 3/4)    = 0
+	 EHT MCS 5 (64-QAM 2/3)    = 0
+	 EHT MCS 6 (64-QAM 3/4)    = 0
+	 EHT MCS 7 (64-QAM 5/6)    = 0
+	 EHT MCS 8 (256-QAM 3/4)   = 0
+	 EHT MCS 9 (256-QAM 5/6)   = 0
+	 EHT MCS 10 (1024-QAM 3/4) = 0
+	 EHT MCS 11 (1024-QAM 5/6) = 0
+	 EHT MCS 12 (4096-QAM 3/4) = 0
+	 EHT MCS 13 (4096-QAM 5/6) = 0
+	 EHT MCS 14 (BPSK-DCM 1/2) = 0
+	 EHT MCS 15 (BPSK-DCM 1/2) = 0
+
+	NSS(1-8)                                     =  15767 1366354 0 0 0 0 0 0
+	SGI                                          = 0.8us 1309104, 0.4us 0, 1.6us 86476, 3.2us 0,
+	BW Counts                                    = 20MHZ 10290, 40MHZ 0, 80MHZ 0, 160MHZ 1385290
+	Reception Type = SU: 1382121, MU_MIMO:0, MU_OFDMA:13459, MU_OFDMA_MIMO:0
+	Number of MSDUs with no MPDU level aggregation       :	60549
+	Number of MSDUs part of AMSPU                        :	1335031
+	Number of MSDUs with no MSDU level aggregation       :	36036
+	Number of MSDUs part of AMSDU                        :	1347411
+	Number of bar received                               :	0
+	RSSI of received signal                              :	38
+	Total multipass Rx packets dropped                    :	0
+HTT_TX_PDEV_STATS_CMN_TLV:
+	mac_id__word                                         :	1
+	hw_queued                                            :	17054113
+	hw_reaped                                            :	17054113
+	underrun                                             :	0
+	hw_paused                                            :	2166308
+	hw_flush                                             :	433699
+	hw_filt                                              :	474071
+	tx_abort                                             :	0
+	mpdu_requed                                          :	469527
+	tx_xretry                                            :	227135
+	data_rc                                              :	3
+	mpdu_dropped_xretry                                  :	1
+	illgl_rate_phy_err                                   :	0
+	cont_xretry                                          :	0
+	tx_timeout                                           :	6450
+	pdev_resets                                          :	74144
+	phy_underrun                                         :	131
+	txop_ovf                                             :	0
+	seq_posted                                           :	14118071
+	seq_failed_queueing                                  :	35354
+	seq_completed                                        :	14083478
+	seq_restarted                                        :	0
+	mu_seq_posted                                        :	0
+	seq_switch_hw_paused                                 :	0
+	next_seq_posted_dsr                                  :	2
+	seq_posted_isr                                       :	7
+	seq_ctrl_cached                                      :	472998
+	mpdu_count_tqm                                       :	6214498
+	msdu_count_tqm                                       :	23486088
+	mpdu_removed_tqm                                     :	41
+	msdu_removed_tqm                                     :	61
+	mpdus_sw_flush                                       :	4681
+	mpdus_hw_filter                                      :	0
+	mpdus_truncated                                      :	2759
+	mpdus_ack_failed                                     :	314018
+	mpdus_expired                                        :	218
+	mpdus_seq_hw_retry                                   :	72
+	ack_tlv_proc                                         :	3322387
+	coex_abort_mpdu_cnt_valid                            :	7667864
+	coex_abort_mpdu_cnt                                  :	19417366
+	num_total_ppdus_tried_ota                            :	16256241
+	num_data_ppdus_tried_ota                             :	7667864
+	local_ctrl_mgmt_enqued                               :	8631637
+	local_ctrl_mgmt_freed                                :	8631637
+	local_data_enqued                                    :	0
+	local_data_freed                                     :	0
+
+HTT_STATS_RX_PDEV_FW_STATS_TAG:
+	mac_id__word                                         :	1
+	ppdu_recvd                                           :	3908044
+	mpdu_cnt_fcs_ok                                      :	7050581
+	mpdu_cnt_fcs_err                                     :	55784
+	tcp_msdu_cnt                                         :	98824
+	tcp_ack_msdu_cnt                                     :	8696308
+	udp_msdu_cnt                                         :	3400814
+	other_msdu_cnt                                       :	961144
+	fw_ring_mpdu_ind                                     :	3080
+	fw_ring_mcast_data_msdu                              :	0
+	fw_ring_bcast_data_msdu                              :	0
+	fw_ring_ucast_data_msdu                              :	0
+	fw_ring_null_data_msdu                               :	719300
+	fw_ring_mpdu_drop                                    :	865049
+	ofld_local_data_ind_cnt                              :	0
+	ofld_local_data_buf_recycle_cnt                      :	0
+	drx_local_data_ind_cnt                               :	0
+	drx_local_data_buf_recycle_cnt                       :	0
+	local_nondata_ind_cnt                                :	3080
+	local_nondata_buf_recycle_cnt                        :	3080
+	fw_status_buf_ring_refill_cnt                        :	3927825
+	fw_status_buf_ring_empty_cnt                         :	0
+	fw_pkt_buf_ring_refill_cnt                           :	868149
+	fw_pkt_buf_ring_empty_cnt                            :	1
+	fw_link_buf_ring_refill_cnt                          :	868129
+	fw_link_buf_ring_empty_cnt                           :	0
+	host_pkt_buf_ring_refill_cnt                         :	15925086
+	host_pkt_buf_ring_empty_cnt                          :	52074
+	mon_pkt_buf_ring_refill_cnt                          :	0
+	mon_pkt_buf_ring_empty_cnt                           :	0
+	mon_status_buf_ring_refill_cnt                       :	0
+	mon_status_buf_ring_empty_cnt                        :	0
+	mon_desc_buf_ring_refill_cnt                         :	0
+	mon_desc_buf_ring_empty_cnt                          :	0
+	mon_dest_ring_update_cnt                             :	1689081587
+	mon_dest_ring_full_cnt                               :	0
+	rx_suspend_cnt                                       :	74288
+	rx_suspend_fail_cnt                                  :	0
+	rx_resume_cnt                                        :	74288
+	rx_resume_fail_cnt                                   :	0
+	rx_ring_switch_cnt                                   :	0
+	rx_ring_restore_cnt                                  :	0
+	rx_flush_cnt                                         :	0

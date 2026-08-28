@@ -1,0 +1,857 @@
+@* Settings - AP Telemetry: the AP Agent fleet table. One row per access point on the Multi-Site
+   sites-table pattern, the firmware-wipe alert above it, and the per-AP capability report expanding
+   inline through the same collapse machinery the Sites table uses. *@
+
+@using NetworkOptimizer.Web.Services.ApAgent
+@using NetworkOptimizer.Web.Services.Ssh
+@implements IDisposable
+@inject IApAgentDeploymentService ApAgents
+@inject ISshSettingsAdminService SshSettingsAdmin
+@inject ILogger<ApTelemetryPanel> Logger
+
+<div class="card @Class" id="ap-telemetry" data-tour="ap-telemetry">
+    <div class="card-header">
+        <h2 class="card-title">AP Telemetry</h2>
+        <div class="card-header-badges">
+            @if (_loaded && _deviceSshConfigured && _siteEnabled && _fleet.Count > 0)
+            {
+                <span class="status-badge @RunningBadgeClass" data-tooltip="@RunningBadgeTooltip">
+                    @RunningCount of @RunningDenominator running
+                </span>
+            }
+            else if (_loaded && _deviceSshConfigured && !_siteEnabled)
+            {
+                <span class="status-badge badge-muted">Off</span>
+            }
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            The AP Agent is a small service Network Optimizer installs on each UniFi access point over
+            SSH. It reads what the UniFi Console does not expose: per-client retries, TCP stalls, and
+            airtime, plus roam timing and radio health. That sharpens channel recommendations, catches
+            a wedged radio before clients give up on the band, and lets Client Performance provide
+            truly real-time signal and roaming data. Any AP without it falls back to UniFi Console
+            data, so nothing breaks when one is missing.
+        </p>
+
+        @if (!_loaded)
+        {
+            <div class="loading-container">
+                <span class="spinner"></span>
+            </div>
+        }
+        else if (!_deviceSshConfigured)
+        {
+            <div class="empty-state empty-state-small">
+                <div class="empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <h3>Device SSH is not configured</h3>
+                <p>
+                    Deploying the AP Agent needs SSH access to your access points. Set the shared
+                    Device SSH credentials first, then come back here.
+                </p>
+                <button class="btn btn-primary" @onclick="OnConfigureDeviceSsh">Configure Device SSH</button>
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@_siteEnabled" @onchange="OnSiteEnabledChangedAsync" />
+                    <span>Collect Wi-Fi telemetry from this site's access points</span>
+                </label>
+                <small class="form-help">
+                    Network Optimizer deploys the AP Agent to each access point within a couple of
+                    minutes, and keeps it there. Turning this off removes it from every access point.
+                </small>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert alert-@_messageClass">@_message</div>
+            }
+
+            @if (_fleet.Count == 0)
+            {
+                <div class="empty-state empty-state-small">
+                    <div class="empty-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path d="M2 11a8 8 0 0116 0h-2a6 6 0 00-12 0H2z" />
+                            <path d="M5.5 11a4.5 4.5 0 019 0h-2a2.5 2.5 0 00-5 0h-2z" />
+                            <circle cx="10" cy="12.5" r="1.5" />
+                        </svg>
+                    </div>
+                    <h3>No access points found</h3>
+                    <p>This site's UniFi Console reports no access points, so there is nowhere to deploy the AP Agent.</p>
+                </div>
+            }
+            else
+            {
+                @if (_bulkRunning)
+                {
+                    <div class="alert alert-info">
+                        Deploying the AP Agent to @_bulkTotal @(_bulkTotal == 1 ? "access point" : "access points"): @_bulkDone of @_bulkTotal complete.
+                        <div class="progress-bar"><div class="progress-fill" style="width: @BulkPercent%;"></div></div>
+                    </div>
+                }
+                else if (_siteEnabled && WipedEntries.Count > 0)
+                {
+                    <div class="alert alert-warning">
+                        @WipedAlertText Reboots and firmware updates always remove the AP Agent;
+                        Network Optimizer redeploys it automatically, and Repair redeploys it now.
+                    </div>
+                }
+
+                @if (_siteEnabled)
+                {
+                    <div class="action-buttons ap-agent-actions">
+                        <button class="btn btn-primary" @onclick="DeployAllAsync"
+                                disabled="@(_bulkRunning || _recheckAllRunning || EligibleCount == 0)">
+                            Deploy to All Eligible (@EligibleCount)
+                        </button>
+                        <button class="btn btn-secondary" @onclick="RecheckAllAsync"
+                                disabled="@(_bulkRunning || _recheckAllRunning)">
+                            @if (_recheckAllRunning)
+                            {
+                                <span class="spinner"></span>
+                                <span>Checking...</span>
+                            }
+                            else
+                            {
+                                <span>Check Status</span>
+                            }
+                        </button>
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="data-table ap-agent-table">
+                        <thead>
+                            <tr>
+                                <th>Access Point</th>
+                                <th class="hide-mobile">Model</th>
+                                <th>AP Agent</th>
+                                <th class="hide-mobile">Version</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var entry in _fleet)
+                            {
+                                var mac = entry.DeviceMac;
+                                var busy = _busyMacs.Contains(mac);
+                                var view = StatusView(entry);
+                                <tr class="@RowClass(entry)"
+                                    @onclick="@(() => IsRowOpen(mac) ? CollapsePanelsAsync() : Task.CompletedTask)">
+                                    <td>
+                                        <span class="@(IsRowOpen(mac) ? "site-name-selected" : null)">@entry.DeviceName</span>
+                                    </td>
+                                    <td class="hide-mobile"><code>@entry.Model</code></td>
+                                    <td>
+                                        <span class="agent-status-inline">
+                                            @if (busy)
+                                            {
+                                                <span class="spinner spinner-sm"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="status-dot @view.Dot"></span>
+                                            }
+                                            @view.Label
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(view.Note))
+                                        {
+                                            <span class="ap-agent-note">@view.Note</span>
+                                        }
+                                    </td>
+                                    <td class="hide-mobile">
+                                        @if (IsRunning(entry) && !string.IsNullOrEmpty(entry.DeployedVersion))
+                                        {
+                                            <text>v@(entry.DeployedVersion)</text>
+                                            @if (entry.State == ApAgentState.OutOfDate)
+                                            {
+                                                <span class="ap-agent-note">Update available</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <text>-</text>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="site-row-actions">
+                                            <div class="btn-group-wrap">
+                                                @if (!busy)
+                                                {
+                                                    @if (_siteEnabled && entry.Enabled)
+                                                    {
+                                                        @if (entry.State == ApAgentState.OutOfDate)
+                                                        {
+                                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => DeployOneAsync(entry)" @onclick:stopPropagation="true">Update</button>
+                                                        }
+                                                        else if (entry.State == ApAgentState.NotListening && entry.LastDeployedAt != null)
+                                                        {
+                                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => DeployOneAsync(entry)" @onclick:stopPropagation="true">Repair</button>
+                                                        }
+                                                        else if (IsDeployable(entry))
+                                                        {
+                                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => DeployOneAsync(entry)" @onclick:stopPropagation="true">Deploy</button>
+                                                        }
+                                                        else if (entry.State is ApAgentState.Filtered or ApAgentState.Unhealthy)
+                                                        {
+                                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true">Retry</button>
+                                                        }
+                                                    }
+                                                    @if (entry.State != ApAgentState.Unsupported)
+                                                    {
+                                                        <button type="button" class="btn @RowActionButtonClass(mac) btn-sm" @onclick="() => ToggleDetailsAsync(entry)" @onclick:stopPropagation="true">
+                                                            @if (_capLoading && IsRowOpen(mac))
+                                                            {
+                                                                <span class="spinner"></span>
+                                                            }
+                                                            <span>@(AgentAnswers(entry) ? "Capabilities" : "Details")</span>
+                                                        </button>
+                                                    }
+                                                }
+                                            </div>
+                                            @if (IsRowOpen(mac))
+                                            {
+                                                @* Flips the moment a collapse starts rather than at unmount, so it points the
+                                                   way the panel is actually moving while the transition plays. *@
+                                                <span class="site-row-caret" aria-hidden="true">@(_panelExpanded ? "▲" : "▼")</span>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                                @if (IsRowOpen(mac))
+                                {
+                                    <tr class="history-details-row site-config-row">
+                                        <td colspan="5">
+                                            <div class="expand-wrapper @(_panelExpanded ? "expanded" : "")">
+                                                <div class="expand-content">
+                                                    <div class="ap-agent-cap-panel">
+                                                        @if (_capReport is { } caps)
+                                                        {
+                                                            <div class="ap-agent-cap-title">Capability report - @entry.DeviceName</div>
+                                                            <span class="ap-agent-note">
+                                                                AP Agent v@(caps.Version), probed @Ago(caps.ProbedAt).
+                                                                The AP Agent probes what this access point can provide at startup;
+                                                                sources vary by model and firmware.
+                                                            </span>
+                                                            <div class="ap-agent-cap-list">
+                                                                @foreach (var probe in caps.Probes)
+                                                                {
+                                                                    <div class="ap-agent-cap-row @(probe.Available ? null : "cap-unavailable")"
+                                                                         data-tooltip="@(string.IsNullOrEmpty(probe.Detail) ? null : probe.Detail)">
+                                                                        <span class="status-dot @(probe.Available ? "online" : "offline")"></span>
+                                                                        <span class="ap-agent-cap-name">@ProbeLabel(probe.Name)</span>
+                                                                        <span class="ap-agent-cap-src">@ProbeSource(probe.Name)</span>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                            @foreach (var probe in caps.Probes.Where(p => !p.Available && !string.IsNullOrEmpty(p.Degrades)))
+                                                            {
+                                                                <span class="ap-agent-note">@ProbeLabel(probe.Name) is unavailable on this access point: @probe.Degrades.</span>
+                                                            }
+                                                            @if (caps.Vaps.Count > 0)
+                                                            {
+                                                                <span class="ap-agent-note">Serving @caps.Vaps.Count @(caps.Vaps.Count == 1 ? "VAP" : "VAPs") on @caps.Radios.Count @(caps.Radios.Count == 1 ? "radio" : "radios").</span>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="ap-agent-cap-title">Status - @entry.DeviceName</div>
+                                                            @if (AgentAnswers(entry))
+                                                            {
+                                                                <span class="ap-agent-note">The capability report did not load; the AP Agent may be mid-restart. Check Status to try again.</span>
+                                                            }
+                                                            else if (!string.IsNullOrEmpty(entry.Detail))
+                                                            {
+                                                                <span class="ap-agent-note">@entry.Detail</span>
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(entry.LastError) && entry.LastError != entry.Detail)
+                                                            {
+                                                                <span class="ap-agent-note">Last error: @entry.LastError</span>
+                                                            }
+                                                            <div class="ap-agent-cap-list">
+                                                                @if (!string.IsNullOrEmpty(entry.Architecture))
+                                                                {
+                                                                    <div class="ap-agent-cap-row">
+                                                                        <span class="ap-agent-cap-name">Architecture</span>
+                                                                        <span class="ap-agent-cap-src">@entry.Architecture</span>
+                                                                    </div>
+                                                                }
+                                                                @if (entry.LastDeployedAt is { } deployed)
+                                                                {
+                                                                    <div class="ap-agent-cap-row">
+                                                                        <span class="ap-agent-cap-name">Last deployed</span>
+                                                                        <span class="ap-agent-cap-src">@Ago(deployed)</span>
+                                                                    </div>
+                                                                }
+                                                                @if (entry.LastHealthyAt is { } healthy)
+                                                                {
+                                                                    <div class="ap-agent-cap-row">
+                                                                        <span class="ap-agent-cap-name">Last reached</span>
+                                                                        <span class="ap-agent-cap-src">@Ago(healthy)</span>
+                                                                    </div>
+                                                                }
+                                                                @if (entry.NextAttemptAt is { } next && next > DateTime.UtcNow)
+                                                                {
+                                                                    <div class="ap-agent-cap-row">
+                                                                        <span class="ap-agent-cap-name">Next automatic attempt</span>
+                                                                        <span class="ap-agent-cap-src">@next.ToLocalTime().ToString("h:mm:ss tt")</span>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        <div class="ap-agent-cap-footer">
+                                                            <label class="checkbox-toggle" @onclick:stopPropagation="true">
+                                                                <input type="checkbox" checked="@entry.Enabled"
+                                                                       @onchange="e => SetApEnabledAsync(entry, e)" />
+                                                                <span>Include in AP Agent deployment</span>
+                                                            </label>
+                                                            @if (_siteEnabled)
+                                                            {
+                                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Check Status</button>
+                                                            }
+                                                            @if (entry.LastDeployedAt != null || IsRunning(entry))
+                                                            {
+                                                                <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveOneAsync(entry)" @onclick:stopPropagation="true" disabled="@busy">Remove AP Agent</button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <div class="setup-guide ap-agent-guide">
+                @* Not a details element: it cannot animate, and this tab reuses the same
+                   expand-wrapper machinery as the Multi-Site table. *@
+                <div class="setup-guide-summary" role="button" tabindex="0"
+                     @onclick="ToggleGuideAsync" @onkeypress="OnGuideKeyAsync">
+                    <span class="site-row-caret" aria-hidden="true">@(_guideExpanded ? "▲" : "▼")</span>
+                    <span>How AP Agent deployment works</span>
+                </div>
+                <div class="expand-wrapper @(_guideExpanded ? "expanded" : "")">
+                    <div class="expand-content">
+                <div class="setup-guide-content">
+                    <h4>What gets installed</h4>
+                    <p>
+                        A single small binary, pushed over SSH into a memory-backed directory on each
+                        access point. It only reads telemetry: it never changes channels, never touches
+                        client connections, and can be removed at any time.
+                    </p>
+                    <h4>Reboots and firmware updates remove it</h4>
+                    <p>
+                        The AP Agent lives in memory by design, so the AP keeps zero footprint. That
+                        means every reboot and every firmware update clears it. Network Optimizer
+                        rechecks each access point every couple of minutes and redeploys on its own;
+                        Repair does the same thing immediately. Telemetry falls back to the UniFi
+                        Console in the meantime.
+                    </p>
+                    <h4>Credentials</h4>
+                    <p>
+                        Deployment uses the shared Device SSH credentials from
+                        <strong>Settings - Connection - Device SSH</strong>.
+                    </p>
+                    <h4>Supported hardware</h4>
+                    <p>
+                        32-bit ARM (armv7l) access points, which covers the tested U7-series models.
+                        Unsupported models are listed and skipped; their telemetry keeps coming from
+                        the UniFi Console.
+                    </p>
+                </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Whether the AP Telemetry tab is the one on screen. Loading and the refresh timer wait for it.</summary>
+    [Parameter] public bool Active { get; set; }
+
+    /// <summary>Settings shows a tab by putting settings-tab-&lt;name&gt; on the card; the host passes it here.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Takes the reader to Settings - Connection - Device SSH, supplied by the host page.</summary>
+    [Parameter] public EventCallback OnConfigureDeviceSsh { get; set; }
+
+    private bool _loaded;
+    private bool _loading;
+    private bool _deviceSshConfigured;
+    private bool _siteEnabled;
+
+    /// <summary>
+    /// Guide open state. Collapsed on arrival: it is reference material, not the point of the tab.
+    /// </summary>
+    private bool _guideExpanded;
+
+    /// <summary>
+    /// Drives the expand transition one render behind the panel appearing. A wrapper rendered
+    /// already carrying "expanded" has nothing to transition from, so opening is staged.
+    /// </summary>
+    private const int PanelStageMs = 16;
+
+    private async Task ToggleGuideAsync()
+    {
+        if (_guideExpanded)
+        {
+            _guideExpanded = false;
+            return;
+        }
+
+        _guideExpanded = false;
+        StateHasChanged();
+        await Task.Delay(PanelStageMs);
+        _guideExpanded = true;
+    }
+
+    private async Task OnGuideKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ") await ToggleGuideAsync();
+    }
+    private IReadOnlyList<ApAgentFleetEntry> _fleet = Array.Empty<ApAgentFleetEntry>();
+
+    private string? _message;
+    private string _messageClass = "info";
+
+    private readonly HashSet<string> _busyMacs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _rowProgress = new(StringComparer.OrdinalIgnoreCase);
+    private bool _bulkRunning;
+    private int _bulkTotal;
+    private int _bulkDone;
+    private bool _recheckAllRunning;
+
+    private string? _expandedMac;
+    private ApAgentCapabilityReport? _capReport;
+    private bool _capLoading;
+
+    private System.Threading.Timer? _refreshTimer;
+
+    /// <summary>
+    /// Drives the expand transition, one render behind the row appearing. A row rendered already
+    /// carrying "expanded" has nothing to transition from, so opening is staged: render collapsed,
+    /// then expand. Closing runs the reverse and only unmounts once the transition has played.
+    /// </summary>
+    private bool _panelExpanded;
+
+    private const int PanelTransitionMs = 250;
+
+    /// <summary>Friendly capability names for the agent's stable probe names, with the source tool.</summary>
+    private static readonly Dictionary<string, (string Label, string Source)> ProbeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["hostapd_ctrl"] = ("Client join and leave events", "hostapd"),
+        ["wlanconfig"] = ("Per-client signal and rates", "wlanconfig"),
+        ["mca_dump"] = ("Client identity (IP and hostname)", "mca-dump"),
+        ["ubus"] = ("Client lists and control inventory", "ubus"),
+        ["stahtd"] = ("Roam events with timing", "stahtd"),
+        ["athstats"] = ("Radio airtime counters", "athstats"),
+    };
+
+    private static string ProbeLabel(string name) => ProbeNames.TryGetValue(name, out var p) ? p.Label : name;
+    private static string ProbeSource(string name) => ProbeNames.TryGetValue(name, out var p) ? p.Source : name;
+
+    private static string Ago(DateTime utc) => TimeFormatHelper.FormatRelativeTime(utc);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_loaded && !_loading)
+            await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var ssh = await SshSettingsAdmin.GetDeviceForEditAsync();
+            _deviceSshConfigured = ssh.Enabled;
+            _siteEnabled = await ApAgents.IsSiteEnabledAsync();
+            if (_deviceSshConfigured)
+                await RefreshFleetAsync();
+            _loaded = true;
+
+            _refreshTimer ??= new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    if (!Active || _bulkRunning || _recheckAllRunning || !_deviceSshConfigured) return;
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshFleetAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { /* prevent timer death */ }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "AP Telemetry tab failed to load");
+            _loaded = true;
+            ShowMessage("Could not load the access point list. Check the UniFi Console connection.", "warning");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshFleetAsync()
+    {
+        try
+        {
+            _fleet = await ApAgents.GetFleetAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "AP Agent fleet refresh failed");
+        }
+    }
+
+    private void ShowMessage(string text, string cssClass)
+    {
+        _message = text;
+        _messageClass = cssClass;
+    }
+
+    // ---- Derived state ----
+
+    private static bool IsRunning(ApAgentFleetEntry e) => e.State is ApAgentState.Healthy or ApAgentState.OutOfDate;
+
+    /// <summary>Whether the agent is answering HTTP, which is when a capability report is worth asking for.</summary>
+    private static bool AgentAnswers(ApAgentFleetEntry e) => e.State is ApAgentState.Healthy or ApAgentState.OutOfDate or ApAgentState.Wedged;
+
+    /// <summary>States where Deploy is the sensible first action: never observed, or reachable with nothing listening.</summary>
+    private static bool IsDeployable(ApAgentFleetEntry e) =>
+        e.DeviceOnline && e.State is ApAgentState.Unknown or ApAgentState.NotListening;
+
+    /// <summary>Rows Deploy to All Eligible picks up. Filtered and offline APs are deliberately not eligible.</summary>
+    private bool IsEligible(ApAgentFleetEntry e) =>
+        e.Enabled && IsDeployable(e) && !_busyMacs.Contains(e.DeviceMac);
+
+    private int EligibleCount => _fleet.Count(IsEligible);
+    private int RunningCount => _fleet.Count(IsRunning);
+    private int UnsupportedCount => _fleet.Count(e => e.State == ApAgentState.Unsupported);
+    private int OptedOutCount => _fleet.Count(e => !e.Enabled && e.State != ApAgentState.Unsupported);
+    private int RunningDenominator => _fleet.Count - UnsupportedCount - OptedOutCount;
+
+    private string RunningBadgeClass =>
+        RunningDenominator > 0 && RunningCount == RunningDenominator ? "status-connected"
+        : RunningCount > 0 ? "status-provisioning"
+        : "badge-muted";
+
+    private string? RunningBadgeTooltip
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (UnsupportedCount > 0)
+                parts.Add($"{UnsupportedCount} unsupported access {(UnsupportedCount == 1 ? "point" : "points")}");
+            if (OptedOutCount > 0)
+                parts.Add($"{OptedOutCount} opted out");
+            return parts.Count == 0 ? null : "Excludes " + string.Join(" and ", parts);
+        }
+    }
+
+    private int BulkPercent => _bulkTotal == 0 ? 0 : (int)Math.Round(100.0 * _bulkDone / _bulkTotal);
+
+    /// <summary>APs that had the agent and now refuse the connection: the reboot / firmware-wipe signature.</summary>
+    private List<ApAgentFleetEntry> WipedEntries =>
+        _fleet.Where(e => e.Enabled && e.State == ApAgentState.NotListening && e.LastDeployedAt != null).ToList();
+
+    private string WipedAlertText
+    {
+        get
+        {
+            var wiped = WipedEntries;
+            return wiped.Count == 1
+                ? $"{wiped[0].DeviceName} lost its AP Agent."
+                : $"{wiped.Count} access points lost their AP Agent: {string.Join(", ", wiped.Select(e => e.DeviceName))}.";
+        }
+    }
+
+    private string? RowClass(ApAgentFleetEntry e)
+    {
+        var open = IsRowOpen(e.DeviceMac) ? "site-row-selected site-row-collapsible" : null;
+        if (!e.Enabled) return open == null ? "row-disabled" : open + " row-disabled";
+        return open;
+    }
+
+    /// <summary>
+    /// Secondary normally, contrast once the row is highlighted - the selected row's background is
+    /// brighter than a secondary button, so it would otherwise sink into it.
+    /// </summary>
+    private string RowActionButtonClass(string mac) => IsRowOpen(mac) ? "btn-contrast" : "btn-secondary";
+
+    private (string Dot, string Label, string? Note) StatusView(ApAgentFleetEntry e)
+    {
+        if (_busyMacs.Contains(e.DeviceMac))
+            return ("", "Deploying", _rowProgress.TryGetValue(e.DeviceMac, out var p) ? p : null);
+
+        if (e.State != ApAgentState.Unsupported && !e.Enabled)
+            return ("offline", "Opted out", "Excluded from AP Agent deployment");
+
+        return e.State switch
+        {
+            ApAgentState.Healthy => ("online", "Running", null),
+            ApAgentState.OutOfDate => ("online", "Running", null),
+            ApAgentState.Unsupported => ("offline", "Unsupported model", e.Detail),
+            ApAgentState.ApOffline => ("offline", "AP offline", "Deployment waits for the access point to come back."),
+            ApAgentState.Wedged => ("error", "Stalled", "Answering, but its probes stopped; it is restarted in place automatically."),
+            ApAgentState.Unauthorized => ("error", "Token mismatch", "The AP Agent rejected this server's token; the token is re-pushed automatically."),
+            ApAgentState.NotListening when e.LastDeployedAt != null =>
+                ("error", "Stopped", e.LastHealthyAt is { } h
+                    ? $"Removed by a reboot or firmware update; last healthy {Ago(h)}"
+                    : "Removed by a reboot or firmware update"),
+            ApAgentState.NotListening => ("offline", "Not deployed", null),
+            ApAgentState.Filtered => ("error", "Unreachable", e.Detail),
+            ApAgentState.Unhealthy => ("error", "Unhealthy", e.Detail),
+            _ => ("offline", e.LastDeployedAt != null ? "Awaiting check" : "Not deployed", null),
+        };
+    }
+
+    // ---- Row expansion: same staged machinery as the Multi-Site sites table ----
+
+    private bool IsRowOpen(string mac) => string.Equals(_expandedMac, mac, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Mounts a panel collapsed, then expands it on the next render.</summary>
+    private async Task OpenPanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(16);
+        _panelExpanded = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Collapses whichever panel is open. Bound to the row itself, so the caret and the row
+    /// are one target; expanding stays on the explicit buttons.</summary>
+    private async Task CollapsePanelsAsync()
+    {
+        await ClosePanelAsync();
+        _expandedMac = null;
+        _capReport = null;
+    }
+
+    /// <summary>Collapses a panel and waits for the transition before the caller unmounts it.</summary>
+    private async Task ClosePanelAsync()
+    {
+        _panelExpanded = false;
+        StateHasChanged();
+        await Task.Delay(PanelTransitionMs);
+    }
+
+    private async Task ToggleDetailsAsync(ApAgentFleetEntry entry)
+    {
+        if (IsRowOpen(entry.DeviceMac))
+        {
+            await CollapsePanelsAsync();
+            return;
+        }
+
+        _expandedMac = entry.DeviceMac;
+        _panelExpanded = false;
+        _capReport = null;
+        StateHasChanged();
+
+        if (AgentAnswers(entry))
+        {
+            _capLoading = true;
+            try
+            {
+                _capReport = await ApAgents.GetCapabilitiesAsync(entry.DeviceMac);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "AP Agent capability fetch failed for {Mac}", entry.DeviceMac);
+            }
+            finally
+            {
+                _capLoading = false;
+            }
+        }
+
+        // Expanded last, so the panel grows once to its real height rather than twice.
+        await OpenPanelAsync();
+    }
+
+    // ---- Actions ----
+
+    private async Task OnSiteEnabledChangedAsync(ChangeEventArgs e)
+    {
+        _siteEnabled = e.Value is true;
+        _message = null;
+        try
+        {
+            await ApAgents.SetSiteEnabledAsync(_siteEnabled);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not change the AP Agent site setting");
+            _siteEnabled = !_siteEnabled;
+            ShowMessage("Could not save the setting.", "danger");
+        }
+    }
+
+    private async Task SetApEnabledAsync(ApAgentFleetEntry entry, ChangeEventArgs e)
+    {
+        var enabled = e.Value is true;
+        try
+        {
+            await ApAgents.SetEnabledAsync(entry.DeviceMac, enabled);
+            entry.Enabled = enabled;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not change the AP Agent opt-out for {Mac}", entry.DeviceMac);
+            ShowMessage("Could not save the setting.", "danger");
+        }
+    }
+
+    private async Task DeployOneAsync(ApAgentFleetEntry entry)
+    {
+        _message = null;
+        await DeployCoreAsync(entry);
+        await RefreshFleetAsync();
+    }
+
+    private async Task DeployCoreAsync(ApAgentFleetEntry entry)
+    {
+        var mac = entry.DeviceMac;
+        if (!_busyMacs.Add(mac)) return;
+        _rowProgress[mac] = "Starting...";
+        StateHasChanged();
+        try
+        {
+            var progress = new Progress<string>(msg =>
+                _ = InvokeAsync(() =>
+                {
+                    _rowProgress[mac] = msg;
+                    StateHasChanged();
+                }));
+            var result = await ApAgents.DeployAsync(mac, progress);
+            if (!result.Success)
+                ShowMessage($"Deploying to {entry.DeviceName} failed: {result.Error}", "danger");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "AP Agent deploy failed for {Mac}", mac);
+            ShowMessage($"Deploying to {entry.DeviceName} failed.", "danger");
+        }
+        finally
+        {
+            _busyMacs.Remove(mac);
+            _rowProgress.Remove(mac);
+        }
+    }
+
+    private async Task DeployAllAsync()
+    {
+        var targets = _fleet.Where(IsEligible).ToList();
+        if (targets.Count == 0 || _bulkRunning) return;
+
+        _message = null;
+        _bulkRunning = true;
+        _bulkTotal = targets.Count;
+        _bulkDone = 0;
+        StateHasChanged();
+        try
+        {
+            // Sequential on purpose: the service already limits concurrent transfers, and one AP at
+            // a time keeps the progress banner honest.
+            foreach (var target in targets)
+            {
+                await DeployCoreAsync(target);
+                _bulkDone++;
+                await RefreshFleetAsync();
+                StateHasChanged();
+            }
+        }
+        finally
+        {
+            _bulkRunning = false;
+        }
+    }
+
+    private async Task RecheckOneAsync(ApAgentFleetEntry entry)
+    {
+        _message = null;
+        try
+        {
+            await ApAgents.CheckHealthAsync(entry.DeviceMac);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "AP Agent recheck failed for {Mac}", entry.DeviceMac);
+        }
+        await RefreshFleetAsync();
+        if (IsRowOpen(entry.DeviceMac) && _capReport == null && AgentAnswers(entry))
+        {
+            try { _capReport = await ApAgents.GetCapabilitiesAsync(entry.DeviceMac); }
+            catch (Exception ex) { Logger.LogDebug(ex, "AP Agent capability fetch failed for {Mac}", entry.DeviceMac); }
+        }
+    }
+
+    private async Task RecheckAllAsync()
+    {
+        if (_recheckAllRunning) return;
+        _message = null;
+        _recheckAllRunning = true;
+        StateHasChanged();
+        try
+        {
+            foreach (var entry in _fleet.Where(e => e.Enabled && e.State != ApAgentState.Unsupported))
+            {
+                try { await ApAgents.CheckHealthAsync(entry.DeviceMac); }
+                catch (Exception ex) { Logger.LogDebug(ex, "AP Agent recheck failed for {Mac}", entry.DeviceMac); }
+            }
+        }
+        finally
+        {
+            _recheckAllRunning = false;
+        }
+        await RefreshFleetAsync();
+    }
+
+    private async Task RemoveOneAsync(ApAgentFleetEntry entry)
+    {
+        _message = null;
+        try
+        {
+            var result = await ApAgents.RemoveAsync(entry.DeviceMac);
+            if (!result.Success)
+            {
+                ShowMessage($"Removing the AP Agent from {entry.DeviceName} failed: {result.Error}", "danger");
+            }
+            else if (_siteEnabled && entry.Enabled)
+            {
+                ShowMessage($"Removed from {entry.DeviceName}. It is still included in deployment, so it will be redeployed automatically; untick Include in AP Agent deployment to keep it off.", "info");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "AP Agent removal failed for {Mac}", entry.DeviceMac);
+            ShowMessage($"Removing the AP Agent from {entry.DeviceName} failed.", "danger");
+        }
+        await RefreshFleetAsync();
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
