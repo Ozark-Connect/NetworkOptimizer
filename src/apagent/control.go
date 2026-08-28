@@ -129,8 +129,16 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		duration = defaultBtmDurationTbtt
 	}
 
+	// hostapd keys its station table per link, so an MLO client is not addressable there by its MLD
+	// MAC: ubus answers "Not found" and the whole request fails. Substituted only when a different
+	// link address is actually known for this VAP, so a non-MLO request is unchanged.
+	addr := mac
+	if link := table.LinkAddrForVap(mac, vap); link != "" {
+		addr = link
+	}
+
 	args := map[string]any{
-		"addr":      mac,
+		"addr":      addr,
 		"duration":  duration,
 		"abridged":  req.Abridged,
 		"neighbors": req.Candidates,

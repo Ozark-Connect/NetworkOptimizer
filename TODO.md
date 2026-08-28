@@ -1164,6 +1164,10 @@ stale reading actually being material and uncorroborated. **Do not re-implement 
     uplinks - so scan those freely/immediately, anytime. Only serving-radio APs (no scan radio) need
     the off-peak window. Mesh parents WITHOUT a scan radio are the most disruptive (scanning the uplink
     band drops children) - schedule those most conservatively or skip their uplink band.
+  - **Suppress while a Firmware Rollout is upgrading APs on the site.** Today the recompute is
+    page-load only, so it needs a human on the page mid-rollout and is not worth guarding. A
+    background sweep removes that limit. `RolloutSuppressionRegistry.RefreshAgentHold` /
+    `IsAgentHeld` is the precedent: a non-preference hold keyed on an in-flight step.
 - [ ] **Deep-analysis mode (premium, user-initiated)** - trigger fresh scans on ALL radios, wait,
   then recommend on fully-measured data. Best accuracy, slow (minutes); distinct from the fast
   everyday rec.

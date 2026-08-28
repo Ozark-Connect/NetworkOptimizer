@@ -79,7 +79,7 @@ public class UbiquitiReleaseFeedClient
     /// The newest build for a model on a channel, from /api/firmware-latest. Returns null when the
     /// feed knows no such combination (which includes every non-GA channel - see the class summary).
     /// </summary>
-    /// <param name="platform">Model code as the console reports it, e.g. "U6M".</param>
+    /// <param name="platform">Model code as the Console reports it, e.g. "U6M".</param>
     /// <param name="channel">Feed channel; GA by default.</param>
     /// <param name="product">Optional product family filter, e.g. "unifi-firmware".</param>
     public async Task<UbiquitiFirmwareRelease?> GetLatestAsync(
@@ -102,7 +102,7 @@ public class UbiquitiReleaseFeedClient
 
     /// <summary>
     /// A specific build for a model, from /api/firmware. Accepts either the feed's own version
-    /// string ("v6.8.2+15592") or the console's dotted form ("6.8.2.15592"); the raw string is tried
+    /// string ("v6.8.2+15592") or the Console's dotted form ("6.8.2.15592"); the raw string is tried
     /// as well when the two differ, so a version the feed spells some other way still resolves.
     /// </summary>
     public async Task<UbiquitiFirmwareRelease?> GetByVersionAsync(
@@ -132,7 +132,7 @@ public class UbiquitiReleaseFeedClient
     /// <summary>
     /// Every build the feed carries for a model, newest first - the rollback candidate list.
     /// </summary>
-    /// <param name="platform">Model code as the console reports it, e.g. "U6M".</param>
+    /// <param name="platform">Model code as the Console reports it, e.g. "U6M".</param>
     /// <param name="channel">Feed channel, or null for all channels.</param>
     /// <param name="limit">Maximum entries to request; the feed defaults to 25 without one.</param>
     public async Task<IReadOnlyList<UbiquitiFirmwareRelease>> ListVersionsAsync(

@@ -642,7 +642,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // Standalone UniFi OS Server consoles are often custom deploys, so their OS is never
             // ours to update. The UniFi Network application stays in scope on them.
             document.IncludesUniFiOsUpdate = false;
-            document.Notes.Add("UniFi OS is not updated on a self-hosted console; this rollout covers network devices only.");
+            document.Notes.Add("UniFi OS is not updated on a self-hosted Console; this rollout covers network devices only.");
             plan.PlanJson = JsonSerializer.Serialize(document);
             _logger.LogWarning(
                 "Refusing the UniFi OS step of rollout {Id} on site {Site}: the console is a self-hosted UniFi OS Server",
@@ -686,7 +686,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!RolloutPlanComposer.ConsoleReachable(console))
         {
             await AddBackupNoteAsync(plan, document,
-                "No console backup was taken: the console API is not reachable (API-key connection).",
+                "No Console backup was taken: the Console API is not reachable (API-key connection).",
                 cancellationToken);
             return;
         }
@@ -1071,7 +1071,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.DeviceStuckOffline,
                 AlertSeverity.Critical,
                 $"Console Stuck Offline After UniFi OS Update{_siteSuffix}",
-                $"The console was updated to UniFi OS {ShortVersion(state.TargetVersion) ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
+                $"The Console was updated to UniFi OS {ShortVersion(state.TargetVersion) ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
                 cancellationToken);
@@ -1329,7 +1329,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (ElapsedObserved(escalatedAt) >= CommandGraceWindow)
             {
                 await FailStepAsync(document, steps, step,
-                    "The device never started the upgrade, over the console or over SSH.", cancellationToken);
+                    "The device never started the upgrade, over the Console or over SSH.", cancellationToken);
             }
             return;
         }
@@ -1351,7 +1351,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
-                "The upgrade command was accepted but nothing happened, and the console lists no image URL to retry over SSH.",
+                "The upgrade command was accepted but nothing happened, and the Console lists no image URL to retry over SSH.",
                 cancellationToken);
             return;
         }
@@ -1398,7 +1398,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
-                $"{cameBack}, and the console lists no image URL to retry over SSH.", cancellationToken);
+                $"{cameBack}, and the Console lists no image URL to retry over SSH.", cancellationToken);
             return;
         }
 
@@ -1540,7 +1540,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!verdict.Passed)
         {
-            await FailStepAsync(document, steps, step, verdict.Reason ?? "The post-upgrade check failed.", cancellationToken);
+            await FailStepAsync(
+                document, steps, step, verdict.Reason ?? "The post-upgrade check failed.",
+                cancellationToken, healthCheckFailed: true);
             return;
         }
 
@@ -1615,14 +1617,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         string error,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool healthCheckFailed = false)
     {
         step.State = FirmwareRolloutStepState.Failed;
         step.Error = error;
         await PersistStepAsync(step, cancellationToken);
         _logger.LogError("{Device} on site {Site} failed its upgrade: {Error}", step.DeviceName, _siteSlug, error);
 
-        await AbortSkuAsync(document, steps, step, error, cancellationToken);
+        await AbortSkuAsync(document, steps, step, error, cancellationToken, healthCheckFailed);
     }
 
     /// <summary>
@@ -1634,7 +1637,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep failed,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool healthCheckFailed = false)
     {
         if (string.IsNullOrWhiteSpace(failed.Model)) return;
 
@@ -1654,16 +1658,44 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!_skuAbortsPublished.Add(failed.Model))
             return;
 
-        var isCanary = IsCanary(document, failed.DeviceMac);
+        var model = ResolvedModel(failed);
+        var version = ShortVersion(failed.ToVersion) ?? "the target version";
+
+        // A model with only one device in the plan has no canary - the label describes a device
+        // that goes first so the others can follow, and there are no others.
+        var hasSiblings = steps.Count(s =>
+            string.Equals(s.Model, failed.Model, StringComparison.OrdinalIgnoreCase)) > 1;
+        var canary = hasSiblings && IsCanary(document, failed.DeviceMac) ? ", the canary for this model" : "";
+
+        // Only when peers were actually dropped: with none, the sentence reports a consequence
+        // that did not happen.
+        var dropped = peers.Count > 0
+            ? $" {peers.Count} remaining {model} device{(peers.Count == 1 ? " was" : "s were")} dropped;"
+            + " other models keep rolling."
+            : " Other models keep rolling.";
+
+        var opening = healthCheckFailed
+            ? $"{failed.DeviceName} ({model}{canary}) upgraded to {version} but failed its post-upgrade check."
+            : $"{failed.DeviceName} ({model}{canary}) did not successfully upgrade to {version}.";
+
         await PublishAsync(
-            RolloutAlerts.SkuAborted,
-            AlertSeverity.Warning,
-            $"Firmware Rollout Dropped {failed.Model}{_siteSuffix}",
-            $"{failed.DeviceName} ({failed.Model}{(isCanary ? ", the first of its model" : "")}) did not come through its upgrade to {ShortVersion(failed.ToVersion) ?? "the target version"}. {peers.Count} remaining {failed.Model} device{(peers.Count == 1 ? " was" : "s were")} dropped; other models keep rolling.",
+            healthCheckFailed ? RolloutAlerts.PostUpgradeCheckFailed : RolloutAlerts.SkuAborted,
+            healthCheckFailed ? AlertSeverity.Info : AlertSeverity.Warning,
+            healthCheckFailed
+                ? $"Firmware Rollout: {model} Failed Its Post-Upgrade Check{_siteSuffix}"
+                : $"Firmware Rollout: {model} Failed{_siteSuffix}",
+            $"{opening} {reason}{dropped}",
             failed.DeviceMac,
             failed.DeviceName,
             cancellationToken);
     }
+
+    /// <summary>
+    /// The device's product name, resolved the same way the report resolves it. The SKU the
+    /// console reports is a key, never a label.
+    /// </summary>
+    private static string ResolvedModel(FirmwareRolloutStep step) =>
+        NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(step.Model, null);
 
     /// <summary>
     /// Releases a model's held peers once its canary is through, which is the whole point of the
@@ -2768,16 +2800,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         switch (document.UniFiOsUpdate.Outcome)
         {
             case "updated":
-                parts.Add($"The console was updated to UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"}.");
+                parts.Add($"The Console was updated to UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"}.");
                 break;
             case "unchanged":
-                parts.Add($"The console accepted UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"} but is still offering it.");
+                parts.Add($"The Console accepted UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"} but is still offering it.");
                 break;
             case "stuck":
-                parts.Add("The console has not answered since its UniFi OS update.");
+                parts.Add("The Console has not answered since its UniFi OS update.");
                 break;
             case "refused":
-                parts.Add("The console would not take its UniFi OS update.");
+                parts.Add("The Console would not take its UniFi OS update.");
                 break;
         }
 

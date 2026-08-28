@@ -20584,12 +20584,12 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.25rem;
-    padding: 0.4rem 0.6rem;
+    gap: 0.17rem;
+    padding: 0.27rem 0.4rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
-    font-size: 0.825rem;
+    font-size: 0.55rem;
     color: var(--text-muted);
     pointer-events: none;
 }
@@ -20598,18 +20598,18 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 0.85rem;
+    gap: 0.57rem;
 }
 
 .firmware-rollout-legend-item {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.23rem;
 }
 
 .firmware-rollout-legend-dot {
-    width: 0.6rem;
-    height: 0.6rem;
+    width: 0.4rem;
+    height: 0.4rem;
     border-radius: 50%;
 }
 
@@ -20618,14 +20618,14 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     justify-content: center;
     line-height: 1;
-    padding-top: 0.06rem;
-    width: 1.1rem;
-    height: 1.1rem;
+    padding-top: 0.04rem;
+    width: 0.74rem;
+    height: 0.74rem;
     border-radius: 50%;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: 0.44rem;
     font-weight: 600;
 }
 

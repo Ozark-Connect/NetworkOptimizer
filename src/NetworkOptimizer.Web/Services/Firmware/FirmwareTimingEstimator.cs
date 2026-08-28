@@ -11,8 +11,12 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// </summary>
 public class FirmwareTimingEstimator
 {
-    /// <summary>Learned timings below this sample count stay advisory; seeds win.</summary>
-    public const int MinLearnedSamples = 3;
+    /// <summary>
+    /// Learned timings below this sample count stay advisory; seeds win. One measured cycle from
+    /// the site itself beats a fleet seed, and the estimate only drives the timeline - the offline
+    /// budget is what declares a device stuck.
+    /// </summary>
+    public const int MinLearnedSamples = 1;
 
     /// <summary>Declare-stuck threshold for everything but Cloud Gateways.</summary>
     public const int DefaultOfflineBudgetSeconds = 900;
@@ -30,8 +34,9 @@ public class FirmwareTimingEstimator
     /// <summary>Seed p50 downtime per class, in seconds.</summary>
     public static int SeedDowntimeSeconds(FirmwareDeviceClass cls) => cls switch
     {
-        FirmwareDeviceClass.AccessPoint => 240,
-        FirmwareDeviceClass.OlderAccessPoint => 420,
+        // Measured on U7/E7 cycles 2026-08-28: 180, 180, 185 s wired.
+        FirmwareDeviceClass.AccessPoint => 180,
+        FirmwareDeviceClass.OlderAccessPoint => 240,
         FirmwareDeviceClass.Switch => 480,
         FirmwareDeviceClass.GatewayNetworkOnly => 240,
         FirmwareDeviceClass.CellularModem => 480,
@@ -109,6 +114,16 @@ public class FirmwareTimingEstimator
         {
             if (Contains(displayModel, marker)) return true;
         }
+
+        // The SKU is only consulted when the product database had no friendly name to resolve.
+        // Never over a name that DID resolve: modern SKUs are spelled UAPA6A6 / UAPA697 (U7-Pro-
+        // Outdoor, E7), so this test reads every one of them as pre-U6 hardware.
+        if (!string.IsNullOrWhiteSpace(displayModel)
+            && !string.Equals(displayModel, model, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         return Contains(model, "UAP") && !Contains(model, "UAP6");
     }
 

@@ -44,7 +44,7 @@ public static class RollbackUrlCache
 
             if (string.IsNullOrWhiteSpace(step.FromVersion))
             {
-                entry.UnavailableReason = "the console did not report which version this device is on";
+                entry.UnavailableReason = "the Console did not report which version this device is on";
             }
             else
             {

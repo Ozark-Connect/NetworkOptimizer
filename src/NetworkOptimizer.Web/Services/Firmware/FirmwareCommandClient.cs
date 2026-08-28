@@ -162,6 +162,23 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
+    public async Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await ConnectedClientAsync(cancellationToken);
+        if (client == null) return false;
+
+        try
+        {
+            return await client.TriggerDeviceFirmwareCheckAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Triggering the device firmware check failed for site {Site}", _siteSlug);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<bool> CheckForApplicationUpdatesAsync(CancellationToken cancellationToken = default)
     {
         var client = await ConnectedClientAsync(cancellationToken);
@@ -361,7 +378,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     public static FirmwareCommandResult MapBackupResult(UniFiConsoleBackupResult? result)
     {
         if (result == null)
-            return FirmwareCommandResult.Failed("the console did not answer the backup request");
+            return FirmwareCommandResult.Failed("the Console did not answer the backup request");
 
         if (result.Success)
             return FirmwareCommandResult.Ok();
@@ -373,8 +390,8 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             .ToList();
 
         return FirmwareCommandResult.Failed(failed.Count == 0
-            ? "the console reported the backup as unsuccessful"
-            : $"the console could not back up {string.Join(", ", failed)}");
+            ? "the Console reported the backup as unsuccessful"
+            : $"the Console could not back up {string.Join(", ", failed)}");
     }
 
     /// <inheritdoc />

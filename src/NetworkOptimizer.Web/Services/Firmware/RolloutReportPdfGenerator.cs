@@ -266,7 +266,7 @@ public class RolloutReportPdfGenerator
         "updated" => "Updated",
         "nothing-to-update" => "Already current",
         "unchanged" => "Accepted but unchanged",
-        "refused" => "Refused by the console",
+        "refused" => "Refused by the Console",
         "stuck" => "Did not come back",
         "skipped" => "Not included",
         _ => outcome,

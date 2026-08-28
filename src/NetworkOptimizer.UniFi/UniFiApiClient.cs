@@ -2856,6 +2856,34 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST cmd/productinfo {"cmd":"check-firmware-update"} - the half of the console's "Check for
+    /// Updates" that re-derives each device's pending target against the channel in force.
+    /// Accepted immediately and worked in the background, so rc:ok says nothing about it finishing.
+    /// </summary>
+    [VendorSpecific("UniFi", "cmd/productinfo check-firmware-update")]
+    public async Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object> { ["cmd"] = "check-firmware-update" };
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/productinfo"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Asked site {Site} to re-check device firmware", _site);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to trigger the device firmware check for site {Site}", _site);
+        return false;
+    }
+
+    /// <summary>
     /// POST cmd/firmware {"cmd":"list-available"} - the newest build per model on the console's
     /// CURRENT channel, each with a direct image URL and md5. Also the hook for confirming a channel
     /// change took effect: change the channel, re-run this, and the URLs follow.

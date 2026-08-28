@@ -642,7 +642,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             var alsoOs = preview.HasCloudGatewayHardware ? " and UniFi OS" : "";
             preview.Warnings.Add(
                 "This site is connected with a UniFi API key, which reaches the UniFi Network application " +
-                "but not the console itself, so only devices can be upgraded here. Connect with an account " +
+                "but not the Console itself, so only devices can be upgraded here. Connect with an account " +
                 $"to include the UniFi Network application{alsoOs}.");
         }
 
