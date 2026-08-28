@@ -97,7 +97,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         // A sleeping client holds its association but will not scan until it wakes, so moving it
         // off leaves it off.
         if (idleSeconds is { } idle && idle > MaxIdleSecondsToSteer)
-            return ApAgentRoamResult.Fail($"Idle {idle}s. Moving a sleeping client off leaves it off.");
+            return ApAgentRoamResult.Fail("Unable to roam, client appears to be idle, so we won't want to strand it.");
 
         var own = await FetchNeighborsAsync(current, ssid, ct);
         var wanted = intent == ApAgentRoamIntent.Band
