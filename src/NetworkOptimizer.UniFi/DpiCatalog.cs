@@ -66,6 +66,7 @@ public static class DpiCatalog
         ["HTTPS"] = "fa-solid fa-globe",
         ["Web Streaming"] = "fa-solid fa-play",
         ["ICMP"] = "fa-solid fa-satellite-dish",
+        ["eBay"] = "fa-brands fa-ebay",
     };
 
     /// <summary>A brand word anywhere in the name ("Microsoft.com", "Google Drive") is that brand's mark.</summary>
