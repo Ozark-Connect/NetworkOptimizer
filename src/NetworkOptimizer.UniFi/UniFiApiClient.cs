@@ -705,6 +705,13 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Builds a path under the Network app's own root - what it serves outside /api, such as the
+    /// DPI favicons - on either console kind.
+    /// </summary>
+    private string BuildNetworkAppPath(string path) =>
+        _isUniFiOs ? $"{_controllerUrl}/proxy/network/{path}" : $"{_controllerUrl}/{path}";
+
+    /// <summary>
     /// GET v2/api/info - the console's display name (system.name), e.g. "[Console] Home".
     /// Uses the shared V2 path builder so it is correct for UniFi OS and self-hosted alike.
     /// </summary>
@@ -2490,6 +2497,63 @@ public class UniFiApiClient : IDisposable
             }
 
             return default;
+        });
+    }
+
+    /// <summary>
+    /// GET v2/api/site/{site}/traffic - every client's WAN usage by DPI application over a window, in
+    /// the client's frame. Site-wide: the endpoint has no per-client form, so callers pick their MAC.
+    /// </summary>
+    public async Task<UniFiClientTrafficResponse?> GetClientTrafficByAppAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var startMs = new DateTimeOffset(from.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var endMs = new DateTimeOffset(to.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var url = BuildV2ApiPath($"site/{_site}/traffic?start={startMs}&end={endMs}");
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Client traffic request failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<UniFiClientTrafficResponse>(cancellationToken: cancellationToken);
+        });
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =
+        new("^[a-z0-9][a-z0-9.-]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// GET dpi_icons/{domain}/favicon.ico - the favicon the Network app shows for a DPI application,
+    /// served by the console itself. Null when the console has none.
+    /// </summary>
+    public async Task<(byte[] Bytes, string ContentType)?> GetDpiIconAsync(string domain, CancellationToken cancellationToken = default)
+    {
+        if (!DpiIconDomainPattern.IsMatch(domain)) return null;
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = BuildNetworkAppPath($"dpi_icons/{domain}/favicon.ico");
+        return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
+            var type = response.Content.Headers.ContentType?.MediaType ?? "";
+            if (!type.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return null;
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            return bytes.Length == 0 ? null : (bytes, type);
         });
     }
 

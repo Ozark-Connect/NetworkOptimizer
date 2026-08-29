@@ -43,6 +43,12 @@ public record ThroughputSample(DateTime Time, double? DownloadBps, double? Uploa
 /// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
 public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
 
+/// <summary>One application's share of a client's WAN traffic, as UniFi Network identified it.</summary>
+public record AppUsageRow(string Name, string Category, string? IconDomain, long DownloadBytes, long UploadBytes, long ActivitySeconds)
+{
+    public long TotalBytes => DownloadBytes + UploadBytes;
+}
+
 /// <summary>
 /// A client's data usage over a window. WAN and LAN answer different questions and are never added:
 /// WAN is what left the site, LAN includes traffic that never did.

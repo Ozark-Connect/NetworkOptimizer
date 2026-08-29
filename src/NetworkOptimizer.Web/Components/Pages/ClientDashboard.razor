@@ -1088,6 +1088,53 @@
                                 </div>
                             </div>
                         }
+                        @if (_appUsage.Count > 0)
+                        {
+                            <div class="card results-card">
+                                <h3>Applications</h3>
+                                <p class="form-hint">WAN traffic by application, as UniFi Network identifies it.</p>
+                                <div class="results-table-container">
+                                    <table class="results-table app-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Application</th>
+                                                <th class="hide-mobile">Category</th>
+                                                <th>Download</th>
+                                                <th>Upload</th>
+                                                <th class="hide-mobile">Share</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var a in _appUsage.Take(AppRowsShown))
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <span class="app-name">
+                                                            <span class="app-icon">
+                                                                <span class="app-initial">@a.Name[0]</span>
+                                                                @if (a.IconDomain != null)
+                                                                {
+                                                                    <img src="@AppIconUrl(a.IconDomain)" alt="" loading="lazy" onerror="this.remove()" />
+                                                                }
+                                                            </span>
+                                                            @a.Name
+                                                        </span>
+                                                    </td>
+                                                    <td class="hide-mobile">@a.Category</td>
+                                                    <td><span class="speed-down">@DisplayFormatters.FormatBytes(a.DownloadBytes)</span></td>
+                                                    <td><span class="speed-up">@DisplayFormatters.FormatBytes(a.UploadBytes)</span></td>
+                                                    <td class="hide-mobile"><span class="share-bar"><span class="share-fill" style="width: @AppShare(a)%"></span></span></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                                @if (_appUsage.Count > AppRowsShown)
+                                {
+                                    <p class="form-hint">@(_appUsage.Count - AppRowsShown) more with less traffic.</p>
+                                }
+                            </div>
+                        }
                         @if (_dataUsage.Lan.Count > 0)
                         {
                             <div class="card chart-card">
@@ -1167,6 +1214,16 @@
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     // Data tab
     private ClientDataUsage? _dataUsage;
+    private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
+    private const int AppRowsShown = 25;
+    private string AppShare(AppUsageRow a) =>
+        _appUsage.Count == 0 || _appUsage[0].TotalBytes == 0 ? "0" : (100.0 * a.TotalBytes / _appUsage[0].TotalBytes).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+    // The image request carries no fetch wrapper to stamp the tab's site, so it is stamped here.
+    private string AppIconUrl(string domain)
+    {
+        var path = $"/api/client-dashboard/app-icon/{Uri.EscapeDataString(domain)}";
+        return SiteContext.IsDefault ? path : $"{path}?site={Uri.EscapeDataString(SiteContext.Slug)}";
+    }
     private List<SpeedChartPoint> _wanDownData = new();
     private List<SpeedChartPoint> _wanUpData = new();
     private List<SpeedChartPoint> _lanDownData = new();
@@ -2142,17 +2199,10 @@
                 // Signal tab: reload periodically (every 6 full polls = ~30s) to
                 // pick up new data. LTTB downsampling in LoadSignalDataAsync keeps
                 // the chart smooth. Other tabs reload every poll.
-                if (_activeTab == "signal")
-                {
-                    _fullPollCount++;
-                    if (_fullPollCount % 6 == 0)
-                    {
-                        await LoadTabDataAsync();
-                        if (!_isTooltipActive)
-                            await UpdateActiveChartsAsync();
-                    }
-                }
-                else
+                // Data is three console and store queries a time, and the numbers move by the hour.
+                var reloadEvery = _activeTab switch { "signal" => 6, "data" => 12, _ => 1 };
+                _fullPollCount++;
+                if (_fullPollCount % reloadEvery == 0)
                 {
                     await LoadTabDataAsync();
                     if (!_isTooltipActive)
@@ -2272,6 +2322,7 @@
     {
         if (_client == null) return;
         _dataUsage = await DashboardService.GetDataUsageAsync(_client, from, to);
+        _appUsage = await DashboardService.GetAppUsageAsync(_client, from, to);
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
         _wanDownData = Series(_dataUsage.Wan, r => r.DownloadBytes, "download");
@@ -4055,6 +4106,50 @@
     }
     .usage-card .speed-hero-results {
         margin-bottom: 12px;
+    }
+    .app-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .app-icon {
+        position: relative;
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+    }
+    .app-icon img,
+    .app-initial {
+        position: absolute;
+        inset: 0;
+        border-radius: 4px;
+    }
+    .app-icon img {
+        object-fit: contain;
+        background: var(--bg-tertiary);
+    }
+    .app-initial {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .share-bar {
+        display: block;
+        width: 120px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--bg-tertiary);
+        overflow: hidden;
+    }
+    .share-fill {
+        display: block;
+        height: 100%;
+        background: var(--speed-download-color);
     }
     @@media (max-width: 768px) {
         .usage-grid {
