@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -78,9 +79,11 @@ public class ClientDashboardService
         SiteContextService siteContext,
         MonitoringLiveStatsRegistry liveStats,
         ApAgentClientLiveService? apAgentLive = null,
-        ApAgentTelemetryRegistry? apAgentTelemetry = null)
+        ApAgentTelemetryRegistry? apAgentTelemetry = null,
+        Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null)
     {
         _logger = logger;
+        _cache = cache;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
         _liveStats = liveStats;
@@ -1431,6 +1434,15 @@ public class ClientDashboardService
     /// <summary>How far back usage is read when the page asks for everything.</summary>
     private static readonly TimeSpan MaxUsageWindow = TimeSpan.FromDays(30);
 
+    private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache? _cache;
+
+    /// <summary>
+    /// The site-wide DPI response is one call for every client on the site, and its totals move
+    /// by the minute at most - so one fetch serves every Client Performance page for this long.
+    /// The per-client report stays on the page's own cadence.
+    /// </summary>
+    private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// A client's data usage over a window, WAN and LAN side by side. WAN comes from UniFi Network's
     /// per-client report at the granularity nearest the window; LAN from our own counters at the same
@@ -1561,7 +1573,16 @@ public class ClientDashboardService
         if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
         try
         {
-            var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to);
+            // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses
+            // the same response until the window itself has moved on.
+            var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
+            var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
+            var traffic = _cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) ? cached : null;
+            if (traffic == null)
+            {
+                traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to);
+                if (traffic != null && _cache != null) _cache.Set(key, traffic, TrafficCacheFor);
+            }
             var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
             if (mine == null) return Array.Empty<AppUsageRow>();
             return mine.UsageByApp
