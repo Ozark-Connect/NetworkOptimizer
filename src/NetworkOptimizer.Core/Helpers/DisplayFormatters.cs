@@ -292,6 +292,18 @@ public static class DisplayFormatters
     /// a negotiated link speed. Sub-1 bps reads "-" rather than zero, so an idle port shows nothing
     /// to read instead of a number.
     /// </summary>
+    /// <summary>A byte count as a data size (1024-based, as Data Usage reads): "1.2 GB", "350 MB".</summary>
+    public static string FormatBytes(long bytes)
+    {
+        if (bytes < 0) bytes = 0;
+        const double k = 1024;
+        if (bytes >= k * k * k * k) return $"{bytes / (k * k * k * k):0.##} TB";
+        if (bytes >= k * k * k) return $"{bytes / (k * k * k):0.##} GB";
+        if (bytes >= k * k) return $"{bytes / (k * k):0.#} MB";
+        if (bytes >= k) return $"{bytes / k:0} KB";
+        return $"{bytes} B";
+    }
+
     public static string FormatRate(double? bps)
     {
         if (!bps.HasValue || bps.Value < 1) return "-";

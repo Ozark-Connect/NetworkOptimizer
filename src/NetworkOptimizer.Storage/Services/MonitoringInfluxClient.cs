@@ -3058,6 +3058,92 @@ union(tables: [means, chan])
         return results;
     }
 
+    /// <summary>Bytes moved in one bucket, stated toward and away from the client.</summary>
+    public record ByteUsagePoint(DateTime Time, long ToClientBytes, long FromClientBytes);
+
+    /// <summary>
+    /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
+    /// access point sent it, rx_bytes what it sent. The counters restart on every association, and
+    /// a roam moves the series to another access point, so the points are merged across series and
+    /// a drop counts as a fresh counter rather than a negative delta.
+    /// </summary>
+    public async Task<IReadOnlyList<ByteUsagePoint>> QueryWifiClientByteUsageAsync(
+        string clientMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan bucket,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ByteUsagePoint>();
+        var mac = NormalizeMac(clientMac);
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes and exists r.rx_bytes)
+  |> group()
+  |> sort(columns: [""_time""])
+  |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
+  |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
+  |> group(columns: [""_time""])
+  |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
+  |> group()
+  |> sort(columns: [""_time""])";
+        return await ReadByteUsageAsync(flux, ct);
+    }
+
+    /// <summary>
+    /// A switch port's bytes per bucket: bytes_out is what the port sent the client, bytes_in what
+    /// the client sent. These are the port's counters, so anything else behind the same port is
+    /// counted too. Several interface names for one port are summed per bucket.
+    /// </summary>
+    public async Task<IReadOnlyList<ByteUsagePoint>> QueryPortByteUsageAsync(
+        string deviceMac,
+        IReadOnlyCollection<string> ifNames,
+        DateTime from,
+        DateTime to,
+        TimeSpan bucket,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || ifNames.Count == 0) return Array.Empty<ByteUsagePoint>();
+        var mac = NormalizeMac(deviceMac);
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{n.Replace("\"", "")}"""));
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {ifFilter})
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
+  |> group(columns: [""if_name""])
+  |> sort(columns: [""_time""])
+  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""])
+  |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
+  |> group(columns: [""_time""])
+  |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.bytes_out, from: accumulator.from + r.bytes_in}}), identity: {{to: 0, from: 0}})
+  |> group()
+  |> sort(columns: [""_time""])";
+        return await ReadByteUsageAsync(flux, ct);
+    }
+
+    private async Task<IReadOnlyList<ByteUsagePoint>> ReadByteUsageAsync(string flux, CancellationToken ct)
+    {
+        var results = new List<ByteUsagePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = record.GetTimeInDateTime();
+            if (time == null) continue;
+            results.Add(new ByteUsagePoint(
+                ToUtc(time.Value),
+                (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0),
+                (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0)));
+        }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryClientThroughputAsync(
         string measurement,
         string clientMac,

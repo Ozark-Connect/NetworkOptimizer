@@ -1428,6 +1428,89 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>How far back usage is read when the page asks for everything.</summary>
+    private static readonly TimeSpan MaxUsageWindow = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// A client's data usage over a window, WAN and LAN side by side. WAN comes from UniFi Network's
+    /// per-client report at the granularity nearest the window; LAN from our own counters at the same
+    /// bucket - the switch port's for a wired client (its own series when the port is unmapped), the
+    /// access point's for wireless - so the two charts line up bar for bar.
+    /// </summary>
+    public async Task<ClientDataUsage> GetDataUsageAsync(ClientIdentity client, DateTime from, DateTime to)
+    {
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        var span = to - from;
+        // UniFi's report granularities; the LAN query buckets to match.
+        var (granularity, bucket) = span <= TimeSpan.FromHours(6) ? ("5minutes", TimeSpan.FromMinutes(5))
+            : span <= TimeSpan.FromHours(48) ? ("hourly", TimeSpan.FromHours(1))
+            : ("daily", TimeSpan.FromDays(1));
+        var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
+        if (string.IsNullOrEmpty(client.Mac)) return usage;
+
+        try
+        {
+            if (_connectionService.IsConnected && _connectionService.Client != null)
+            {
+                var data = await _connectionService.Client.PostUserReportAsync(granularity, client.Mac,
+                    new DateTimeOffset(from).ToUnixTimeMilliseconds(), new DateTimeOffset(to).ToUnixTimeMilliseconds(),
+                    new[] { "time", "rx_bytes", "tx_bytes" });
+                usage.Wan = ParseUserReport(data);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN usage unavailable for {Mac}", client.Mac);
+        }
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint> points = Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>();
+            if (client.IsWired)
+            {
+                if (!string.IsNullOrEmpty(client.SwitchMac) && client.SwitchPort is int port)
+                {
+                    var ifNames = (await PortIfNamesAsync(client.SwitchMac, port)).Where(n => !n.Contains('.')).ToList();
+                    points = await influx.QueryPortByteUsageAsync(client.SwitchMac, ifNames, from, to, bucket);
+                }
+            }
+            else
+            {
+                points = await influx.QueryWifiClientByteUsageAsync(client.Mac, from, to, bucket);
+            }
+            usage.Lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "LAN usage unavailable for {Mac}", client.Mac);
+        }
+
+        return usage;
+    }
+
+    /// <summary>
+    /// The report's rows in the client's terms. UniFi states a client's counters from the access
+    /// point's side, as stat/sta does: tx_bytes is what was sent to the client, its download.
+    /// </summary>
+    private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data)
+    {
+        var rows = new List<UsageBucket>();
+        if (data.ValueKind != System.Text.Json.JsonValueKind.Array) return rows;
+        foreach (var row in data.EnumerateArray())
+        {
+            if (!row.TryGetProperty("time", out var t) || !t.TryGetDouble(out var ms)) continue;
+            var time = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
+            var tx = row.TryGetProperty("tx_bytes", out var txEl) && txEl.TryGetDouble(out var txV) ? (long)txV : 0;
+            var rx = row.TryGetProperty("rx_bytes", out var rxEl) && rxEl.TryGetDouble(out var rxV) ? (long)rxV : 0;
+            rows.Add(new UsageBucket(time, tx, rx));
+        }
+        rows.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return rows;
+    }
+
     /// <summary>
     /// Throughput for a wireless client, as download and upload from the client's point of view.
     ///

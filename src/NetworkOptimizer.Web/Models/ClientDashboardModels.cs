@@ -40,6 +40,35 @@ public class WiredPortStats
 /// <summary>One throughput reading, as download and upload from the client's point of view.</summary>
 public record ThroughputSample(DateTime Time, double? DownloadBps, double? UploadBps);
 
+/// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
+public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
+
+/// <summary>
+/// A client's data usage over a window. WAN and LAN answer different questions and are never added:
+/// WAN is what left the site, LAN includes traffic that never did.
+/// </summary>
+public class ClientDataUsage
+{
+    /// <summary>The window actually covered; "All" is capped to what the sources keep.</summary>
+    public DateTime From { get; set; }
+    public DateTime To { get; set; }
+    public TimeSpan Bucket { get; set; }
+
+    /// <summary>Per client, from UniFi Network's own reports.</summary>
+    public IReadOnlyList<UsageBucket> Wan { get; set; } = Array.Empty<UsageBucket>();
+
+    /// <summary>From our own counters: the switch port's for a wired client, the access point's for wireless.</summary>
+    public IReadOnlyList<UsageBucket> Lan { get; set; } = Array.Empty<UsageBucket>();
+
+    /// <summary>The LAN figure is a switch port's total, so anything else behind that port is in it.</summary>
+    public bool LanIsPortTotal { get; set; }
+
+    public long WanDownloadBytes => Wan.Sum(b => b.DownloadBytes);
+    public long WanUploadBytes => Wan.Sum(b => b.UploadBytes);
+    public long LanDownloadBytes => Lan.Sum(b => b.DownloadBytes);
+    public long LanUploadBytes => Lan.Sum(b => b.UploadBytes);
+}
+
 public class ClientIdentity
 {
     public string Mac { get; set; } = "";
