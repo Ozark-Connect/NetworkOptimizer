@@ -11,8 +11,8 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class ClientUsageRollupService : BackgroundService
 {
-    /// <summary>How far back a first run reaches; the fast bucket rarely keeps more.</summary>
-    private static readonly TimeSpan BackfillHorizon = TimeSpan.FromDays(7);
+    /// <summary>How far back a first run reaches, matching the longest range Client Performance offers.</summary>
+    private static readonly TimeSpan BackfillHorizon = TimeSpan.FromDays(30);
 
     /// <summary>Past the hour, so the last write window's points have landed before it is read.</summary>
     private static readonly TimeSpan SettleDelay = TimeSpan.FromMinutes(3);
@@ -21,7 +21,7 @@ public class ClientUsageRollupService : BackgroundService
     /// A backfill is paced rather than run flat out: a week is hundreds of hour-wide scans, the
     /// store is serving charts and collectors at the same time, and the box running it is often a
     /// small NAS where one scan takes seconds. This many hours per pass, a pause between hours,
-    /// and another pass soon after while still behind - about an hour for a week on fast hardware.
+    /// and another pass soon after while still behind - a few hours for a month on fast hardware.
     /// </summary>
     private const int MaxHoursPerPass = 4;
     private static readonly TimeSpan PauseBetweenHours = TimeSpan.FromSeconds(3);
@@ -72,21 +72,33 @@ public class ClientUsageRollupService : BackgroundService
         }
     }
 
-    /// <summary>Rolls the next few pending hours. True when more remain after this pass.</summary>
+    // Cursors live here, seeded once from the store: an hour with no traffic writes no points, so
+    // the store alone cannot say it was rolled and would hand the same empty hours back every pass.
+    private DateTime? _next;   // earliest hour not yet rolled going forward
+    private DateTime? _oldest; // earliest hour rolled; the backward pass reaches below it
+
+    /// <summary>
+    /// Rolls the next few pending hours: forward to the last complete hour first, then backward to
+    /// the horizon for a site whose earlier backfill stopped short. True when more remain.
+    /// </summary>
     private async Task<bool> RollupPendingAsync(CancellationToken ct)
     {
         if (!_influx.IsConfigured || string.IsNullOrEmpty(_influx.LongtermBucket)) return false;
 
         var lastComplete = HourStart(DateTime.UtcNow).AddHours(-1);
-        var last = await _influx.QueryLastUsageRollupHourAsync(ct);
-        var start = last.HasValue ? last.Value.AddHours(1) : lastComplete - BackfillHorizon;
-        if (start < lastComplete - BackfillHorizon) start = lastComplete - BackfillHorizon;
+        var horizon = lastComplete - BackfillHorizon;
+        if (_next == null)
+        {
+            var last = await _influx.QueryLastUsageRollupHourAsync(ct);
+            _next = last.HasValue ? last.Value.AddHours(1) : horizon;
+            if (_next < horizon) _next = horizon;
+            _oldest = await _influx.QueryFirstUsageRollupHourAsync(ct) ?? _next;
+        }
 
         var hours = 0;
         var wifi = 0;
         var ports = 0;
-        var hour = start;
-        for (; hour <= lastComplete && hours < MaxHoursPerPass; hour = hour.AddHours(1))
+        async Task RollAsync(DateTime hour)
         {
             ct.ThrowIfCancellationRequested();
             if (hours > 0) await Task.Delay(PauseBetweenHours, ct);
@@ -94,11 +106,18 @@ public class ClientUsageRollupService : BackgroundService
             ports += await _influx.RollupPortUsageHourAsync(hour, ct);
             hours++;
         }
-        var remaining = hour <= lastComplete ? (int)(lastComplete - hour).TotalHours + 1 : 0;
+
+        for (; _next <= lastComplete && hours < MaxHoursPerPass; _next = _next.Value.AddHours(1))
+            await RollAsync(_next.Value);
+        for (; _oldest.Value.AddHours(-1) >= horizon && hours < MaxHoursPerPass; _oldest = _oldest.Value.AddHours(-1))
+            await RollAsync(_oldest.Value.AddHours(-1));
+
+        var ahead = _next <= lastComplete ? (int)(lastComplete - _next.Value).TotalHours + 1 : 0;
+        var behind = _oldest > horizon ? (int)(_oldest.Value - horizon).TotalHours : 0;
         if (hours > 0)
-            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s) through {Through:u}, {Wifi} wireless and {Ports} port points, {Remaining} hour(s) behind",
-                _siteSlug, hours, hour.AddHours(-1), wifi, ports, remaining);
-        return remaining > 0;
+            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), rolled {From:u} to {To:u}, {Wifi} wireless and {Ports} port points, {Remaining} hour(s) to go",
+                _siteSlug, hours, _oldest, _next.Value.AddHours(-1), wifi, ports, ahead + behind);
+        return ahead + behind > 0;
     }
 
     private static DateTime HourStart(DateTime utc) =>

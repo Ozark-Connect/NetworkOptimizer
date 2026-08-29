@@ -3254,6 +3254,25 @@ union(tables: [means, chan])
         return null;
     }
 
+    /// <summary>Start of the earliest hour with a usage rollup point, or null when none has been written.</summary>
+    public async Task<DateTime?> QueryFirstUsageRollupHourAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""bytes_out_1h"")
+  |> keep(columns: [""_time""])
+  |> group()
+  |> min(column: ""_time"")";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var t = record.GetTimeInDateTime();
+            if (t != null) return ToUtc(t.Value);
+        }
+        return null;
+    }
+
     /// <summary>A wireless client's rolled-up bytes per hour from the longterm bucket.</summary>
     public async Task<IReadOnlyList<ByteUsagePoint>> QueryWifiClientUsageRollupAsync(
         string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
