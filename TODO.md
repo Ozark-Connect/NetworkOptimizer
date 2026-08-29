@@ -28,12 +28,20 @@ Worth settling before building:
 - Wireless and wired totals will not be comparable until they come from the same kind of source.
   Say which a number is, rather than presenting one figure that quietly changes meaning.
 
-Real-time throughput charts belong with it, in the WAN Live Chart's shape, for wired and wireless
-clients alike. Build the two together.
+**Shipped on release/2.8 (2026-08-29):** the Data tab shows WAN (UniFi Network's per-client report,
+parsed per kind: wired rows are in the client's frame, wireless rows in the access point's) beside
+LAN + WAN from our counters, never summed, with the local share estimated on the totals. An hourly
+per-site rollup (`ClientUsageRollupService`) writes one point per client per hour to the longterm
+bucket as added fields (`wifi_client.tx_bytes_1h` / `rx_bytes_1h`, `interface_counters.bytes_in_1h`
+/ `bytes_out_1h`); the tab reads it for anything wider than six hours. Live Throughput sits above
+the Speed tab's hero.
 
-That much on one page needs the tabs rethought - which of Speed, Data and Connection each of live
-rate, totals and port health belongs on, and whether those are still the right three names. Settle
-the UX when we build it, not before.
+**Wired stays per port, deliberately.** The port total is a true number with a stated scope (the
+card says "everything through its switch port"), where a per-device number from the console's
+`wired-tx_bytes` / `wired-rx_bytes` would be right most of the time and silently wrong on a port
+move or a shared port. The reach, if wanted later: persist those two as additive fields on
+`wired_client`, roll them up per client the way Wi-Fi is, and switch the tab's wired read to them.
+Small and additive, but it is the write path.
 
 ## SSH key placement on console gateways (udm-boot)
 
