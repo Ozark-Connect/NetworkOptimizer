@@ -36,6 +36,12 @@
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/client-dashboard">
+                <img src="/icons/client-performance.svg" alt="" class="nav-icon-img" />
+                <span class="nav-text">Client Performance</span>
+            </NavLink>
+        </li>
+        <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="/config-optimizer">
                 <img src="/icons/tools.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Config Optimizer</span>
@@ -57,12 +63,6 @@
             <NavLink class="nav-link" href="/wifi-optimizer">
                 <img src="/icons/wifi-optimizer.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Wi-Fi Optimizer</span>
-            </NavLink>
-        </li>
-        <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/client-dashboard">
-                <span class="nav-sub-icon">└</span>
-                <span class="nav-text">Client Performance</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
