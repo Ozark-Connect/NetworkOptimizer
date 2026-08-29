@@ -109,10 +109,10 @@ public static class DpiCatalog
 
     /// <summary>
     /// The Font Awesome class to show for an application: the catalog's own mark, else a pick by
-    /// name, else a brand word in the name, else the category's, else null and the caller shows
-    /// an initial.
+    /// name, else a brand word in the name, else the category's, else the question mark - a
+    /// category the catalog does not know is as unidentified as an application it does not.
     /// </summary>
-    public static string? IconClass(int category, int application)
+    public static string IconClass(int category, int application)
     {
         if (_catalog.Value.Applications.TryGetValue(Key(category, application).ToString(), out var e))
         {
@@ -123,7 +123,7 @@ public static class DpiCatalog
                 if (e.N.Contains(word, StringComparison.OrdinalIgnoreCase)) return icon;
             }
         }
-        return IconByCategory.TryGetValue(category, out var byCategory) ? byCategory : null;
+        return IconByCategory.TryGetValue(category, out var byCategory) ? byCategory : IconByCategory[255];
     }
 
     /// <summary>Whether a domain is one the catalog names, so the icon path cannot be pointed anywhere else.</summary>

@@ -23,6 +23,7 @@ public class DpiCatalogTests
         Assert.Equal("fa-brands fa-microsoft", DpiCatalog.IconClass(13, 69));  // Microsoft.com, by brand word
         Assert.Equal("fa-solid fa-globe", DpiCatalog.IconClass(13, 60000));    // unknown app, Web services category
         Assert.Equal("fa-solid fa-question", DpiCatalog.IconClass(255, 0));    // unknown app, Unknown category
+        Assert.Equal("fa-solid fa-question", DpiCatalog.IconClass(21, 3));     // a category the catalog lacks
     }
 
     [Fact]
