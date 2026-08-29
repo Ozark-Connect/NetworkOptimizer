@@ -1047,7 +1047,7 @@
                                     </div>
                                 </div>
                                 <div class="speed-hero-meta">
-                                    <span>What left the site, per UniFi Network</span>
+                                    <span>WAN traffic totals, per UniFi Network</span>
                                 </div>
                             </div>
                             <div class="card results-card usage-card">
@@ -1216,6 +1216,7 @@
     // Data tab
     private ClientDataUsage? _dataUsage;
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
+    private DateTime _dataLoadedAt;
     private const int AppRowsShown = 25;
     private string AppShare(AppUsageRow a) =>
         _appUsage.Count == 0 || _appUsage[0].TotalBytes == 0 ? "0" : (100.0 * a.TotalBytes / _appUsage[0].TotalBytes).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
@@ -2200,10 +2201,18 @@
                 // Signal tab: reload periodically (every 6 full polls = ~30s) to
                 // pick up new data. LTTB downsampling in LoadSignalDataAsync keeps
                 // the chart smooth. Other tabs reload every poll.
-                // Data is three console and store queries a time, and the numbers move by the hour.
-                var reloadEvery = _activeTab switch { "signal" => 6, "data" => 12, _ => 1 };
                 _fullPollCount++;
-                if (_fullPollCount % reloadEvery == 0)
+                var reload = _activeTab switch
+                {
+                    "signal" => _fullPollCount % 6 == 0,
+                    // By time, not by poll: the poll runs anywhere from twice a second to every 5 s
+                    // depending on the source. Totals move slowly, and the long ranges read the
+                    // console and the store for days at a time.
+                    "data" => DateTime.UtcNow - _dataLoadedAt >= (_selectedTimeFilter is > 0 and <= 24
+                        ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5)),
+                    _ => true,
+                };
+                if (reload)
                 {
                     await LoadTabDataAsync();
                     if (!_isTooltipActive)
@@ -2324,6 +2333,7 @@
         if (_client == null) return;
         _dataUsage = await DashboardService.GetDataUsageAsync(_client, from, to);
         _appUsage = await DashboardService.GetAppUsageAsync(_client, from, to);
+        _dataLoadedAt = DateTime.UtcNow;
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
         _wanDownData = Series(_dataUsage.Wan, r => r.DownloadBytes, "download");
