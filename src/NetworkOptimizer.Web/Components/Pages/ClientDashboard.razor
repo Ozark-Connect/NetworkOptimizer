@@ -1114,7 +1114,8 @@
                                                                 <span class="app-initial">@a.Name[0]</span>
                                                                 @if (a.IconDomain != null)
                                                                 {
-                                                                    <img src="@AppIconUrl(a.IconDomain)" alt="" loading="lazy" onerror="this.remove()" />
+                                                                    @* Hidden, never removed: Blazor owns this node, and a removed one breaks its next diff. *@
+                                                                    <img src="@AppIconUrl(a.IconDomain)" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
                                                                 }
                                                             </span>
                                                             @a.Name
