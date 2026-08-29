@@ -1662,10 +1662,12 @@ class LanFlowMap2D {
                 if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=true;edge._hz=hz;edge._band=edgeBand(edge);sibEdges.push(edge);}
             }
 
-            // Stagger horizontal segments of siblings that share the same parent
+            // Stagger the crossbars of siblings that share the same parent. Sideways the crossbar
+            // carries a label, so the bundle spreads as wide as the gap between the boxes allows.
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
-                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
+                const step=hz?Math.min(24,Math.max(STAGGER,78/(sibEdges.length-1))):STAGGER;
+                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*step;
                 // Multi-row grids: push client offshoots down so the trunk
                 // drops further before branching horizontally
                 const nCl=sibEdges.filter(e=>e._isCl).length;
