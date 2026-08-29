@@ -3229,7 +3229,10 @@
                 {
                     DatetimeUTC = false,
                     DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                }
+                },
+                // On a datetime axis the hover band spans the gap between points, well past the
+                // bar pair; the shared tooltip already says which bucket is under the cursor.
+                Crosshairs = new AxisCrosshairs { Show = false }
             },
             Yaxis = new List<YAxis>
             {
