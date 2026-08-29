@@ -17,6 +17,15 @@ public class ClientUsageRollupService : BackgroundService
     /// <summary>Past the hour, so the last write window's points have landed before it is read.</summary>
     private static readonly TimeSpan SettleDelay = TimeSpan.FromMinutes(3);
 
+    /// <summary>
+    /// A backfill is paced rather than run flat out: a week is hundreds of hour-wide scans, and the
+    /// store is serving charts and collectors at the same time. This many hours per pass, a pause
+    /// between hours, and another pass soon after while still behind.
+    /// </summary>
+    private const int MaxHoursPerPass = 6;
+    private static readonly TimeSpan PauseBetweenHours = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan CatchUpInterval = TimeSpan.FromMinutes(1);
+
     private readonly MonitoringInfluxClient _influx;
     private readonly ILogger<ClientUsageRollupService> _logger;
     private readonly string _siteSlug;
@@ -41,9 +50,10 @@ public class ClientUsageRollupService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var behind = false;
             try
             {
-                await RollupPendingAsync(stoppingToken);
+                behind = await RollupPendingAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -55,15 +65,16 @@ public class ClientUsageRollupService : BackgroundService
             }
 
             var now = DateTime.UtcNow;
-            var next = HourStart(now).AddHours(1) + SettleDelay;
+            var next = behind ? now + CatchUpInterval : HourStart(now).AddHours(1) + SettleDelay;
             try { await Task.Delay(next - now, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
     }
 
-    private async Task RollupPendingAsync(CancellationToken ct)
+    /// <summary>Rolls the next few pending hours. True when more remain after this pass.</summary>
+    private async Task<bool> RollupPendingAsync(CancellationToken ct)
     {
-        if (!_influx.IsConfigured || string.IsNullOrEmpty(_influx.LongtermBucket)) return;
+        if (!_influx.IsConfigured || string.IsNullOrEmpty(_influx.LongtermBucket)) return false;
 
         var lastComplete = HourStart(DateTime.UtcNow).AddHours(-1);
         var last = await _influx.QueryLastUsageRollupHourAsync(ct);
@@ -73,16 +84,20 @@ public class ClientUsageRollupService : BackgroundService
         var hours = 0;
         var wifi = 0;
         var ports = 0;
-        for (var hour = start; hour <= lastComplete; hour = hour.AddHours(1))
+        var hour = start;
+        for (; hour <= lastComplete && hours < MaxHoursPerPass; hour = hour.AddHours(1))
         {
             ct.ThrowIfCancellationRequested();
+            if (hours > 0) await Task.Delay(PauseBetweenHours, ct);
             wifi += await _influx.RollupWifiClientUsageHourAsync(hour, ct);
             ports += await _influx.RollupPortUsageHourAsync(hour, ct);
             hours++;
         }
+        var remaining = hour <= lastComplete ? (int)(lastComplete - hour).TotalHours + 1 : 0;
         if (hours > 0)
-            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), {Wifi} wireless and {Ports} port points",
-                _siteSlug, hours, wifi, ports);
+            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s) through {Through:u}, {Wifi} wireless and {Ports} port points, {Remaining} hour(s) behind",
+                _siteSlug, hours, hour.AddHours(-1), wifi, ports, remaining);
+        return remaining > 0;
     }
 
     private static DateTime HourStart(DateTime utc) =>
