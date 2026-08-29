@@ -3721,6 +3721,8 @@ export class LanFlowMap {
         // Switches and gateways scroll to the port stats table and isolate that device.
         if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
             if (node.mac && window.__portStatsTable) {
+                // The table is under the map, so fullscreen would hide the jump.
+                if (this.stage?.classList.contains('lan-flow-map-fullscreen')) this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(node.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
