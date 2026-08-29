@@ -581,6 +581,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageRegist
 builder.Services.AddScoped(sp => sp.GetRequiredService<WanDataUsageRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
+// Per-client usage rollup into the longterm bucket, one instance per site (its own buckets).
+builder.Services.AddSiteScopedRegistry<ClientUsageRollupRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ClientUsageRollupRegistry>());
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());

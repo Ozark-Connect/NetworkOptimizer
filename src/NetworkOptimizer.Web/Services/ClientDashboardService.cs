@@ -1468,20 +1468,19 @@ public class ClientDashboardService
             await using var scope = _scopeFactory.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
-            IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint> points = Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>();
-            if (client.IsWired)
-            {
-                if (!string.IsNullOrEmpty(client.SwitchMac) && client.SwitchPort is int port)
-                {
-                    var ifNames = (await PortIfNamesAsync(client.SwitchMac, port)).Where(n => !n.Contains('.')).ToList();
-                    points = await influx.QueryPortByteUsageAsync(client.SwitchMac, ifNames, from, to, bucket);
-                }
-            }
-            else
-            {
-                points = await influx.QueryWifiClientByteUsageAsync(client.Mac, from, to, bucket);
-            }
-            usage.Lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
+            List<string>? ifNames = null;
+            if (client.IsWired && !string.IsNullOrEmpty(client.SwitchMac) && client.SwitchPort is int port)
+                ifNames = (await PortIfNamesAsync(client.SwitchMac, port)).Where(n => !n.Contains('.')).ToList();
+
+            var points = bucket < TimeSpan.FromHours(1)
+                ? await LanUsageFromCountersAsync(influx, client, ifNames, from, to, bucket)
+                : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
+            // No rollup yet (first hours after an upgrade): the counters still answer, slowly.
+            if (points.Count == 0 && bucket >= TimeSpan.FromHours(1))
+                points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
+
+            var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
+            usage.Lan = bucket >= TimeSpan.FromDays(1) ? SumToDays(lan, usage.Wan) : lan;
         }
         catch (Exception ex)
         {
@@ -1489,6 +1488,63 @@ public class ClientDashboardService
         }
 
         return usage;
+    }
+
+    /// <summary>The live counters, differenced on read; fine for hours, expensive for days.</summary>
+    private static Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>> LanUsageFromCountersAsync(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, ClientIdentity client, List<string>? ifNames,
+        DateTime from, DateTime to, TimeSpan bucket)
+    {
+        if (client.IsWired)
+        {
+            return ifNames is { Count: > 0 }
+                ? influx.QueryPortByteUsageAsync(client.SwitchMac!, ifNames, from, to, bucket)
+                : Task.FromResult<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>>(
+                    Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>());
+        }
+        return influx.QueryWifiClientByteUsageAsync(client.Mac, from, to, bucket);
+    }
+
+    /// <summary>
+    /// The hourly rollup for the complete hours, topped up from the live counters for the hour in
+    /// progress so the newest bar is never empty.
+    /// </summary>
+    private static async Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>> LanUsageFromRollupAsync(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, ClientIdentity client, List<string>? ifNames,
+        DateTime from, DateTime to)
+    {
+        var hourStart = new DateTime(to.Year, to.Month, to.Day, to.Hour, 0, 0, DateTimeKind.Utc);
+        var rolled = client.IsWired
+            ? (ifNames is { Count: > 0 }
+                ? await influx.QueryPortUsageRollupAsync(client.SwitchMac!, ifNames, from, hourStart)
+                : Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>())
+            : await influx.QueryWifiClientUsageRollupAsync(client.Mac, from, hourStart);
+        if (rolled.Count == 0) return rolled;
+        var tail = await LanUsageFromCountersAsync(influx, client, ifNames, hourStart, to, TimeSpan.FromHours(1));
+        return rolled.Concat(tail).ToList();
+    }
+
+    /// <summary>
+    /// Hourly buckets summed into days on the same day boundaries UniFi's daily report used, so
+    /// the two charts line up bar for bar; UTC days when there is no report to follow.
+    /// </summary>
+    private static List<UsageBucket> SumToDays(List<UsageBucket> hourly, IReadOnlyList<UsageBucket> wanDays)
+    {
+        var edges = wanDays.Select(w => w.Time).OrderBy(t => t).ToList();
+        DateTime EdgeFor(DateTime t)
+        {
+            if (edges.Count > 0)
+            {
+                var idx = edges.FindLastIndex(e => e <= t);
+                if (idx >= 0) return edges[idx];
+            }
+            return t.Date;
+        }
+        return hourly
+            .GroupBy(h => EdgeFor(h.Time))
+            .Select(g => new UsageBucket(g.Key, g.Sum(h => h.DownloadBytes), g.Sum(h => h.UploadBytes)))
+            .OrderBy(b => b.Time)
+            .ToList();
     }
 
     /// <summary>
