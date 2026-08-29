@@ -60,9 +60,7 @@ function buildOpts() {
             { name: 'To Device',   type: 'area', data: [] },
         ],
         colors: [COLOR_FROM, COLOR_TO],
-        // Stepped: a reading holds until the next one, which is 5 to 30 s away depending on the
-        // source, and a smooth curve between two readings would draw rates nobody measured.
-        stroke: { curve: 'stepline', width: 2 },
+        stroke: { curve: 'smooth', width: 2 },
         fill: {
             type: 'gradient',
             gradient: { shadeIntensity: 0.4, opacityFrom: 0.5, opacityTo: 0.08, stops: [0, 95] },
