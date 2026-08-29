@@ -28,14 +28,14 @@
       "optional": true
     },
     {
-      "id": "live-client-throughput",
+      "id": "client-live-throughput",
       "level": "minor",
-      "url": "/monitoring?tab=live",
-      "selector": "[data-tour=\"live-client-throughput\"]",
-      "title": "Per-client Wi-Fi Traffic",
-      "listLabel": "See Wi-Fi LAN traffic your Console never counted",
-      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.",
-      "placement": "top",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=speed",
+      "selector": "[data-tour=\"client-live-throughput\"]",
+      "title": "Client Live Throughput",
+      "listLabel": "Watch a device's throughput move, five minutes at a time",
+      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.\n\nEvery figure on this page now reads from the device's side: Download is what it receives, on the left in blue, Upload what it sends, on the right in green, matching WAN Speed Test.",
+      "placement": "bottom",
       "optional": true
     },
     {
@@ -50,26 +50,26 @@
       "optional": true
     },
     {
-      "id": "client-live-throughput",
-      "level": "minor",
-      "url": "/client-dashboard?ip={wifi-client-ip}&tab=speed",
-      "selector": "[data-tour=\"client-live-throughput\"]",
-      "title": "Client Live Throughput",
-      "listLabel": "Watch a device's throughput move, five minutes at a time",
-      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.\n\nEvery figure on this page now reads from the device's side: Download is what it receives, on the left in blue, Upload what it sends, on the right in green, matching WAN Speed Test.",
-      "placement": "bottom",
-      "optional": true
-    },
-    {
       "id": "nav-client-performance",
       "level": "minor",
       "badge": "improved",
-      "url": "/",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=data",
       "selector": "[data-tour=\"nav-client-performance\"]",
       "title": "Client Performance in the menu",
       "listLabel": "Client Performance moved to the main menu",
       "body": "It covers wired clients as well as Wi-Fi, has grown its own tabs, and is where a walk test lives, so it now sits under **Monitoring** in the menu instead of inside Wi-Fi Optimizer.",
       "placement": "right"
+    },
+    {
+      "id": "live-client-throughput",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-client-throughput\"]",
+      "title": "Per-client Wi-Fi Traffic",
+      "listLabel": "See Wi-Fi LAN traffic your Console never counted",
+      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.",
+      "placement": "top",
+      "optional": true
     }
   ]
 }
