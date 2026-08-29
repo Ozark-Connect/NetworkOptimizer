@@ -18,12 +18,13 @@ public class ClientUsageRollupService : BackgroundService
     private static readonly TimeSpan SettleDelay = TimeSpan.FromMinutes(3);
 
     /// <summary>
-    /// A backfill is paced rather than run flat out: a week is hundreds of hour-wide scans, and the
-    /// store is serving charts and collectors at the same time. This many hours per pass, a pause
-    /// between hours, and another pass soon after while still behind.
+    /// A backfill is paced rather than run flat out: a week is hundreds of hour-wide scans, the
+    /// store is serving charts and collectors at the same time, and the box running it is often a
+    /// small NAS where one scan takes seconds. This many hours per pass, a pause between hours,
+    /// and another pass soon after while still behind - about an hour for a week on fast hardware.
     /// </summary>
-    private const int MaxHoursPerPass = 6;
-    private static readonly TimeSpan PauseBetweenHours = TimeSpan.FromSeconds(2);
+    private const int MaxHoursPerPass = 4;
+    private static readonly TimeSpan PauseBetweenHours = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan CatchUpInterval = TimeSpan.FromMinutes(1);
 
     private readonly MonitoringInfluxClient _influx;
