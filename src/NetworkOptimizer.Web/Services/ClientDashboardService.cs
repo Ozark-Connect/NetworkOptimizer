@@ -1475,8 +1475,10 @@ public class ClientDashboardService
             var points = bucket < TimeSpan.FromHours(1)
                 ? await LanUsageFromCountersAsync(influx, client, ifNames, from, to, bucket)
                 : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
-            // No rollup yet (first hours after an upgrade): the counters still answer, slowly.
-            if (points.Count == 0 && bucket >= TimeSpan.FromHours(1))
+            // No rollup yet (the first hours after an upgrade): the counters still answer a day,
+            // slowly. Never for days - that scan is minutes on any hardware, and the rollup fills
+            // in behind on its own.
+            if (points.Count == 0 && bucket == TimeSpan.FromHours(1))
                 points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
