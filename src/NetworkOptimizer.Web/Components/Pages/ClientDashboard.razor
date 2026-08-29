@@ -296,7 +296,7 @@
                         {
                             <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
                                     @onclick="ToggleLogging"
-                                    data-tooltip="Log signal strength, AP, and channel over time for this device without GPS location data"
+                                    data-tooltip="Walk-test logging: record every live poll, not just the usual 10 to 30 s samples"
                                     data-tooltip-hover-only>
                                 @(_isLogging ? "Stop Logging" : "Start Logging")
                             </button>
@@ -416,7 +416,7 @@
                 {
                     <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging"
-                            data-tooltip="Log signal strength, AP, and channel over time for this device without GPS location data"
+                            data-tooltip="Walk-test logging: record every live poll, not just the usual 10 to 30 s samples"
                             data-tooltip-hover-only>
                         @(_isLogging ? "Stop Logging" : "Start Logging")
                     </button>
