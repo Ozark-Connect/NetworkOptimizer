@@ -344,6 +344,7 @@
                             <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
                         }
                     </span>
+                    <span class="identity-figures">
                     @if (_client.RxRateKbps.HasValue)
                     {
                         <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">AP RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
@@ -364,6 +365,7 @@
                             To <span class="speed-up">@DisplayFormatters.FormatRate(wifiDown)</span>
                         </span>
                     }
+                    </span>
                     @* The segmented pill replaces this badge; keep it for an MLO client whose per-link details are absent. *@
                     @if (_client.IsMlo && !HasMloLinks)
                     {
@@ -3539,6 +3541,21 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    .identity-figures {
+        display: contents;
+    }
+    /* Tablet: the Wi-Fi row cannot hold the PHY and throughput figures beside the AP, channel and
+       protocol, so they take a line of their own and Start Logging keeps the right edge of the
+       first. A wired row has the room and no wrapper. */
+    @@media (min-width: 769px) and (max-width: 1024px) {
+        .identity-figures {
+            display: flex;
+            flex-basis: 100%;
+            align-items: center;
+            gap: 12px;
+            order: 1;
+        }
     }
     .identity-throughput {
         font-size: 0.9375rem;
