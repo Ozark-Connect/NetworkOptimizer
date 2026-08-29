@@ -364,6 +364,7 @@ class LanFlowMap2D {
                             if(rebuilt)this._refitIfScrubbing();
                         }
                     }
+                    this._refreshTooltip();
                 }
             }else if(ev==='live'){
                 Object.assign(this._liveRates,flowData.getLiveRates());
@@ -375,6 +376,7 @@ class LanFlowMap2D {
                 this._updateStreamRates();
                 this._updateCloudStats();
                 this._needsStaticRedraw=true;
+                this._refreshTooltip();
             }else if(ev==='scrubber'||ev==='playstate'){
                 this._syncScrubber();
             }else if(ev==='scrubber-window'){
@@ -1043,6 +1045,7 @@ class LanFlowMap2D {
 
     _hitTest(sx,sy){
         const hit=this._nodeAt(sx,sy);
+        if(hit){this._hoverSx=sx;this._hoverSy=sy;}
 
         if(hit&&hit!==this._hoverNode){
             this._hoverNode=hit;
@@ -1167,6 +1170,16 @@ class LanFlowMap2D {
         if(ty<4)ty=4;
         this._tooltip.style.left=tx+'px';
         this._tooltip.style.top=ty+'px';
+    }
+
+    // Re-render the open tooltip so its readings follow each tick instead of the hover that
+    // opened it. A layout rebuild replaces the node objects, so resolve by id.
+    _refreshTooltip(){
+        if(!this._hoverNode)return;
+        const node=this._treeMap.get(this._hoverNode.d.id);
+        if(!node||!this._isNodeVisible(node)){this._hideTooltip();return;}
+        this._hoverNode=node;
+        this._showTooltip(node,this._hoverSx,this._hoverSy);
     }
 
     _hideTooltip(){
