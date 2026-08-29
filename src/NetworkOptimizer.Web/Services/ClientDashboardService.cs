@@ -1455,7 +1455,7 @@ public class ClientDashboardService
                 var data = await _connectionService.Client.PostUserReportAsync(granularity, client.Mac,
                     new DateTimeOffset(from).ToUnixTimeMilliseconds(), new DateTimeOffset(to).ToUnixTimeMilliseconds(),
                     new[] { "time", "rx_bytes", "tx_bytes" });
-                usage.Wan = ParseUserReport(data);
+                usage.Wan = ParseUserReport(data, client.IsWired);
             }
         }
         catch (Exception ex)
@@ -1492,12 +1492,44 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// The report's rows in the client's terms. Unlike stat/sta, which counts from the access
-    /// point's side, the report is in the client's own frame: rx_bytes is what the client received
-    /// from the WAN, tx_bytes what it sent. Checked against a wired client's switch port and a
-    /// wireless client's access point counters over the same hours.
+    /// The client's WAN traffic by application over a window, from UniFi Network's DPI, named through
+    /// the embedded catalog. Largest first; an application the catalog cannot name is kept as
+    /// "Unidentified" rather than dropped, so the shares still add up.
     /// </summary>
-    private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data)
+    public async Task<IReadOnlyList<AppUsageRow>> GetAppUsageAsync(ClientIdentity client, DateTime from, DateTime to)
+    {
+        if (string.IsNullOrEmpty(client.Mac) || !_connectionService.IsConnected || _connectionService.Client == null)
+            return Array.Empty<AppUsageRow>();
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        try
+        {
+            var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to);
+            var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
+            if (mine == null) return Array.Empty<AppUsageRow>();
+            return mine.UsageByApp
+                .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
+                .Select(u => new AppUsageRow(
+                    DpiCatalog.AppName(u.Category, u.Application) ?? "Unidentified",
+                    DpiCatalog.CategoryName(u.Category) ?? "Unknown",
+                    DpiCatalog.IconDomain(u.Category, u.Application),
+                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds))
+                .OrderByDescending(r => r.TotalBytes)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "App usage unavailable for {Mac}", client.Mac);
+            return Array.Empty<AppUsageRow>();
+        }
+    }
+
+    /// <summary>
+    /// The report's rows in the client's terms. The frame depends on the client's kind: a wired
+    /// row is the client's own (rx_bytes is what it received, checked against its switch port), a
+    /// wireless row is the access point's (tx_bytes is what the client received, checked against
+    /// devices that only ever stream).
+    /// </summary>
+    private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data, bool wired)
     {
         var rows = new List<UsageBucket>();
         if (data.ValueKind != System.Text.Json.JsonValueKind.Array) return rows;
@@ -1507,7 +1539,9 @@ public class ClientDashboardService
             var time = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
             var tx = row.TryGetProperty("tx_bytes", out var txEl) && txEl.TryGetDouble(out var txV) ? (long)txV : 0;
             var rx = row.TryGetProperty("rx_bytes", out var rxEl) && rxEl.TryGetDouble(out var rxV) ? (long)rxV : 0;
-            rows.Add(new UsageBucket(time, DownloadBytes: rx, UploadBytes: tx));
+            rows.Add(wired
+                ? new UsageBucket(time, DownloadBytes: rx, UploadBytes: tx)
+                : new UsageBucket(time, DownloadBytes: tx, UploadBytes: rx));
         }
         rows.Sort((a, b) => a.Time.CompareTo(b.Time));
         return rows;
