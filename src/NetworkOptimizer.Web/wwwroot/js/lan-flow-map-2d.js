@@ -1338,16 +1338,13 @@ class LanFlowMap2D {
 
         // Pure-client nodes (APs with only WiFi clients): compact grid
         if(n.infra.length===0&&nc>0){
-            const cols=Math.min(nc,G.clientCols);
-            const rows=Math.ceil(nc/cols);
-            const gridW=cols*cellCross;
-            const staggerExtra=rows>1?cellCross/2:0;
+            const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
-            n._gridCols=cols;
-            // Contour: node at depth 0, grid rectangle at depth 1 (widened for stagger)
+            n._gridCols=gc.cols;
+            // Contour: node at depth 0, grid rectangle at depth 1
             n._contour=[
                 {l:-selfW/2,r:selfW/2},
-                {l:-gridW/2,r:gridW/2+staggerExtra},
+                {l:gc.l,r:gc.r},
             ];
             n._kidOffsets=[];
             n._kids=[];
@@ -1357,13 +1354,10 @@ class LanFlowMap2D {
         // Infra children; clients always use a grid (placeholder in the kids array)
         const kids=[...n.infra];
         if(nc>0){
-            const cols=Math.min(nc,G.clientCols);
-            const rows=Math.ceil(nc/cols);
-            const gridW=cols*cellCross;
-            const staggerExtra=rows>1?cellCross/2:0;
+            const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
-            n._gridCols=cols;
-            const gp={_isGridPlaceholder:true,_contour:[{l:-gridW/2,r:gridW/2+staggerExtra}]};
+            n._gridCols=gc.cols;
+            const gp={_isGridPlaceholder:true,_contour:[{l:gc.l,r:gc.r}],_rows:gc.rows};
             kids.push(gp);
         }
 
@@ -1386,6 +1380,13 @@ class LanFlowMap2D {
                 offsets[0]=0;
                 groupRight=cc.map(c=>c.r);
             }else{
+                // The client grid is one tier deep, so it fits a gap between two infra boxes that
+                // deeper, wider levels forced apart - rather than always trailing the last subtree.
+                // Three rows at most: a fourth reaches the tier where those subtrees' children sit.
+                if(kids[i]._isGridPlaceholder&&kids[i]._rows<=3){
+                    const slot=this._gridSlot(kids,offsets,i,cc[0],GAP);
+                    if(slot!=null){offsets[i]=slot;continue;}
+                }
                 let minOff=0;
                 for(let d=0;d<Math.min(groupRight.length,cc.length);d++){
                     const needed=groupRight[d]-cc[d].l+GAP;
@@ -1400,8 +1401,12 @@ class LanFlowMap2D {
             }
         }
 
-        const firstL=offsets[0]+kids[0]._contour[0].l;
-        const lastR=offsets[offsets.length-1]+kids[kids.length-1]._contour[0].r;
+        // Extremes, not first and last: a grid slotted into a gap is out of offset order.
+        let firstL=Infinity,lastR=-Infinity;
+        for(let i=0;i<kids.length;i++){
+            firstL=Math.min(firstL,offsets[i]+kids[i]._contour[0].l);
+            lastR=Math.max(lastR,offsets[i]+kids[i]._contour[0].r);
+        }
         const center=(firstL+lastR)/2;
         const centered=offsets.map(o=>o-center);
 
@@ -1425,6 +1430,33 @@ class LanFlowMap2D {
             if(l!==Infinity)contour.push({l,r});
         }
         n._contour=contour;
+    }
+
+    // Exact extent of a client honeycomb. Odd rows shift half a cell, so a full one reaches half a
+    // cell past the even rows - a short one does not, and reserving the shift regardless left a
+    // dead half-cell beside every grid whose last row was not full.
+    _gridContour(nc,cellCross){
+        const cols=Math.min(nc,G.clientCols);
+        const rows=Math.ceil(nc/cols);
+        const l=-cols*cellCross/2;
+        let r=-Infinity;
+        for(let row=0;row<rows;row++){
+            const inRow=Math.min(cols,nc-row*cols);
+            r=Math.max(r,l+(row%2)*cellCross/2+inRow*cellCross);
+        }
+        return{cols,rows,l,r};
+    }
+
+    // The first gap between two already-packed siblings' boxes that fits the grid, as an offset;
+    // null when none does, in which case it packs after the last sibling as any kid would.
+    _gridSlot(kids,offsets,i,gc,gap){
+        const width=gc.r-gc.l;
+        for(let j=0;j+1<i;j++){
+            const from=offsets[j]+kids[j]._contour[0].r+gap;
+            const to=offsets[j+1]+kids[j+1]._contour[0].l-gap;
+            if(to-from>=width)return from-gc.l;
+        }
+        return null;
     }
 
     // The client honeycomb, centered on the parent's cross-axis position and running away from it
