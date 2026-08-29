@@ -9,10 +9,9 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
 const SCROLL_MS = 250;
-// The page's convention, as its speed test hero reads: From Device is what the client sends and
-// takes the download color, To Device is what it receives and takes the upload color.
-const COLOR_FROM = downloadColor();
-const COLOR_TO = uploadColor();
+// The device's frame: Download is what it receives, Upload what it sends.
+const COLOR_DOWN = downloadColor();
+const COLOR_UP = uploadColor();
 
 let chart = null;
 let scrollTimer = null;
@@ -56,10 +55,10 @@ function buildOpts() {
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
         },
         series: [
-            { name: 'From Device', type: 'area', data: [] },
-            { name: 'To Device',   type: 'area', data: [] },
+            { name: 'Download', type: 'area', data: [] },
+            { name: 'Upload',   type: 'area', data: [] },
         ],
-        colors: [COLOR_FROM, COLOR_TO],
+        colors: [COLOR_DOWN, COLOR_UP],
         stroke: { curve: 'smooth', width: 2 },
         fill: {
             type: 'gradient',
@@ -138,9 +137,8 @@ function buildTimeTicks(minMs, maxMs) {
     return ticks;
 }
 
-// Client terms in, chart terms out: From Device is the client's upload.
 function toPoint(p) {
-    return { time: new Date(p.time).getTime(), from: p.uploadBps ?? null, to: p.downloadBps ?? null };
+    return { time: new Date(p.time).getTime(), down: p.downloadBps ?? null, up: p.uploadBps ?? null };
 }
 
 function updateChart() {
@@ -150,14 +148,14 @@ function updateChart() {
     const pts = [...buffer];
     const last = pts[pts.length - 1];
     // Hold the last reading out to the live edge, so the line reaches the right of the plot.
-    if (last && now - last.time > 1000) pts.push({ time: now, from: last.from, to: last.to });
+    if (last && now - last.time > 1000) pts.push({ time: now, down: last.down, up: last.up });
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
         annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
     }, false, false, false);
     chart.updateSeries([
-        { name: 'From Device', data: pts.map(p => ({ x: p.time, y: p.from })) },
-        { name: 'To Device',   data: pts.map(p => ({ x: p.time, y: p.to })) },
+        { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.down })) },
+        { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.up })) },
     ], false);
 }
 

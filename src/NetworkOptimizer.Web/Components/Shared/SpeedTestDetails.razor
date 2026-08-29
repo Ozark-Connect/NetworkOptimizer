@@ -14,7 +14,7 @@
 @if (!PathOnly)
 {
     <div class="speed-results">
-        @if (DownloadMbps > 0)
+        @if (First.Mbps > 0)
         {
             <div class="speed-result download">
                 <div class="speed-icon">
@@ -23,13 +23,13 @@
                     </svg>
                 </div>
                 <div class="speed-details">
-                    <div class="speed-label">@(UseWanLabels ? "Download" : "From Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data downloaded from the internet (WAN to server)" : "Data transferred from the tested device to this server")">?</span></div>
-                    <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                    <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+                    <div class="speed-label">@First.Label <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@First.Tip">?</span></div>
+                    <div class="speed-value">@First.Mbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                    <div class="speed-meta">@FormatBytes(First.Bytes) transferred</div>
                 </div>
             </div>
         }
-        @if (UploadMbps > 0)
+        @if (Second.Mbps > 0)
         {
             <div class="speed-result upload">
                 <div class="speed-icon">
@@ -38,9 +38,9 @@
                     </svg>
                 </div>
                 <div class="speed-details">
-                    <div class="speed-label">@(UseWanLabels ? "Upload" : "To Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data uploaded to the internet (server to WAN)" : "Data transferred to the tested device from this server")">?</span></div>
-                    <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                    <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
+                    <div class="speed-label">@Second.Label <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@Second.Tip">?</span></div>
+                    <div class="speed-value">@Second.Mbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                    <div class="speed-meta">@FormatBytes(Second.Bytes) transferred</div>
                 </div>
             </div>
         }
@@ -116,7 +116,7 @@
     @if (DownloadRetransmits > 0 || UploadRetransmits > 0)
     {
         <div class="retransmits-info">
-            <small>Retransmits: @DownloadRetransmits from / @UploadRetransmits to</small>
+            <small>Retransmits: @First.Retransmits @First.Short / @Second.Retransmits @Second.Short</small>
         </div>
     }
     <div class="test-details">
@@ -151,7 +151,7 @@
         }
         else
         {
-            <span>@(UseWanLabels ? "Host" : "Device") <code>@DeviceName (@DeviceHost)</code></span>
+            <span>@(Perspective == SpeedPerspective.Wan ? "Host" : "Device") <code>@DeviceName (@DeviceHost)</code></span>
         }
         <span class="hide-mobile">Duration <code>@DurationSeconds seconds</code></span>
         <span class="show-mobile">Duration <code>@(DurationSeconds)s</code></span>
@@ -164,20 +164,17 @@
         {
             <span>Jitter <code>@(JitterMs.Value.ToString("F1")) ms</code></span>
         }
-        @if (DownloadLatencyMs.HasValue || UploadLatencyMs.HasValue)
+        @if (First.LatencyMs.HasValue)
         {
-            @if (DownloadLatencyMs.HasValue)
-            {
-                <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
-                    Loaded ↓ <code>@(DownloadLatencyMs.Value.ToString("F1")) ms@(DownloadJitterMs.HasValue && DownloadJitterMs.Value > 0 ? $" ({DownloadJitterMs.Value:F1} jitter)" : "")</code>
-                </span>
-            }
-            @if (UploadLatencyMs.HasValue)
-            {
-                <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
-                    Loaded ↑ <code>@(UploadLatencyMs.Value.ToString("F1")) ms@(UploadJitterMs.HasValue && UploadJitterMs.Value > 0 ? $" ({UploadJitterMs.Value:F1} jitter)" : "")</code>
-                </span>
-            }
+            <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
+                Loaded ↓ <code>@(First.LatencyMs.Value.ToString("F1")) ms@(First.JitterMs is > 0 ? $" ({First.JitterMs.Value:F1} jitter)" : "")</code>
+            </span>
+        }
+        @if (Second.LatencyMs.HasValue)
+        {
+            <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
+                Loaded ↑ <code>@(Second.LatencyMs.Value.ToString("F1")) ms@(Second.JitterMs is > 0 ? $" ({Second.JitterMs.Value:F1} jitter)" : "")</code>
+            </span>
         }
     </div>
 }
@@ -193,19 +190,19 @@
                     <span class="speed-label">max</span>
                 </div>
                 <div class="efficiency-grades">
-                    @if (DownloadMbps > 0)
+                    @if (First.Mbps > 0)
                     {
                         <div class="grade-item">
-                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(isFromDevice: true))" data-tooltip="@GetEfficiencyTooltip(isFromDevice: true)">
-                                ↓ @GetDisplayEfficiency(isFromDevice: true).ToString("F0")%
+                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(First.IsFromDevice))" data-tooltip="@GetEfficiencyTooltip(First.IsFromDevice)">
+                                ↓ @GetDisplayEfficiency(First.IsFromDevice).ToString("F0")%
                             </span>
                         </div>
                     }
-                    @if (UploadMbps > 0)
+                    @if (Second.Mbps > 0)
                     {
                         <div class="grade-item">
-                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(isFromDevice: false))" data-tooltip="@GetEfficiencyTooltip(isFromDevice: false)">
-                                ↑ @GetDisplayEfficiency(isFromDevice: false).ToString("F0")%
+                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(Second.IsFromDevice))" data-tooltip="@GetEfficiencyTooltip(Second.IsFromDevice)">
+                                ↑ @GetDisplayEfficiency(Second.IsFromDevice).ToString("F0")%
                             </span>
                         </div>
                     }
@@ -534,9 +531,37 @@
     [Parameter] public double? UploadJitterMs { get; set; }
 
     /// <summary>
-    /// When true, uses WAN labels (Download/Upload) instead of LAN labels (From Device/To Device)
+    /// Whose download the two figures are read as. Server is the stored pair as measured; Wan is
+    /// the site's Download / Upload; Device is the tested device's, which is the stored pair swapped
+    /// (what the device downloads is what this server sent it).
     /// </summary>
-    [Parameter] public bool UseWanLabels { get; set; }
+    [Parameter] public SpeedPerspective Perspective { get; set; }
+
+    /// <summary>One side of the pair as this perspective shows it.</summary>
+    private readonly record struct Figure(string Label, string Short, string Tip, double Mbps, long Bytes,
+        int Retransmits, double? LatencyMs, double? JitterMs, bool IsFromDevice);
+
+    private Figure FromDevice(string label, string shortLabel, string tip) => new(label, shortLabel, tip,
+        DownloadMbps, DownloadBytes, DownloadRetransmits, DownloadLatencyMs, DownloadJitterMs, IsFromDevice: true);
+
+    private Figure ToDevice(string label, string shortLabel, string tip) => new(label, shortLabel, tip,
+        UploadMbps, UploadBytes, UploadRetransmits, UploadLatencyMs, UploadJitterMs, IsFromDevice: false);
+
+    /// <summary>The left / first figure, drawn in the download color.</summary>
+    private Figure First => Perspective switch
+    {
+        SpeedPerspective.Wan => FromDevice("Download", "down", "Data downloaded from the internet (WAN to server)"),
+        SpeedPerspective.Device => ToDevice("Download", "down", "Data received by the tested device from this server"),
+        _ => FromDevice("From Device", "from", "Data transferred from the tested device to this server"),
+    };
+
+    /// <summary>The right / second figure, drawn in the upload color.</summary>
+    private Figure Second => Perspective switch
+    {
+        SpeedPerspective.Wan => ToDevice("Upload", "up", "Data uploaded to the internet (server to WAN)"),
+        SpeedPerspective.Device => FromDevice("Upload", "up", "Data sent by the tested device to this server"),
+        _ => ToDevice("To Device", "to", "Data transferred to the tested device from this server"),
+    };
 
     /// <summary>
     /// When true, only renders the path visualization and hides test details (speed, retransmits, metadata).

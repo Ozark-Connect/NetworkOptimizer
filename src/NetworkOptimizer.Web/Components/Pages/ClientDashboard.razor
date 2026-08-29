@@ -346,24 +346,24 @@
                         }
                     </span>
                     <span class="identity-figures">
-                    @if (_client.RxRateKbps.HasValue)
-                    {
-                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">AP RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
-                    }
                     @if (_client.TxRateKbps.HasValue)
                     {
-                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
+                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "speed-down")</span>
                     }
-                    @if (_wifiThroughput?.UploadBps is { } wifiUp)
+                    @if (_client.RxRateKbps.HasValue)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(wifiUp)</span>
-                        </span>
+                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">AP RX @RenderRate(_client.RxRateKbps, "speed-up")</span>
                     }
                     @if (_wifiThroughput?.DownloadBps is { } wifiDown)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(wifiDown)</span>
+                        <span class="identity-detail identity-throughput" data-tooltip="What this device is receiving right now">
+                            Download <span class="speed-down">@DisplayFormatters.FormatRate(wifiDown)</span>
+                        </span>
+                    }
+                    @if (_wifiThroughput?.UploadBps is { } wifiUp)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="What this device is sending right now">
+                            Upload <span class="speed-up">@DisplayFormatters.FormatRate(wifiUp)</span>
                         </span>
                     }
                     </span>
@@ -383,16 +383,16 @@
                     {
                         <span class="identity-detail" data-tooltip="Negotiated link speed">@DisplayFormatters.FormatRate(port.LinkSpeedBps)</span>
                     }
-                    @if (port.UploadBps is { } portUp)
-                    {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic from this device (Upload)">
-                            From <span class="speed-down">@DisplayFormatters.FormatRate(portUp)</span>
-                        </span>
-                    }
                     @if (port.DownloadBps is { } portDown)
                     {
-                        <span class="identity-detail identity-throughput" data-tooltip="Traffic to this device (Download)">
-                            To <span class="speed-up">@DisplayFormatters.FormatRate(portDown)</span>
+                        <span class="identity-detail identity-throughput" data-tooltip="What this device is receiving right now, through its switch port">
+                            Download <span class="speed-down">@DisplayFormatters.FormatRate(portDown)</span>
+                        </span>
+                    }
+                    @if (port.UploadBps is { } portUp)
+                    {
+                        <span class="identity-detail identity-throughput" data-tooltip="What this device is sending right now, through its switch port">
+                            Upload <span class="speed-up">@DisplayFormatters.FormatRate(portUp)</span>
                         </span>
                     }
                     @if (port.ErrorsFromClient.HasValue || port.ErrorsToClient.HasValue)
@@ -469,14 +469,15 @@
                     {
                         <div class="card speed-hero">
                             <div class="speed-hero-results">
+                                @* The device's frame: its download is what the server sent it, the stored UploadMbps. *@
                                 <div class="speed-metric download">
-                                    <span class="speed-label">From Device</span>
-                                    <span class="speed-value speed-down">@FormatSpeed(_latestSpeedResult.DownloadMbps, "F1")</span>
+                                    <span class="speed-label">Download</span>
+                                    <span class="speed-value speed-down">@FormatSpeed(_latestSpeedResult.UploadMbps, "F1")</span>
                                     <span class="speed-unit">Mbps</span>
                                 </div>
                                 <div class="speed-metric upload">
-                                    <span class="speed-label">To Device</span>
-                                    <span class="speed-value speed-up">@FormatSpeed(_latestSpeedResult.UploadMbps, "F1")</span>
+                                    <span class="speed-label">Upload</span>
+                                    <span class="speed-value speed-up">@FormatSpeed(_latestSpeedResult.DownloadMbps, "F1")</span>
                                     <span class="speed-unit">Mbps</span>
                                 </div>
                                 @if (_latestSpeedResult.PingMs.HasValue)
@@ -550,14 +551,14 @@
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_speedDownloadData"
-                                                     Name="From Device"
+                                                     Name="Download"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_speedUploadData"
-                                                     Name="To Device"
+                                                     Name="Upload"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
@@ -605,14 +606,14 @@
                                     <thead>
                                         <tr>
                                             <th>Time</th>
-                                            <th class="hide-mobile">From Device</th>
-                                            <th class="hide-mobile">To Device</th>
+                                            <th class="hide-mobile">Download</th>
+                                            <th class="hide-mobile">Upload</th>
                                             <th class="show-mobile">Result</th>
                                             @if (!HidesApRates)
                                             {
-                                                <th class="hide-mobile" data-tooltip="AP receive rate (from device)">RX Rate</th>
                                                 <th class="hide-mobile" data-tooltip="AP transmit rate (to device)">TX Rate</th>
-                                                <th class="show-mobile" data-tooltip="AP link rates (RX / TX)">RX / TX Rate</th>
+                                                <th class="hide-mobile" data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                                <th class="show-mobile" data-tooltip="AP link rates (TX / RX)">TX / RX Rate</th>
                                             }
 
                                             <th class="hide-mobile">Ping</th>
@@ -626,14 +627,14 @@
                                             <tr id="result-@r.Id" class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@FormatTimeShort(r.TestTime)</td>
-                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
-                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(r.UploadMbps, "F1")</span> Mbps</td>
-                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(r.DownloadMbps, "F0")</span> / <span class="speed-up">@FormatSpeed(r.UploadMbps, "F0")</span></td>
+                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F1")</span> Mbps</td>
+                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
+                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F0")</span> / <span class="speed-up">@FormatSpeed(r.DownloadMbps, "F0")</span></td>
                                                 @if (!HidesApRates)
                                                 {
-                                                    <td class="hide-mobile">@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
-                                                    <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
-                                                    <td class="show-mobile">@RenderRateShort(r.WifiRxRateKbps, "wifi-speed-rx") / @RenderRateShort(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                    <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "speed-down")</td>
+                                                    <td class="hide-mobile">@RenderRate(r.WifiRxRateKbps, "speed-up")</td>
+                                                    <td class="show-mobile">@RenderRateShort(r.WifiTxRateKbps, "speed-down") / @RenderRateShort(r.WifiRxRateKbps, "speed-up")</td>
                                                 }
                                                 <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
                                                 <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
@@ -645,6 +646,7 @@
                                                     <td colspan="@(HidesApRates ? 6 : 8)">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
+                                                                              Perspective="SpeedPerspective.Device"
                                                                               ShowLiveViewLink="_liveViewLinkEnabled"
                                                                               OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
                                                         </div>
@@ -670,6 +672,7 @@
                     {
                         <SpeedTestMap Results="_speedResults" MapHeight="400px"
                                      ApMarkers="_apMapMarkers" AllowApEditing="false"
+                                     Perspective="SpeedPerspective.Device"
                                      ShowExternalByDefault="_client?.IsVpn == true"
                                      TimeFilterHours="_selectedTimeFilter"
                                      OnResultClick="ScrollToResult"
@@ -802,8 +805,8 @@
                                             <th class="sortable @(_signalSortCol == "band" ? "sorted" : "")" @onclick='() => ToggleSignalSort("band")'>Band @SortIndicator("band")</th>
                                             <th class="sortable @(_signalSortCol == "ap" ? "sorted" : "")" @onclick='() => ToggleSignalSort("ap")'>AP @SortIndicator("ap")</th>
                                             <th class="sortable @(_signalSortCol == "channel" ? "sorted" : "")" @onclick='() => ToggleSignalSort("channel")'>Channel @SortIndicator("channel")</th>
-                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                             <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -831,8 +834,8 @@
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "-")</td>
                                                 <td>@(entry.Channel?.ToString() ?? "-")@(entry.ChannelWidth.HasValue ? $" - {entry.ChannelWidth} MHz" : "")</td>
-                                                <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
-                                                <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
+                                                <td>@RenderRate(entry.TxRateKbps, "speed-down")</td>
+                                                <td>@RenderRate(entry.RxRateKbps, "speed-up")</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -2194,8 +2197,9 @@
         var rawJitter = new List<SpeedChartPoint>();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            // The device's frame: its download is the stored UploadMbps (what the server sent it).
+            rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download"));
+            rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload"));
 
             if (r.PingMs.HasValue)
                 rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
@@ -3012,7 +3016,7 @@
                     }
                 }
             },
-            Colors = new List<string> { "#3385d6", "#24bc70" }, // From Device (blue), To Device (green) - matches SpeedTestDetails
+            Colors = new List<string> { "#3385d6", "#24bc70" }, // Download (blue), Upload (green) - matches SpeedTestDetails
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
             Fill = new Fill { Opacity = new Opacity(0.15) },
             Grid = new Grid
@@ -3693,8 +3697,8 @@
         text-align: center;
         font-variant-numeric: tabular-nums;
     }
-    .identity-row-2 .identity-rx .wifi-speed-rx,
-    .identity-row-2 .identity-tx .wifi-speed-tx {
+    .identity-row-2 .identity-tx .speed-down,
+    .identity-row-2 .identity-rx .speed-up {
         display: inline-block;
         min-width: 4ch;
         text-align: center;

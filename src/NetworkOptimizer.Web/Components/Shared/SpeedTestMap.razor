@@ -174,6 +174,17 @@
     [Parameter]
     public bool AllowApEditing { get; set; } = true;
 
+    /// <summary>
+    /// Whose download the popups read: the server's pair as stored, or the tested device's, which
+    /// is that pair swapped. Client Performance passes Device; the speed test pages keep Server.
+    /// </summary>
+    [Parameter]
+    public SpeedPerspective Perspective { get; set; }
+
+    /// <summary>A result's (download, upload) in the mounted perspective.</summary>
+    private (double Down, double Up) Pair(Iperf3Result r) =>
+        Perspective == SpeedPerspective.Device ? (r.UploadMbps, r.DownloadMbps) : (r.DownloadMbps, r.UploadMbps);
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     /// <summary>
@@ -1347,16 +1358,17 @@
             foreach (var test in recentTests)
             {
                 var testTime = test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
-                var dlColor = GetSpeedColor(test.DownloadMbps);
-                var ulColor = GetSpeedColor(test.UploadMbps);
+                var (down, up) = Pair(test);
+                var dlColor = GetSpeedColor(down);
+                var ulColor = GetSpeedColor(up);
                 var clickAttr = OnResultClick.HasDelegate
                     ? $" onclick='window._speedTestMapClick({test.Id})' style='cursor:pointer'"
                     : "";
                 html += $"<div class='ap-popup-test-row'{clickAttr}>";
                 html += $"<span class='ap-popup-test-time'>{testTime}</span>";
                 html += $"<span class='ap-popup-test-speeds'>";
-                html += $"<span style='color:{dlColor}'>↓ {test.DownloadMbps:F0}</span>";
-                html += $"<span style='color:{ulColor}'>↑ {test.UploadMbps:F0}</span>";
+                html += $"<span style='color:{dlColor}'>↓ {down:F0}</span>";
+                html += $"<span style='color:{ulColor}'>↑ {up:F0}</span>";
                 html += " Mbps</span>";
                 html += "</div>";
             }
@@ -1673,8 +1685,9 @@
 
         // Speed row
         html += $"<div class='wifi-tooltip-row wifi-tooltip-speed'>";
-        html += $"<span class='wifi-speed-rx'>↓ {result.DownloadMbps:F0}</span> · ";
-        html += $"<span class='wifi-speed-tx'>↑ {result.UploadMbps:F0}</span> Mbps";
+        var (popupDown, popupUp) = Pair(result);
+        html += $"<span class='speed-down'>↓ {popupDown:F0}</span> · ";
+        html += $"<span class='speed-up'>↑ {popupUp:F0}</span> Mbps";
         html += "</div>";
 
         // AP name if available (clickable to filter + open AP popup)

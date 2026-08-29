@@ -273,7 +273,7 @@
             </div>
             <div class="card-body">
                 <SpeedTestDetails Result="_latestResult"
-                                  UseWanLabels="true"
+                                  Perspective="SpeedPerspective.Wan"
                                   OnTestAgain="HandleTestAgain"
                                   OnNotesChanged="HandleNotesChanged"
                                   AvailableWans="_availableWans"
@@ -582,7 +582,7 @@
                                                         }
                                                         <SpeedTestDetails Result="result"
                                                                           PathAnalysis="pathAnalysis"
-                                                                          UseWanLabels="true"
+                                                                          Perspective="SpeedPerspective.Wan"
                                                                           OnTestAgain="HandleTestAgain"
                                                                           OnDelete="HandleDeleteResult"
                                                                           OnNotesChanged="HandleNotesChanged"
