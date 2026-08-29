@@ -1110,8 +1110,13 @@
                                                 <tr>
                                                     <td>
                                                         <span class="app-name">
+                                                            @* Stacked, last one on top: the initial, then the brand glyph, then the console's favicon. *@
                                                             <span class="app-icon">
                                                                 <span class="app-initial">@a.Name[0]</span>
+                                                                @if (a.IconClass != null)
+                                                                {
+                                                                    <i class="app-glyph @a.IconClass" aria-hidden="true"></i>
+                                                                }
                                                                 @if (a.IconDomain != null)
                                                                 {
                                                                     @* Hidden, never removed: Blazor owns this node, and a removed one breaks its next diff. *@
@@ -4136,10 +4141,19 @@
         flex-shrink: 0;
     }
     .app-icon img,
-    .app-initial {
+    .app-initial,
+    .app-glyph {
         position: absolute;
         inset: 0;
         border-radius: 4px;
+    }
+    .app-glyph {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
     }
     .app-icon img {
         object-fit: contain;

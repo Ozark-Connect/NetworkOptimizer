@@ -1570,6 +1570,7 @@ public class ClientDashboardService
                     DpiCatalog.AppName(u.Category, u.Application) ?? "Unidentified",
                     DpiCatalog.CategoryName(u.Category) ?? "Unknown",
                     DpiCatalog.IconDomain(u.Category, u.Application),
+                    DpiCatalog.IconClass(u.Category, u.Application),
                     u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds))
                 .OrderByDescending(r => r.TotalBytes)
                 .ToList();

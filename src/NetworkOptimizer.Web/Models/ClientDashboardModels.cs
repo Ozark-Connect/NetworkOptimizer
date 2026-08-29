@@ -44,7 +44,7 @@ public record ThroughputSample(DateTime Time, double? DownloadBps, double? Uploa
 public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
 
 /// <summary>One application's share of a client's WAN traffic, as UniFi Network identified it.</summary>
-public record AppUsageRow(string Name, string Category, string? IconDomain, long DownloadBytes, long UploadBytes, long ActivitySeconds)
+public record AppUsageRow(string Name, string Category, string? IconDomain, string? IconClass, long DownloadBytes, long UploadBytes, long ActivitySeconds)
 {
     public long TotalBytes => DownloadBytes + UploadBytes;
 }

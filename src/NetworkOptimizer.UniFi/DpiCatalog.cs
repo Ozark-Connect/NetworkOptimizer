@@ -5,15 +5,16 @@ namespace NetworkOptimizer.UniFi;
 /// <summary>
 /// Names for UniFi Network's DPI application and category ids, which no API serves. Taken from the
 /// table the Network app ships for its own UI (<c>dynamic.dpi.js</c>, catalog version 1.406): names,
-/// and for the few applications that have one, the domain whose favicon the app shows. Refresh by
-/// re-parsing a newer bundle into <c>Resources/dpi-catalog.json</c>.
+/// and for the few applications that have one, the domain whose favicon the app shows and the Font
+/// Awesome brand class it uses (mapped to Font Awesome 6 names). Refresh by re-parsing a newer
+/// bundle into <c>Resources/dpi-catalog.json</c>.
 ///
 /// An application key packs the category into the high half: <c>(category &lt;&lt; 16) | application</c>,
 /// which is how the traffic endpoints' separate <c>category</c> / <c>application</c> ids map onto it.
 /// </summary>
 public static class DpiCatalog
 {
-    private sealed record Entry(string N, string? D);
+    private sealed record Entry(string N, string? D, string? I);
     private sealed record Catalog(string Version, Dictionary<string, string> Categories, Dictionary<string, Entry> Applications);
 
     private static readonly Lazy<Catalog> _catalog = new(Load);
@@ -44,6 +45,10 @@ public static class DpiCatalog
     /// <summary>The domain whose favicon the Network app shows for this application, if it has one.</summary>
     public static string? IconDomain(int category, int application) =>
         _catalog.Value.Applications.TryGetValue(Key(category, application).ToString(), out var e) ? e.D : null;
+
+    /// <summary>The Font Awesome brand class for this application, if the catalog marks it with one.</summary>
+    public static string? IconClass(int category, int application) =>
+        _catalog.Value.Applications.TryGetValue(Key(category, application).ToString(), out var e) ? e.I : null;
 
     /// <summary>Whether a domain is one the catalog names, so the icon path cannot be pointed anywhere else.</summary>
     public static bool IsIconDomain(string domain) => _iconDomains.Value.Contains(domain);
