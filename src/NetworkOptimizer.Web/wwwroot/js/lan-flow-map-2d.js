@@ -755,6 +755,7 @@ class LanFlowMap2D {
     }
 
     _onDown(e){
+        this._touch=e.pointerType!=='mouse';
         this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
         this._canvas.setPointerCapture(e.pointerId);
         this._tapStart={x:e.clientX,y:e.clientY,id:e.pointerId};
@@ -779,6 +780,7 @@ class LanFlowMap2D {
     }
 
     _onMove(e){
+        this._touch=e.pointerType!=='mouse';
         if(this._pointers.has(e.pointerId))
             this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
 
@@ -1161,12 +1163,19 @@ class LanFlowMap2D {
             else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
         }
 
+        // What a double-click does here, if anything (mirrors _onDoubleClick).
+        const gesture=this._touch?'Double-tap':'Double-click';
+        let hint='';
+        if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
+        else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} to open in Client Performance`;
+
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
         const ovTip=this._nodeOverlays?.[d.id]?.tip;
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
             +(ovTip?`<div style="margin-bottom:3px">${esc(String(ovTip))}</div>`:'')
-            +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
+            +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('')
+            +(hint?`<div style="color:${C.textMuted};margin-top:4px">${hint}</div>`:'');
         this._tooltip.style.opacity='1';
         this._tooltip.style.visibility='visible';
         // Position dynamically to stay within the container
