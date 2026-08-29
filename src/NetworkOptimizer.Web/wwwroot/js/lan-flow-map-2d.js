@@ -1167,7 +1167,7 @@ class LanFlowMap2D {
         const gesture=this._touch?'Double-tap':'Double-click';
         let hint='';
         if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
-        else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} to open in Client Performance`;
+        else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} for client details`;
 
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
         const ovTip=this._nodeOverlays?.[d.id]?.tip;
