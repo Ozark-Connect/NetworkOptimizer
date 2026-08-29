@@ -743,6 +743,12 @@ public class LanFlowMapService
             if (!string.IsNullOrEmpty(p.ClientMac))
                 update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
         }
+        // The window is minutes wide; a client gone longer than that has no point in it. One the
+        // collector writes every pass is measured whether or not the window caught it.
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.WritesTelemetry) update.MeasuredClientIds.Add(node.Id);
+        }
 
         // Who was connected at this instant, wired and wireless alike. A point far from `at` is
         // somewhere else in the cached window and says nothing about now, so it does not count.
@@ -1765,6 +1771,8 @@ public class LanFlowMapService
             };
             if (!c.IsWired)
             {
+                // Every associated Wi-Fi client is written each pass.
+                node.WritesTelemetry = true;
                 node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
                 node.SignalDbm = live?.SignalDbm is { } dbm
                     ? (int)Math.Round(dbm)
@@ -1822,6 +1830,8 @@ public class LanFlowMapService
                     if (parentDev.DeviceType == DeviceType.DeviceBridge)
                         link.BridgeParentMac = parentMac;
                 }
+                // The wired writer's gate: a ported client is written every pass, a bridged one never.
+                node.WritesTelemetry = string.IsNullOrEmpty(link.BridgeParentMac);
             }
             else if (!c.IsWired)
             {

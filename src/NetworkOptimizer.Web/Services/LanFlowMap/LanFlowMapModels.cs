@@ -133,6 +133,11 @@ public class LanNode
     /// parent doesn't expose SNMP data (mesh AP → switch case).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? UplinkIfName { get; set; }
+
+    /// <summary>The collector writes this client every pass, so an instant with no point means it
+    /// was not connected. Server-side only, for the historic endpoint.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool WritesTelemetry { get; set; }
 }
 
 public class LanPlacement
@@ -477,10 +482,9 @@ public class LanFlowMapHistoricUpdate
     public List<string> PresentClientIds { get; set; } = new();
 
     /// <summary>
-    /// Client node ids with telemetry anywhere in the fetched window - the clients playback can say
-    /// anything about at all. A client that never appears (one behind a device bridge writes no
-    /// point, having no switch port to be tagged with) is unknowable rather than absent, and is left
-    /// on the map as it was before presence was filtered.
+    /// Client node ids playback can speak to at all: written every pass
+    /// (<see cref="LanNode.WritesTelemetry"/>), or with a point in the fetched window. Any other
+    /// (a bridged camera writes nothing) is unknowable rather than absent, and stays drawn.
     /// </summary>
     public List<string> MeasuredClientIds { get; set; } = new();
 }
