@@ -3639,10 +3639,10 @@
     .identity-figures {
         display: contents;
     }
-    /* Tablet: the Wi-Fi row cannot hold the PHY and throughput figures beside the AP, channel and
-       protocol, so they take a line of their own and Start Logging keeps the right edge of the
-       first. A wired row has the room and no wrapper. */
-    @@media (min-width: 769px) and (max-width: 1024px) {
+    /* Under 1400px the Wi-Fi row cannot hold the PHY and throughput figures beside the AP, channel
+       and protocol without crowding Start Logging, so they take a line of their own and the button
+       keeps the right edge of the first. A wired row has the room and no wrapper. */
+    @@media (min-width: 769px) and (max-width: 1400px) {
         .identity-figures {
             display: flex;
             flex-basis: 100%;
