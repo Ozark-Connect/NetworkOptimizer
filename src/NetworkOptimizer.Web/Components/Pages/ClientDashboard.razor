@@ -1190,7 +1190,7 @@
     private DateTime? _liveChartPushedAt;
     private DateTime _liveChartHistoryAt;
     // Wi-Fi readings folded to the cadence history is stored at (see PushLiveSampleAsync).
-    private static readonly TimeSpan LiveChartWindow = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan LiveChartWindow = TimeSpan.FromSeconds(5);
     private double _liveChartAccDown, _liveChartAccUp;
     private int _liveChartAccN;
     private DateTime _liveChartAccStart;
