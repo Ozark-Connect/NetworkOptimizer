@@ -2549,9 +2549,12 @@ public class UniFiApiClient : IDisposable
         return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
         {
             var response = await _httpClient!.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode) return null;
             var type = response.Content.Headers.ContentType?.MediaType ?? "";
-            if (!type.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return null;
+            if (!response.IsSuccessStatusCode || !type.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("DPI icon for {Domain}: {StatusCode} {ContentType}", domain, (int)response.StatusCode, type);
+                return null;
+            }
             var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             return bytes.Length == 0 ? null : (bytes, type);
         });
