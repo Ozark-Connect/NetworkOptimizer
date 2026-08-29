@@ -74,8 +74,9 @@ public class ClientUsageRollupService : BackgroundService
 
     // Cursors live here, seeded once from the store: an hour with no traffic writes no points, so
     // the store alone cannot say it was rolled and would hand the same empty hours back every pass.
-    private DateTime? _next;   // earliest hour not yet rolled going forward
-    private DateTime? _oldest; // earliest hour rolled; the backward pass reaches below it
+    private bool _seeded;
+    private DateTime _next;   // earliest hour not yet rolled going forward
+    private DateTime _oldest; // earliest hour rolled; the backward pass reaches below it
 
     /// <summary>
     /// Rolls the next few pending hours: forward to the last complete hour first, then backward to
@@ -87,12 +88,13 @@ public class ClientUsageRollupService : BackgroundService
 
         var lastComplete = HourStart(DateTime.UtcNow).AddHours(-1);
         var horizon = lastComplete - BackfillHorizon;
-        if (_next == null)
+        if (!_seeded)
         {
             var last = await _influx.QueryLastUsageRollupHourAsync(ct);
             _next = last.HasValue ? last.Value.AddHours(1) : horizon;
             if (_next < horizon) _next = horizon;
             _oldest = await _influx.QueryFirstUsageRollupHourAsync(ct) ?? _next;
+            _seeded = true;
         }
 
         var hours = 0;
@@ -107,16 +109,16 @@ public class ClientUsageRollupService : BackgroundService
             hours++;
         }
 
-        for (; _next <= lastComplete && hours < MaxHoursPerPass; _next = _next.Value.AddHours(1))
-            await RollAsync(_next.Value);
-        for (; _oldest.Value.AddHours(-1) >= horizon && hours < MaxHoursPerPass; _oldest = _oldest.Value.AddHours(-1))
-            await RollAsync(_oldest.Value.AddHours(-1));
+        for (; _next <= lastComplete && hours < MaxHoursPerPass; _next = _next.AddHours(1))
+            await RollAsync(_next);
+        for (; _oldest.AddHours(-1) >= horizon && hours < MaxHoursPerPass; _oldest = _oldest.AddHours(-1))
+            await RollAsync(_oldest.AddHours(-1));
 
-        var ahead = _next <= lastComplete ? (int)(lastComplete - _next.Value).TotalHours + 1 : 0;
-        var behind = _oldest > horizon ? (int)(_oldest.Value - horizon).TotalHours : 0;
+        var ahead = _next <= lastComplete ? (int)(lastComplete - _next).TotalHours + 1 : 0;
+        var behind = _oldest > horizon ? (int)(_oldest - horizon).TotalHours : 0;
         if (hours > 0)
             _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), rolled {From:u} to {To:u}, {Wifi} wireless and {Ports} port points, {Remaining} hour(s) to go",
-                _siteSlug, hours, _oldest, _next.Value.AddHours(-1), wifi, ports, ahead + behind);
+                _siteSlug, hours, _oldest, _next.AddHours(-1), wifi, ports, ahead + behind);
         return ahead + behind > 0;
     }
 

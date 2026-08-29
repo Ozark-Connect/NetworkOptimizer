@@ -1034,7 +1034,7 @@
                     else
                     {
                         <div class="usage-grid">
-                            <div class="card results-card usage-card">
+                            <div class="card results-card usage-card @(_usageView == "wan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">
                                 <h3>WAN</h3>
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
@@ -1050,7 +1050,7 @@
                                     <span>WAN traffic totals, per UniFi Network</span>
                                 </div>
                             </div>
-                            <div class="card results-card usage-card">
+                            <div class="card results-card usage-card @(_usageView == "lan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("lan"))">
                                 <h3>LAN + WAN</h3>
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
@@ -1072,22 +1072,25 @@
                         {
                             <p class="form-hint">Usage covers the last 30 days.</p>
                         }
-                        @if (_dataUsage.Wan.Count > 0)
-                        {
-                            <div class="card chart-card">
-                                <h3>WAN Usage</h3>
-                                <div class="chart-container">
-                                    <ApexChart @ref="_wanUsageChart" TItem="SpeedChartPoint"
-                                               Options="_wanUsageChartOptions"
-                                               Height="@("220px")">
-                                        <ApexPointSeries TItem="SpeedChartPoint" Items="_wanDownData" Name="Download"
-                                                         SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
-                                        <ApexPointSeries TItem="SpeedChartPoint" Items="_wanUpData" Name="Upload"
-                                                         SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
-                                    </ApexChart>
+                        <div class="card chart-card">
+                            <div class="usage-chart-header">
+                                <h3>Usage</h3>
+                                <div class="time-range-selector">
+                                    <button class="time-btn @(_usageView == "wan" ? "active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">WAN</button>
+                                    <button class="time-btn @(_usageView == "lan" ? "active" : "")" @onclick="@(() => SetUsageViewAsync("lan"))">LAN + WAN</button>
                                 </div>
                             </div>
-                        }
+                            <div class="chart-container">
+                                <ApexChart @ref="_usageChart" TItem="SpeedChartPoint"
+                                           Options="_usageChartOptions"
+                                           Height="@("220px")">
+                                    <ApexPointSeries TItem="SpeedChartPoint" Items="@(_usageView == "lan" ? _lanDownData : _wanDownData)" Name="Download"
+                                                     SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
+                                    <ApexPointSeries TItem="SpeedChartPoint" Items="@(_usageView == "lan" ? _lanUpData : _wanUpData)" Name="Upload"
+                                                     SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
                         @if (_appUsage.Count > 0)
                         {
                             <div class="card results-card">
@@ -1139,22 +1142,6 @@
                                 {
                                     <p class="form-hint">@(_appUsage.Count - AppRowsShown) more with less traffic.</p>
                                 }
-                            </div>
-                        }
-                        @if (_dataUsage.Lan.Count > 0)
-                        {
-                            <div class="card chart-card">
-                                <h3>LAN + WAN Usage</h3>
-                                <div class="chart-container">
-                                    <ApexChart @ref="_lanUsageChart" TItem="SpeedChartPoint"
-                                               Options="_lanUsageChartOptions"
-                                               Height="@("220px")">
-                                        <ApexPointSeries TItem="SpeedChartPoint" Items="_lanDownData" Name="Download"
-                                                         SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
-                                        <ApexPointSeries TItem="SpeedChartPoint" Items="_lanUpData" Name="Upload"
-                                                         SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
-                                    </ApexChart>
-                                </div>
                             </div>
                         }
                     }
@@ -1235,10 +1222,9 @@
     private List<SpeedChartPoint> _wanUpData = new();
     private List<SpeedChartPoint> _lanDownData = new();
     private List<SpeedChartPoint> _lanUpData = new();
-    private ApexChart<SpeedChartPoint>? _wanUsageChart;
-    private ApexChart<SpeedChartPoint>? _lanUsageChart;
-    private ApexChartOptions<SpeedChartPoint> _wanUsageChartOptions = new();
-    private ApexChartOptions<SpeedChartPoint> _lanUsageChartOptions = new();
+    private ApexChart<SpeedChartPoint>? _usageChart;
+    private ApexChartOptions<SpeedChartPoint> _usageChartOptions = new();
+    private string _usageView = "wan"; // "wan" or "lan": which totals the Usage chart plots
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
     // The site's agent runs on the UniFi gateway (no speed-test listener at the site).
@@ -1438,8 +1424,7 @@
         ConfigureSpeedChart();
         ConfigureLatencyChart();
         ConfigureSignalChart();
-        _wanUsageChartOptions = CreateUsageChartOptions();
-        _lanUsageChartOptions = CreateUsageChartOptions();
+        _usageChartOptions = CreateUsageChartOptions();
 
         // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
         await ConnectionService.WaitForConnectionAsync();
@@ -2345,6 +2330,9 @@
         _wanUpData = Series(_dataUsage.Wan, r => r.UploadBytes, "upload");
         _lanDownData = Series(_dataUsage.Lan, r => r.DownloadBytes, "download");
         _lanUpData = Series(_dataUsage.Lan, r => r.UploadBytes, "upload");
+        // Keep the user's pick unless that side has nothing to plot.
+        if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
+        else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
     }
 
     /// <summary>
@@ -2708,10 +2696,17 @@
                 if (_connectionChart != null) await WithChartRetry(() => _connectionChart.UpdateSeriesAsync(true));
                 break;
             case "data":
-                if (_wanUsageChart != null) await WithChartRetry(() => _wanUsageChart.UpdateSeriesAsync(true));
-                if (_lanUsageChart != null) await WithChartRetry(() => _lanUsageChart.UpdateSeriesAsync(true));
+                if (_usageChart != null) await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
                 break;
         }
+    }
+
+    private async Task SetUsageViewAsync(string view)
+    {
+        if (_usageView == view) return;
+        _usageView = view;
+        StateHasChanged();
+        if (_usageChart != null) await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
     }
 
     private (DateTime from, DateTime to) GetTimeRange()
@@ -4123,8 +4118,19 @@
         grid-template-columns: 1fr 1fr;
         gap: 1rem;
     }
+    .usage-card {
+        cursor: pointer;
+    }
+    .usage-card.is-active {
+        box-shadow: inset 0 0 0 1px var(--primary-color);
+    }
     .usage-card .speed-hero-results {
         margin-bottom: 12px;
+    }
+    .usage-chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     .app-table-hint {
         margin-bottom: 0.5rem;
