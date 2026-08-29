@@ -1947,6 +1947,7 @@ class LanFlowMap2D {
         const normalFont=`${G.rateFont}px ${FONT}`;
         const italicFont=`italic ${G.rateFont}px ${FONT}`;
         ctx.font=normalFont;
+        this._linkLabelRects=[];
         for(const{mx,my,txt,txtColor,txtItalic}of(this._pendingLinkLabels||[])){
             ctx.font=txtItalic?italicFont:normalFont;
             const tw=ctx.measureText(txt).width+12;
@@ -1954,6 +1955,7 @@ class LanFlowMap2D {
             ctx.globalAlpha=1;
             this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
             ctx.fill();
+            this._linkLabelRects.push({x:mx-tw/2,y:my-8,w:tw,h:16});
             if(txtColor){
                 ctx.fillStyle=txtColor;
                 ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2114,6 +2116,7 @@ class LanFlowMap2D {
 
         // Name label
         const name=demoMask(n.d.name||n.d.model||'');
+        n._nameRect=null;
         if(name){
             const dn=name.length>24?name.slice(0,23)+'…':name;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
@@ -2125,6 +2128,7 @@ class LanFlowMap2D {
             ctx.fillStyle=C.text;
             ctx.textAlign='center'; ctx.textBaseline='middle';
             ctx.fillText(dn,x,ly);
+            n._nameRect={x:x-tw/2,y:ly-8,w:tw,h:16};
         }
 
         // Overlay badge: small filled disc at the card's top-right corner
@@ -2183,12 +2187,15 @@ class LanFlowMap2D {
 
         // Name label
         const name=demoMask(n.d.name||n.d.ip||'');
+        n._nameRect=null;
         if(name){
             const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
             ctx.fillText(dn,x,y+r+3);
+            const tw=ctx.measureText(dn).width;
+            n._nameRect={x:x-tw/2,y:y+r+3,w:tw,h:G.clientFont+2};
         }
     }
 
@@ -2232,6 +2239,7 @@ class LanFlowMap2D {
 
         // Node rate labels
         const drawNodeRate=(n)=>{
+            n._rateRect=null;
             if(n._rateY){
                 let downBps=0,upBps=0,any=false;
                 const b=badges?.[n.d.id];
@@ -2275,34 +2283,25 @@ class LanFlowMap2D {
                     ctx.fillText(dTxt,n.x-4,n._rateY);
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                     ctx.fillText(uTxt,n.x+4,n._rateY);
+                    n._rateRect={x:n.x-tw/2,y:n._rateY-8,w:tw,h:16};
                 }
             }
             for(const c of n.infra)drawNodeRate(c);
         };
         if(this._root)drawNodeRate(this._root);
 
-        // Link rate labels
-        ctx.font=`${G.rateFont}px ${FONT}`;
-        for(const e of this._edges){
-            if(e._x1==null||e._isCl||e._isWan)continue;
-            const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
-            if(!r)continue;
-            const dn=r.downstreamBps??0,up=r.upstreamBps??0;
-            if(dn>THRESH||up>THRESH){
-                const lp=this._rateLabel(e);
-                const mx=lp.x,my=lp.y;
-                const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
-                const uTxt='↑'+(up>0?formatBps(up):'0 bps');
-                const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
-                ctx.fillStyle=C.labelBg;
-                this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
-                ctx.fill();
-                ctx.textBaseline='middle';
-                ctx.textAlign='right'; ctx.fillStyle=C.downstream;
-                ctx.fillText(dTxt,mx-4,my);
-                ctx.textAlign='left'; ctx.fillStyle=C.upstream;
-                ctx.fillText(uTxt,mx+4,my);
-            }
+        // Left to right, the link label has to dodge: every label already on the canvas is an
+        // obstacle, and the client labels below are drawn first so they count too.
+        const hz=this._hz;
+        const taken=hz?[...(this._linkLabelRects||[])]:null;
+        if(hz&&this._root){
+            const collect=(n)=>{
+                if(n._nameRect)taken.push(n._nameRect);
+                if(n._rateRect)taken.push(n._rateRect);
+                for(const c of n.infra)collect(c);
+                for(const c of (n._visClients||[]))if(c._nameRect)taken.push(c._nameRect);
+            };
+            collect(this._root);
         }
 
         // Client rate labels (same style as node/link labels)
@@ -2327,7 +2326,51 @@ class LanFlowMap2D {
                 ctx.fillText(dTxt,cx-4,cy);
                 ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                 ctx.fillText(uTxt,cx+4,cy);
+                if(hz)taken.push({x:cx-tw/2,y:cy-8,w:tw,h:16});
             }
+        }
+
+        // Link rate labels. Top-down they sit on the child's leg, which is long enough for the
+        // pair side by side. Left to right the crossbar is the only run, a tier gap from the
+        // boxes either side and shared with siblings, so the pair stacks and slides along the
+        // bar to the nearest spot clear of everything already drawn.
+        const hits=(a)=>taken.some(t=>a.x<t.x+t.w+2&&a.x+a.w>t.x-2&&a.y<t.y+t.h+2&&a.y+a.h>t.y-2);
+        for(const e of this._edges){
+            if(e._x1==null||e._isCl||e._isWan)continue;
+            const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+            if(!r)continue;
+            const dn=r.downstreamBps??0,up=r.upstreamBps??0;
+            if(!(dn>THRESH||up>THRESH))continue;
+            const lp=this._rateLabel(e);
+            const mx=lp.x;
+            const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
+            const uTxt='↑'+(up>0?formatBps(up):'0 bps');
+            if(!hz){
+                const my=lp.y;
+                const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
+                ctx.fillStyle=C.labelBg;
+                this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
+                ctx.fill();
+                ctx.textBaseline='middle';
+                ctx.textAlign='right'; ctx.fillStyle=C.downstream;
+                ctx.fillText(dTxt,mx-4,my);
+                ctx.textAlign='left'; ctx.fillStyle=C.upstream;
+                ctx.fillText(uTxt,mx+4,my);
+                continue;
+            }
+            const w=Math.max(ctx.measureText(dTxt).width,ctx.measureText(uTxt).width)+12, h=30;
+            let my=lp.y;
+            for(let k=0;k<=20;k++){
+                const dy=(k%2?-1:1)*Math.ceil(k/2)*8;
+                const cand={x:mx-w/2,y:lp.y+dy-h/2,w,h};
+                if(!hits(cand)){my=lp.y+dy;taken.push(cand);break;}
+            }
+            ctx.fillStyle=C.labelBg;
+            this._roundRect(ctx,mx-w/2,my-h/2,w,h,4);
+            ctx.fill();
+            ctx.textBaseline='middle'; ctx.textAlign='center';
+            ctx.fillStyle=C.downstream; ctx.fillText(dTxt,mx,my-7);
+            ctx.fillStyle=C.upstream; ctx.fillText(uTxt,mx,my+7);
         }
     }
 
