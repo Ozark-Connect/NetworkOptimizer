@@ -352,7 +352,7 @@ class LanFlowMap2D {
                         if(newInfra!==prevInfra){
                             this._buildLayout(s);
                             this._loadImages(s).then(()=>{this._needsStaticRedraw=true;});
-                            this._refitIfScrubbing();
+                            this._refitIfFitted();
                         }else{
                             // Client churn or same topology: update data in place
                             const rebuilt=this._updateSnapshotData(s);
@@ -361,7 +361,7 @@ class LanFlowMap2D {
                             // a layout rebuild - so clients that joined or left resolve stale.
                             this._nodeKinds=null;
                             this._needsStaticRedraw=true;
-                            if(rebuilt)this._refitIfScrubbing();
+                            if(rebuilt)this._refitIfFitted();
                         }
                     }
                     this._refreshTooltip();
@@ -1267,6 +1267,7 @@ class LanFlowMap2D {
         this._calcBounds();
         this._updateStreamRates();
         this._needsStaticRedraw=true;
+        this._refitIfFitted();
     }
 
     // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
@@ -1557,14 +1558,12 @@ class LanFlowMap2D {
         return clientsChanged;
     }
 
-    // Scrubbing to another instant can add or drop whole branches, so the tree's extent
-    // changes and part of it can end up off-screen. Re-fit when it does - but only while the
-    // view is still the fitted one; once the user has zoomed or panned, that framing is
-    // theirs to keep (same _isFitted rule the filter and overlay toggles use). Live churn is
-    // deliberately excluded so a client joining can't jog the zoom while someone is watching.
-    // The debounce is inherited: this only runs on published snapshots.
-    _refitIfScrubbing(){
-        if(this._isFitted&&flowData.getMode()==='historic')this._fitAll();
+    // Clients joining, leaving, roaming or scrubbing all change the tree's extent, so part of it
+    // can end up off-screen. Re-fit while the view is still the fitted one (a Fit press re-arms
+    // it); once the user has zoomed or panned, that framing is theirs to keep - the same
+    // _isFitted rule the filter and overlay toggles use. Unchanged bounds fit to the same frame.
+    _refitIfFitted(){
+        if(this._isFitted)this._fitAll();
     }
 
     // Where a label sits on an elbow: on one end's leg, `off` clear of the crossbar. Which
