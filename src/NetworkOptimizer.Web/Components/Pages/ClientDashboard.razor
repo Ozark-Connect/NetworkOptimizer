@@ -1051,7 +1051,7 @@
                                 </div>
                             </div>
                             <div class="card results-card usage-card">
-                                <h3>LAN</h3>
+                                <h3>LAN + WAN</h3>
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
                                         <span class="speed-label">Download</span>
@@ -1063,7 +1063,8 @@
                                     </div>
                                 </div>
                                 <div class="speed-hero-meta">
-                                    <span>@(_dataUsage.LanIsPortTotal ? "Everything through its switch port, local traffic included" : "Everything through its access point, local traffic included")</span>
+                                    <span>@(_dataUsage.LanIsPortTotal ? "Everything through its switch port" : "Everything through the Wi-Fi network")</span>
+                                    <span>Local ≈ <span class="speed-down">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanDownloadBytes - _dataUsage.WanDownloadBytes))</span> / <span class="speed-up">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanUploadBytes - _dataUsage.WanUploadBytes))</span></span>
                                 </div>
                             </div>
                         </div>
@@ -1090,7 +1091,7 @@
                         @if (_dataUsage.Lan.Count > 0)
                         {
                             <div class="card chart-card">
-                                <h3>LAN Usage</h3>
+                                <h3>LAN + WAN Usage</h3>
                                 <div class="chart-container">
                                     <ApexChart @ref="_lanUsageChart" TItem="SpeedChartPoint"
                                                Options="_lanUsageChartOptions"

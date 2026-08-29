@@ -1492,8 +1492,10 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// The report's rows in the client's terms. UniFi states a client's counters from the access
-    /// point's side, as stat/sta does: tx_bytes is what was sent to the client, its download.
+    /// The report's rows in the client's terms. Unlike stat/sta, which counts from the access
+    /// point's side, the report is in the client's own frame: rx_bytes is what the client received
+    /// from the WAN, tx_bytes what it sent. Checked against a wired client's switch port and a
+    /// wireless client's access point counters over the same hours.
     /// </summary>
     private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data)
     {
@@ -1505,7 +1507,7 @@ public class ClientDashboardService
             var time = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
             var tx = row.TryGetProperty("tx_bytes", out var txEl) && txEl.TryGetDouble(out var txV) ? (long)txV : 0;
             var rx = row.TryGetProperty("rx_bytes", out var rxEl) && rxEl.TryGetDouble(out var rxV) ? (long)rxV : 0;
-            rows.Add(new UsageBucket(time, tx, rx));
+            rows.Add(new UsageBucket(time, DownloadBytes: rx, UploadBytes: tx));
         }
         rows.Sort((a, b) => a.Time.CompareTo(b.Time));
         return rows;

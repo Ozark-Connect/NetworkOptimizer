@@ -3065,7 +3065,8 @@ union(tables: [means, chan])
     /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
     /// access point sent it, rx_bytes what it sent. The counters restart on every association, and
     /// a roam moves the series to another access point, so the points are merged across series and
-    /// a drop counts as a fresh counter rather than a negative delta.
+    /// a drop counts as a fresh counter rather than a negative delta. Verified against UniFi's own
+    /// per-client WAN report: what the client sent to the WAN never exceeded rx_bytes here.
     /// </summary>
     public async Task<IReadOnlyList<ByteUsagePoint>> QueryWifiClientByteUsageAsync(
         string clientMac,
@@ -3085,6 +3086,8 @@ union(tables: [means, chan])
   |> group()
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
+  |> fill(column: ""tx_bytes"", value: 0)
+  |> fill(column: ""rx_bytes"", value: 0)
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
@@ -3120,6 +3123,8 @@ union(tables: [means, chan])
   |> group(columns: [""if_name""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""])
+  |> fill(column: ""bytes_in"", value: 0)
+  |> fill(column: ""bytes_out"", value: 0)
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.bytes_out, from: accumulator.from + r.bytes_in}}), identity: {{to: 0, from: 0}})
