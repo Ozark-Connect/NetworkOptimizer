@@ -37,6 +37,39 @@
       "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.",
       "placement": "top",
       "optional": true
+    },
+    {
+      "id": "client-data",
+      "level": "major",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=data",
+      "selector": "[data-tour=\"client-data\"]",
+      "title": "Client Data Usage",
+      "listLabel": "See what a device actually used, on the WAN and on your LAN",
+      "body": "A fourth tab on Client Performance. **WAN** is the device's usage as UniFi Network counts it at the gateway. **LAN + WAN** is everything through its access point or switch port, so local traffic your Console never sees is in it, with the local share estimated underneath.\n\nBelow them, **Applications** breaks the WAN usage down by app the way UniFi Network identified it, largest first. Ranges up to 24 hours refresh every 30 seconds; the longer ones read from an hourly rollup, so 7 and 30 days open in a moment.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "client-live-throughput",
+      "level": "minor",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=speed",
+      "selector": "[data-tour=\"client-live-throughput\"]",
+      "title": "Client Live Throughput",
+      "listLabel": "Watch a device's throughput move, five minutes at a time",
+      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.\n\nEvery figure on this page now reads from the device's side: Download is what it receives, on the left in blue, Upload what it sends, on the right in green, matching WAN Speed Test.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "nav-client-performance",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/",
+      "selector": "[data-tour=\"nav-client-performance\"]",
+      "title": "Client Performance in the menu",
+      "listLabel": "Client Performance moved to the main menu",
+      "body": "It covers wired clients as well as Wi-Fi, has grown its own tabs, and is where a walk test lives, so it now sits under **Monitoring** in the menu instead of inside Wi-Fi Optimizer.",
+      "placement": "right"
     }
   ]
 }
