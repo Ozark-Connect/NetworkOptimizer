@@ -167,13 +167,14 @@ function trim() {
     for (const p of buffer) if (p.time > lastSampleTime) lastSampleTime = p.time;
 }
 
-/** Mounts into a container with the window's history: `{ points: [{time, downloadBps, uploadBps}] }`. */
+/** Mounts into a container with the window's history: `{ points: [{time, downloadBps, uploadBps}] }`.
+ *  False when the container is not in the DOM, so the caller can try again on its next render. */
 export async function mount(containerId, opts) {
     dispose();
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
-    if (!el) return;
+    if (!el) return false;
     buffer = (opts?.points || []).map(toPoint).sort((a, b) => a.time - b.time);
     lastSampleTime = 0;
     trim();
@@ -183,9 +184,10 @@ export async function mount(containerId, opts) {
     el.addEventListener('mouseleave', mouseLeaveHandler);
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
-    if (gen !== mountGen) return;
+    if (gen !== mountGen) return true;
     updateChart();
     scrollTimer = setInterval(updateChart, SCROLL_MS);
+    return true;
 }
 
 /** One live reading. Strictly newer than the last, so a repeated poll of the same sample is a no-op. */

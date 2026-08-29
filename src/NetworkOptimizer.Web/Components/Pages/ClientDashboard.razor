@@ -1046,9 +1046,15 @@
     // Live Throughput card on the Speed tab: mounted once its div exists, fed from the same
     // readings the identity row shows, re-pulled from the store once a minute.
     private bool _liveChartMounted;
+    private bool _liveChartReady;
     private string? _liveChartMac;
     private DateTime? _liveChartPushedAt;
     private DateTime _liveChartHistoryAt;
+    // Wi-Fi readings folded to the cadence history is stored at (see PushLiveSampleAsync).
+    private static readonly TimeSpan LiveChartWindow = TimeSpan.FromSeconds(10);
+    private double _liveChartAccDown, _liveChartAccUp;
+    private int _liveChartAccN;
+    private DateTime _liveChartAccStart;
     private bool ShowLiveChart => _activeTab == "speed" && _client is { IsVpn: false, IsOffline: false };
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
@@ -1818,16 +1824,23 @@
         if (!want || _liveChartMounted) return;
 
         _liveChartMounted = true;
+        _liveChartReady = false;
         _liveChartMac = _client!.Mac;
         _liveChartPushedAt = null;
+        _liveChartAccN = 0;
         try
         {
             var points = await LoadLiveHistoryAsync();
             await JS.InvokeVoidAsync("eval",
                 "window.__mountClientLiveChart = async function(elId, points) {" +
                 $"  const m = await import('{VersionedJs("/js/client-live-chart.js")}');" +
-                "  window.__clientLiveChart = m; await m.mount(elId, { points }); }");
-            await JS.InvokeVoidAsync("__mountClientLiveChart", "client-live-chart", points);
+                "  window.__clientLiveChart = m; return await m.mount(elId, { points }); }");
+            // False when the div is not in the DOM yet (a render still on the skeleton); the next
+            // render tries again.
+            if (await JS.InvokeAsync<bool>("__mountClientLiveChart", "client-live-chart", points))
+                _liveChartReady = true;
+            else
+                _liveChartMounted = false;
         }
         catch (Exception ex)
         {
@@ -1845,17 +1858,33 @@
     }
 
     /// <summary>
-    /// The reading the identity row is showing, pushed once per reading: the tick runs faster than
-    /// the source writes, so a sample is sent only when its timestamp moves.
+    /// The reading the identity row is showing, at the cadence history is stored at. A Wi-Fi reading
+    /// can move every second while the page watches its access point, and pushing each one drew 1 s
+    /// treads against 10 s history curves - so ten seconds of readings go in as one averaged point,
+    /// which is what a stored pass is. A source already at or below that cadence (the console, a
+    /// wired port's 5 s sample) pushes as it is.
     /// </summary>
     private async Task PushLiveSampleAsync()
     {
-        if (!_liveChartMounted || _client == null) return;
+        if (!_liveChartReady || _client == null) return;
         var (at, down, up) = _client.IsWired
             ? (_portStats?.At, _portStats?.DownloadBps, _portStats?.UploadBps)
             : (_wifiThroughput?.At, _wifiThroughput?.DownloadBps, _wifiThroughput?.UploadBps);
         if (at is not { } t || t == _liveChartPushedAt) return;
+        var gap = _liveChartPushedAt is { } prev ? t - prev : TimeSpan.MaxValue;
         _liveChartPushedAt = t;
+        if (!_client.IsWired && gap < LiveChartWindow)
+        {
+            if (_liveChartAccN == 0) _liveChartAccStart = t;
+            _liveChartAccDown += down ?? 0;
+            _liveChartAccUp += up ?? 0;
+            _liveChartAccN++;
+            if (t - _liveChartAccStart < LiveChartWindow) return;
+            down = _liveChartAccDown / _liveChartAccN;
+            up = _liveChartAccUp / _liveChartAccN;
+            _liveChartAccN = 0;
+            _liveChartAccDown = _liveChartAccUp = 0;
+        }
         try
         {
             await JS.InvokeVoidAsync("__clientLiveChart.push", new ThroughputSample(t, down, up));
@@ -1871,6 +1900,7 @@
     private async Task DisposeLiveChartAsync()
     {
         _liveChartMounted = false;
+        _liveChartReady = false;
         try { await JS.InvokeVoidAsync("eval", "window.__clientLiveChart?.dispose?.()"); }
         catch { }
     }
@@ -3172,8 +3202,9 @@
 
     private static MarkupString RenderRate(long? rateKbps, string colorClass)
     {
+        // The dash sits in the value's own box, so it lands where the figure would.
         if (!rateKbps.HasValue || rateKbps == 0)
-            return new MarkupString("-");
+            return new MarkupString($"<span class=\"{colorClass} rate-empty\">-</span>");
         var value = $"{rateKbps.Value / 1000.0:F0}";
         return new MarkupString($"<span class=\"{colorClass}\">{value}</span> Mbps");
     }
@@ -3659,14 +3690,18 @@
     .identity-row-2 .identity-throughput .speed-up {
         display: inline-block;
         min-width: 8ch;
+        text-align: center;
         font-variant-numeric: tabular-nums;
     }
     .identity-row-2 .identity-rx .wifi-speed-rx,
     .identity-row-2 .identity-tx .wifi-speed-tx {
         display: inline-block;
         min-width: 4ch;
-        text-align: right;
+        text-align: center;
         font-variant-numeric: tabular-nums;
+    }
+    .rate-empty {
+        color: var(--text-muted);
     }
     .detail-dim {
         opacity: 0.6;
