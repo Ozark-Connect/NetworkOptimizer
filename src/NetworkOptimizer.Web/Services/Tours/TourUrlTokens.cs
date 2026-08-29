@@ -1,4 +1,10 @@
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Tours;
 
@@ -11,7 +17,10 @@ namespace NetworkOptimizer.Web.Services.Tours;
 /// </summary>
 public static class TourUrlTokens
 {
-    /// <summary>An online wireless client's address.</summary>
+    /// <summary>
+    /// An online wireless client's address: the one with the most LAN speed test results, else a
+    /// phone, else whichever comes first.
+    /// </summary>
     public const string WifiClientIp = "wifi-client-ip";
 
     private static readonly string[] Names = [WifiClientIp];
@@ -45,13 +54,56 @@ public static class TourUrlTokens
 public sealed class TourUrlTokenResolver
 {
     private readonly SiteConnectionRegistry _connections;
+    private readonly SiteContextService _siteContext;
+    private readonly SiteDbContextFactory _siteDbFactory;
+    private readonly FingerprintDatabaseService _fingerprints;
+    private readonly IeeeOuiDatabase _oui;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<TourUrlTokenResolver> _logger;
 
     /// <summary>Creates the resolver.</summary>
-    public TourUrlTokenResolver(SiteConnectionRegistry connections, ILogger<TourUrlTokenResolver> logger)
+    public TourUrlTokenResolver(
+        SiteConnectionRegistry connections,
+        SiteContextService siteContext,
+        SiteDbContextFactory siteDbFactory,
+        FingerprintDatabaseService fingerprints,
+        IeeeOuiDatabase oui,
+        ILoggerFactory loggerFactory)
     {
         _connections = connections;
-        _logger = logger;
+        _siteContext = siteContext;
+        _siteDbFactory = siteDbFactory;
+        _fingerprints = fingerprints;
+        _oui = oui;
+        _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<TourUrlTokenResolver>();
+    }
+
+    /// <summary>A wireless client in the running for <see cref="TourUrlTokens.WifiClientIp"/>.</summary>
+    /// <param name="Ip">The address the step would land on.</param>
+    /// <param name="LanTests">LAN speed test results recorded against the client's MAC.</param>
+    /// <param name="NamedPhone">The name or hostname says "phone".</param>
+    /// <param name="DetectedPhone">Device detection (fingerprint, vendor, name) calls it a phone.</param>
+    public readonly record struct WifiClientCandidate(string Ip, int LanTests, bool NamedPhone, bool DetectedPhone);
+
+    /// <summary>
+    /// The client a Client Performance step should open on. Speed test history first, since the page
+    /// has the most to show there; then a phone, the device a walk test is done from; then anything.
+    /// </summary>
+    public static string? PickWifiClient(IReadOnlyList<WifiClientCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+            return null;
+        var tested = candidates.Where(c => c.LanTests > 0).OrderByDescending(c => c.LanTests).ToList();
+        if (tested.Count > 0)
+            return tested[0].Ip;
+        foreach (var c in candidates)
+            if (c.NamedPhone)
+                return c.Ip;
+        foreach (var c in candidates)
+            if (c.DetectedPhone)
+                return c.Ip;
+        return candidates[0].Ip;
     }
 
     /// <summary>
@@ -118,15 +170,52 @@ public sealed class TourUrlTokenResolver
             if (!connection.IsConnected || connection.Client == null)
                 return null;
 
-            var clients = await connection.Client.GetClientsAsync();
-            var pick = (clients ?? new List<NetworkOptimizer.UniFi.Models.UniFiClientResponse>())
-                .FirstOrDefault(c => !c.IsWired && !string.IsNullOrEmpty(c.BestIp));
-            return pick?.BestIp;
+            var clients = (await connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>())
+                .Where(c => !c.IsWired && !string.IsNullOrEmpty(c.BestIp))
+                .ToList();
+            if (clients.Count == 0)
+                return null;
+
+            var tests = await LanTestCountsAsync(siteSlug);
+            var detection = new DeviceTypeDetectionService(
+                _loggerFactory.CreateLogger<DeviceTypeDetectionService>(),
+                await _fingerprints.GetDatabaseAsync(),
+                _oui,
+                _loggerFactory);
+
+            var candidates = clients.Select(c => new WifiClientCandidate(
+                c.BestIp!,
+                tests.GetValueOrDefault(c.Mac.ToLowerInvariant()),
+                SaysPhone(c.Name) || SaysPhone(c.Hostname),
+                detection.DetectDeviceType(c).Category == ClientDeviceCategory.Smartphone)).ToList();
+            return PickWifiClient(candidates);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Tour could not resolve a Wi-Fi client for site {Site}", siteSlug);
             return null;
         }
+    }
+
+    private static bool SaysPhone(string? name) =>
+        !string.IsNullOrEmpty(name) && name.Contains("phone", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>LAN speed test results per client MAC (lower-case), the same directions Client Performance shows.</summary>
+    private async Task<Dictionary<string, int>> LanTestCountsAsync(string siteSlug)
+    {
+        var isDefault = siteSlug == _siteContext.Slug && _siteContext.IsDefault;
+        await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
+        var rows = await db.Iperf3Results
+            .Where(r => r.ClientMac != null
+                && (r.Direction == SpeedTestDirection.ServerToDevice
+                    || r.Direction == SpeedTestDirection.ClientToServer
+                    || r.Direction == SpeedTestDirection.BrowserToServer))
+            .GroupBy(r => r.ClientMac!)
+            .Select(g => new { Mac = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in rows)
+            counts[row.Mac.ToLowerInvariant()] = counts.GetValueOrDefault(row.Mac.ToLowerInvariant()) + row.Count;
+        return counts;
     }
 }
