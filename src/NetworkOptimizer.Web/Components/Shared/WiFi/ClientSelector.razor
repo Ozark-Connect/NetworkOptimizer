@@ -382,8 +382,11 @@
             var filter = _search.Trim();
             var hex = MacQuery(filter);
             var vendor = VendorKey(filter);
+            // Words in any order, so "tj phone" finds "[Phone] TJ iPhone".
+            var words = filter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             items = items.Where(i =>
                 i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                (words.Length > 1 && words.All(w => i.Name.Contains(w, StringComparison.OrdinalIgnoreCase))) ||
                 (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (i.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
