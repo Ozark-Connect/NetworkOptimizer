@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject TourService Tours
 @inject SiteContextService SiteContext
+@inject SidebarState Sidebar
 @inject ILogger<TourHost> Logger
 
 @* Global guided-tour host, rendered once in MainLayout. Owns the offer modal, the
@@ -283,9 +284,11 @@
             _expectedLocation = resolved.NavigateUrl;
             if (!IsExpectedLocation(Navigation.Uri))
                 Navigation.NavigateTo(resolved.NavigateUrl, forceLoad: false);
+            Sidebar.Set(resolved.Step.Menu);
 
             var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
             {
+                settleMs = resolved.Step.Menu ? 350 : 0, // the menu's slide-in transition
                 selector = resolved.Step.Selector,
                 matchText = resolved.Step.MatchText,
                 alsoSelectors = resolved.Step.AlsoSelectors,
@@ -321,6 +324,7 @@
     {
         _running = false;
         _expectedLocation = null;
+        Sidebar.Set(false);
         await SafeJsAsync("noTour.end");
     }
 

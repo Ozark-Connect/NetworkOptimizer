@@ -125,6 +125,13 @@ public class TourStep
     [JsonPropertyName("optional")]
     public bool Optional { get; set; }
 
+    /// <summary>
+    /// True when the target is an item in the side menu. The menu is off-canvas on a phone and in
+    /// kiosk mode, so the driver opens it before spotlighting and closes it on leaving the step.
+    /// </summary>
+    [JsonPropertyName("menu")]
+    public bool Menu { get; set; }
+
     [JsonIgnore]
     public bool IsImproved => string.Equals(Badge, "improved", StringComparison.OrdinalIgnoreCase);
 

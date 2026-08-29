@@ -58,7 +58,8 @@
       "title": "Client Performance in the menu",
       "listLabel": "Client Performance moved to the main menu",
       "body": "It covers wired clients as well as Wi-Fi, has grown its own tabs, and is where a walk test lives, so it now sits under **Monitoring** in the menu instead of inside Wi-Fi Optimizer.",
-      "placement": "right"
+      "placement": "right",
+      "menu": true
     },
     {
       "id": "live-client-throughput",

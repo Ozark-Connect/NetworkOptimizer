@@ -187,6 +187,10 @@ window.noTour = (function () {
         const gap = 12, m = 10;
         const vw = window.innerWidth, vh = window.innerHeight;
         let placement = active.placement || 'auto';
+        // A side placement that has no room on this screen (the menu fills a phone) would be
+        // clamped onto the target; let auto pick instead.
+        if ((placement === 'right' && r.right + gap + cw > vw) || (placement === 'left' && r.left - gap - cw < 0))
+            placement = 'auto';
         if (placement === 'auto') {
             placement = r.bottom + gap + ch < vh ? 'bottom'
                 : r.top - gap - ch > 0 ? 'top'
@@ -306,6 +310,9 @@ window.noTour = (function () {
 
             const el = narrowToText(anchor, opts.matchText);
 
+            // A target that is sliding into view (the side menu on a phone) measures at its old
+            // place until the transition ends.
+            if (opts.settleMs) await sleep(opts.settleMs);
             await ensureInView(el);
             if (gen !== generation) return 'stale';
 

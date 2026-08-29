@@ -757,6 +757,7 @@ builder.Services.AddScoped<DashboardLayoutService>();
 builder.Services.AddMutatingService<IDashboardLayoutAdminService>(
     sp => sp.GetRequiredService<DashboardLayoutService>());
 builder.Services.AddScoped<PullToRefreshState>();
+builder.Services.AddScoped<SidebarState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
 // Same instance by its interface, for components that may not inject the concrete type.

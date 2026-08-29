@@ -4,6 +4,7 @@
 @using System.Reflection
 @inject UniFiConnectionService ConnectionService
 @inject PullToRefreshState PullToRefreshState
+@inject SidebarState Sidebar
 @inject IJSRuntime JS
 
 <div class="app-container">
@@ -400,6 +401,16 @@
         // (once the agent tunnel is up); without this subscription the header stays
         // "Console Disconnected" until the next navigation.
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        Sidebar.OpenRequested += OnSidebarRequested;
+    }
+
+    private void OnSidebarRequested(bool open)
+    {
+        _ = InvokeAsync(() =>
+        {
+            sidebarOpen = open;
+            StateHasChanged();
+        });
     }
 
     private async void OnConnectionChanged()
@@ -458,6 +469,8 @@
 
     public void Dispose()
     {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        Sidebar.OpenRequested -= OnSidebarRequested;
         _dotNetRef?.Dispose();
     }
 }
