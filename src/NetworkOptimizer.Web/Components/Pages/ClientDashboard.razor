@@ -2705,8 +2705,10 @@
     {
         if (_usageView == view) return;
         _usageView = view;
+        // The series read the swapped Items only once re-rendered, so the update waits for that.
+        _pendingChartUpdate = true;
         StateHasChanged();
-        if (_usageChart != null) await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
+        await Task.CompletedTask;
     }
 
     private (DateTime from, DateTime to) GetTimeRange()

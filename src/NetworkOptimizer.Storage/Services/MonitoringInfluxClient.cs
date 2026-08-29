@@ -3061,6 +3061,16 @@ union(tables: [means, chan])
     /// <summary>Bytes moved in one bucket, stated toward and away from the client.</summary>
     public record ByteUsagePoint(DateTime Time, long ToClientBytes, long FromClientBytes);
 
+    // A port's counters can come from SNMP or, while SNMP is not reading the switch, from the
+    // console's port_table, each in its own series. A delta spanning longer than this is one
+    // series resuming across the other's stretch, and counting it would count that stretch
+    // twice. Under SNMP's five-minute exclusion window, and the fallback's own hand-over gap.
+    private const int HandoverGapSeconds = 240;
+
+    // A rollup ranges a little before its hour so the hour's first delta has a prior point,
+    // then keeps only the deltas that land inside the hour.
+    private static readonly TimeSpan RollupLeadIn = TimeSpan.FromMinutes(2);
+
     /// <summary>
     /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
     /// access point sent it, rx_bytes what it sent. The counters restart on every association, and
@@ -3119,9 +3129,11 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
-  |> group(columns: [""if_name""])
+  |> group(columns: [""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""])
+  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
+  |> elapsed(unit: 1s)
+  |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
@@ -3162,7 +3174,7 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
         var flux = $@"from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(hourStart)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
+  |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -3170,6 +3182,7 @@ union(tables: [means, chan])
   |> group(columns: [""client_mac""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
+  |> filter(fn: (r) => r._time >= {ToFluxInstant(hourStart)})
   |> fill(column: ""tx_bytes"", value: 0)
   |> fill(column: ""rx_bytes"", value: 0)
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes, device_mac: r.device_mac, band: r.band}}), identity: {{to: 0, from: 0, device_mac: """", band: """"}})
@@ -3200,14 +3213,16 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
         var flux = $@"from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(hourStart)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
+  |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""])
+  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
+  |> elapsed(unit: 1s)
+  |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds} and r._time >= {ToFluxInstant(hourStart)})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})

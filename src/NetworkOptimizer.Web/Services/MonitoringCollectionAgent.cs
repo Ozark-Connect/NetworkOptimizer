@@ -617,6 +617,12 @@ public class MonitoringCollectionAgent : BackgroundService
         });
         await Task.WhenAll(deviceTasks);
 
+        // A switch the loop above did not read (SNMP off on it, or excluded after failing) has
+        // its port_table counters recorded instead. The complement of the loop's own gate, so no
+        // port is ever written by both in one cycle.
+        PortTableCounterRecorder.Record(devices, WhySnmpSkips,
+            _counterCache, string.Empty, _influx, _liveStats, _logger, DateTime.UtcNow);
+
         // Post-process: override device aggregates with their parent-uplink-port
         // counters. For APs (spec 5.6) we already did this. For switches and gateways,
         // summing every interface counter on the device double-counts traffic that
@@ -1246,6 +1252,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 _logger.LogDebug(ex, "Slow-tier metadata poll failed for {Device}", device.Mac);
                 NoteSnmpFailure(NormalizeMac(device.Mac));
             }
+        }
+
+        // Name-map rows for the switches the walk above skipped, from their port tables, so their
+        // port_table series resolve from a port number as an SNMP switch's do.
+        if (!agentCovers)
+        {
+            foreach (var device in PortTableCounterRecorder.Uncovered(devices, WhySnmpSkips))
+                PortTableCounterRecorder.ReconcileNameMaps(device, existingMaps, db);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -2810,6 +2824,17 @@ public class MonitoringCollectionAgent : BackgroundService
         if (justExpired)
             _logger.LogInformation("SNMP exclusion expired for {Mac}, resuming polling", normalizedMac);
         return excluded;
+    }
+
+    /// <summary>
+    /// The fast and slow tiers' SNMP gate, for the port_table fallback: why the SNMP path skips
+    /// this device this cycle, or null when it polls it.
+    /// </summary>
+    private string? WhySnmpSkips(UniFiDeviceResponse device)
+    {
+        if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device)) return "SNMP is not enabled on the device";
+        if (_snmpFailures.IsExcluded(NormalizeMac(device.Mac), out _)) return "excluded from SNMP polling after repeated failures";
+        return null;
     }
 
     /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>

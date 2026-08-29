@@ -1116,6 +1116,18 @@ public class AgentProbeResultSink
     /// reset confirmation, implausible-rate rejection) and land in the site's
     /// buckets; health samples map straight to the device_health measurement.
     /// </summary>
+    /// <summary>
+    /// Why the agent's SNMP is not reading this device, for the port_table fallback: never heard,
+    /// or not within the hand-over gap. Null while it is being read.
+    /// </summary>
+    private static string? WhySnmpUnheard(MonitoringLiveStats liveStats, UniFiDeviceResponse device, DateTime now)
+    {
+        var seen = liveStats.GetSnmpLastSeen(device.Mac);
+        if (seen == null) return "the agent has never streamed SNMP for it";
+        var gap = now - seen.Value;
+        return gap < PortTableCounterRecorder.HandoverGap ? null : $"the agent last streamed SNMP for it {gap.TotalMinutes:F0} min ago";
+    }
+
     public async Task RecordSnmpBatchAsync(AgentTunnelConnection connection, SnmpResultBatch batch, CancellationToken ct)
     {
         if (batch.Interfaces.Count == 0 && batch.Health.Count == 0) return;
@@ -1326,6 +1338,12 @@ public class AgentProbeResultSink
             // resolver - identical to the directly-monitored fast tier (in-memory-only live path,
             // and a UDB has no SNMP interface series to re-derive from during playback).
             BridgeInterfaceRecorder.Record(fabric, console.Devices, influx, aggNow);
+            // A switch the agent's SNMP has not read within the hand-over gap has its port_table
+            // counters recorded instead, as the directly-monitored fast tier does for the switches
+            // it skips. The agent never streams a switch that does not answer, so unheard is the
+            // signal here; the gap keeps a momentary miss from switching sources.
+            PortTableCounterRecorder.Record(console.Devices, d => WhySnmpUnheard(liveStats, d, aggNow),
+                _counterCache, $"{connection.SiteSlug}/", influx, liveStats, _logger, aggNow);
         }
 
         // Reconcile the InterfaceNameMap (friendly name, negotiated speed, port number,
@@ -1421,6 +1439,11 @@ public class AgentProbeResultSink
                         liveStats.RecordInterfaceLabels(deviceGroup.Key,
                             InterfaceLabelResolver.BuildLabels(device, console.Networks, ifNames));
                     }
+                    // Name-map rows for the switches the agent is not reading, from their port
+                    // tables - the same switches the port_table recorder above writes.
+                    var heardAt = DateTime.UtcNow;
+                    foreach (var device in PortTableCounterRecorder.Uncovered(console.Devices, d => WhySnmpUnheard(liveStats, d, heardAt)))
+                        PortTableCounterRecorder.ReconcileNameMaps(device, existingMaps, db);
                     await db.SaveChangesAsync(ct);
                 }
             }

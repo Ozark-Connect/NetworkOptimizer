@@ -44,9 +44,13 @@ public class ClientUsageRollupService : BackgroundService
     /// <summary>No-op: the registry owns start and stop.</summary>
     public override void Dispose() { }
 
+    // Sites start half a minute apart, so a multi-site box does not open with every site's scans at once.
+    private static int _started;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try { await Task.Delay(TimeSpan.FromSeconds(45), stoppingToken); }
+        var stagger = TimeSpan.FromSeconds(30 * (Interlocked.Increment(ref _started) - 1));
+        try { await Task.Delay(TimeSpan.FromSeconds(45) + stagger, stoppingToken); }
         catch (OperationCanceledException) { return; }
 
         while (!stoppingToken.IsCancellationRequested)

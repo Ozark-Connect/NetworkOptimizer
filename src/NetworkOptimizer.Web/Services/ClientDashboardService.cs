@@ -1534,7 +1534,12 @@ public class ClientDashboardService
                 : Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ByteUsagePoint>())
             : await influx.QueryWifiClientUsageRollupAsync(client.Mac, from, hourStart);
         if (rolled.Count == 0) return rolled;
-        var tail = await LanUsageFromCountersAsync(influx, client, ifNames, hourStart, to, TimeSpan.FromHours(1));
+        // From the first hour the rollup has not written, so the hour just ended is not a gap for
+        // the minutes until its rollup lands - never more than two hours back, which is the scan
+        // the rollup exists to avoid.
+        var topUpFrom = rolled[^1].Time.AddHours(1);
+        if (topUpFrom < hourStart.AddHours(-2)) topUpFrom = hourStart.AddHours(-2);
+        var tail = await LanUsageFromCountersAsync(influx, client, ifNames, topUpFrom, to, TimeSpan.FromHours(1));
         return rolled.Concat(tail).ToList();
     }
 
@@ -1547,12 +1552,13 @@ public class ClientDashboardService
         var edges = wanDays.Select(w => w.Time).OrderBy(t => t).ToList();
         DateTime EdgeFor(DateTime t)
         {
-            if (edges.Count > 0)
-            {
-                var idx = edges.FindLastIndex(e => e <= t);
-                if (idx >= 0) return edges[idx];
-            }
-            return t.Date;
+            if (edges.Count == 0) return t.Date;
+            var idx = edges.FindLastIndex(e => e <= t);
+            if (idx >= 0) return edges[idx];
+            // Before the report's first day: the same day boundary, a day earlier.
+            var first = edges[0];
+            while (first > t) first = first.AddDays(-1);
+            return first;
         }
         return hourly
             .GroupBy(h => EdgeFor(h.Time))
