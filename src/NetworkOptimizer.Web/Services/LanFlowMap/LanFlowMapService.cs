@@ -1771,9 +1771,9 @@ public class LanFlowMapService
             };
             if (!c.IsWired)
             {
-                // Every associated Wi-Fi client is written each pass.
-                node.WritesTelemetry = true;
                 node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
+                // Every associated Wi-Fi client is written each pass - the writer skips one with no band.
+                node.WritesTelemetry = node.Band != null;
                 node.SignalDbm = live?.SignalDbm is { } dbm
                     ? (int)Math.Round(dbm)
                     : c.SignalStrength ?? c.Rssi;
