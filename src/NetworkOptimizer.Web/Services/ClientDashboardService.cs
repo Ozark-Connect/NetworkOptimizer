@@ -1298,16 +1298,7 @@ public class ClientDashboardService
             //
             // Held because this runs on the live tick. Retired when the path trace changes, which is
             // what a client moving ports or switches shows up as.
-            var mac = client.SwitchMac.ToLowerInvariant();
-            if (!_portIfNames.TryGetValue((mac, port), out var ifNames))
-            {
-                await using var db = CreateSiteDb();
-                ifNames = await db.InterfaceNameMaps.AsNoTracking()
-                    .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
-                    .Select(m => m.IfName)
-                    .ToListAsync();
-                _portIfNames[(mac, port)] = ifNames;
-            }
+            var ifNames = await PortIfNamesAsync(client.SwitchMac, port);
 
             if (ifNames.Count == 0)
             {
@@ -1377,6 +1368,64 @@ public class ClientDashboardService
             PacketsFromClient = row.UcastPktsIn,
             At = row.Time,
         };
+    }
+
+    /// <summary>The SNMP interface names behind a console port number, cached per port.</summary>
+    private async Task<List<string>> PortIfNamesAsync(string switchMac, int port)
+    {
+        var mac = switchMac.ToLowerInvariant();
+        if (_portIfNames.TryGetValue((mac, port), out var ifNames)) return ifNames;
+        await using var db = CreateSiteDb();
+        ifNames = await db.InterfaceNameMaps.AsNoTracking()
+            .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port)
+            .Select(m => m.IfName)
+            .ToListAsync();
+        _portIfNames[(mac, port)] = ifNames;
+        return ifNames;
+    }
+
+    /// <summary>
+    /// The client's throughput over a window, in the same terms and from the same counters as the
+    /// live figure: the port's stored rates for a wired client (its own series when the port has
+    /// none), the client's own points for a wireless one. A point with no rate is an idle client,
+    /// not a gap.
+    /// </summary>
+    public async Task<IReadOnlyList<ThroughputSample>> GetThroughputHistoryAsync(ClientIdentity client, DateTime from, DateTime to)
+    {
+        if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<ThroughputSample>();
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+
+            if (client.IsWired)
+            {
+                if (!string.IsNullOrEmpty(client.SwitchMac) && client.SwitchPort is int port)
+                {
+                    var ifNames = await PortIfNamesAsync(client.SwitchMac, port);
+                    if (ifNames.Count > 0)
+                    {
+                        var rows = await influx.QueryInterfaceRatesRawAsync(client.SwitchMac, from, to);
+                        var portRows = rows
+                            .Where(r => ifNames.Contains(r.IfName, StringComparer.OrdinalIgnoreCase) && !r.IfName.Contains('.'))
+                            .Select(r => new ThroughputSample(r.Time, r.RateOutBps, r.RateInBps))
+                            .ToList();
+                        if (portRows.Count > 0) return portRows;
+                    }
+                }
+                var own = await influx.QueryClientThroughputAsync("wired_client", client.Mac, from, to);
+                return own.Select(r => new ThroughputSample(r.Time, r.TxThroughputBps ?? 0, r.RxThroughputBps ?? 0)).ToList();
+            }
+
+            var wifi = await influx.QueryClientThroughputAsync("wifi_client", client.Mac, from, to);
+            return wifi.Select(r => new ThroughputSample(r.Time, r.TxThroughputBps ?? 0, r.RxThroughputBps ?? 0)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Throughput history unavailable for {Mac}", client.Mac);
+            return Array.Empty<ThroughputSample>();
+        }
     }
 
     /// <summary>

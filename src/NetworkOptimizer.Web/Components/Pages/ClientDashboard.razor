@@ -22,6 +22,7 @@
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject ILogger<ClientDashboard> Logger
@@ -455,6 +456,15 @@
             {
                 @* ===== SPEED TAB ===== *@
                 <div class="tab-pane">
+                    @if (ShowLiveChart)
+                    {
+                        <div class="card chart-card">
+                            <h3>Live Throughput</h3>
+                            <div class="chart-container">
+                                <div id="client-live-chart"></div>
+                            </div>
+                        </div>
+                    }
                     @if (_latestSpeedResult != null)
                     {
                         <div class="card speed-hero">
@@ -1033,6 +1043,13 @@
     private bool _seenOnline;
     private DateTime? _offlineSince;
     private (double? DownloadBps, double? UploadBps, DateTime At)? _wifiThroughput;
+    // Live Throughput card on the Speed tab: mounted once its div exists, fed from the same
+    // readings the identity row shows, re-pulled from the store once a minute.
+    private bool _liveChartMounted;
+    private string? _liveChartMac;
+    private DateTime? _liveChartPushedAt;
+    private DateTime _liveChartHistoryAt;
+    private bool ShowLiveChart => _activeTab == "speed" && _client is { IsVpn: false, IsOffline: false };
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
     private int _selectedTimeFilter = 24; // hours, default 24h
@@ -1349,6 +1366,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await EnsureLiveChartAsync();
+
         // Apply deferred chart updates after render cycle completes (chart is now mounted)
         if (_pendingChartUpdate)
         {
@@ -1780,6 +1799,80 @@
             _portStats = await DashboardService.GetWiredPortStatsAsync(_client);
         else
             _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
+        await PushLiveSampleAsync();
+    }
+
+    // ---- Live Throughput chart ----
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
+    /// <summary>
+    /// Mounts the chart when its div is on the page and tears it down when it is not, or when the
+    /// page has moved to another client. Runs after every render, since the div appears on one.
+    /// </summary>
+    private async Task EnsureLiveChartAsync()
+    {
+        var want = ShowLiveChart;
+        if (_liveChartMounted && (!want || _liveChartMac != _client!.Mac))
+            await DisposeLiveChartAsync();
+        if (!want || _liveChartMounted) return;
+
+        _liveChartMounted = true;
+        _liveChartMac = _client!.Mac;
+        _liveChartPushedAt = null;
+        try
+        {
+            var points = await LoadLiveHistoryAsync();
+            await JS.InvokeVoidAsync("eval",
+                "window.__mountClientLiveChart = async function(elId, points) {" +
+                $"  const m = await import('{VersionedJs("/js/client-live-chart.js")}');" +
+                "  window.__clientLiveChart = m; await m.mount(elId, { points }); }");
+            await JS.InvokeVoidAsync("__mountClientLiveChart", "client-live-chart", points);
+        }
+        catch (Exception ex)
+        {
+            _liveChartMounted = false;
+            Logger.LogDebug(ex, "Live throughput chart mount failed");
+        }
+    }
+
+    private async Task<IReadOnlyList<ThroughputSample>> LoadLiveHistoryAsync()
+    {
+        _liveChartHistoryAt = DateTime.UtcNow;
+        if (_client == null) return Array.Empty<ThroughputSample>();
+        var to = DateTime.UtcNow;
+        return await DashboardService.GetThroughputHistoryAsync(_client, to.AddMinutes(-5), to);
+    }
+
+    /// <summary>
+    /// The reading the identity row is showing, pushed once per reading: the tick runs faster than
+    /// the source writes, so a sample is sent only when its timestamp moves.
+    /// </summary>
+    private async Task PushLiveSampleAsync()
+    {
+        if (!_liveChartMounted || _client == null) return;
+        var (at, down, up) = _client.IsWired
+            ? (_portStats?.At, _portStats?.DownloadBps, _portStats?.UploadBps)
+            : (_wifiThroughput?.At, _wifiThroughput?.DownloadBps, _wifiThroughput?.UploadBps);
+        if (at is not { } t || t == _liveChartPushedAt) return;
+        _liveChartPushedAt = t;
+        try
+        {
+            await JS.InvokeVoidAsync("__clientLiveChart.push", new ThroughputSample(t, down, up));
+            if (DateTime.UtcNow - _liveChartHistoryAt > TimeSpan.FromSeconds(60))
+                await JS.InvokeVoidAsync("__clientLiveChart.setHistory", await LoadLiveHistoryAsync());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Live throughput push failed");
+        }
+    }
+
+    private async Task DisposeLiveChartAsync()
+    {
+        _liveChartMounted = false;
+        try { await JS.InvokeVoidAsync("eval", "window.__clientLiveChart?.dispose?.()"); }
+        catch { }
     }
 
     private async Task PollLiveAsync()
@@ -3284,6 +3377,7 @@
     {
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
+        if (_liveChartMounted) await DisposeLiveChartAsync();
 
         // Stop GPS watcher
         if (_gpsWatcherId.HasValue)

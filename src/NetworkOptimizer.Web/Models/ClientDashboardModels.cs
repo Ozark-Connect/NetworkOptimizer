@@ -37,6 +37,9 @@ public class WiredPortStats
     public DateTime? At { get; set; }
 }
 
+/// <summary>One throughput reading, as download and upload from the client's point of view.</summary>
+public record ThroughputSample(DateTime Time, double? DownloadBps, double? UploadBps);
+
 public class ClientIdentity
 {
     public string Mac { get; set; } = "";
