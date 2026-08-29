@@ -13,6 +13,15 @@ const SCROLL_MS = 250;
 const COLOR_DOWN = downloadColor();
 const COLOR_UP = uploadColor();
 
+// Opt-in trace of every push and history merge, for the cases only a live capture can explain:
+//   localStorage.setItem('no-client-chart-debug', '1')
+const CHART_DEBUG = (() => {
+    try { return localStorage.getItem('no-client-chart-debug') === '1'; } catch { return false; }
+})();
+function dbg(what, detail) {
+    if (CHART_DEBUG) console.log(`[client-chart ${new Date().toLocaleTimeString()}] ${what}`, detail ?? '');
+}
+
 let chart = null;
 let scrollTimer = null;
 let buffer = [];
@@ -192,6 +201,7 @@ export async function mount(containerId, opts) {
 export function push(sample) {
     if (!chart) return;
     const p = toPoint(sample);
+    dbg('push', { at: new Date(p.time).toLocaleTimeString(), down: p.down, up: p.up, accepted: p.time > lastSampleTime });
     if (!(p.time > lastSampleTime)) return;
     buffer.push(p);
     trim();
@@ -204,6 +214,8 @@ export function setHistory(points) {
     if (!chart) return;
     const hist = (points || []).map(toPoint).sort((a, b) => a.time - b.time);
     const newest = hist.length ? hist[hist.length - 1].time : 0;
+    dbg('history', { points: hist.length, newest: newest ? new Date(newest).toLocaleTimeString() : null,
+        liveTailKept: buffer.filter(p => p.time > newest).length, last3: hist.slice(-3) });
     buffer = hist.concat(buffer.filter(p => p.time > newest));
     trim();
     updateChart();
