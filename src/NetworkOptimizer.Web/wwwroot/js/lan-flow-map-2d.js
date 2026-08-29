@@ -846,6 +846,13 @@ class LanFlowMap2D {
                 const rect=this._canvas.getBoundingClientRect();
                 const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
                 this._hitTest(sx,sy);
+                // Touch never synthesizes dblclick on every browser, so pair the taps here.
+                const last=this._lastTap, now=performance.now();
+                this._lastTap={t:now,x:e.clientX,y:e.clientY};
+                if(last&&now-last.t<350&&Math.hypot(e.clientX-last.x,e.clientY-last.y)<24){
+                    this._lastTap=null;
+                    this._onDoubleClick(e);
+                }
             }
         }
         this._tapStart=null;

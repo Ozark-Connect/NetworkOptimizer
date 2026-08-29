@@ -34,7 +34,7 @@
       "selector": "[data-tour=\"client-live-throughput\"]",
       "title": "Client Live Throughput",
       "listLabel": "Watch a device's throughput move, five minutes at a time",
-      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.\n\nEvery figure on this page now reads from the device's side: Download is what it receives, on the left in blue, Upload what it sends, on the right in green, matching WAN Speed Test.",
+      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.",
       "placement": "bottom",
       "optional": true
     },

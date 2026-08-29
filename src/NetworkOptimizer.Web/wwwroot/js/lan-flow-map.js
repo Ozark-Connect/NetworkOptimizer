@@ -405,6 +405,20 @@ export class LanFlowMap {
         this.canvas.addEventListener('pointerdown', (e) => {
             if (this._repositionMode) return;
             this._dismissContextMenu();
+            this._tapStart = e.pointerType === 'mouse' ? null : { id: e.pointerId, x: e.clientX, y: e.clientY };
+        });
+        // Touch never synthesizes dblclick on every browser, so pair the taps here.
+        this.canvas.addEventListener('pointerup', (e) => {
+            const start = this._tapStart;
+            this._tapStart = null;
+            if (this._repositionMode || !start || start.id !== e.pointerId
+                || Math.hypot(e.clientX - start.x, e.clientY - start.y) >= 8) return;
+            const last = this._lastTap, now = performance.now();
+            this._lastTap = { t: now, x: e.clientX, y: e.clientY };
+            if (last && now - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24) {
+                this._lastTap = null;
+                this._onDoubleClick(e);
+            }
         });
 
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
