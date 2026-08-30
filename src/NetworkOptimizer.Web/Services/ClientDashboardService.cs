@@ -1439,9 +1439,12 @@ public class ClientDashboardService
     /// <summary>
     /// The site-wide DPI response is one call for every client on the site, and its totals move
     /// by the minute at most - so one fetch serves every Client Performance page and Bandwidth
-    /// Hogs card for this long. The per-client report stays on the page's own cadence.
+    /// Hogs card for this long. Graded by window length: a short window refreshes every minute,
+    /// but a week or month of DPI is a multi-second console call, and an open long-window view
+    /// re-asking it every minute is the console hammering this cache exists to prevent.
     /// </summary>
-    private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(1);
+    private static TimeSpan TrafficCacheLife(TimeSpan window) =>
+        window <= TimeSpan.FromHours(6) ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
 
     /// <summary>The DPI category UniFi Network files traffic it could not identify under.</summary>
     private const int DpiUnidentifiedCategory = 255;
@@ -1598,7 +1601,7 @@ public class ClientDashboardService
     // same response until the window itself has moved on.
     private string TrafficCacheKey(DateTime from, DateTime to)
     {
-        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
+        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheLife(to - from).TotalMinutes;
         return $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
     }
 
@@ -1629,7 +1632,7 @@ public class ClientDashboardService
             var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
             // A window that ended a while ago will not change; playback re-asks for it far more
             // often than a live page asks for the present.
-            var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheFor;
+            var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheLife(to - from);
             if (traffic != null && _cache != null) _cache.Set(key, traffic, life);
             return traffic;
         }

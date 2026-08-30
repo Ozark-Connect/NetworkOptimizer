@@ -3540,11 +3540,17 @@ union(tables: [means, chan])
         DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<WiredPortOccupant>();
+        // A long window scans weeks of 30-second samples just to learn who sat where. Fifteen-
+        // minute presence blocks answer the same question at a fraction of the read, and keep
+        // the sample counts proportional for the regular-vs-passer-by call.
+        var decimate = to - from > TimeSpan.FromHours(6)
+            ? "\n  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)"
+            : "";
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wired_client"")
   |> filter(fn: (r) => exists r.port)
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name""){decimate}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.client_mac)";
         var counts = new Dictionary<(string Device, int Port, string Client), (int Samples, string? Ip, string? Name)>();

@@ -61,8 +61,12 @@ public class BandwidthHogsService
     /// <summary>Temporary: last time the split diagnostics were logged (see GetThroughputAsync).</summary>
     private DateTime _lastSplitLog;
 
-    /// <summary>The Data tab's rule: counters answer up to here, the rollup past it.</summary>
-    private static readonly TimeSpan CounterWindow = TimeSpan.FromHours(6);
+    /// <summary>
+    /// Raw counters answer up to here, the rollup past it. Kept at the top-up's own reach: a
+    /// counter query reads every point in the window (client identity is a field, not a tag), so
+    /// six hours of raw scan was seconds of Flux for a totals view the hourly rollup answers.
+    /// </summary>
+    private static readonly TimeSpan CounterWindow = TimeSpan.FromHours(2);
 
     /// <summary>Past this, no rollup means no answer - a counter scan over days is minutes.</summary>
     private static readonly TimeSpan CounterFallbackMax = TimeSpan.FromHours(48);
