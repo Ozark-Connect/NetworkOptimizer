@@ -192,8 +192,8 @@
     /// <summary>A client under this share of the total is not a hog and is left off the list.</summary>
     private const double MinSharePercent = 1;
 
-    /// <summary>The largest few are always worth seeing, share or no share.</summary>
-    private const int MinRows = 5;
+    /// <summary>The largest few are always worth seeing, share or no share: five live, ten over a window.</summary>
+    private int MinRows => _mode == Mode.Data ? 10 : 5;
 
     /// <summary>
     /// How long a live client stays listed after it last held the share. Rates move every few
