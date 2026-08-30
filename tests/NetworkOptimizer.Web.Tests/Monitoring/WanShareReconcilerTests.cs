@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class WanShareReconcilerTests
 {
-    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null, bool idle = false) => new(rate, dpi, cap, idle);
+    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null) => new(rate, dpi, cap);
 
     [Fact]
     public void Rates_that_add_up_to_the_wan_are_all_wan_and_not_an_estimate()
@@ -94,50 +94,5 @@ public class WanShareReconcilerTests
     public void Empty_input_is_empty_output()
     {
         WanShareReconciler.Allocate(100, Array.Empty<WanShareReconciler.Load>()).WanBps.Should().BeEmpty();
-    }
-
-    // ---- The console's per-client rate as a WAN-idle litmus ----
-
-    [Fact]
-    public void A_client_the_console_shows_idle_is_local_even_when_the_rates_add_up()
-    {
-        // Phone saturating the WAN at 900; the NVR takes 30 of camera feed, steady, and the
-        // console sees it idle. 930 is within 15% of 900, and the NVR still gets nothing.
-        var split = WanShareReconciler.Allocate(900, new[] { L(900, dpi: 900), L(30, dpi: 100, idle: true) });
-        split.Estimated.Should().BeFalse();
-        split.WanBps.Should().Equal(900, 0);
-    }
-
-    [Fact]
-    public void An_idle_client_is_out_of_the_sum_so_the_rest_can_still_add_up()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 900), L(30, dpi: 100, idle: true) });
-        split.Estimated.Should().BeFalse();
-        split.WanBps.Should().Equal(100, 0);
-    }
-
-    [Fact]
-    public void An_idle_client_takes_no_share_of_an_estimate_either()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100), L(300, dpi: 900, idle: true) });
-        split.Estimated.Should().BeTrue();
-        split.WanBps.Should().Equal(100, 0);
-    }
-
-    [Fact]
-    public void Counter_skew_inside_the_slack_scales_the_rows_to_the_wan()
-    {
-        // The rig streams at 20 and the WAN reads 25 this tick; the NVR is idle. The rig takes the
-        // WAN and the rows never sum past it.
-        var split = WanShareReconciler.Allocate(25, new[] { L(20, dpi: 900), L(30, dpi: 100, idle: true) });
-        split.WanBps.Should().Equal(20, 0);
-    }
-
-    [Fact]
-    public void Without_the_litmus_the_split_is_unchanged()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 300), L(100, dpi: 100) });
-        split.WanBps[0].Should().BeApproximately(75, 1e-9);
-        split.WanBps[1].Should().BeApproximately(25, 1e-9);
     }
 }

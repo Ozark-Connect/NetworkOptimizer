@@ -31,20 +31,14 @@ public class BandwidthHogsService
     private static readonly TimeSpan DpiRecentWindow = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// The console's per-client rate is a lagging indicator, used only as a litmus for idle: a
-    /// client it shows idle on the WAN is local. Because it lags, that only holds for a client
-    /// whose own rate has been steady for at least <see cref="ConsoleLag"/> (a flow that just
-    /// started is not in the console's figure yet), and a reading older than
-    /// <see cref="ConsoleRateFreshness"/> (three console polls) says nothing.
+    /// How much history the per-client baselines are read over. A constant local flow (a camera
+    /// feed to an NVR) shows as a floor its measured rate never drops below across this horizon,
+    /// while the console's lagging WAN rate shows what part of that floor left the site.
     /// </summary>
-    private static readonly TimeSpan ConsoleRateFreshness = TimeSpan.FromSeconds(90);
-    private static readonly TimeSpan ConsoleLag = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan BaselineHorizon = TimeSpan.FromMinutes(15);
 
-    /// <summary>A console rate under this fraction of the WAN rate is "idle on the WAN".</summary>
-    private const double ConsoleIdleFraction = 0.01;
-
-    /// <summary>A client's rate is steady if it has not risen by more than this fraction over <see cref="ConsoleLag"/>.</summary>
-    private const double SteadyTolerance = 0.25;
+    /// <summary>Less history than this and no baseline is claimed: a flow we have not watched is a WAN candidate.</summary>
+    private static readonly TimeSpan BaselineMinSpan = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// A client the console has known for this long, that moved under <see cref="ExclusionFloorBytes"/>
@@ -156,54 +150,59 @@ public class BandwidthHogsService
         var included = new List<int>(measured.Count);
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
-        // The console's per-client rate is consulted live only, and only to call a steady client
-        // idle on the WAN; at the playhead the split runs on DPI weights alone.
-        var consoleRates = at == null ? _liveStats.GetFor(_site.Slug) : null;
+        // Live only: each row's baseline local rate (what it moves constantly that the console's
+        // lagging WAN figure never accounted for) comes off its rate before the split, so an NVR
+        // taking camera feeds is not a WAN candidate until it goes above its own baseline. At the
+        // playhead there is no history and the split runs on DPI weights alone.
+        var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
-        (double Down, double Up)? ConsoleRate(string mac) =>
-            consoleRates?.GetConsoleWanRate(mac, ConsoleRateFreshness) is { } r ? (r.DownBps, r.UpBps) : null;
-        (bool Down, bool Up) ConsoleIdle(string key, double down, double up, (double Down, double Up)? console)
+        (double Down, double Up) BaselineLocal(string key, IReadOnlyList<string> macs, double down, double up)
         {
-            if (consoleRates == null) return (false, false);
-            // Recorded whether or not the console answered this tick, so a gap in its readings
-            // does not restart the steadiness clock.
-            var (steadyDown, steadyUp) = RecordRecentRate(consoleRates, key, down, up, now);
-            if (console is not { } c) return (false, false);
-            return (steadyDown && wanDownBps is { } wd && c.Down < wd * ConsoleIdleFraction,
-                    steadyUp && wanUpBps is { } wu && c.Up < wu * ConsoleIdleFraction);
+            if (liveStats == null) return (0, 0);
+            var samples = liveStats.RecordRowRate(key, down, up, now, BaselineHorizon);
+            var console = new List<(DateTime At, double Down, double Up)>();
+            foreach (var mac in macs)
+            {
+                var h = liveStats.ConsoleRateHistory(mac);
+                if (console.Count == 0) console.AddRange(h);
+                else for (var k = 0; k < Math.Min(console.Count, h.Count); k++)
+                    console[k] = (console[k].At, console[k].Down + h[k].Down, console[k].Up + h[k].Up);
+            }
+            return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), console.Select(s => (s.At, s.Down)).ToList(), now, BaselineMinSpan),
+                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), console.Select(s => (s.At, s.Up)).ToList(), now, BaselineMinSpan));
         }
 
         for (var i = 0; i < measured.Count; i++)
         {
             var m = measured[i];
             (double Down, double Up) bytes = default;
-            (double Down, double Up)? console = null;
+            var macs = new List<string>();
             bool excluded;
             if (m.Node.Kind == LanNodeKind.VirtualHub)
             {
                 // The port's WAN share is weighted by everything the console saw behind it, and
-                // the port is a WAN user if any interface on it is. Its console rate is the sum
-                // of its interfaces'.
+                // the port is a WAN user if any interface on it is. Its console history is the
+                // sum of its interfaces'.
                 membersByHub.TryGetValue(m.Node.Id, out var members);
                 members ??= new List<LanNode>();
                 foreach (var member in members)
                 {
                     if (dpi.TryGetValue(member.Mac!, out var b)) bytes = (bytes.Down + b.Down, bytes.Up + b.Up);
-                    if (ConsoleRate(member.Mac!) is { } c) console = ((console?.Down ?? 0) + c.Down, (console?.Up ?? 0) + c.Up);
+                    macs.Add(member.Mac!);
                 }
                 excluded = members.Count > 0 && members.All(member => NotAWanUser(member.Mac!));
             }
             else
             {
                 dpi.TryGetValue(m.Node.Mac!, out bytes);
-                console = ConsoleRate(m.Node.Mac!);
+                macs.Add(m.Node.Mac!);
                 excluded = NotAWanUser(m.Node.Mac!);
             }
             if (excluded) continue;
-            var idle = ConsoleIdle(m.Node.Id, m.Down, m.Up, console);
+            var baseline = BaselineLocal(m.Node.Id, macs, m.Down, m.Up);
             included.Add(i);
-            loadsDown.Add(new WanShareReconciler.Load(m.Down, bytes.Down, m.CapDown, idle.Down));
-            loadsUp.Add(new WanShareReconciler.Load(m.Up, bytes.Up, m.CapUp, idle.Up));
+            loadsDown.Add(new WanShareReconciler.Load(Math.Max(0, m.Down - baseline.Down), bytes.Down, m.CapDown));
+            loadsUp.Add(new WanShareReconciler.Load(Math.Max(0, m.Up - baseline.Up), bytes.Up, m.CapUp));
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
@@ -456,27 +455,22 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// Records a row's measured rates in the site's live cache and says, per direction, whether
-    /// the rate has held steady for <see cref="ConsoleLag"/>: long enough for the console to have
-    /// noticed it.
+    /// A row's baseline local rate in one direction: the floor its measured rate held across the
+    /// history, less the most the console's WAN figure explained of it. Only a constant flow
+    /// produces one (a bursty client's floor is ~0), and anything the row moves above it is a WAN
+    /// candidate as usual. Zero until both histories span <paramref name="minSpan"/>: a flow we
+    /// have not watched is a WAN candidate, never quietly ruled local.
     /// </summary>
-    private (bool Down, bool Up) RecordRecentRate(MonitoringLiveStats live, string key, double down, double up, DateTime now)
+    public static double BaselineLocalBps(
+        IReadOnlyList<(DateTime At, double Bps)> measured,
+        IReadOnlyList<(DateTime At, double Bps)> console,
+        DateTime now, TimeSpan minSpan)
     {
-        var samples = live.RecordRowRate(key, down, up, now, ConsoleRateFreshness);
-        return (HeldSteady(samples.Select(s => (s.At, s.Down)).ToList(), now, down, ConsoleLag, SteadyTolerance),
-                HeldSteady(samples.Select(s => (s.At, s.Up)).ToList(), now, up, ConsoleLag, SteadyTolerance));
-    }
-
-    /// <summary>
-    /// Whether <paramref name="nowBps"/> is no more than a <paramref name="tolerance"/> rise over
-    /// every sample of at least the last <paramref name="forAtLeast"/>. False with too little
-    /// history: a rate we cannot show was steady is a rate the console may not have seen.
-    /// </summary>
-    public static bool HeldSteady(IReadOnlyList<(DateTime At, double Bps)> samples, DateTime now, double nowBps, TimeSpan forAtLeast, double tolerance)
-    {
-        if (!samples.Any(s => now - s.At >= forAtLeast)) return false;
-        var floor = nowBps * (1 - tolerance);
-        return samples.All(s => s.Bps >= floor);
+        if (measured.Count == 0 || console.Count == 0) return 0;
+        if (!measured.Any(s => now - s.At >= minSpan) || !console.Any(s => now - s.At >= minSpan)) return 0;
+        var floor = measured.Min(s => s.Bps);
+        var wan = console.Max(s => s.Bps);
+        return Math.Max(0, floor - wan);
     }
 
     /// <summary>

@@ -2,18 +2,18 @@ namespace NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
 
 /// <summary>
 /// Splits a WAN's measured rate across the clients that could have produced it. There is no
-/// per-client WAN counter at second resolution, so this is a reconciliation, per direction.
-/// A client the console's own per-client rate shows idle on the WAN (<see cref="Load.ConsoleIdle"/>,
-/// decided by the caller, which knows how long the client's rate has been steady) is local and
-/// out of the split entirely. For the rest:
+/// per-client WAN counter at second resolution, so this is a reconciliation, per direction. The
+/// caller hands each client's rate with its baseline local traffic already subtracted (a constant
+/// flow such as a camera feed is not a WAN candidate), so what arrives here is the rate that
+/// could have been WAN:
 /// <list type="number">
-/// <item>Their rates add up to the WAN rate within <see cref="Threshold"/>: the WAN explains the
-/// whole load, nothing is local, every client's WAN rate is its measured rate, scaled together to
-/// the WAN rate when the slack (counters read seconds apart) puts the total over it.</item>
+/// <item>The clients' rates add up to the WAN rate within <see cref="Threshold"/>: the WAN explains
+/// the whole load, nothing is local, every client's WAN rate is its rate, scaled together to the
+/// WAN rate when the slack (counters read seconds apart) puts the total over it.</item>
 /// <item>They exceed it: some traffic never left the site. The WAN rate is water-filled across
-/// clients in proportion to their recent DPI WAN bytes, each capped by its measured rate and by
-/// what its uplink chain carried. A client with no recent DPI bytes gets none; when nobody has
-/// any (DPI unavailable) the measured rates weight it instead.</item>
+/// clients in proportion to their recent DPI WAN bytes, each capped by its rate and by what its
+/// uplink chain carried. A client with no recent DPI bytes gets none; when nobody has any (DPI
+/// unavailable) the rates weight it instead.</item>
 /// </list>
 /// </summary>
 public static class WanShareReconciler
@@ -21,10 +21,9 @@ public static class WanShareReconciler
     /// <summary>How far past the WAN rate the clients' total may run before some of it is called local.</summary>
     public const double Threshold = 0.15;
 
-    /// <summary>One client's measured rate, its DPI WAN bytes over the recent window, the least its
-    /// uplink chain carried (null when no hop had a rate), and whether the console shows it idle
-    /// on the WAN for a rate it has held long enough for the console to have noticed.</summary>
-    public readonly record struct Load(double RateBps, double DpiBytes, double? ChainCapBps, bool ConsoleIdle = false);
+    /// <summary>One client's rate (baseline local traffic already out), its DPI WAN bytes over the
+    /// recent window, and the least its uplink chain carried (null when no hop had a rate).</summary>
+    public readonly record struct Load(double RateBps, double DpiBytes, double? ChainCapBps);
 
     /// <summary>Per-client WAN rates in input order, and whether they are an estimate (case 2).</summary>
     public readonly record struct Split(double[] WanBps, bool Estimated);
@@ -39,7 +38,6 @@ public static class WanShareReconciler
         double sum = 0;
         for (var i = 0; i < n; i++)
         {
-            if (loads[i].ConsoleIdle) continue;
             var rate = Math.Max(0, loads[i].RateBps);
             caps[i] = loads[i].ChainCapBps is { } chain ? Math.Min(rate, Math.Max(0, chain)) : rate;
             sum += rate;
@@ -56,7 +54,6 @@ public static class WanShareReconciler
         var anyDpi = false;
         for (var i = 0; i < n; i++)
         {
-            if (loads[i].ConsoleIdle) continue;
             weights[i] = Math.Max(0, loads[i].DpiBytes);
             anyDpi |= weights[i] > 0;
         }

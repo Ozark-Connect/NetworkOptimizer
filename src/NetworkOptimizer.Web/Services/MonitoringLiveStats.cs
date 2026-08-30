@@ -699,16 +699,36 @@ public class MonitoringLiveStats
     /// different measurement: the gateway's, so WAN only, for wired and Wi-Fi clients alike, and
     /// tens of seconds behind. Recorded for every client, including those an AP Agent serves.
     /// </summary>
+    /// <summary>How much console rate history is kept per client, for the WAN-baseline read.</summary>
+    public static readonly TimeSpan ConsoleRateHistoryFor = TimeSpan.FromMinutes(15);
+
+    private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _consoleRateHistory = new(StringComparer.OrdinalIgnoreCase);
+
     public void RecordConsoleWanRate(string clientMac, double downBps, double upBps, DateTime at)
     {
         if (string.IsNullOrEmpty(clientMac)) return;
+        var key = Normalize(clientMac);
         var fresh = new ConsoleWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
-        _consoleWanRates.AddOrUpdate(Normalize(clientMac), fresh, (_, prior) =>
+        var kept = _consoleWanRates.AddOrUpdate(key, fresh, (_, prior) =>
             // The console's -r fields read 0/0 for one sample between active ones, as the client
             // snapshots already allow for. One zero is held; two in a row are idle.
             fresh.DownBps == 0 && fresh.UpBps == 0 && (prior.DownBps > 0 || prior.UpBps > 0) && !prior.HeldZero
                 ? prior with { At = at, HeldZero = true }
                 : fresh);
+        var history = _consoleRateHistory.GetOrAdd(key, _ => new());
+        lock (history)
+        {
+            history.Add((at, kept.DownBps, kept.UpBps));
+            history.RemoveAll(s => at - s.At > ConsoleRateHistoryFor);
+        }
+    }
+
+    /// <summary>The console's recorded rates for a client over the kept history, oldest first.</summary>
+    public IReadOnlyList<(DateTime At, double Down, double Up)> ConsoleRateHistory(string clientMac)
+    {
+        if (string.IsNullOrEmpty(clientMac) || !_consoleRateHistory.TryGetValue(Normalize(clientMac), out var history))
+            return Array.Empty<(DateTime, double, double)>();
+        lock (history) return history.ToArray();
     }
 
     /// <summary>The console's WAN rate for a client, or null when it has none newer than <paramref name="maxAge"/>.</summary>
@@ -718,8 +738,8 @@ public class MonitoringLiveStats
         return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
     }
 
-    // Recent measured rates per Bandwidth Hogs row, for its WAN-idle steadiness test. Site-wide
-    // rather than per page, so a refresh does not restart the minute the test needs to arm.
+    // Recent measured rates per Bandwidth Hogs row, for its baseline-local read. Site-wide
+    // rather than per page, so a refresh does not restart the history the baseline needs.
     private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _rowRates = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Records a row's measured rates and returns the samples of the last <paramref name="keepFor"/>.</summary>
@@ -775,6 +795,12 @@ public class MonitoringLiveStats
             bool stale;
             lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
             if (stale) _rowRates.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _consoleRateHistory)
+        {
+            bool stale;
+            lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
+            if (stale) _consoleRateHistory.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in _portRates)
         {
