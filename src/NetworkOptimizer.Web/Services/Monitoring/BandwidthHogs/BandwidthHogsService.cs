@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.LanFlowMap;
@@ -320,9 +321,30 @@ public class BandwidthHogsService
                     // the WAN bytes of everything behind it. The interfaces keep their own WAN rows.
                     long wanDown = 0, wanUp = 0;
                     string? portName = null;
+                    // The row links to the interface with the most WAN traffic, as the map's hub does.
+                    string? representativeIp = null;
+                    long representativeBytes = -1;
                     foreach (var mac in macs)
                     {
-                        if (rows.TryGetValue(mac, out var member)) { wanDown += member.WanDownBytes; wanUp += member.WanUpBytes; }
+                        long memberBytes = 0;
+                        string? memberIp = null;
+                        if (rows.TryGetValue(mac, out var member))
+                        {
+                            wanDown += member.WanDownBytes;
+                            wanUp += member.WanUpBytes;
+                            memberBytes = member.WanDownBytes + member.WanUpBytes;
+                            memberIp = member.Ip;
+                        }
+                        memberIp ??= group.FirstOrDefault(o => string.Equals(o.ClientMac, mac, StringComparison.OrdinalIgnoreCase))?.ClientIp;
+                        // Most WAN bytes wins; with nothing to go on, the lowest IP, as the map's hub picks.
+                        if (!string.IsNullOrEmpty(memberIp)
+                            && (memberBytes > representativeBytes
+                                || (memberBytes == representativeBytes && representativeIp != null
+                                    && NetworkUtilities.IpSortKey(memberIp).CompareTo(NetworkUtilities.IpSortKey(representativeIp)) < 0)))
+                        {
+                            representativeBytes = memberBytes;
+                            representativeIp = memberIp;
+                        }
                         if (portName == null && nodeByMac.TryGetValue(mac, out var node) && !string.IsNullOrEmpty(node.SwitchPortName))
                             portName = node.SwitchPortName;
                     }
@@ -331,6 +353,7 @@ public class BandwidthHogsService
                     {
                         ClientMac = key,
                         Name = $"{portName ?? $"Port {group.Key.Port}"} ({macs.Count})",
+                        Ip = representativeIp,
                         IsWired = true,
                         DownBytes = down,
                         UpBytes = up,

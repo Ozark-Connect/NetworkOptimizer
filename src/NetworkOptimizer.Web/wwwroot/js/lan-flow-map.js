@@ -3794,7 +3794,8 @@ export class LanFlowMap {
             }
             return;
         }
-        if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) return;
+        // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
+        if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.VirtualHub) return;
         const ip = node.ip;
         if (!ip) return;
         // Wi-Fi clients land on the Signal tab; wired clients have no signal data,

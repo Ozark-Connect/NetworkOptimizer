@@ -122,7 +122,7 @@
                                 <td class="hogs-client">
                                     @if (!string.IsNullOrEmpty(row.Ip))
                                     {
-                                        <a href="@ClientLink(row)">@row.DisplayName</a>
+                                        <a href="@ClientLink(row)" data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</a>
                                     }
                                     else
                                     {
@@ -206,7 +206,10 @@
     private readonly Dictionary<string, DateTime> _lastQualified = new(StringComparer.OrdinalIgnoreCase);
 
     private static string? PortGroupTooltip(HogRow row) =>
-        row.IsPortGroup ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces" : null;
+        !row.IsPortGroup ? null
+        : row.Ip != null
+            ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces. Opens the busiest one; the others are in its selector."
+            : $"Everything through this switch port, shared by {row.PortClientCount} interfaces";
 
     private static readonly (int Hours, string Label)[] TimeFilters =
     {
