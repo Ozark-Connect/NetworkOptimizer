@@ -1141,7 +1141,7 @@
                                 @if (_appUsage.Count > AppRowsShown)
                                 {
                                     <button type="button" class="btn btn-secondary btn-sm app-show-more" @onclick="() => _appShowAll = !_appShowAll">
-                                        @(_appShowAll ? "Show fewer" : $"Show {_appUsage.Count - AppRowsShown} more with less traffic")
+                                        @(_appShowAll ? "Show fewer" : $"Show {_appUsage.Count - AppRowsShown} more{(_appSortCol == null ? " with less traffic" : "")}")
                                     </button>
                                 }
                             </div>
