@@ -1100,15 +1100,15 @@
                                     <table class="results-table app-table">
                                         <thead>
                                             <tr>
-                                                <th>Application</th>
-                                                <th class="hide-mobile">Category</th>
-                                                <th>Download</th>
-                                                <th>Upload</th>
-                                                <th class="hide-mobile">Share</th>
+                                                <th class="sortable @(_appSortCol == "app" ? "sorted" : "")" @onclick='() => ToggleAppSort("app")'>Application @AppSortIndicator("app")</th>
+                                                <th class="sortable hide-mobile @(_appSortCol == "category" ? "sorted" : "")" @onclick='() => ToggleAppSort("category")'>Category @AppSortIndicator("category")</th>
+                                                <th class="sortable @(_appSortCol == "download" ? "sorted" : "")" @onclick='() => ToggleAppSort("download")'>Download @AppSortIndicator("download")</th>
+                                                <th class="sortable @(_appSortCol == "upload" ? "sorted" : "")" @onclick='() => ToggleAppSort("upload")'>Upload @AppSortIndicator("upload")</th>
+                                                <th class="sortable hide-mobile @(_appSortCol == "share" ? "sorted" : "")" @onclick='() => ToggleAppSort("share")'>Share @AppSortIndicator("share")</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var a in _appUsage.Take(AppRowsShown))
+                                            @foreach (var a in SortedAppUsage.Take(AppRowsShown))
                                             {
                                                 <tr>
                                                     <td>
@@ -1210,6 +1210,38 @@
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
     private DateTime _dataLoadedAt;
     private const int AppRowsShown = 25;
+    // Column sort, three states per header: one way, the other way, then back to largest first.
+    // A name sorts A to Z first; a figure sorts largest first.
+    private string? _appSortCol;
+    private bool _appSortAsc;
+    private void ToggleAppSort(string col)
+    {
+        var textCol = col is "app" or "category";
+        if (_appSortCol != col) { _appSortCol = col; _appSortAsc = textCol; }
+        else if (_appSortAsc == textCol) _appSortAsc = !textCol;
+        else _appSortCol = null;
+    }
+    private string AppSortIndicator(string col) =>
+        _appSortCol != col ? "" : _appSortAsc ? "▲" : "▼";
+    private IEnumerable<AppUsageRow> SortedAppUsage
+    {
+        get
+        {
+            if (_appSortCol == null) return _appUsage;
+            Func<AppUsageRow, object> key = _appSortCol switch
+            {
+                "app" => a => a.Name,
+                "category" => a => a.Category,
+                "download" => a => a.DownloadBytes,
+                "upload" => a => a.UploadBytes,
+                _ => a => a.TotalBytes,
+            };
+            var comparer = _appSortCol is "app" or "category" ? StringComparer.OrdinalIgnoreCase : null;
+            return comparer != null
+                ? (_appSortAsc ? _appUsage.OrderBy(a => (string)key(a), comparer) : _appUsage.OrderByDescending(a => (string)key(a), comparer))
+                : (_appSortAsc ? _appUsage.OrderBy(a => (long)key(a)) : _appUsage.OrderByDescending(a => (long)key(a)));
+        }
+    }
     private string AppShare(AppUsageRow a) =>
         _appUsage.Count == 0 || _appUsage[0].TotalBytes == 0 ? "0" : (100.0 * a.TotalBytes / _appUsage[0].TotalBytes).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
     // The image request carries no fetch wrapper to stamp the tab's site, so it is stamped here.
