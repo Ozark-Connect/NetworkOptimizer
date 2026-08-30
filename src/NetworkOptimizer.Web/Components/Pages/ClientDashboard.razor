@@ -1108,7 +1108,7 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var a in SortedAppUsage.Take(AppRowsShown))
+                                            @foreach (var a in (_appShowAll ? SortedAppUsage : SortedAppUsage.Take(AppRowsShown)))
                                             {
                                                 <tr>
                                                     <td>
@@ -1140,7 +1140,9 @@
                                 </div>
                                 @if (_appUsage.Count > AppRowsShown)
                                 {
-                                    <p class="form-hint">@(_appUsage.Count - AppRowsShown) more with less traffic.</p>
+                                    <button type="button" class="btn btn-secondary btn-sm app-show-more" @onclick="() => _appShowAll = !_appShowAll">
+                                        @(_appShowAll ? "Show fewer" : $"Show {_appUsage.Count - AppRowsShown} more with less traffic")
+                                    </button>
                                 }
                             </div>
                         }
@@ -1210,6 +1212,7 @@
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
     private DateTime _dataLoadedAt;
     private const int AppRowsShown = 25;
+    private bool _appShowAll;
     // Column sort, three states per header: one way, the other way, then back to largest first.
     // A name sorts A to Z first; a figure sorts largest first.
     private string? _appSortCol;
@@ -4171,6 +4174,9 @@
     }
     .app-table-hint {
         margin-bottom: 0.5rem;
+    }
+    .app-show-more {
+        margin-top: 0.75rem;
     }
     .app-name {
         display: inline-flex;
