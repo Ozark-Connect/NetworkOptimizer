@@ -435,9 +435,13 @@ public class BandwidthHogsService
                     if (!any || (down == 0 && up == 0)) continue;
                     var switchName = nodeById.TryGetValue("dev-" + group.Key.DeviceMac, out var sw) ? sw.Name : null;
                     var macs = group.Select(o => o.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                    if (macs.Count == 1)
+                    // Over a long window a port hosts clients in succession, not concurrency: a
+                    // device that moved away months of samples ago must not turn the port into a
+                    // phantom "(5)" hub carrying mixed traffic and linking to a past tenant. The
+                    // sample counts say who actually lived there; only a port with no dominant
+                    // occupant is genuinely shared.
+                    if (DominantOccupant(group.ToList()) is { } occupant)
                     {
-                        var occupant = group.First();
                         var row = RowFor(occupant.ClientMac);
                         rows[occupant.ClientMac] = row with
                         {
@@ -604,6 +608,21 @@ public class BandwidthHogsService
     /// </summary>
     public static double UnarmedWanCapBps(double dpiRecentBytes, TimeSpan dpiWindow, double? consoleBps) =>
         2 * Math.Max(Math.Max(0, dpiRecentBytes) * 8 / dpiWindow.TotalSeconds, Math.Max(0, consoleBps ?? 0));
+
+    /// <summary>
+    /// The client a port's usage belongs to: the sole occupant, or one holding at least nine of
+    /// every ten occupancy samples over the window (the rest are passers-by or past tenants).
+    /// Null when the port is genuinely shared - several clients each with a real presence.
+    /// </summary>
+    public static MonitoringInfluxClient.WiredPortOccupant? DominantOccupant(
+        IReadOnlyList<MonitoringInfluxClient.WiredPortOccupant> occupants)
+    {
+        if (occupants.Count == 0) return null;
+        if (occupants.Count == 1) return occupants[0];
+        var total = occupants.Sum(o => (long)o.Samples);
+        var top = occupants.OrderByDescending(o => o.Samples).First();
+        return total > 0 && top.Samples * 10L >= total * 9 ? top : null;
+    }
 
     /// <summary>
     /// The never-touches-the-WAN exclusion: known to the console since before the lookback, under

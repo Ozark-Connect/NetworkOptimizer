@@ -134,6 +134,44 @@ public class BandwidthHogsBaselineTests
     }
 }
 
+/// <summary>
+/// Port ownership over a window: succession is not sharing. A month-long window sees past
+/// tenants and passers-by on a port; only real concurrent occupancy makes a hub row.
+/// </summary>
+public class BandwidthHogsDominantOccupantTests
+{
+    private static NetworkOptimizer.Storage.Services.MonitoringInfluxClient.WiredPortOccupant O(string mac, int samples) =>
+        new("aa:bb:cc:dd:ee:00", 1, mac, samples, null, null);
+
+    [Fact]
+    public void The_sole_occupant_owns_the_port()
+    {
+        BandwidthHogsService.DominantOccupant(new[] { O("aa:bb:cc:dd:ee:01", 5) })!.ClientMac.Should().Be("aa:bb:cc:dd:ee:01");
+    }
+
+    [Fact]
+    public void A_past_tenant_does_not_make_the_port_shared()
+    {
+        // 29 days of the rig, a day of whatever sat there before.
+        var occupants = new[] { O("aa:bb:cc:dd:ee:01", 2700), O("aa:bb:cc:dd:ee:02", 90), O("aa:bb:cc:dd:ee:03", 40) };
+        BandwidthHogsService.DominantOccupant(occupants)!.ClientMac.Should().Be("aa:bb:cc:dd:ee:01");
+    }
+
+    [Fact]
+    public void Real_concurrent_sharing_has_no_dominant_occupant()
+    {
+        // A hypervisor's interfaces: every MAC present the whole window.
+        var occupants = new[] { O("aa:bb:cc:dd:ee:01", 1000), O("aa:bb:cc:dd:ee:02", 980), O("aa:bb:cc:dd:ee:03", 940) };
+        BandwidthHogsService.DominantOccupant(occupants).Should().BeNull();
+    }
+
+    [Fact]
+    public void Empty_input_owns_nothing()
+    {
+        BandwidthHogsService.DominantOccupant(Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.WiredPortOccupant>()).Should().BeNull();
+    }
+}
+
 /// <summary>The never-touches-the-WAN exclusion, as a predicate over what the console recorded.</summary>
 public class BandwidthHogsExclusionTests
 {
