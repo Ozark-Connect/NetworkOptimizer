@@ -142,6 +142,25 @@ public class WanShareReconcilerTests
     }
 
     [Fact]
+    public void Counter_skew_does_not_pool_on_a_local_heavy_client_the_console_sees_idle()
+    {
+        // The rig streams at 20 and the console agrees; the WAN reads 25 this tick (read a few
+        // seconds apart). The NVR moves 30 locally, console 0. The extra 5 is skew: the NVR may
+        // take only its DPI share of it, and the rest stays unattributed.
+        var split = WanShareReconciler.Allocate(25, new[] { L(20, dpi: 900, console: 20), L(30, dpi: 100, console: 0) });
+        split.WanBps[0].Should().Be(20);
+        split.WanBps[1].Should().BeApproximately(0.5, 1e-9);
+    }
+
+    [Fact]
+    public void A_burst_the_console_has_not_seen_still_goes_to_the_client_with_the_history()
+    {
+        var split = WanShareReconciler.Allocate(100, new[] { L(900, dpi: 900, console: 0), L(30, dpi: 100, console: 0) });
+        split.WanBps[0].Should().BeApproximately(90, 1e-9);
+        split.WanBps[1].Should().BeApproximately(10, 1e-9);
+    }
+
+    [Fact]
     public void Without_a_console_rate_the_split_is_unchanged()
     {
         var with = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 300), L(100, dpi: 100) });

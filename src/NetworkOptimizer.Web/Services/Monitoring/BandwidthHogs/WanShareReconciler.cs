@@ -10,10 +10,12 @@ namespace NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
 /// rate and by what its uplink chain carried. The console's per-client WAN rate, where fresh,
 /// sets a floor inside that bound and a soft cap of <see cref="ConsoleCapFactor"/> times itself;
 /// the WAN rate is water-filled by recent DPI bytes under the soft caps first, and whatever they
-/// cannot place is filled again under the hard bounds alone. The console rate lags by tens of
-/// seconds, so it steers the split but never decides it. A client with no recent DPI bytes gets
-/// nothing beyond its floor; when nobody has any (DPI unavailable) the measured rates weight it
-/// instead.</item>
+/// cannot place is filled again under the hard bounds alone - except that a client the console
+/// sees idle on the WAN takes at most its DPI share of that leftover, so the rate skew between
+/// counters read seconds apart does not land on the one local-heavy client with room. What no
+/// client can explain stays unattributed. The console rate lags by tens of seconds, so it steers
+/// the split but never decides it. A client with no recent DPI bytes gets nothing beyond its
+/// floor; when nobody has any (DPI unavailable) the measured rates weight it instead.</item>
 /// </list>
 /// </summary>
 public static class WanShareReconciler
@@ -26,6 +28,9 @@ public static class WanShareReconciler
     /// started after the console last looked is not in its figure yet.
     /// </summary>
     public const double ConsoleCapFactor = 2.0;
+
+    /// <summary>A console rate under this fraction of the WAN rate is "idle on the WAN".</summary>
+    public const double ConsoleIdleFraction = 0.01;
 
     /// <summary>One client's measured rate, its DPI WAN bytes over the recent window, the least its
     /// uplink chain carried (null when no hop had a rate), and the console's WAN rate for it (null
@@ -88,7 +93,20 @@ public static class WanShareReconciler
             soft[i] = loads[i].ConsoleWanBps is { } console ? Math.Min(caps[i], Math.Max(0, console) * ConsoleCapFactor) : caps[i];
 
         remaining = WaterFill(remaining, weights, soft, wan);
-        WaterFill(remaining, weights, caps, wan);
+        if (remaining <= 0) return new Split(wan, true);
+
+        // The leftover is either a burst the console has not seen yet or skew between counters
+        // read seconds apart. A client the console sees idle gets no more of it than its DPI
+        // share over everyone, so the skew cannot pool on the last client with room.
+        double totalWeight = 0;
+        for (var i = 0; i < n; i++) totalWeight += weights[i];
+        var hard = new double[n];
+        for (var i = 0; i < n; i++)
+        {
+            var idle = loads[i].ConsoleWanBps is { } console && console < wanRateBps * ConsoleIdleFraction;
+            hard[i] = idle && totalWeight > 0 ? Math.Min(caps[i], wan[i] + remaining * weights[i] / totalWeight) : caps[i];
+        }
+        WaterFill(remaining, weights, hard, wan);
         return new Split(wan, true);
     }
 
