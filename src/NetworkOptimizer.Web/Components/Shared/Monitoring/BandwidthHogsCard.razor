@@ -96,7 +96,7 @@
         {
             var rank = 0;
             var denominator = ShareDenominator();
-            var slots = _showAll ? MaxRows : CollapsedRows;
+            var slots = _mode == Mode.Data ? rows.Count : _showAll ? MaxRows : CollapsedRows;
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
                     <colgroup>
@@ -180,10 +180,13 @@
                     </tbody>
                 </table>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(rows.Count > CollapsedRows ? null : "hogs-show-more-hidden")"
-                    @onclick="() => _showAll = !_showAll">
-                @(_showAll ? "Show fewer" : $"Show {rows.Count - CollapsedRows} more")
-            </button>
+            @if (_mode == Mode.Throughput)
+            {
+                <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(rows.Count > CollapsedRows || _showAll ? null : "hogs-show-more-hidden")"
+                        @onclick="() => _showAll = !_showAll">
+                    @(_showAll ? "Show fewer" : $"Show {rows.Count - CollapsedRows} more")
+                </button>
+            }
         }
         </div>
     </div>
