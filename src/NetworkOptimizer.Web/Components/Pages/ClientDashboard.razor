@@ -1919,6 +1919,9 @@
         var target = await IsOwnAddressAsync(_pickerSelection)
             ? "/client-dashboard"
             : $"/client-dashboard?ip={Uri.EscapeDataString(_pickerSelection)}";
+        // Stay on the tab being compared across clients.
+        if (_activeTab != "speed")
+            target += (target.Contains('?') ? "&" : "?") + "tab=" + _activeTab;
         NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
     }
 
