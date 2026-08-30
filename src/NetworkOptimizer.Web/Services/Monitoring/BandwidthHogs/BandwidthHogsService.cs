@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
@@ -68,10 +69,28 @@ public class BandwidthHogsService
     /// </summary>
     private static readonly TimeSpan CounterWindow = TimeSpan.FromHours(2);
 
-    /// <summary>Past this, no rollup means no answer - a counter scan over days is minutes.</summary>
-    private static readonly TimeSpan CounterFallbackMax = TimeSpan.FromHours(48);
+    /// <summary>
+    /// Past this, no rollup means best-effort partials rather than a counter scan: the site-wide
+    /// port counter query reads every interface's samples (48 s over 24 h at a 2-second fast
+    /// tier), so while a rollup rebuild runs, windows up to a day stay exact through the counters
+    /// and longer ones show what is rolled so far.
+    /// </summary>
+    private static readonly TimeSpan CounterFallbackMax = TimeSpan.FromHours(24);
 
     private static readonly TimeSpan RollupTopUpMax = TimeSpan.FromHours(2);
+
+    /// <summary>Assembled Data results, shared across pages (the service is scoped per page).</summary>
+    private static readonly ConcurrentDictionary<(string Site, long SpanMinutes, long SlotMinutes, bool Lan), (DateTime At, HogsResult Result)> DataResultCache = new();
+    private static readonly TimeSpan DataResultCacheFor = TimeSpan.FromMinutes(1);
+
+    private static HogsResult CacheDataResult((string, long, long, bool) key, HogsResult result)
+    {
+        DataResultCache[key] = (DateTime.UtcNow, result);
+        if (DataResultCache.Count > 64)
+            foreach (var stale in DataResultCache.Where(kv => DateTime.UtcNow - kv.Value.At > TimeSpan.FromMinutes(5)).Select(kv => kv.Key).ToList())
+                DataResultCache.TryRemove(stale, out _);
+        return result;
+    }
 
     public BandwidthHogsService(
         LanFlowMapService map,
@@ -326,6 +345,12 @@ public class BandwidthHogsService
     /// </summary>
     public async Task<HogsResult> GetDataUsageAsync(DateTime from, DateTime to, bool includeLan, CancellationToken ct = default)
     {
+        // The card refreshes every one to five minutes and each assembly pays the port top-up
+        // and the DPI report; one minute of reuse makes refreshes free while a window switch
+        // still computes at once. Static: the card's service is scoped per page.
+        var cacheKey = (_site.Slug, (long)(to - from).TotalMinutes, (long)(to - DateTime.UnixEpoch).TotalMinutes, includeLan);
+        if (DataResultCache.TryGetValue(cacheKey, out var hit) && DateTime.UtcNow - hit.At <= DataResultCacheFor)
+            return hit.Result;
         LanFlowMapSnapshot? snapshot = null;
         try { snapshot = await _map.BuildSnapshotAsync(ct); }
         catch (Exception ex) { _logger.LogDebug(ex, "Bandwidth Hogs: no topology snapshot; naming clients from telemetry"); }
@@ -371,7 +396,7 @@ public class BandwidthHogsService
         }
 
         if (!includeLan)
-            return new HogsResult { Rows = rows.Values.ToList(), From = from, To = to };
+            return CacheDataResult(cacheKey, new HogsResult { Rows = rows.Values.ToList(), From = from, To = to });
 
         // LAN + WAN, wireless: the access point's per-client counters.
         try
@@ -479,7 +504,7 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: wired usage unavailable");
         }
 
-        return new HogsResult { Rows = rows.Values.ToList(), From = from, To = to, IncludesLan = true };
+        return CacheDataResult(cacheKey, new HogsResult { Rows = rows.Values.ToList(), From = from, To = to, IncludesLan = true });
     }
 
     private static HogRow SeedRow(string mac, Dictionary<string, LanNode> nodeByMac, Dictionary<string, LanNode> nodeById, LanFlowMapSnapshot? snapshot)

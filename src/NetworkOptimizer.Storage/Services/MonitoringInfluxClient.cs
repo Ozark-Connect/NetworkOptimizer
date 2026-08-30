@@ -3496,23 +3496,26 @@ union(tables: [means, chan])
         DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<PortByteTotal>();
+        // Per-field, no pivot: this is the one query that reads EVERY interface's samples, and
+        // pivoting millions of raw rows to pair the two fields doubled its cost - the zero and
+        // plausibility guards work per field. The plausibility guard here is rate-based rather
+        // than the raw 2^32 constant: no LAN interface on supported gear moves 25 Gbps, while a
+        // 32-bit read recovery is a counter's whole magnitude and lands orders beyond it - and
+        // unlike the constant, this stays valid for sustained >7 Gbps traffic on fast ports.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => {PortCounterSamples})
-  |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
-  |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
+  |> filter(fn: (r) => r._value > 0)
+  |> difference(nonNegative: true)
   |> elapsed(unit: 1s)
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
-  |> fill(column: ""bytes_in"", value: 0)
-  |> fill(column: ""bytes_out"", value: 0)
-  {PortDeltaPlausible}
-  |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})
-  |> group()";
-        return await ReadPortTotalsAsync(flux, "out", "in_", ct);
+  |> filter(fn: (r) => r._value < float(v: r.elapsed) * 3125000000.0)
+  |> group(columns: [""device_mac"", ""if_name"", ""_field""])
+  |> sum()
+  |> group()
+  |> pivot(rowKey:[""device_mac"", ""if_name""], columnKey: [""_field""], valueColumn: ""_value"")";
+        return await ReadPortTotalsAsync(flux, "bytes_out", "bytes_in", ct);
     }
 
     /// <summary>Every switch interface's rolled-up bytes from the longterm bucket.</summary>

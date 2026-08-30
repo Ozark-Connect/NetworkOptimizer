@@ -1510,10 +1510,12 @@ public class ClientDashboardService
                 ? await LanUsageFromCountersAsync(influx, client, ifNames, from, to, bucket)
                 : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
             // No rollup yet, or one that does not reach the window's start (a rebuild rolls
-            // newest first, and partial coverage reads silently low): the counters still answer a
-            // day, slowly. Never for days - that scan is minutes on any hardware, and the rollup
-            // fills in behind on its own.
-            if (bucket == TimeSpan.FromHours(1) && (points.Count == 0 || points[0].Time > from.AddHours(1)))
+            // newest first, and partial coverage reads silently low): the counters still answer,
+            // up to a week - measured at ~2 s for a wireless client's 7 days, and a wired port's
+            // series filter pushes down to storage. Past a week the rollup is the only answer,
+            // and it fills in behind on its own.
+            if (bucket >= TimeSpan.FromHours(1) && span <= TimeSpan.FromDays(7)
+                && (points.Count == 0 || points[0].Time > from.AddHours(1)))
                 points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
