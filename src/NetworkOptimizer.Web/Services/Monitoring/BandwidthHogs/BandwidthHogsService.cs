@@ -22,10 +22,24 @@ public class BandwidthHogsService
     private readonly MonitoringInfluxClient _influx;
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteContextService _site;
+    private readonly UniFiConnectionService _connection;
     private readonly ILogger<BandwidthHogsService> _logger;
 
     /// <summary>How far back the DPI report is read to weight a live WAN split.</summary>
     private static readonly TimeSpan DpiRecentWindow = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// A client the console has known for this long, that moved under <see cref="ExclusionFloorBytes"/>
+    /// through the WAN in it and nothing in the recent window, is not a WAN user: a camera streaming
+    /// to a local NVR, a hypervisor's management interface. It is left out of the WAN split - and
+    /// out of the "does it add up" sum, where its local traffic otherwise forced an estimate.
+    /// A device younger than this is never excluded; it has not had time to show what it does.
+    /// </summary>
+    private static readonly TimeSpan ExclusionLookback = TimeSpan.FromHours(24);
+    private const long ExclusionFloorBytes = 1_000_000;
+
+    private static readonly TimeSpan FirstSeenCacheFor = TimeSpan.FromMinutes(5);
+    private (DateTime At, Dictionary<string, DateTime> Map)? _firstSeen;
 
     /// <summary>The Data tab's rule: counters answer up to here, the rollup past it.</summary>
     private static readonly TimeSpan CounterWindow = TimeSpan.FromHours(6);
@@ -41,6 +55,7 @@ public class BandwidthHogsService
         MonitoringInfluxClient influx,
         SiteDbContextFactory siteDb,
         SiteContextService site,
+        UniFiConnectionService connection,
         ILogger<BandwidthHogsService> logger)
     {
         _map = map;
@@ -48,6 +63,7 @@ public class BandwidthHogsService
         _influx = influx;
         _siteDb = siteDb;
         _site = site;
+        _connection = connection;
         _logger = logger;
     }
 
@@ -109,28 +125,51 @@ public class BandwidthHogsService
         // boundaries, so every position inside one shares a single cached DPI report.
         var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % DpiRecentWindow.Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
         var dpi = await DpiTotalsAsync(end - DpiRecentWindow, end, ct);
+        var history = await DpiTotalsAsync(end - ExclusionLookback, end, ct);
+        var firstSeen = await FirstSeenAsync(ct);
 
+        bool NotAWanUser(string mac) =>
+            firstSeen.TryGetValue(mac, out var seen) && seen <= end - ExclusionLookback
+            && (!history.TryGetValue(mac, out var h) || h.Down + h.Up < ExclusionFloorBytes)
+            && (!dpi.TryGetValue(mac, out var r) || r.Down + r.Up <= 0);
+
+        var included = new List<int>(measured.Count);
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
-        foreach (var m in measured)
+        for (var i = 0; i < measured.Count; i++)
         {
+            var m = measured[i];
             (double Down, double Up) bytes = default;
+            bool excluded;
             if (m.Node.Kind == LanNodeKind.VirtualHub)
             {
-                // The port's WAN share is weighted by everything the console saw behind it.
-                if (membersByHub.TryGetValue(m.Node.Id, out var members))
-                    foreach (var member in members)
-                        if (dpi.TryGetValue(member.Mac!, out var b)) bytes = (bytes.Down + b.Down, bytes.Up + b.Up);
+                // The port's WAN share is weighted by everything the console saw behind it, and
+                // the port is a WAN user if any interface on it is.
+                membersByHub.TryGetValue(m.Node.Id, out var members);
+                members ??= new List<LanNode>();
+                foreach (var member in members)
+                    if (dpi.TryGetValue(member.Mac!, out var b)) bytes = (bytes.Down + b.Down, bytes.Up + b.Up);
+                excluded = members.Count > 0 && members.All(member => NotAWanUser(member.Mac!));
             }
             else
             {
                 dpi.TryGetValue(m.Node.Mac!, out bytes);
+                excluded = NotAWanUser(m.Node.Mac!);
             }
+            if (excluded) continue;
+            included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(m.Down, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(m.Up, bytes.Up, m.CapUp));
         }
-        var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[measured.Count], false);
-        var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[measured.Count], false);
+        var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
+        var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
+        var wanDown = new double[measured.Count];
+        var wanUp = new double[measured.Count];
+        for (var j = 0; j < included.Count; j++)
+        {
+            wanDown[included[j]] = splitDown.WanBps[j];
+            wanUp[included[j]] = splitUp.WanBps[j];
+        }
 
         var rows = new List<HogRow>(measured.Count);
         for (var i = 0; i < measured.Count; i++)
@@ -150,8 +189,8 @@ public class BandwidthHogsService
                 PortClientCount = isHub && membersByHub.TryGetValue(m.Node.Id, out var members) ? members.Count : 0,
                 DownBps = m.Down,
                 UpBps = m.Up,
-                WanDownBps = splitDown.WanBps[i],
-                WanUpBps = splitUp.WanBps[i],
+                WanDownBps = wanDown[i],
+                WanUpBps = wanUp[i],
             });
         }
 
@@ -400,6 +439,32 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: DPI report unavailable; WAN split weighted by rate");
         }
         return totals;
+    }
+
+    /// <summary>When the console first saw each connected client, read once per
+    /// <see cref="FirstSeenCacheFor"/>. Empty when the console cannot answer, which excludes nobody.</summary>
+    private async Task<Dictionary<string, DateTime>> FirstSeenAsync(CancellationToken ct)
+    {
+        if (_firstSeen is { } cached && DateTime.UtcNow - cached.At < FirstSeenCacheFor) return cached.Map;
+        var map = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (_connection.IsConnected && _connection.Client != null)
+            {
+                foreach (var c in await _connection.Client.GetClientsAsync(ct))
+                {
+                    var mac = NormalizeMac(c.Mac);
+                    if (mac.Length > 0 && c.FirstSeen > 0)
+                        map[mac] = DateTimeOffset.FromUnixTimeSeconds(c.FirstSeen).UtcDateTime;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Bandwidth Hogs: client list unavailable; nothing excluded from WAN");
+        }
+        _firstSeen = (DateTime.UtcNow, map);
+        return map;
     }
 
     private static readonly TimeSpan CapacityCacheFor = TimeSpan.FromMinutes(5);
