@@ -883,7 +883,11 @@ class LanFlowMap2D {
         const pad=40;
         const w=Math.max(1,r-l+pad*2), h=Math.max(1,b-t+pad*2);
         this._scale=Math.max(this._scale,Math.min(this._cw/w,this._ch/h,2.5));
-        this._ox=(l+r)/2; this._oy=(t+b)/2;
+        // The client sits at the far edge of the tree's depth - the bottom top-down, the right
+        // left-to-right - so it goes to that edge of the view and the context fills the rest.
+        const edge=40/this._scale;
+        if(this._hz){this._ox=n.x-(this._cw/2)/this._scale+edge; this._oy=(t+b)/2;}
+        else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2)/this._scale+edge;}
         this._isFitted=false;
         this._needsStaticRedraw=true;
     }
