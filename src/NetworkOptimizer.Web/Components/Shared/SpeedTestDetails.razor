@@ -547,6 +547,13 @@
     private Figure ToDevice(string label, string shortLabel, string tip) => new(label, shortLabel, tip,
         UploadMbps, UploadBytes, UploadRetransmits, UploadLatencyMs, UploadJitterMs, IsFromDevice: false);
 
+    /// <summary>
+    /// Whether the trace reads in the device's frame: TX to the device is its download and comes
+    /// first, in blue. True for the Device perspective, and for a WAN client test, whose stored
+    /// pair is already the client's.
+    /// </summary>
+    private bool DeviceFrame => Perspective == SpeedPerspective.Device || Result?.Direction == SpeedTestDirection.OpenSpeedTestWan;
+
     /// <summary>The left / first figure, drawn in the download color.</summary>
     private Figure First => Perspective switch
     {
@@ -1102,16 +1109,15 @@
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
                 lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
 
-            // RX/TX speeds - order depends on test direction:
-            // LAN (BrowserToServer): RX first (↓ from device) then TX (↑ to device)
-            // WAN (OpenSpeedTestWan): TX first (↓ download to client) then RX (↑ upload from client)
+            // RX/TX speeds - order follows the frame:
+            // server frame: RX first (↓ from device) then TX (↑ to device)
+            // device frame: TX first (↓ the device's download) then RX (↑ its upload)
             if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
             {
-                var isWanClient = Result.Direction == SpeedTestDirection.OpenSpeedTestWan;
                 var speedParts = new List<string>();
-                if (isWanClient)
+                if (DeviceFrame)
                 {
-                    // WAN: TX = download (blue), RX = upload (green)
+                    // Device frame: TX = download (blue), RX = upload (green)
                     if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
                         speedParts.Add($"<span class='wifi-speed-rx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
                     if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
@@ -1119,7 +1125,7 @@
                 }
                 else
                 {
-                    // LAN: RX = from device (blue), TX = to device (green)
+                    // Server frame: RX = from device (blue), TX = to device (green)
                     if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
                         speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
                     if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
@@ -1190,11 +1196,10 @@
         // For WAN tests, swap order and colors (same as WiFi client tooltip)
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
-            var isWanClient = Result?.Direction == SpeedTestDirection.OpenSpeedTestWan;
             var speedParts = new List<string>();
-            if (isWanClient)
+            if (DeviceFrame)
             {
-                // WAN: parent TX (child RX) = download (blue), parent RX (child TX) = upload (green)
+                // Device frame: parent TX (child RX) = download (blue), parent RX (child TX) = upload (green)
                 if (meshHop.WirelessRxRateMbps.HasValue)
                     speedParts.Add($"<span class='wifi-speed-rx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
                 if (meshHop.WirelessTxRateMbps.HasValue)
@@ -1202,7 +1207,7 @@
             }
             else
             {
-                // LAN: parent RX (child TX) = from device (blue), parent TX (child RX) = to device (green)
+                // Server frame: parent RX (child TX) = from device (blue), parent TX (child RX) = to device (green)
                 if (meshHop.WirelessTxRateMbps.HasValue)
                     speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
                 if (meshHop.WirelessRxRateMbps.HasValue)
@@ -1289,14 +1294,16 @@
 
                 lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
 
-                // Per-link RX/TX rates (RX first = "from device", TX = "to device")
+                // Per-link RX/TX rates, the download-limiting rate first in blue: RX in the
+                // server frame, TX in the device frame.
                 if (link.txRate.HasValue || link.rxRate.HasValue)
                 {
                     var linkSpeedParts = new List<string>();
-                    if (link.rxRate.HasValue)
-                        linkSpeedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(link.rxRate.Value / 1000.0)} Mbps</span>");
-                    if (link.txRate.HasValue)
-                        linkSpeedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(link.txRate.Value / 1000.0)} Mbps</span>");
+                    var rx = link.rxRate.HasValue ? $"RX {Math.Round(link.rxRate.Value / 1000.0)} Mbps" : null;
+                    var tx = link.txRate.HasValue ? $"TX {Math.Round(link.txRate.Value / 1000.0)} Mbps" : null;
+                    var (first, second) = DeviceFrame ? (tx, rx) : (rx, tx);
+                    if (first != null) linkSpeedParts.Add($"<span class='wifi-speed-rx'>{first}</span>");
+                    if (second != null) linkSpeedParts.Add($"<span class='wifi-speed-tx'>{second}</span>");
                     lines.Add($"<div class='wifi-tooltip-link-speed'>{string.Join(" · ", linkSpeedParts)}</div>");
                 }
 
@@ -1604,8 +1611,10 @@
     /// <param name="isFromDevice">True for FromDevice (↓), false for ToDevice (↑)</param>
     private string GetEfficiencyTooltip(bool isFromDevice)
     {
-        // Base direction text (preserved from original)
-        var directionText = isFromDevice ? "From device to server" : "From server to device";
+        // Base direction text, named the way the page names the figure.
+        var directionText = Perspective == SpeedPerspective.Device
+            ? (isFromDevice ? "Upload, device to server" : "Download, server to device")
+            : (isFromDevice ? "From device to server" : "From server to device");
 
         if (PathAnalysis == null || Result == null)
             return directionText;
@@ -1737,8 +1746,10 @@
             unit = "Mbps";
         }
 
-        // Use download/upload colors: download (from device) = blue, upload (to device) = green
-        return new MarkupString($"<span class=\"speed-from\">↓{fromVal}</span> <span class=\"speed-to\">↑{toVal}</span> {unit}");
+        // ↓ in blue is the figure the page calls Download: the stored from-device max, or in the
+        // Device perspective the to-device max (a WAN client test's pair is already the client's).
+        var (downVal, upVal) = Perspective == SpeedPerspective.Device ? (toVal, fromVal) : (fromVal, toVal);
+        return new MarkupString($"<span class=\"speed-from\">↓{downVal}</span> <span class=\"speed-to\">↑{upVal}</span> {unit}");
     }
 
     /// <summary>
@@ -1776,17 +1787,16 @@
             var rxMbps = rxKbps.Value / 1000.0;
             var txMbps = txKbps.Value / 1000.0;
 
-            // Format speed as "Rx / Tx" with appropriate unit
+            // Download-limiting rate first, as the max box orders them.
+            var (firstMbps, secondMbps) = Perspective == SpeedPerspective.Device ? (txMbps, rxMbps) : (rxMbps, txMbps);
             string speedStr;
             if (rxMbps >= 1000 && txMbps >= 1000)
             {
-                var rxGbps = rxMbps / 1000.0;
-                var txGbps = txMbps / 1000.0;
-                speedStr = $"{rxGbps:F1} / {txGbps:F1} Gbps";
+                speedStr = $"{firstMbps / 1000.0:F1} / {secondMbps / 1000.0:F1} Gbps";
             }
             else
             {
-                speedStr = $"{rxMbps:F0} / {txMbps:F0} Mbps";
+                speedStr = $"{firstMbps:F0} / {secondMbps:F0} Mbps";
             }
 
             // Extract device info from existing description (after " at ")
