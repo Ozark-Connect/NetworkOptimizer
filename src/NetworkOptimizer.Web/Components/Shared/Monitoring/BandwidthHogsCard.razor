@@ -8,7 +8,19 @@
 
 <div class="card bandwidth-hogs-card" style="margin-top: 0.5rem;" data-tour="bandwidth-hogs">
     <div class="card-header">
-        <h2 class="card-title">Bandwidth Hogs</h2>
+        <div class="card-title-group">
+            <h2 class="card-title">Bandwidth Hogs</h2>
+            @* The maps' own mode badge, so the card says what they say about the moment it shows. *@
+            @if (HistoricAt != null)
+            {
+                <span class="lan-flow-map-mode is-historic" style="cursor: pointer;" data-tooltip="Click to return to live" data-tooltip-hover-only
+                      @onclick="ReturnToLiveAsync">Historic</span>
+            }
+            else
+            {
+                <span class="lan-flow-map-mode">Live</span>
+            }
+        </div>
         <div class="card-header-right bandwidth-hogs-controls">
             <div class="time-range-selector">
                 <button class="time-btn @(_mode == Mode.Throughput ? "active" : "")" @onclick="() => SetModeAsync(Mode.Throughput)">Throughput</button>
@@ -273,6 +285,13 @@
         try { await JS.InvokeVoidAsync("localStorage.setItem", WindowStorageKey, hours.ToString()); }
         catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not save the time filter"); }
         await RefreshAsync();
+    }
+
+    /// <summary>The same return-to-live the maps' badge performs; the playhead change comes back through the page.</summary>
+    private async Task ReturnToLiveAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.getInstance?.()?._returnToLive?.();"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not return the map to live"); }
     }
 
     private async Task PersistViewAsync()
