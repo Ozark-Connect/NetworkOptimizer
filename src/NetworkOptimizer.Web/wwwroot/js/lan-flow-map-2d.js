@@ -37,6 +37,8 @@ const C = {
 };
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
+// How long the arrival focus ring shows (mount option focusClient).
+const FOCUS_MS = 5000;
 // Signal color arrives per node, blended on the server's per-band ramp. Nothing about the curve
 // is decided here - a palette in the browser is how the map drifted from the gauges before.
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
@@ -302,6 +304,8 @@ class LanFlowMap2D {
         // Optional per-node overlay map (Firmware Rollout): id -> {color,badge,pulse,dim}.
         // Distinct from _overlays, which is this map's own visibility toggles.
         this._nodeOverlays=null;
+        // A node to pick out for a moment on arrival: {id, until}. Set by mount(focusClient).
+        this._focus=null;
         // Host-page chrome switches (Firmware Rollout hides what it does not use).
         this._hideOverlayControls=false;
         this._hideFilter=false;
@@ -1851,6 +1855,29 @@ class LanFlowMap2D {
             ctx.globalAlpha=1;
         }
 
+        // Arrival focus: the same ring the overlay pulse draws, in the download blue, for a few
+        // seconds around the client Client Performance sent the viewer here from.
+        if(this._focus){
+            const now=performance.now();
+            const n=this._treeMap.get(this._focus.id);
+            if(now>=this._focus.until)this._focus=null;
+            else if(n&&n.x!=null&&this._isNodeVisible(n)){
+                const t=(now%1500)/1500, grow=8*t;
+                const isDev=n.d.kind===NK.Gateway||n.d.kind===NK.Switch||n.d.kind===NK.AP;
+                ctx.strokeStyle=C.downstream;
+                ctx.globalAlpha=0.8*(1-t);
+                ctx.lineWidth=2+2*t;
+                if(isDev){
+                    const hw=G.boxW/2+5+grow, hh=G.boxH/2+5+grow;
+                    this._roundRect(ctx,n.x-hw,n.y-hh,hw*2,hh*2,14+grow);
+                }else{
+                    ctx.beginPath(); ctx.arc(n.x,n.y,G.clientR+5+grow,0,Math.PI*2);
+                }
+                ctx.stroke();
+                ctx.globalAlpha=1;
+            }
+        }
+
         // Labels on top of everything (including particles)
         if(!this._hideRates){
             this._drawLinkSpeedLabels(ctx);
@@ -2438,6 +2465,7 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
+    if(opts?.focusClient)_inst._focus={id:'cli-'+String(opts.focusClient).toLowerCase().replaceAll('-',':'),until:performance.now()+FOCUS_MS};
     // Fullscreen the element that holds the map AND its sibling controls, where a page has them:
     // expanding the stage alone leaves its timeline behind the overlay.
     if(opts?.fullscreenEl)_inst._fsTarget=document.getElementById(opts.fullscreenEl);

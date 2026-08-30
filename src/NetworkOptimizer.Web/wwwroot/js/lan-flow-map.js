@@ -58,6 +58,8 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
+// How long the arrival focus glow shows (mount option focusClient).
+const FOCUS_MS = 5000;
 
 // Deterministic PRNG (mulberry32) seeded off a node id. Lets a roamed client scatter
 // near its AP using the same distribution as a freshly-added client, while staying
@@ -219,6 +221,11 @@ export class LanFlowMap {
         // Deep-link entry point (e.g. from a speed-test result): an absolute epoch-ms
         // instant to open in historic playback, paused. Applied once at the end of start().
         this._initialAtMs = Number.isFinite(options.initialAt) ? options.initialAt : null;
+        // A client to glow for a moment on arrival (Client Performance's Live View link).
+        this._focusClientId = options.focusClient
+            ? 'cli-' + String(options.focusClient).toLowerCase().replaceAll('-', ':') : null;
+        this._focusUntil = this._focusClientId ? performance.now() + FOCUS_MS : 0;
+        this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
         this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
@@ -1884,6 +1891,7 @@ export class LanFlowMap {
             if (!core || base == null) continue;
             core.material.emissiveIntensity = base * factor;
         }
+        this._pulseFocus(nowMs);
         // Ramp opacity back up on clients that just roamed to a new AP so they fade in
         // rather than pop. _applyOnlineState re-asserts the correct opacity afterwards.
         if (this._roamFade3D && this._roamFade3D.size) {
@@ -1896,6 +1904,41 @@ export class LanFlowMap {
                 if (t >= 1) this._roamFade3D.delete(id);
             }
         }
+    }
+
+    // Arrival focus: the focused client's core and halo take the download blue and breathe
+    // bright for FOCUS_MS, then go back to exactly what they were. The bloom pass turns the
+    // raised emissive into the glow.
+    _pulseFocus(nowMs) {
+        if (!this._focusClientId) return;
+        const group = this._nodeMeshes.get(this._focusClientId);
+        const { core, halo, baseEmissive } = group?.userData ?? {};
+        // A rebuilt scene hands the client a new mesh: put the old one back and glow the new.
+        const stale = this._focusGlowing && this._focusGlowing.core !== core;
+        if (nowMs >= this._focusUntil || !core || stale) {
+            if (this._focusGlowing) {
+                const g = this._focusGlowing;
+                g.core.material.emissive.setHex(g.emissive);
+                g.core.material.emissiveIntensity = g.baseEmissive;
+                if (g.halo) { g.halo.material.color.setHex(g.haloColor); g.halo.material.opacity = g.haloOpacity; }
+                this._focusGlowing = null;
+            }
+            if (nowMs >= this._focusUntil) this._focusClientId = null;
+            if (!stale || nowMs >= this._focusUntil) return;
+        }
+        if (!this._focusGlowing) {
+            this._focusGlowing = {
+                core, halo, baseEmissive,
+                emissive: core.material.emissive.getHex(),
+                haloColor: halo?.material.color.getHex(),
+                haloOpacity: halo?.material.opacity,
+            };
+            core.material.emissive.setHex(COLORS.downstream);
+            halo?.material.color.setHex(COLORS.downstream);
+        }
+        const t = (nowMs % 1500) / 1500;
+        core.material.emissiveIntensity = baseEmissive * (2.5 + 1.5 * Math.sin(t * Math.PI * 2));
+        if (halo) halo.material.opacity = 0.35 + 0.25 * Math.sin(t * Math.PI * 2);
     }
 
     // Scale device cores/halos with camera distance: up toward a ceiling when

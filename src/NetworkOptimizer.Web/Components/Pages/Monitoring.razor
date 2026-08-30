@@ -1891,6 +1891,14 @@
     [SupplyParameterFromQuery(Name = "at")]
     public string? AtParam { get; set; }
 
+    /// <summary>A client MAC the maps glow for a few seconds on arrival, from Client Performance's Live View link.</summary>
+    [SupplyParameterFromQuery(Name = "client")]
+    public string? ClientParam { get; set; }
+
+    /// <summary>The client parameter as a MAC, or empty: it is written into eval'd JS, so nothing else passes.</summary>
+    private string FocusClientMac =>
+        ClientParam is { } c && System.Text.RegularExpressions.Regex.IsMatch(c, "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$") ? c.ToLowerInvariant() : "";
+
     /// <summary>
     /// How wide a window to frame around <c>?at=</c>, in milliseconds. An OVERRIDE only: a link
     /// that omits it frames what the destination always framed - 15 minutes on Latency and Packet
@@ -5602,16 +5610,17 @@
                 // original closure, so a re-eval'd definition with different baked-in
                 // values is silently ignored on every mount after the first.
                 await JS.InvokeVoidAsync("eval",
-                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt) {" +
+                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt, focusClient) {" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
                     "  const opts = { storagePrefix: storagePrefix };" +
                     "  if (initialAt > 0) opts.initialAt = initialAt;" +
+                    "  if (focusClient) opts.focusClient = focusClient;" +
                     "  await m.mount(canvasId, opts);" +
                     "}");
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
-                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
+                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs, FocusClientMac);
             }
             catch (Exception ex) { _mapMounted = false; Logger.LogDebug(ex, "3D map mount failed; will retry on next render"); }
         }
@@ -5631,7 +5640,7 @@
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}' }}); }})();");
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}', focusClient: '{FocusClientMac}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
         }

@@ -466,7 +466,7 @@
                             @if (_liveViewLinkEnabled)
                             {
                                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
-                                                      Tooltip="Watch the WAN and the whole network in Live View"
+                                                      Tooltip="Watch the WAN and whole network in Live View"
                                                       OnClick="OpenLiveViewAsync" />
                             }
                             <div class="chart-container">
@@ -2106,8 +2106,12 @@
         }
     }
 
-    private async Task OpenLiveViewAsync() =>
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync("/monitoring?tab=live"));
+    private async Task OpenLiveViewAsync()
+    {
+        // The client rides along so the maps can pick it out for a moment on arrival.
+        var client = string.IsNullOrEmpty(_client?.Mac) ? "" : $"&client={Uri.EscapeDataString(_client.Mac)}";
+        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync($"/monitoring?tab=live{client}"));
+    }
 
     private async Task DisposeLiveChartAsync()
     {
