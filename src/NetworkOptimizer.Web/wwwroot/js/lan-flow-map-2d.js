@@ -889,9 +889,11 @@ class LanFlowMap2D {
         this._scale=Math.max(this._scale,Math.min(this._cw/w,Math.max(1,this._ch-barPx)/h,2.5)/1.2);
         // The client sits at the far edge of the tree's depth - the bottom top-down, the right
         // left-to-right - so it goes to that edge of the view and the context fills the rest.
-        const edgePx=40;
-        if(this._hz){this._ox=n.x-(this._cw/2-edgePx)/this._scale; this._oy=(t+b)/2-(barPx/2)/this._scale;}
-        else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgePx-barPx)/this._scale;}
+        // The edge inset is the client's whole cell (its label hangs below or beside the dot)
+        // plus a little air, in screen pixels at the chosen scale.
+        const edgeX=G.clientCellW*this._scale+16, edgeY=G.clientCellH*this._scale+16;
+        if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2-(barPx/2)/this._scale;}
+        else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
         this._isFitted=false;
         this._needsStaticRedraw=true;
     }
