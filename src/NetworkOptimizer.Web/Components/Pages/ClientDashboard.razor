@@ -4581,6 +4581,17 @@
 
     /* Mobile responsive */
     @@media (max-width: 768px) {
+        /* The Select Your Device picker shares its row with View: the combo shrinks to what is
+           left rather than holding its desktop 400px, and a long name ellipsizes inside it. */
+        .client-picker-row .client-selector-combo {
+            flex: 1 1 0;
+            min-width: 0;
+        }
+        .client-picker-row .filterable-select {
+            width: 100%;
+            min-width: 0;
+            max-width: none;
+        }
         /* Card headings sit close to the top edge on a phone; the eye follows them up. */
         .chart-card,
         .results-card {
