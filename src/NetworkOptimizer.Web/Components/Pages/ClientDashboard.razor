@@ -2288,7 +2288,9 @@
                     // By time, not by poll: the poll runs anywhere from twice a second to every 5 s
                     // depending on the source. Totals move slowly, and the long ranges read the
                     // console and the store for days at a time.
-                    "data" => DateTime.UtcNow - _dataLoadedAt >= (_selectedTimeFilter is > 0 and <= 24
+                    // Not while a tab switch is already loading it: two loads at once is how the
+                    // first visit's chart came up empty.
+                    "data" => !_tabLoading && DateTime.UtcNow - _dataLoadedAt >= (_selectedTimeFilter is > 0 and <= 24
                         ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5)),
                     _ => true,
                 };
@@ -2411,15 +2413,20 @@
     private async Task LoadDataUsageAsync(DateTime from, DateTime to)
     {
         if (_client == null) return;
-        _dataUsage = await DashboardService.GetDataUsageAsync(_client, from, to);
-        _appUsage = await DashboardService.GetAppUsageAsync(_client, from, to);
-        _dataLoadedAt = DateTime.UtcNow;
+        // Fetch everything first and publish in one go: a render between the totals landing and
+        // the series being built created the chart empty, and the tab-switch path never updates a
+        // chart after creating it.
+        var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
+        var apps = await DashboardService.GetAppUsageAsync(_client, from, to);
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
-        _wanDownData = Series(_dataUsage.Wan, r => r.DownloadBytes, "download");
-        _wanUpData = Series(_dataUsage.Wan, r => r.UploadBytes, "upload");
-        _lanDownData = Series(_dataUsage.Lan, r => r.DownloadBytes, "download");
-        _lanUpData = Series(_dataUsage.Lan, r => r.UploadBytes, "upload");
+        _wanDownData = Series(usage.Wan, r => r.DownloadBytes, "download");
+        _wanUpData = Series(usage.Wan, r => r.UploadBytes, "upload");
+        _lanDownData = Series(usage.Lan, r => r.DownloadBytes, "download");
+        _lanUpData = Series(usage.Lan, r => r.UploadBytes, "upload");
+        _dataUsage = usage;
+        _appUsage = apps;
+        _dataLoadedAt = DateTime.UtcNow;
         // Keep the user's pick unless that side has nothing to plot.
         if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
         else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
