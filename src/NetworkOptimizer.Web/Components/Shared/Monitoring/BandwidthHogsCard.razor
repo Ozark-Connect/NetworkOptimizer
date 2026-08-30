@@ -446,17 +446,16 @@
     /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
     private double ShareDenominator(View view)
     {
+        // The answer's own WAN rate, never the live one: the split was made against it, and a
+        // client allocated at a higher rate divided by a lower one read 200%.
         if (_mode == Mode.Throughput && view == View.Wan && _result != null)
-        {
-            var (down, up) = CurrentWanRate();
-            return (down ?? 0) + (up ?? 0);
-        }
+            return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
         return VisibleRows(view).Sum(r => RowValue(r, view));
     }
 
     /// <summary>
-    /// The WAN rate as the tiles beside the card carry it right now, so the WAN line and the shares
-    /// move with them rather than with the card's own refresh. At the playhead, the answer's own.
+    /// The WAN rate as the tiles beside the card carry it right now, so the WAN line moves with
+    /// them rather than with the card's own refresh. At the playhead, the answer's own.
     /// </summary>
     private (double? Down, double? Up) CurrentWanRate() =>
         HistoricAt == null && _result?.At == null
