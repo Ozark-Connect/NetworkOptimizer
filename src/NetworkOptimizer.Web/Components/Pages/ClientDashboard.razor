@@ -48,10 +48,18 @@
         </div>
         @if (!_showClientPicker && _pickerClients.Count > 0)
         {
-            <ClientSelector Items="PickerItems()"
-                            SelectedKey="@_clientIp"
-                            PersistKey="@SearchHandoffKey"
-                            SelectedKeyChanged="ViewClientByIpAsync" />
+            <div class="header-picker-row">
+                @if (CanJumpToOwnDevice)
+                {
+                    <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Locate"
+                                          Tooltip="This device"
+                                          OnClick="ViewOwnDeviceAsync" />
+                }
+                <ClientSelector Items="PickerItems()"
+                                SelectedKey="@_clientIp"
+                                PersistKey="@SearchHandoffKey"
+                                SelectedKeyChanged="ViewClientByIpAsync" />
+            </div>
         }
     </div>
 
@@ -1880,6 +1888,22 @@
             return;
         }
         StateHasChanged();
+        // The header's "This device" jump needs the viewer's own address to know whether to show.
+        if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
+            StateHasChanged();
+    }
+
+    /// <summary>
+    /// The viewer's own device is on the site and is not the one being viewed. Absent when the
+    /// site cannot see the viewer's address at all.
+    /// </summary>
+    private bool CanJumpToOwnDevice =>
+        !_isOwnDevice && _ownIp != null && _pickerClients.Any(c => string.Equals(c.Ip, _ownIp, StringComparison.OrdinalIgnoreCase));
+
+    private async Task ViewOwnDeviceAsync()
+    {
+        var target = _activeTab == "speed" ? "/client-dashboard" : $"/client-dashboard?tab={_activeTab}";
+        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
     }
 
     private async Task ShowClientPickerAsync()
@@ -1947,10 +1971,14 @@
     /// see the viewer's LAN address: this server on the default site, the on-site agent elsewhere,
     /// since a managed site's circuit arrives over the WAN.
     /// </summary>
-    private async Task<bool> IsOwnAddressAsync(string ip)
+    private async Task<bool> IsOwnAddressAsync(string ip) =>
+        string.Equals(await ResolveOwnIpAsync(), ip, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The viewer's own address, resolved once; null when nothing on the site can see it.</summary>
+    private async Task<string?> ResolveOwnIpAsync()
     {
         if (_ownIp != null)
-            return string.Equals(_ownIp, ip, StringComparison.OrdinalIgnoreCase);
+            return _ownIp;
 
         try
         {
@@ -1963,21 +1991,21 @@
             else
             {
                 var target = await SiteTarget.ResolveAsync();
-                if (!target.UsesAgent || string.IsNullOrEmpty(target.BaseUrl)) return false;
+                if (!target.UsesAgent || string.IsNullOrEmpty(target.BaseUrl)) return null;
                 address = await JS.InvokeAsync<string?>("eval",
                     $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
                     ".then(r => r.json()).then(j => j.ip).catch(() => null)");
             }
 
-            if (string.IsNullOrEmpty(address) || address == "unknown") return false;
+            if (string.IsNullOrEmpty(address) || address == "unknown") return null;
             _ownIp = NetworkUtilities.NormalizeToIPv4String(address);
-            return string.Equals(_ownIp, ip, StringComparison.OrdinalIgnoreCase);
+            return _ownIp;
         }
         catch (Exception ex)
         {
             // No answer keeps the explicit address, which always works.
-            Logger.LogDebug(ex, "Own-address lookup failed while picking a client");
-            return false;
+            Logger.LogDebug(ex, "Own-address lookup failed");
+            return null;
         }
     }
 
@@ -3753,9 +3781,15 @@
         min-width: 0;
     }
 
-    .client-dashboard-header .client-selector-combo {
+    .client-dashboard-header .header-picker-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.35rem;
         margin-left: auto;
         place-self: flex-end;
+    }
+    .client-dashboard-header .header-picker-row .monitoring-jump-btn {
+        margin-bottom: 0.3rem;
     }
 
     /* .card hides its overflow, which clips the selector's dropdown. */
@@ -3764,8 +3798,11 @@
     }
 
     @@media (max-width: 768px) {
-        .client-dashboard-header .client-selector-combo {
+        .client-dashboard-header .header-picker-row {
             width: 100%;
+        }
+        .client-dashboard-header .client-selector-combo {
+            flex: 1;
         }
     }
 
