@@ -241,16 +241,10 @@
     {
         try
         {
+            // The view is a preference; the mode is not. Live View opens live, and Data is a
+            // drill-down someone chose for one investigation, so it always starts on Throughput.
             var view = await JS.InvokeAsync<string?>("localStorage.getItem", ViewStorageKey);
-            if (!string.IsNullOrEmpty(view))
-            {
-                var parts = view.Split('|');
-                if (parts.Length == 2)
-                {
-                    if (Enum.TryParse<Mode>(parts[0], true, out var mode)) _mode = mode;
-                    if (Enum.TryParse<View>(parts[1], true, out var v)) _view = v;
-                }
-            }
+            if (Enum.TryParse<View>(view, true, out var v)) _view = v;
             var hours = await JS.InvokeAsync<string?>("localStorage.getItem", WindowStorageKey);
             if (int.TryParse(hours, out var h) && TimeFilters.Any(t => t.Hours == h)) _hours = h;
         }
@@ -265,7 +259,6 @@
         if (_mode == mode) return;
         _mode = mode;
         _result = null;
-        await PersistViewAsync();
         ArmTimer();
         await RefreshAsync();
     }
@@ -275,6 +268,12 @@
         if (_view == view) return;
         _view = view;
         await PersistViewAsync();
+        // A WAN-only data answer has no LAN figures; the first look at LAN + WAN reads them.
+        if (_mode == Mode.Data && view == View.LanPlusWan && _result?.IncludesLan != true)
+        {
+            _result = null;
+            await RefreshAsync();
+        }
     }
 
     private async Task SetHoursAsync(int hours)
@@ -296,7 +295,7 @@
 
     private async Task PersistViewAsync()
     {
-        try { await JS.InvokeVoidAsync("localStorage.setItem", ViewStorageKey, $"{_mode}|{_view}"); }
+        try { await JS.InvokeVoidAsync("localStorage.setItem", ViewStorageKey, _view.ToString()); }
         catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not save the view"); }
     }
 
@@ -330,7 +329,8 @@
             _loadedWanKeys = string.Join(",", wanKeys);
             var result = _mode == Mode.Throughput
                 ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys)
-                : await Hogs.GetDataUsageAsync((at ?? DateTime.UtcNow) - TimeSpan.FromHours(_hours), at ?? DateTime.UtcNow);
+                : await Hogs.GetDataUsageAsync((at ?? DateTime.UtcNow) - TimeSpan.FromHours(_hours), at ?? DateTime.UtcNow,
+                    includeLan: _view == View.LanPlusWan);
             _result = result;
             _error = false;
         }

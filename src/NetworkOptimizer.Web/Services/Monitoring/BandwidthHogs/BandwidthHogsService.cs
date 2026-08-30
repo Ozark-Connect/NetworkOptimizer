@@ -143,11 +143,13 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// Every client's bytes over the window: WAN from the DPI report, LAN + WAN from our counters.
+    /// Every client's bytes over the window: WAN from the DPI report, and with
+    /// <paramref name="includeLan"/> LAN + WAN from our counters as well. The counters are the
+    /// expensive half (site-wide scans, or the rollup), so a WAN-only view never pays for them.
     /// A wired client's LAN figure is its switch port's; a port that hosted more than one client
     /// goes to the one present longest and is flagged.
     /// </summary>
-    public async Task<HogsResult> GetDataUsageAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    public async Task<HogsResult> GetDataUsageAsync(DateTime from, DateTime to, bool includeLan, CancellationToken ct = default)
     {
         LanFlowMapSnapshot? snapshot = null;
         try { snapshot = await _map.BuildSnapshotAsync(ct); }
@@ -192,6 +194,9 @@ public class BandwidthHogsService
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: WAN usage unavailable");
         }
+
+        if (!includeLan)
+            return new HogsResult { Rows = rows.Values.ToList(), From = from, To = to };
 
         // LAN + WAN, wireless: the access point's per-client counters.
         try
@@ -249,7 +254,7 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: wired usage unavailable");
         }
 
-        return new HogsResult { Rows = rows.Values.ToList(), From = from, To = to };
+        return new HogsResult { Rows = rows.Values.ToList(), From = from, To = to, IncludesLan = true };
     }
 
     private static HogRow SeedRow(string mac, Dictionary<string, LanNode> nodeByMac, Dictionary<string, LanNode> nodeById, LanFlowMapSnapshot? snapshot)

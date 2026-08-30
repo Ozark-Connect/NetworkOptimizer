@@ -53,6 +53,9 @@ public sealed record HogsResult
     /// <summary>True when the WAN split had to be estimated in either direction.</summary>
     public bool WanEstimated { get; init; }
 
+    /// <summary>Data mode: whether the LAN + WAN figures were read, or only the WAN ones.</summary>
+    public bool IncludesLan { get; init; }
+
     public DateTime? At { get; init; }
     public DateTime? From { get; init; }
     public DateTime? To { get; init; }
