@@ -1132,7 +1132,7 @@
                                                     <td class="hide-mobile">@a.Category</td>
                                                     <td><span class="speed-down">@DisplayFormatters.FormatBytes(a.DownloadBytes)</span></td>
                                                     <td><span class="speed-up">@DisplayFormatters.FormatBytes(a.UploadBytes)</span></td>
-                                                    <td class="hide-mobile"><span class="share-bar"><span class="share-fill" style="width: @AppShare(a)%"></span></span></td>
+                                                    <td class="hide-mobile"><span class="share-bar" data-tooltip="@AppShareOfTotal(a)% of WAN traffic"><span class="share-fill" style="width: @AppShare(a)%"></span></span></td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -1244,6 +1244,12 @@
                 ? (_appSortAsc ? _appUsage.OrderBy(a => (string)key(a), comparer) : _appUsage.OrderByDescending(a => (string)key(a), comparer))
                 : (_appSortAsc ? _appUsage.OrderBy(a => (long)key(a)) : _appUsage.OrderByDescending(a => (long)key(a)));
         }
+    }
+    // The bar is relative to the largest app; the tooltip says the app's share of everything.
+    private string AppShareOfTotal(AppUsageRow a)
+    {
+        var total = _appUsage.Sum(r => r.TotalBytes);
+        return total == 0 ? "0" : (100.0 * a.TotalBytes / total).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
     }
     private string AppShare(AppUsageRow a) =>
         _appUsage.Count == 0 || _appUsage[0].TotalBytes == 0 ? "0" : (100.0 * a.TotalBytes / _appUsage[0].TotalBytes).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
