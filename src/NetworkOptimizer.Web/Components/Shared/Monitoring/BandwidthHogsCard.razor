@@ -184,7 +184,7 @@
             {
                 <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(rows.Count > CollapsedRows || _showAll ? null : "hogs-show-more-hidden")"
                         @onclick="() => _showAll = !_showAll">
-                    @(_showAll ? "Show fewer" : $"Show {rows.Count - CollapsedRows} more")
+                    @(_showAll ? "Show fewer" : "Show more")
                 </button>
             }
         }
