@@ -1443,6 +1443,18 @@ public class ClientDashboardService
     /// </summary>
     private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(5);
 
+    /// <summary>The least time between two DPI fetches for one site, whoever asks.</summary>
+    private static readonly TimeSpan TrafficFetchSpacing = TimeSpan.FromSeconds(2);
+
+    private sealed class SiteTrafficGate
+    {
+        public readonly SemaphoreSlim Lock = new(1, 1);
+        public DateTime LastFetch = DateTime.MinValue;
+    }
+
+    // Static because the service is scoped: every circuit on a site must share one gate.
+    private static readonly ConcurrentDictionary<string, SiteTrafficGate> TrafficGates = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// A client's data usage over a window, WAN and LAN side by side. WAN comes from UniFi Network's
     /// per-client report at the granularity nearest the window; LAN from our own counters at the same
@@ -1581,12 +1593,30 @@ public class ClientDashboardService
         var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
         if (_cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) && cached != null)
             return cached;
-        var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
-        // A window that ended a while ago will not change; playback re-asks for it far more often
-        // than a live page asks for the present.
-        var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheFor;
-        if (traffic != null && _cache != null) _cache.Set(key, traffic, life);
-        return traffic;
+
+        // One fetch at a time per site, at most one every TrafficFetchSpacing: the callers are
+        // every open Client Performance page and Bandwidth Hogs card, and a burst of misses (a
+        // playhead crossing several windows) must not become a burst of console calls.
+        var gate = TrafficGates.GetOrAdd(_siteContext.Slug, _ => new SiteTrafficGate());
+        await gate.Lock.WaitAsync(ct);
+        try
+        {
+            if (_cache != null && _cache.TryGetValue(key, out cached) && cached != null)
+                return cached;
+            var wait = gate.LastFetch + TrafficFetchSpacing - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+            gate.LastFetch = DateTime.UtcNow;
+            var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
+            // A window that ended a while ago will not change; playback re-asks for it far more
+            // often than a live page asks for the present.
+            var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheFor;
+            if (traffic != null && _cache != null) _cache.Set(key, traffic, life);
+            return traffic;
+        }
+        finally
+        {
+            gate.Lock.Release();
+        }
     }
 
     /// <summary>
