@@ -839,4 +839,22 @@ public class DisplayFormattersTests
     }
 
     #endregion
+
+    #region FormatShare Tests
+
+    [Theory]
+    [InlineData(0.49, "0.5")]
+    [InlineData(1.24, "1.2")]
+    [InlineData(3.5, "3.5")]
+    [InlineData(9.96, "10.0")]
+    [InlineData(25.4, "25")]
+    [InlineData(94.6, "95")]
+    [InlineData(100, "100")]
+    [InlineData(-2, "0.0")]
+    public void FormatShare_TwoSignificantDigits(double percent, string expected)
+    {
+        DisplayFormatters.FormatShare(percent).Should().Be(expected);
+    }
+
+    #endregion
 }

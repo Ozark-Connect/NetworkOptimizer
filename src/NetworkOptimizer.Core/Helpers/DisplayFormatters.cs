@@ -304,6 +304,13 @@ public static class DisplayFormatters
         return $"{bytes} B";
     }
 
+    /// <summary>A share as a percentage to two significant digits, without the sign: "0.5", "1.2", "25", "94".</summary>
+    public static string FormatShare(double percent)
+    {
+        if (percent < 0) percent = 0;
+        return percent.ToString(percent < 10 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public static string FormatRate(double? bps)
     {
         if (!bps.HasValue || bps.Value < 1) return "-";
