@@ -1443,6 +1443,9 @@ public class ClientDashboardService
     /// </summary>
     private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(1);
 
+    /// <summary>The DPI category UniFi Network files traffic it could not identify under.</summary>
+    private const int DpiUnidentifiedCategory = 255;
+
     /// <summary>The least time between two DPI fetches for one site, whoever asks.</summary>
     private static readonly TimeSpan TrafficFetchSpacing = TimeSpan.FromSeconds(2);
 
@@ -1638,8 +1641,9 @@ public class ClientDashboardService
 
     /// <summary>
     /// The client's WAN traffic by application over a window, from UniFi Network's DPI, named through
-    /// the embedded catalog. Largest first; an application the catalog cannot name is kept as
-    /// "Unidentified" rather than dropped, so the shares still add up.
+    /// the embedded catalog. Largest first. Two rows are not applications and say so: what UniFi
+    /// Network could not identify at all (category 255, its own "Unidentified"), and an application
+    /// it did identify but our catalog has no name for, shown by id so the gap reads as ours.
     /// </summary>
     public async Task<IReadOnlyList<AppUsageRow>> GetAppUsageAsync(ClientIdentity client, DateTime from, DateTime to)
     {
@@ -1651,12 +1655,18 @@ public class ClientDashboardService
             if (mine == null) return Array.Empty<AppUsageRow>();
             return mine.UsageByApp
                 .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
-                .Select(u => new AppUsageRow(
-                    DpiCatalog.AppName(u.Category, u.Application) ?? "Unidentified",
-                    DpiCatalog.CategoryName(u.Category) ?? "Unknown",
-                    DpiCatalog.IconDomain(u.Category, u.Application),
-                    DpiCatalog.IconClass(u.Category, u.Application),
-                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds))
+                .Select(u => u.Category == DpiUnidentifiedCategory
+                    ? new AppUsageRow("Unidentified", "", null, DpiCatalog.IconClass(u.Category, u.Application),
+                        u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                        Note: "UniFi Network could not identify this traffic")
+                    : DpiCatalog.AppName(u.Category, u.Application) is { } name
+                        ? new AppUsageRow(name, DpiCatalog.CategoryName(u.Category) ?? "",
+                            DpiCatalog.IconDomain(u.Category, u.Application), DpiCatalog.IconClass(u.Category, u.Application),
+                            u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds)
+                        : new AppUsageRow($"Application {u.Application}", DpiCatalog.CategoryName(u.Category) ?? "",
+                            null, DpiCatalog.IconClass(u.Category, u.Application),
+                            u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                            Note: "UniFi Network knows this application; our catalog has no name for it yet"))
                 .OrderByDescending(r => r.TotalBytes)
                 .ToList();
         }
