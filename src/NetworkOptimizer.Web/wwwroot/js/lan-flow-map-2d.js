@@ -881,13 +881,16 @@ class LanFlowMap2D {
         let l=Infinity,r=-Infinity,t=Infinity,b=-Infinity;
         for(const p of pts){l=Math.min(l,p.x-p.hw);r=Math.max(r,p.x+p.hw);t=Math.min(t,p.y-p.hh);b=Math.max(b,p.y+p.hh);}
         const pad=40;
+        // On desktop the scrubber bar overlays the bottom of the stage (see _fitAll), so the
+        // usable height, and the bottom edge, sit above it.
+        const barPx=this._scrubberEl&&this._scrubberEl.parentElement===this._el?this._scrubberEl.offsetHeight+4:0;
         const w=Math.max(1,r-l+pad*2), h=Math.max(1,b-t+pad*2);
-        this._scale=Math.max(this._scale,Math.min(this._cw/w,this._ch/h,2.5));
+        this._scale=Math.max(this._scale,Math.min(this._cw/w,Math.max(1,this._ch-barPx)/h,2.5));
         // The client sits at the far edge of the tree's depth - the bottom top-down, the right
         // left-to-right - so it goes to that edge of the view and the context fills the rest.
-        const edge=40/this._scale;
-        if(this._hz){this._ox=n.x-(this._cw/2)/this._scale+edge; this._oy=(t+b)/2;}
-        else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2)/this._scale+edge;}
+        const edgePx=40;
+        if(this._hz){this._ox=n.x-(this._cw/2-edgePx)/this._scale; this._oy=(t+b)/2-(barPx/2)/this._scale;}
+        else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgePx-barPx)/this._scale;}
         this._isFitted=false;
         this._needsStaticRedraw=true;
     }
