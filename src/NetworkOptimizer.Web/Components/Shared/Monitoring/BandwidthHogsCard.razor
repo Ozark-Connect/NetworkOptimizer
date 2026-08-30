@@ -101,7 +101,10 @@
                     <colgroup>
                         <col class="hogs-col-rank hide-mobile" />
                         <col class="hogs-col-client" />
-                        <col class="hogs-col-via hide-mobile" />
+                        @if (_mode == Mode.Throughput)
+                        {
+                            <col class="hogs-col-via hide-mobile" />
+                        }
                         <col class="hogs-col-rate" />
                         <col class="hogs-col-rate" />
                         <col class="hogs-col-share" />
@@ -110,7 +113,10 @@
                         <tr>
                             <th class="hogs-rank hide-mobile">#</th>
                             <th>Client</th>
-                            <th class="hide-mobile">Via</th>
+                            @if (_mode == Mode.Throughput)
+                            {
+                                <th class="hide-mobile">Via</th>
+                            }
                             <th>Download</th>
                             <th>Upload</th>
                             <th><span data-tooltip="@ShareTooltip">Share</span></th>
@@ -136,20 +142,23 @@
                                         <span data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</span>
                                     }
                                 </td>
-                                <td class="hide-mobile hogs-via">
-                                    @if (!row.IsWired && row.Band != null)
-                                    {
-                                        <span class="band-badge @BandClass(row.Band)">@row.Band GHz</span>
-                                    }
-                                    else if (row.IsWired && row.ViaPort != null)
-                                    {
-                                        <span class="band-badge hogs-port-badge" data-tooltip="@PortTooltip(row.ViaPort)" data-tooltip-hover-only>@row.ViaPort</span>
-                                    }
-                                    @if (row.ViaDevice != null)
-                                    {
-                                        <span>@row.ViaDevice</span>
-                                    }
-                                </td>
+                                @if (_mode == Mode.Throughput)
+                                {
+                                    <td class="hide-mobile hogs-via">
+                                        @if (!row.IsWired && row.Band != null)
+                                        {
+                                            <span class="band-badge @BandClass(row.Band)">@row.Band GHz</span>
+                                        }
+                                        else if (row.IsWired && row.ViaPort != null)
+                                        {
+                                            <span class="band-badge hogs-port-badge" data-tooltip="@PortTooltip(row.ViaPort)" data-tooltip-hover-only>@row.ViaPort</span>
+                                        }
+                                        @if (row.ViaDevice != null)
+                                        {
+                                            <span>@row.ViaDevice</span>
+                                        }
+                                    </td>
+                                }
                                 <td>
                                     <span class="speed-down">@FormatDown(row)</span>
                                     @if (ShowLocal)
@@ -181,7 +190,7 @@
             </div>
             @if (_mode == Mode.Throughput)
             {
-                <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(rows.Count > CollapsedRows || _showAll ? null : "hogs-show-more-hidden")"
+                <button type="button" class="btn btn-secondary btn-sm hogs-show-more"
                         @onclick="() => _showAll = !_showAll">
                     @(_showAll ? "Show fewer" : "Show more")
                 </button>

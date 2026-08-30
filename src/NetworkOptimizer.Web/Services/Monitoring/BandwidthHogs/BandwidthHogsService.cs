@@ -395,8 +395,15 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: WAN usage unavailable");
         }
 
+        // A MAC nothing can identify is not a client of ours - UniFi's traffic report can list
+        // the gateway's WAN-side L2 neighbor (the ISP's edge). Unnamed, off-map, un-listed: dropped.
+        var known = await FirstSeenAsync(ct);
+        List<HogRow> Resolved() => rows.Values
+            .Where(r => r.Name != null || nodeByMac.ContainsKey(r.ClientMac) || known.ContainsKey(r.ClientMac))
+            .ToList();
+
         if (!includeLan)
-            return CacheDataResult(cacheKey, new HogsResult { Rows = rows.Values.ToList(), From = from, To = to });
+            return CacheDataResult(cacheKey, new HogsResult { Rows = Resolved(), From = from, To = to });
 
         // LAN + WAN, wireless: the access point's per-client counters.
         try
@@ -508,7 +515,7 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: wired usage unavailable");
         }
 
-        return CacheDataResult(cacheKey, new HogsResult { Rows = rows.Values.ToList(), From = from, To = to, IncludesLan = true });
+        return CacheDataResult(cacheKey, new HogsResult { Rows = Resolved(), From = from, To = to, IncludesLan = true });
     }
 
     private static HogRow SeedRow(string mac, Dictionary<string, LanNode> nodeByMac, Dictionary<string, LanNode> nodeById, LanFlowMapSnapshot? snapshot)
