@@ -50,6 +50,9 @@ public class BandwidthHogsService
     private static readonly TimeSpan FirstSeenCacheFor = TimeSpan.FromMinutes(5);
     private (DateTime At, Dictionary<string, DateTime> Map)? _firstSeen;
 
+    /// <summary>Temporary: last time the split diagnostics were logged (see GetThroughputAsync).</summary>
+    private DateTime _lastSplitLog;
+
     /// <summary>The Data tab's rule: counters answer up to here, the rollup past it.</summary>
     private static readonly TimeSpan CounterWindow = TimeSpan.FromHours(6);
 
@@ -161,15 +164,24 @@ public class BandwidthHogsService
         // playhead there is no history and the split runs on DPI weights alone.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
-        (double Down, double Up) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
+        (double Down, double Up, double? Floor, double? Ceiling) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
         {
-            if (liveStats == null || historyKey == null) return (0, 0);
+            if (liveStats == null || historyKey == null) return (0, 0, null, null);
             var samples = liveStats.RowRateHistory(historyKey);
+            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? samples.Min(s => s.Down) : (double?)null;
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
-            if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0);
+            if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0, floor, null);
             return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), ceiling.Down, now, BaselineMinSpan),
-                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), ceiling.Up, now, BaselineMinSpan));
+                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), ceiling.Up, now, BaselineMinSpan),
+                    floor, ceiling.Down);
         }
+
+        // TEMPORARY diagnostics for the NVR mis-attribution investigation: one block every 10 s
+        // per direction pair, showing each row's inputs and what it was attributed. Remove once
+        // the split's behavior is settled.
+        var logThis = at == null && _logger.IsEnabled(LogLevel.Debug) && now - _lastSplitLog >= TimeSpan.FromSeconds(10);
+        if (logThis) _lastSplitLog = now;
+        var diag = logThis ? new List<string>() : null;
 
         for (var i = 0; i < measured.Count; i++)
         {
@@ -202,9 +214,17 @@ public class BandwidthHogsService
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(Math.Max(0, m.Down - baseline.Down), bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(Math.Max(0, m.Up - baseline.Up), bytes.Up, m.CapUp));
+            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1} effDn={Math.Max(0, m.Down - baseline.Down) / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
+        if (diag != null)
+        {
+            for (var j = 0; j < included.Count; j++)
+                diag[j] += $" -> wanDn={splitDown.WanBps[j] / 1e6:F1} wanUp={splitUp.WanBps[j] / 1e6:F1}";
+            _logger.LogDebug("Hogs split wanDn={WanDown:F1}Mbps wanUp={WanUp:F1}Mbps estDn={EstDown} estUp={EstUp}\n  {Rows}",
+                (wanDownBps ?? 0) / 1e6, (wanUpBps ?? 0) / 1e6, splitDown.Estimated, splitUp.Estimated, string.Join("\n  ", diag));
+        }
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
         for (var j = 0; j < included.Count; j++)
