@@ -1679,14 +1679,16 @@ public class ClientDashboardService
 
     /// <summary>
     /// The console's 5-minute WAN buckets summed into the buckets the window is drawn in, in time
-    /// order. A bucket's bytes are its rate times its length; the client's frame is already the
-    /// console's.
+    /// order. The console stamps a bucket with its END (a 12:28 test lands in the one labeled
+    /// 12:30), while our LAN buckets are stamped with their start, so each is filed by its start
+    /// to line the two charts up. A bucket's bytes are its rate times its length.
     /// </summary>
     public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
     {
         var ticks = bucket.Ticks;
         return rate
-            .GroupBy(b => new DateTime(b.Time.Ticks - b.Time.Ticks % ticks, DateTimeKind.Utc))
+            .Select(b => (Start: b.Time.AddSeconds(-b.IntervalSeconds), Bucket: b))
+            .GroupBy(x => new DateTime(x.Start.Ticks - x.Start.Ticks % ticks, DateTimeKind.Utc), x => x.Bucket)
             .Select(g => new UsageBucket(g.Key, g.Sum(b => b.DownloadBytes), g.Sum(b => b.UploadBytes)))
             .OrderBy(b => b.Time)
             .ToList();

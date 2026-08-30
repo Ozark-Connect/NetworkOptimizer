@@ -2298,8 +2298,11 @@
                 if (reload)
                 {
                     await LoadTabDataAsync();
+                    // Deferred to after the render, as the time filter does: the series only take
+                    // the reloaded lists on render, so an update issued here pushes the previous
+                    // reload's data and a new hour's bar on the Data tab stays missing.
                     if (!_isTooltipActive)
-                        await UpdateActiveChartsAsync();
+                        _pendingChartUpdate = true;
                 }
 
                 // Add to live signal chart data and history table
@@ -2449,7 +2452,7 @@
         var (from, to) = GetTimeRange();
         await LoadSpeedDataAsync(from, to);
         if (!_isTooltipActive)
-            await UpdateActiveChartsAsync();
+            _pendingChartUpdate = true;
     }
 
     private async Task LoadSpeedDataAsync(DateTime from, DateTime to)
