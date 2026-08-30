@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class WanShareReconcilerTests
 {
-    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null) => new(rate, dpi, cap);
+    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null, double? console = null) => new(rate, dpi, cap, console);
 
     [Fact]
     public void Rates_that_add_up_to_the_wan_are_all_wan_and_not_an_estimate()
@@ -91,5 +91,69 @@ public class WanShareReconcilerTests
     public void Empty_input_is_empty_output()
     {
         WanShareReconciler.Allocate(100, Array.Empty<WanShareReconciler.Load>()).WanBps.Should().BeEmpty();
+    }
+
+    // ---- The console's per-client WAN rate as a tie-break ----
+
+    [Fact]
+    public void The_console_rate_is_a_floor_the_dpi_weights_cannot_take_away()
+    {
+        // DPI history says 90/10, but the console sees the second client moving 80 on the WAN now.
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 80) });
+        split.Estimated.Should().BeTrue();
+        split.WanBps[1].Should().BeGreaterThanOrEqualTo(80);
+        split.WanBps.Sum().Should().BeApproximately(100, 1e-9);
+    }
+
+    [Fact]
+    public void A_client_the_console_sees_idle_on_the_wan_yields_to_one_it_sees_busy()
+    {
+        // Phone streaming from the NAS (console 0) against a client the console shows at 80:
+        // the WAN goes to the busy one, up to its soft cap, before the idle one gets any.
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 80) });
+        split.WanBps[1].Should().BeApproximately(100, 1e-9);
+        split.WanBps[0].Should().Be(0);
+    }
+
+    [Fact]
+    public void What_the_soft_caps_cannot_place_spills_under_the_hard_caps()
+    {
+        // A burst the console has not seen yet: every console rate is 0, so the soft caps hold
+        // nothing, and the WAN is still handed out by DPI weight under the measured rates.
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 0) });
+        split.WanBps[0].Should().BeApproximately(90, 1e-9);
+        split.WanBps[1].Should().BeApproximately(10, 1e-9);
+    }
+
+    [Fact]
+    public void The_console_floor_is_clipped_to_the_uplink_chain()
+    {
+        // The console says 400, the client's own uplink carried 50: the counter is now, the console is a minute ago.
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100, cap: 50, console: 400), L(300, dpi: 100) });
+        split.WanBps[0].Should().Be(50);
+        split.WanBps.Sum().Should().BeApproximately(100, 1e-9);
+    }
+
+    [Fact]
+    public void Floors_that_claim_more_than_the_wan_are_scaled_down_together()
+    {
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100, console: 80), L(300, dpi: 100, console: 80) });
+        split.WanBps.Should().Equal(50, 50);
+    }
+
+    [Fact]
+    public void Without_a_console_rate_the_split_is_unchanged()
+    {
+        var with = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 300), L(100, dpi: 100) });
+        with.WanBps[0].Should().BeApproximately(75, 1e-9);
+        with.WanBps[1].Should().BeApproximately(25, 1e-9);
+    }
+
+    [Fact]
+    public void When_the_rates_add_up_the_console_rate_is_not_consulted()
+    {
+        var split = WanShareReconciler.Allocate(100, new[] { L(60, console: 0), L(45, console: 0) });
+        split.Estimated.Should().BeFalse();
+        split.WanBps.Should().Equal(60, 45);
     }
 }

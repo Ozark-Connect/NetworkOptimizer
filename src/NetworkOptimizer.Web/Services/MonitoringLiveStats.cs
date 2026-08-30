@@ -184,6 +184,7 @@ public class MonitoringLiveStats
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
     private readonly ConcurrentDictionary<string, WiredClientLiveSnapshot> _wiredClients = new();
+    private readonly ConcurrentDictionary<string, ConsoleWanRate> _consoleWanRates = new();
     // Per-port rate cache. Keyed by (deviceMac, ifName) so the SNMP fast tier
     // (clean 5s cadence) is the writer - the UniFi PortTable byte counters lag
     // ~30s server-side, so polling them every 5s yields a burst-then-zeros
@@ -691,6 +692,26 @@ public class MonitoringLiveStats
         return _wiredClients.TryGetValue(Normalize(clientMac), out var v) ? v : null;
     }
 
+    // ---- Console WAN rates (the gateway's per-client view) ----
+
+    /// <summary>
+    /// Records the console's per-client rate. Kept apart from the client snapshots because it is a
+    /// different measurement: the gateway's, so WAN only, for wired and Wi-Fi clients alike, and
+    /// tens of seconds behind. Recorded for every client, including those an AP Agent serves.
+    /// </summary>
+    public void RecordConsoleWanRate(string clientMac, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return;
+        _consoleWanRates[Normalize(clientMac)] = new ConsoleWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+    }
+
+    /// <summary>The console's WAN rate for a client, or null when it has none newer than <paramref name="maxAge"/>.</summary>
+    public ConsoleWanRate? GetConsoleWanRate(string clientMac, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -721,6 +742,11 @@ public class MonitoringLiveStats
         {
             if (kvp.Value.LastUpdate < cutoff)
                 _wifiClients.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _consoleWanRates)
+        {
+            if (kvp.Value.At < cutoff)
+                _consoleWanRates.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in _portRates)
         {
@@ -878,6 +904,13 @@ public record DeviceLiveStats
             || (LastLatencyUpdate.HasValue && (now - LastLatencyUpdate.Value) <= maxAge);
     }
 }
+
+/// <summary>
+/// The console's per-client rate in the client's frame: <see cref="DownBps"/> is what it received.
+/// The gateway's measurement, so WAN traffic only, and behind the moment by the console's own
+/// reporting delay.
+/// </summary>
+public readonly record struct ConsoleWanRate(double DownBps, double UpBps, DateTime At);
 
 /// <summary>
 /// Throughput snapshot for a wired client, derived from UniFi client stats.

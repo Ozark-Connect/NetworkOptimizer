@@ -24,10 +24,17 @@ public class BandwidthHogsService
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteContextService _site;
     private readonly UniFiConnectionService _connection;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
     private readonly ILogger<BandwidthHogsService> _logger;
 
     /// <summary>How far back the DPI report is read to weight a live WAN split.</summary>
     private static readonly TimeSpan DpiRecentWindow = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// A console per-client rate older than this says nothing about now. Three of the console
+    /// tier's polls, so one missed poll does not drop the tie-break.
+    /// </summary>
+    private static readonly TimeSpan ConsoleRateFreshness = TimeSpan.FromSeconds(90);
 
     /// <summary>
     /// A client the console has known for this long, that moved under <see cref="ExclusionFloorBytes"/>
@@ -57,6 +64,7 @@ public class BandwidthHogsService
         SiteDbContextFactory siteDb,
         SiteContextService site,
         UniFiConnectionService connection,
+        MonitoringLiveStatsRegistry liveStats,
         ILogger<BandwidthHogsService> logger)
     {
         _map = map;
@@ -65,6 +73,7 @@ public class BandwidthHogsService
         _siteDb = siteDb;
         _site = site;
         _connection = connection;
+        _liveStats = liveStats;
         _logger = logger;
     }
 
@@ -137,30 +146,42 @@ public class BandwidthHogsService
         var included = new List<int>(measured.Count);
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
+        // The console's own per-client WAN rates steer the live split; at the playhead there are
+        // none, and the split runs on DPI weights alone.
+        var consoleRates = at == null ? _liveStats.GetFor(_site.Slug) : null;
+        (double Down, double Up)? ConsoleRate(string mac) =>
+            consoleRates?.GetConsoleWanRate(mac, ConsoleRateFreshness) is { } r ? (r.DownBps, r.UpBps) : null;
+
         for (var i = 0; i < measured.Count; i++)
         {
             var m = measured[i];
             (double Down, double Up) bytes = default;
+            (double Down, double Up)? console = null;
             bool excluded;
             if (m.Node.Kind == LanNodeKind.VirtualHub)
             {
                 // The port's WAN share is weighted by everything the console saw behind it, and
-                // the port is a WAN user if any interface on it is.
+                // the port is a WAN user if any interface on it is. Its console rate is the sum of
+                // its interfaces', which is what puts a busy server on a shared port on the list.
                 membersByHub.TryGetValue(m.Node.Id, out var members);
                 members ??= new List<LanNode>();
                 foreach (var member in members)
+                {
                     if (dpi.TryGetValue(member.Mac!, out var b)) bytes = (bytes.Down + b.Down, bytes.Up + b.Up);
+                    if (ConsoleRate(member.Mac!) is { } c) console = ((console?.Down ?? 0) + c.Down, (console?.Up ?? 0) + c.Up);
+                }
                 excluded = members.Count > 0 && members.All(member => NotAWanUser(member.Mac!));
             }
             else
             {
                 dpi.TryGetValue(m.Node.Mac!, out bytes);
+                console = ConsoleRate(m.Node.Mac!);
                 excluded = NotAWanUser(m.Node.Mac!);
             }
             if (excluded) continue;
             included.Add(i);
-            loadsDown.Add(new WanShareReconciler.Load(m.Down, bytes.Down, m.CapDown));
-            loadsUp.Add(new WanShareReconciler.Load(m.Up, bytes.Up, m.CapUp));
+            loadsDown.Add(new WanShareReconciler.Load(m.Down, bytes.Down, m.CapDown, console?.Down));
+            loadsUp.Add(new WanShareReconciler.Load(m.Up, bytes.Up, m.CapUp, console?.Up));
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);

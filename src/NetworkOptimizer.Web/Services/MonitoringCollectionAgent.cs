@@ -1345,6 +1345,10 @@ public class MonitoringCollectionAgent : BackgroundService
             var apMac = NormalizeMac(c.ApMac ?? string.Empty);
             var clientMac = NormalizeMac(c.Mac);
 
+            // The -r rates are the gateway's (WAN only); the cumulative counters below are the
+            // access point's (LAN + WAN), so only the rates feed the WAN split's tie-break.
+            _liveStats.RecordConsoleWanRate(clientMac, c.TxBytesRate * 8.0, c.RxBytesRate * 8.0, now);
+
             // Throughput: prefer UniFi's rolling per-second fields when populated, else
             // compute from the cumulative byte counters' delta vs previous snapshot.
             double? txThroughputBps = null;
@@ -1462,6 +1466,7 @@ public class MonitoringCollectionAgent : BackgroundService
             if (!c.IsWired) continue;
             if (string.IsNullOrEmpty(c.Mac)) continue;
             var clientMac = NormalizeMac(c.Mac);
+            _liveStats.RecordConsoleWanRate(clientMac, c.WiredTxBytesRate * 8.0, c.WiredRxBytesRate * 8.0, now);
 
             double? txBps = null, rxBps = null;
             // Wired clients use wired-tx_bytes-r / wired-rx_bytes-r (not tx_bytes-r)
