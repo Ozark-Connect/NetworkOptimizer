@@ -72,6 +72,16 @@
       "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.\n\n**Double-click** any client on the map to open it in Client Performance, or a switch or gateway to jump to its **Port Statistics**.",
       "placement": "top",
       "optional": true
+    },
+    {
+      "id": "bandwidth-hogs",
+      "level": "major",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"bandwidth-hogs\"]",
+      "title": "Bandwidth Hogs",
+      "listLabel": "See who is using the WAN right now, and who used the most this week",
+      "body": "Who is using the WAN right now, and who used the most of it over the last day, week, or month. Every client holding a real share of the traffic, biggest first, each linking to its Client Performance page.\n\n**WAN** is a client's part of what the WAN is carrying, with the WAN's saturation above the list; **LAN + WAN** is everything through its radio or switch port. **Throughput** is live and follows the maps' playhead; **Data** ranks the last hour to 30 days.",
+      "placement": "top"
     }
   ]
 }
