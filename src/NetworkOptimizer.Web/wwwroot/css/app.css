@@ -21493,6 +21493,10 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-secondary);
 }
 
+.bandwidth-hogs-table tr.hogs-fading td {
+    opacity: 0.55;
+}
+
 .bandwidth-hogs-table .hogs-sub {
     display: block;
     color: var(--text-muted);

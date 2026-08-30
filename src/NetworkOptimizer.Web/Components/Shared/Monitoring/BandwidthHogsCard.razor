@@ -16,7 +16,7 @@
                 <span class="lan-flow-map-mode is-historic" style="cursor: pointer;" data-tooltip="Click to return to live" data-tooltip-hover-only
                       @onclick="ReturnToLiveAsync">Historic</span>
             }
-            else
+            else if (_mode == Mode.Throughput)
             {
                 <span class="lan-flow-map-mode">Live</span>
             }
@@ -45,14 +45,15 @@
         @if (_mode == Mode.Throughput && _view == View.Wan && _result != null)
         {
             <div class="bandwidth-hogs-wan-line">
-                @if (_result.WanDownBps == null && _result.WanUpBps == null)
+                @{ var (liveDown, liveUp) = CurrentWanRate(); }
+                @if (liveDown == null && liveUp == null)
                 {
                     <span class="hogs-wan-detail">WAN rate unavailable</span>
                 }
                 else
                 {
-                    var down = _result.WanDownBps ?? 0;
-                    var up = _result.WanUpBps ?? 0;
+                    var down = liveDown ?? 0;
+                    var up = liveUp ?? 0;
                     var capacity = (_result.WanCapacityDownBps ?? 0) + (_result.WanCapacityUpBps ?? 0);
                     if (capacity > 0)
                     {
@@ -87,7 +88,7 @@
         else
         {
             var rank = 0;
-            var top = RowValue(rows[0]);
+            var top = RowValue(rows[0].Row);
             var denominator = ShareDenominator();
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
@@ -102,13 +103,13 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var row in rows)
+                        @foreach (var (row, fading) in rows)
                         {
                             rank++;
                             var value = RowValue(row);
                             var share = denominator > 0 ? 100 * value / denominator : 0;
                             var width = top > 0 ? 100 * value / top : 0;
-                            <tr>
+                            <tr class="@(fading ? "hogs-fading" : null)">
                                 <td class="hogs-rank hide-mobile">@rank</td>
                                 <td class="hogs-client">
                                     @if (!string.IsNullOrEmpty(row.Ip))
@@ -182,6 +183,19 @@
 
     /// <summary>A client under this share of the total is not a hog and is left off the list.</summary>
     private const double MinSharePercent = 1;
+
+    /// <summary>The largest few are always worth seeing, share or no share.</summary>
+    private const int MinRows = 5;
+
+    /// <summary>
+    /// How long a live client stays listed after it last held the share. Rates move every few
+    /// seconds, and a list that drops a client the instant it dips is one that flickers.
+    /// </summary>
+    private static readonly TimeSpan HogDecay = TimeSpan.FromSeconds(60);
+
+    /// <summary>When each (view, client) last held the share, stamped as answers land - never
+    /// during a render, so a paused list does not keep extending them.</summary>
+    private readonly Dictionary<string, DateTime> _lastQualified = new(StringComparer.OrdinalIgnoreCase);
 
     private static string? PortGroupTooltip(HogRow row) =>
         row.IsPortGroup ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces" : null;
@@ -286,6 +300,7 @@
         _result = null;
         try { await JS.InvokeVoidAsync("localStorage.setItem", WindowStorageKey, hours.ToString()); }
         catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not save the time filter"); }
+        ArmTimer();
         await RefreshAsync();
     }
 
@@ -305,7 +320,10 @@
     private void ArmTimer()
     {
         _timer?.Dispose();
-        var period = _mode == Mode.Throughput ? TimeSpan.FromSeconds(5) : TimeSpan.FromMinutes(1);
+        // Data follows the Data tab's cadence: a day or less every minute, the long windows every
+        // five (those are the site-wide scans). The WAN half is cached five minutes either way.
+        var period = _mode == Mode.Throughput ? TimeSpan.FromSeconds(3)
+            : _hours <= 24 ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
         _timer = new System.Threading.Timer(_ =>
         {
             try
@@ -336,6 +354,7 @@
                     includeLan: _view == View.LanPlusWan);
             _result = result;
             _error = false;
+            StampQualified(at);
         }
         catch (Exception ex)
         {
@@ -351,7 +370,9 @@
         if (HistoricAt != _loadedAt) _ = RefreshAsync();
     }
 
-    private double RowValue(HogRow row) => (_mode, _view) switch
+    private double RowValue(HogRow row) => RowValue(row, _view);
+
+    private double RowValue(HogRow row, View view) => (_mode, view) switch
     {
         (Mode.Throughput, View.Wan) => row.WanDownBps + row.WanUpBps,
         (Mode.Throughput, _) => row.DownBps + row.UpBps,
@@ -363,32 +384,76 @@
     /// The rows this view can show. In the Data WAN view the DPI report already names every
     /// interface behind a shared port, so the port's own row would count them twice and is left out.
     /// </summary>
-    private IEnumerable<HogRow> VisibleRows()
+    private IEnumerable<HogRow> VisibleRows(View view)
     {
         if (_result == null) return Enumerable.Empty<HogRow>();
-        return _mode == Mode.Data && _view == View.Wan
+        return _mode == Mode.Data && view == View.Wan
             ? _result.Rows.Where(r => !r.IsPortGroup)
             : _result.Rows;
     }
 
-    /// <summary>Everyone holding at least <see cref="MinSharePercent"/> of the share denominator, largest first.</summary>
-    private List<HogRow> TopRows()
+    private bool Qualifies(HogRow row, View view, double denominator) =>
+        denominator > 0 && 100 * RowValue(row, view) / denominator >= MinSharePercent;
+
+    /// <summary>
+    /// The largest <see cref="MinRows"/> whatever their share, then everyone holding at least
+    /// <see cref="MinSharePercent"/> of the share denominator, largest first. Live throughput also
+    /// keeps, dimmed, anyone who held it within <see cref="HogDecay"/>.
+    /// </summary>
+    private List<(HogRow Row, bool Fading)> TopRows()
     {
         var denominator = ShareDenominator();
-        if (denominator <= 0) return new List<HogRow>();
-        return VisibleRows()
-            .Where(r => 100 * RowValue(r) / denominator >= MinSharePercent)
+        var live = _mode == Mode.Throughput && HistoricAt == null;
+        var now = DateTime.UtcNow;
+        return VisibleRows(_view)
+            .Where(r => RowValue(r) > 0 || live)
             .OrderByDescending(RowValue)
+            .Select((r, index) => (Row: r, Index: index, Qualifies: Qualifies(r, _view, denominator)))
+            .Where(x => x.Index < MinRows && RowValue(x.Row) > 0
+                || x.Qualifies
+                || (live && _lastQualified.TryGetValue(QualifiedKey(_view, x.Row), out var t) && now - t <= HogDecay))
+            .Select(x => (x.Row, Fading: !x.Qualifies && x.Index >= MinRows))
             .ToList();
     }
 
-    /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
-    private double ShareDenominator()
+    /// <summary>Records, for both views, who holds the share in a freshly landed live answer.</summary>
+    private void StampQualified(DateTime? at)
     {
-        if (_mode == Mode.Throughput && _view == View.Wan && _result != null)
-            return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
-        return VisibleRows().Sum(RowValue);
+        if (_mode != Mode.Throughput || at != null) return;
+        var now = DateTime.UtcNow;
+        foreach (var view in new[] { View.Wan, View.LanPlusWan })
+        {
+            var denominator = ShareDenominator(view);
+            foreach (var row in VisibleRows(view))
+                if (Qualifies(row, view, denominator)) _lastQualified[QualifiedKey(view, row)] = now;
+        }
+        foreach (var stale in _lastQualified.Where(kv => now - kv.Value > HogDecay).Select(kv => kv.Key).ToList())
+            _lastQualified.Remove(stale);
     }
+
+    private static string QualifiedKey(View view, HogRow row) => $"{view}|{row.ClientMac}";
+
+    private double ShareDenominator() => ShareDenominator(_view);
+
+    /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
+    private double ShareDenominator(View view)
+    {
+        if (_mode == Mode.Throughput && view == View.Wan && _result != null)
+        {
+            var (down, up) = CurrentWanRate();
+            return (down ?? 0) + (up ?? 0);
+        }
+        return VisibleRows(view).Sum(r => RowValue(r, view));
+    }
+
+    /// <summary>
+    /// The WAN rate as the tiles beside the card carry it right now, so the WAN line and the shares
+    /// move with them rather than with the card's own refresh. At the playhead, the answer's own.
+    /// </summary>
+    private (double? Down, double? Up) CurrentWanRate() =>
+        HistoricAt == null && _result?.At == null
+            ? (WanDownBps, WanUpBps)
+            : (_result?.WanDownBps, _result?.WanUpBps);
 
     private string FormatDown(HogRow row) => (_mode, _view) switch
     {
