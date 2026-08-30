@@ -685,9 +685,11 @@ public class LanFlowMapService
                 // The window runs 5 min ahead of `at`, which for a recent instant reaches past the
                 // settle line: that stretch was fetched before its points were written, and serving
                 // it later showed a roam's first half and never its second. Keep only what had
-                // settled at fetch time; anything beyond misses the cache and reads fresh.
-                var settled = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds);
-                _cache.HistoricData = cached.To > settled ? cached with { To = settled } : cached;
+                // settled at fetch time; anything beyond misses the cache and reads fresh. The 30 s
+                // is the reuse test's own margin, so the miss lands on the settle line itself and
+                // playback just behind the live edge is not refetching every tick.
+                var usableTo = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds - 30);
+                _cache.HistoricData = cached.To > usableTo ? cached with { To = usableTo } : cached;
             }
         }
 
