@@ -4310,9 +4310,42 @@
         border-radius: 0 3px 3px 0;
         background: var(--speed-download-color);
     }
+    /* On a phone the two totals cards stay side by side, scaled down: Download over Upload in
+       each, smaller figures, the meta lines stacked. */
     @@media (max-width: 768px) {
         .usage-grid {
-            grid-template-columns: 1fr;
+            gap: 0.5rem;
+        }
+        .usage-card {
+            padding: 0.75rem;
+        }
+        .usage-card h3 {
+            font-size: 0.875rem;
+            margin-bottom: 6px;
+        }
+        .usage-card .speed-hero-results {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+        .usage-card .speed-metric {
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .usage-card .speed-label {
+            font-size: 0.625rem;
+        }
+        .usage-card .speed-value {
+            font-size: 1.125rem;
+        }
+        .usage-card .speed-hero-meta {
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 4px;
+            font-size: 0.6875rem;
+            text-align: left;
         }
     }
     .chart-card h3,
