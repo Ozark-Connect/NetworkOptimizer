@@ -714,10 +714,13 @@ public class BandwidthHogsService
 
         var hourStart = new DateTime(to.Year, to.Month, to.Day, to.Hour, 0, 0, DateTimeKind.Utc);
         var rolled = await _influx.QueryAllWifiClientUsageRollupAsync(from, hourStart, ct);
-        if (rolled.Totals.Count == 0)
+        // Partial coverage is worse than none: a rebuild rolls newest first, and totals over its
+        // uncovered early hours read silently low, not empty. Not reaching the window's start is
+        // treated exactly like having no rollup.
+        if (rolled.Totals.Count == 0 || rolled.FirstHour is not { } firstWifi || firstWifi > from.AddHours(1))
             return span <= CounterFallbackMax
                 ? await _influx.QueryAllWifiClientByteUsageAsync(from, to, ct)
-                : Array.Empty<MonitoringInfluxClient.ClientByteTotal>();
+                : rolled.Totals;
 
         var topUpFrom = rolled.LastHour is { } last ? last.AddHours(1) : hourStart;
         if (topUpFrom < hourStart - RollupTopUpMax) topUpFrom = hourStart - RollupTopUpMax;
@@ -738,11 +741,13 @@ public class BandwidthHogsService
         {
             var hourStart = new DateTime(to.Year, to.Month, to.Day, to.Hour, 0, 0, DateTimeKind.Utc);
             var rolled = await _influx.QueryAllPortUsageRollupAsync(from, hourStart, ct);
-            if (rolled.Totals.Count == 0)
+            // Same partial-coverage rule as the wireless side: a rollup that does not reach the
+            // window's start is no rollup.
+            if (rolled.Totals.Count == 0 || rolled.FirstHour is not { } firstPort || firstPort > from.AddHours(1))
             {
                 totals = span <= CounterFallbackMax
                     ? await _influx.QueryAllPortByteUsageAsync(from, to, ct)
-                    : Array.Empty<MonitoringInfluxClient.PortByteTotal>();
+                    : rolled.Totals;
             }
             else
             {

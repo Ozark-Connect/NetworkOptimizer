@@ -3436,8 +3436,12 @@ union(tables: [means, chan])
     /// <summary>One switch interface's bytes over a window: bytes_out toward the client, bytes_in from it.</summary>
     public sealed record PortByteTotal(string DeviceMac, string IfName, long ToClientBytes, long FromClientBytes);
 
-    /// <summary>Rolled-up totals and the newest hour the rollup had written, so a caller knows where to top up from.</summary>
-    public sealed record UsageRollup<T>(IReadOnlyList<T> Totals, DateTime? LastHour);
+    /// <summary>
+    /// Rolled-up totals with the newest hour the rollup had written (where to top up from) and the
+    /// oldest (whether the window's start is covered at all - a rebuild in progress rolls newest
+    /// first, and totals over its uncovered early hours are silently low, not empty).
+    /// </summary>
+    public sealed record UsageRollup<T>(IReadOnlyList<T> Totals, DateTime? LastHour, DateTime? FirstHour);
 
     /// <summary>A client seen on a switch port over a window, and how many points said so.</summary>
     public sealed record WiredPortOccupant(string DeviceMac, int Port, string ClientMac, int Samples, string? ClientIp, string? ClientName);
@@ -3471,7 +3475,7 @@ union(tables: [means, chan])
         DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
-            return new UsageRollup<ClientByteTotal>(Array.Empty<ClientByteTotal>(), null);
+            return new UsageRollup<ClientByteTotal>(Array.Empty<ClientByteTotal>(), null, null);
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
@@ -3482,8 +3486,8 @@ union(tables: [means, chan])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
   |> group()";
         var totals = await ReadClientTotalsAsync(flux, ct);
-        var last = totals.Count == 0 ? null : await LatestRollupHourAsync("wifi_client", "tx_bytes_1h", from, to, ct);
-        return new UsageRollup<ClientByteTotal>(totals, last);
+        var (first, last) = totals.Count == 0 ? (null, null) : await RollupHourSpanAsync("wifi_client", "tx_bytes_1h", from, to, ct);
+        return new UsageRollup<ClientByteTotal>(totals, last, first);
     }
 
     /// <summary>Every switch interface's bytes over a window from the live counters, one row per
@@ -3516,7 +3520,7 @@ union(tables: [means, chan])
         DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
-            return new UsageRollup<PortByteTotal>(Array.Empty<PortByteTotal>(), null);
+            return new UsageRollup<PortByteTotal>(Array.Empty<PortByteTotal>(), null, null);
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
@@ -3527,8 +3531,8 @@ union(tables: [means, chan])
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in_1h, out: accumulator.out + r.bytes_out_1h}}), identity: {{in_: 0, out: 0}})
   |> group()";
         var totals = await ReadPortTotalsAsync(flux, "out", "in_", ct);
-        var last = totals.Count == 0 ? null : await LatestRollupHourAsync("interface_counters", "bytes_out_1h", from, to, ct);
-        return new UsageRollup<PortByteTotal>(totals, last);
+        var (first, last) = totals.Count == 0 ? (null, null) : await RollupHourSpanAsync("interface_counters", "bytes_out_1h", from, to, ct);
+        return new UsageRollup<PortByteTotal>(totals, last, first);
     }
 
     /// <summary>
@@ -3604,20 +3608,31 @@ union(tables: [means, chan])
     /// <summary>The newest hour a rollup field carries in the window, or null when it carries none.</summary>
     private async Task<DateTime?> LatestRollupHourAsync(string measurement, string field, DateTime from, DateTime to, CancellationToken ct)
     {
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var (_, last) = await RollupHourSpanAsync(measurement, field, from, to, ct);
+        return last;
+    }
+
+    /// <summary>The oldest and newest hours a rollup field carries in the window; nulls when none.</summary>
+    private async Task<(DateTime? First, DateTime? Last)> RollupHourSpanAsync(string measurement, string field, DateTime from, DateTime to, CancellationToken ct)
+    {
+        var flux = $@"span = from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""rollup_v"" and r._value >= {RollupVersion})
   |> keep(columns: [""_time"", ""_value""])
   |> group()
   |> sort(columns: [""_time""])
-  |> last()";
-        DateTime? last = null;
+span |> first() |> yield(name: ""first"")
+span |> last() |> yield(name: ""last"")";
+        DateTime? first = null, last = null;
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             var t = record.GetTimeInDateTime();
-            if (t != null) last = ToUtc(t.Value);
+            if (t == null) continue;
+            var utc = ToUtc(t.Value);
+            if (record.GetValueByKey("result") as string == "first") first = utc;
+            else last = utc;
         }
-        return last;
+        return (first, last);
     }
 
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryClientThroughputAsync(
