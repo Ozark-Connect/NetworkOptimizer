@@ -110,7 +110,7 @@ function buildOpts() {
         responsive: [{
             breakpoint: 1024,
             options: {
-                grid: { padding: { left: 0, right: -5, top: -8, bottom: 12 } },
+                grid: { padding: { left: -8, right: -5, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
