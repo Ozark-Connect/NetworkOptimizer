@@ -750,6 +750,7 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.LanFlowMap.
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.BandwidthHogsService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();

@@ -3329,6 +3329,191 @@ union(tables: [means, chan])
         return await ReadByteUsageAsync(flux, ct);
     }
 
+    // ---- Site-wide usage reads (Bandwidth Hogs) ----
+    // The per-client queries above scan the whole measurement anyway (client_mac is a field, so
+    // nothing prunes by client), so answering for every client at once costs the same scan.
+
+    /// <summary>One client's bytes over a window, stated toward and away from the client.</summary>
+    public sealed record ClientByteTotal(string ClientMac, long ToClientBytes, long FromClientBytes);
+
+    /// <summary>One switch interface's bytes over a window: bytes_out toward the client, bytes_in from it.</summary>
+    public sealed record PortByteTotal(string DeviceMac, string IfName, long ToClientBytes, long FromClientBytes);
+
+    /// <summary>Rolled-up totals and the newest hour the rollup had written, so a caller knows where to top up from.</summary>
+    public sealed record UsageRollup<T>(IReadOnlyList<T> Totals, DateTime? LastHour);
+
+    /// <summary>A client seen on a switch port over a window, and how many points said so.</summary>
+    public sealed record WiredPortOccupant(string DeviceMac, int Port, string ClientMac, int Samples, string? ClientIp, string? ClientName);
+
+    /// <summary>Every wireless client's bytes over a window from the live counters, merged across
+    /// access points the way <see cref="QueryWifiClientByteUsageAsync"/> does for one client.</summary>
+    public async Task<IReadOnlyList<ClientByteTotal>> QueryAllWifiClientByteUsageAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientByteTotal>();
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes and exists r.rx_bytes)
+  |> group(columns: [""client_mac""])
+  |> sort(columns: [""_time""])
+  |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
+  |> fill(column: ""tx_bytes"", value: 0)
+  |> fill(column: ""rx_bytes"", value: 0)
+  |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
+  |> group()";
+        return await ReadClientTotalsAsync(flux, ct);
+    }
+
+    /// <summary>Every wireless client's rolled-up bytes from the longterm bucket.</summary>
+    public async Task<UsageRollup<ClientByteTotal>> QueryAllWifiClientUsageRollupAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return new UsageRollup<ClientByteTotal>(Array.Empty<ClientByteTotal>(), null);
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes_1h and exists r.rx_bytes_1h)
+  |> group(columns: [""client_mac""])
+  |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
+  |> group()";
+        var totals = await ReadClientTotalsAsync(flux, ct);
+        var last = totals.Count == 0 ? null : await LatestRollupHourAsync("wifi_client", "tx_bytes_1h", from, to, ct);
+        return new UsageRollup<ClientByteTotal>(totals, last);
+    }
+
+    /// <summary>Every switch interface's bytes over a window from the live counters, one row per
+    /// interface. Sub-interfaces come back too; a caller deciding what a port carried drops them.</summary>
+    public async Task<IReadOnlyList<PortByteTotal>> QueryAllPortByteUsageAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<PortByteTotal>();
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
+  |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
+  |> sort(columns: [""_time""])
+  |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
+  |> elapsed(unit: 1s)
+  |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
+  |> fill(column: ""bytes_in"", value: 0)
+  |> fill(column: ""bytes_out"", value: 0)
+  |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})
+  |> group()";
+        return await ReadPortTotalsAsync(flux, "out", "in_", ct);
+    }
+
+    /// <summary>Every switch interface's rolled-up bytes from the longterm bucket.</summary>
+    public async Task<UsageRollup<PortByteTotal>> QueryAllPortUsageRollupAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return new UsageRollup<PortByteTotal>(Array.Empty<PortByteTotal>(), null);
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.bytes_in_1h and exists r.bytes_out_1h)
+  |> group(columns: [""device_mac"", ""if_name""])
+  |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in_1h, out: accumulator.out + r.bytes_out_1h}}), identity: {{in_: 0, out: 0}})
+  |> group()";
+        var totals = await ReadPortTotalsAsync(flux, "out", "in_", ct);
+        var last = totals.Count == 0 ? null : await LatestRollupHourAsync("interface_counters", "bytes_out_1h", from, to, ct);
+        return new UsageRollup<PortByteTotal>(totals, last);
+    }
+
+    /// <summary>
+    /// Who sat on which switch port over a window, from port-tagged <c>wired_client</c> points, with
+    /// a sample count per client so a caller can tell the port's regular from a passer-by. Ports
+    /// that saw several clients are all returned; deciding what that means is the caller's.
+    /// </summary>
+    public async Task<IReadOnlyList<WiredPortOccupant>> QueryWiredPortOccupantsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WiredPortOccupant>();
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wired_client"")
+  |> filter(fn: (r) => exists r.port)
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac)";
+        var counts = new Dictionary<(string Device, int Port, string Client), (int Samples, string? Ip, string? Name)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var client = NormalizeMac(record.GetValueByKey("client_mac") as string ?? "");
+            if (device.Length == 0 || client.Length == 0) continue;
+            if (!int.TryParse(record.GetValueByKey("port") as string, out var port) || port <= 0) continue;
+            var key = (device, port, client);
+            counts.TryGetValue(key, out var seen);
+            counts[key] = (seen.Samples + 1,
+                record.GetValueByKey("client_ip") as string ?? seen.Ip,
+                record.GetValueByKey("client_name") as string ?? seen.Name);
+        }
+        return counts.Select(kv => new WiredPortOccupant(kv.Key.Device, kv.Key.Port, kv.Key.Client, kv.Value.Samples, kv.Value.Ip, kv.Value.Name)).ToList();
+    }
+
+    private async Task<IReadOnlyList<ClientByteTotal>> ReadClientTotalsAsync(string flux, CancellationToken ct)
+    {
+        var results = new List<ClientByteTotal>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = NormalizeMac(record.GetValueByKey("client_mac") as string ?? "");
+            if (mac.Length == 0) continue;
+            results.Add(new ClientByteTotal(mac,
+                (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0),
+                (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0)));
+        }
+        return results;
+    }
+
+    /// <summary>Sums the reduce rows per interface: the live query keeps port_id and direction in its
+    /// group key, so one interface can arrive as several rows.</summary>
+    private async Task<IReadOnlyList<PortByteTotal>> ReadPortTotalsAsync(string flux, string toColumn, string fromColumn, CancellationToken ct)
+    {
+        var totals = new Dictionary<(string, string), (long To, long From)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var ifName = record.GetValueByKey("if_name") as string ?? "";
+            if (device.Length == 0 || ifName.Length == 0) continue;
+            var key = (device, ifName);
+            totals.TryGetValue(key, out var sum);
+            totals[key] = (sum.To + (long)(AsDoubleOrNull(record.GetValueByKey(toColumn)) ?? 0),
+                sum.From + (long)(AsDoubleOrNull(record.GetValueByKey(fromColumn)) ?? 0));
+        }
+        return totals.Select(kv => new PortByteTotal(kv.Key.Item1, kv.Key.Item2, kv.Value.To, kv.Value.From)).ToList();
+    }
+
+    /// <summary>The newest hour a rollup field carries in the window, or null when it carries none.</summary>
+    private async Task<DateTime?> LatestRollupHourAsync(string measurement, string field, DateTime from, DateTime to, CancellationToken ct)
+    {
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""{field}"")
+  |> keep(columns: [""_time"", ""_value""])
+  |> group()
+  |> sort(columns: [""_time""])
+  |> last()";
+        DateTime? last = null;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var t = record.GetTimeInDateTime();
+            if (t != null) last = ToUtc(t.Value);
+        }
+        return last;
+    }
+
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryClientThroughputAsync(
         string measurement,
         string clientMac,

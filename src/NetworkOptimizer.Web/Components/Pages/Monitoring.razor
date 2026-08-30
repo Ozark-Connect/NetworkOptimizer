@@ -447,12 +447,14 @@
         {
             @Map2dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map3dCard</div>
         }
         else
         {
             @Map3dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map2dCard</div>
         }
 
@@ -4301,6 +4303,7 @@
         // Drive each live consumer independently so one being unmounted doesn't starve
         // the other. Historic playback (at any speed) flows through OnMapTimeChanged;
         // this only gates live auto-refresh on pause/resume.
+        _mapPaused = paused;
         if (_wanLiveChartMounted)
         {
             if (paused)
@@ -4945,6 +4948,16 @@
                 <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
             </div>
         </div>
+    };
+
+    private bool _mapPaused;
+
+    private RenderFragment BandwidthHogs => __builder =>
+    {
+        var wanRates = GetWanRates();
+        <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
+                           WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
+                           WanKeys="LiveWan.SelectedKeys" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>

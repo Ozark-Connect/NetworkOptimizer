@@ -1568,27 +1568,35 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// UniFi Network's DPI report for every client on the site over a window: one console call,
+    /// shared by every reader for <see cref="TrafficCacheFor"/>. Null when the console cannot answer.
+    /// </summary>
+    public async Task<UniFiClientTrafficResponse?> GetSiteTrafficAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return null;
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses
+        // the same response until the window itself has moved on.
+        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
+        var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
+        if (_cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) && cached != null)
+            return cached;
+        var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
+        if (traffic != null && _cache != null) _cache.Set(key, traffic, TrafficCacheFor);
+        return traffic;
+    }
+
+    /// <summary>
     /// The client's WAN traffic by application over a window, from UniFi Network's DPI, named through
     /// the embedded catalog. Largest first; an application the catalog cannot name is kept as
     /// "Unidentified" rather than dropped, so the shares still add up.
     /// </summary>
     public async Task<IReadOnlyList<AppUsageRow>> GetAppUsageAsync(ClientIdentity client, DateTime from, DateTime to)
     {
-        if (string.IsNullOrEmpty(client.Mac) || !_connectionService.IsConnected || _connectionService.Client == null)
-            return Array.Empty<AppUsageRow>();
-        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<AppUsageRow>();
         try
         {
-            // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses
-            // the same response until the window itself has moved on.
-            var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
-            var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
-            var traffic = _cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) ? cached : null;
-            if (traffic == null)
-            {
-                traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to);
-                if (traffic != null && _cache != null) _cache.Set(key, traffic, TrafficCacheFor);
-            }
+            var traffic = await GetSiteTrafficAsync(from, to);
             var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
             if (mine == null) return Array.Empty<AppUsageRow>();
             return mine.UsageByApp
