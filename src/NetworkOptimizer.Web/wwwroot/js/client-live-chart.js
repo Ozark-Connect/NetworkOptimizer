@@ -28,6 +28,9 @@ let buffer = [];
 let elId = null;
 let mountGen = 0;
 let lastSampleTime = 0;
+// The newest reading as it stands, ahead of the folded points: the line's right end follows it,
+// so the chart moves with the identity row instead of a fold behind it.
+let liveEdge = null;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
@@ -156,8 +159,10 @@ function updateChart() {
     const now = Date.now();
     const pts = [...buffer];
     const last = pts[pts.length - 1];
-    // Hold the last reading out to the live edge, so the line reaches the right of the plot.
-    if (last && now - last.time > 1000) pts.push({ time: now, down: last.down, up: last.up });
+    // Carry the newest reading out to the live edge, so the line reaches the right of the plot
+    // and its end is what the device is doing now, not the last fold.
+    const edge = liveEdge && (!last || liveEdge.time > last.time) ? liveEdge : last;
+    if (edge && (!last || now - last.time > 1000)) pts.push({ time: now, down: edge.down, up: edge.up });
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
         annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
@@ -184,6 +189,7 @@ export async function mount(containerId, opts) {
     if (!el) return false;
     buffer = (opts?.points || []).map(toPoint).sort((a, b) => a.time - b.time);
     lastSampleTime = 0;
+    liveEdge = null;
     trim();
     mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
     mouseLeaveHandler = () => { lastMouse = null; };
@@ -195,6 +201,15 @@ export async function mount(containerId, opts) {
     updateChart();
     scrollTimer = setInterval(updateChart, SCROLL_MS);
     return true;
+}
+
+/** The newest reading, shown at the live edge at once; the folded point for it arrives via push. */
+export function setLive(sample) {
+    if (!chart) return;
+    const p = toPoint(sample);
+    if (liveEdge && !(p.time > liveEdge.time)) return;
+    liveEdge = p;
+    updateChart();
 }
 
 /** One live reading. Strictly newer than the last, so a repeated poll of the same sample is a no-op. */
@@ -232,4 +247,5 @@ export function dispose() {
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
     lastSampleTime = 0;
+    liveEdge = null;
 }

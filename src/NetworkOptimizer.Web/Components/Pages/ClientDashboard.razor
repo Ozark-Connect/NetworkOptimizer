@@ -2071,6 +2071,10 @@
         if (at is not { } t || t == _liveChartPushedAt) return;
         var gap = _liveChartPushedAt is { } prev ? t - prev : TimeSpan.MaxValue;
         _liveChartPushedAt = t;
+        // The reading itself goes to the live edge at once; the fold below only decides the
+        // stored-cadence point behind it.
+        try { await JS.InvokeVoidAsync("__clientLiveChart.setLive", new ThroughputSample(t, down, up)); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live throughput edge update failed"); }
         if (!_client.IsWired && gap < LiveChartWindow)
         {
             if (_liveChartAccN == 0) _liveChartAccStart = t;
