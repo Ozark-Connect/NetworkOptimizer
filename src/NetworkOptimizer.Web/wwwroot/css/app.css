@@ -21466,6 +21466,13 @@ body:has(.top-bar-hidden) .btn-fit {
     text-overflow: ellipsis;
 }
 
+.hogs-warmup {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
 .bandwidth-hogs-table .hogs-col-rank { width: 3.25rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }
