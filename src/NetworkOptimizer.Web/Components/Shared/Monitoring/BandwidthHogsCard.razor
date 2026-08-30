@@ -192,8 +192,19 @@
     /// <summary>A client under this share of the total is not a hog and is left off the list.</summary>
     private const double MinSharePercent = 1;
 
+    /// <summary>
+    /// Share alone is not enough: on a near-idle network one percent of the denominator is a few
+    /// Kbps, which qualified half the network and let it linger through the decay. A hog moves
+    /// real traffic, whatever its share.
+    /// </summary>
+    private const double MinQualifyBps = 250_000;
+
     /// <summary>The largest few are always worth seeing, share or no share: five live, ten over a window.</summary>
     private int MinRows => _mode == Mode.Data ? 10 : 5;
+
+    /// <summary>The list never grows past this, however many clear the share bar: on a near-idle
+    /// WAN one percent of the denominator is a few Kbps and half the network would qualify.</summary>
+    private const int MaxRows = 10;
 
     /// <summary>
     /// How long a live client stays listed after it last held the share. Rates move every few
@@ -434,12 +445,14 @@
     }
 
     private bool Qualifies(HogRow row, View view, double denominator) =>
-        denominator > 0 && 100 * RowValue(row, view) / denominator >= MinSharePercent;
+        denominator > 0 && RowValue(row, view) >= MinQualifyBps
+        && 100 * RowValue(row, view) / denominator >= MinSharePercent;
 
     /// <summary>
     /// The largest <see cref="MinRows"/> whatever their share, then everyone holding at least
     /// <see cref="MinSharePercent"/> of the share denominator, largest first. Live throughput also
-    /// keeps, dimmed, anyone who held it within <see cref="HogDecay"/>.
+    /// keeps, dimmed, anyone who held it within <see cref="HogDecay"/> - and nothing past
+    /// <see cref="MaxRows"/> either way.
     /// </summary>
     private List<(HogRow Row, bool Fading)> TopRows()
     {
@@ -453,6 +466,7 @@
             .Where(x => x.Index < MinRows && RowValue(x.Row) > 0
                 || x.Qualifies
                 || (live && _lastQualified.TryGetValue(QualifiedKey(_view, x.Row), out var t) && now - t <= HogDecay))
+            .Take(MaxRows)
             .Select(x => (x.Row, Fading: !x.Qualifies && x.Index >= MinRows))
             .ToList();
     }

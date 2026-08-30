@@ -168,7 +168,7 @@ public class BandwidthHogsService
         {
             if (liveStats == null || historyKey == null) return (0, 0, null, null);
             var samples = liveStats.RowRateHistory(historyKey);
-            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? samples.Min(s => s.Down) : (double?)null;
+            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? Percentile90(samples.Select(s => s.Down)) : (double?)null;
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
             if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0, floor, null);
             return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), ceiling.Down, now, BaselineMinSpan),
@@ -495,11 +495,15 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// A row's baseline local rate in one direction: the floor its measured rate held across the
-    /// history, less the most the console's WAN figure explained of it. Only a constant flow
-    /// produces one (a bursty client's floor is ~0), and anything the row moves above it is a WAN
-    /// candidate as usual. Zero until the measured history spans <paramref name="minSpan"/>: a
-    /// flow we have not watched is a WAN candidate, never quietly ruled local.
+    /// A row's baseline local rate in one direction: the level its measured rate held across the
+    /// history, less the most the console's WAN figure explained of it. The level is the 90th
+    /// percentile, not the minimum: a camera feed wobbles across a wide band (13-37 Mbps
+    /// observed), and a min-based baseline left the wobble above it as 10-22 Mbps of standing
+    /// phantom candidacy. p90 sits at the top of the band while one burst sample among many
+    /// cannot drag it up the way a max would. A bursty client's p90 is still ~its idle level, and
+    /// anything above the baseline is a WAN candidate as usual. Zero until the measured history
+    /// spans <paramref name="minSpan"/>: a flow we have not watched is a WAN candidate, never
+    /// quietly ruled local.
     /// </summary>
     public static double BaselineLocalBps(
         IReadOnlyList<(DateTime At, double Bps)> measured,
@@ -507,7 +511,15 @@ public class BandwidthHogsService
         DateTime now, TimeSpan minSpan)
     {
         if (measured.Count == 0 || !measured.Any(s => now - s.At >= minSpan)) return 0;
-        return Math.Max(0, measured.Min(s => s.Bps) - consoleCeilingBps);
+        return Math.Max(0, Percentile90(measured.Select(s => s.Bps)) - consoleCeilingBps);
+    }
+
+    /// <summary>Lower-interpolation p90: sorted[floor(0.9 * (n-1))], so small sample sets pick a
+    /// held value rather than a lone spike.</summary>
+    public static double Percentile90(IEnumerable<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToArray();
+        return sorted.Length == 0 ? 0 : sorted[(int)Math.Floor(0.9 * (sorted.Length - 1))];
     }
 
     /// <summary>

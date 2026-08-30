@@ -21466,7 +21466,7 @@ body:has(.top-bar-hidden) .btn-fit {
     text-overflow: ellipsis;
 }
 
-.bandwidth-hogs-table .hogs-col-rank { width: 2.5rem; }
+.bandwidth-hogs-table .hogs-col-rank { width: 3.25rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }
 .bandwidth-hogs-table .hogs-col-share { width: 17%; }

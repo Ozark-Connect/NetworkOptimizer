@@ -23,17 +23,54 @@ public class BandwidthHogsBaselineTests
     [Fact]
     public void A_constant_local_flow_the_console_never_saw_is_the_baseline()
     {
-        // NVR: camera feeds wobble 27-33 Mbps, console WAN figure a few Kbps.
+        // NVR: camera feeds wobble 27-33 Mbps, console WAN figure a few Kbps. The baseline is the
+        // p90 of the band, so the wobble sits under it instead of reading as growth.
         var measured = new[] { Ago(14, 30e6), Ago(10, 27e6), Ago(5, 33e6), Ago(0, 29e6) };
         var ceiling = Ceiling(Both(14, 3e3), Both(7, 5e3), Both(0, 2e3));
-        BandwidthHogsService.BaselineLocalBps(measured, ceiling, Now, MinSpan).Should().BeApproximately(27e6 - 5e3, 1);
+        BandwidthHogsService.BaselineLocalBps(measured, ceiling, Now, MinSpan).Should().BeApproximately(30e6 - 5e3, 1);
     }
 
     [Fact]
-    public void A_bursty_client_has_no_baseline()
+    public void The_wobble_band_sits_under_the_baseline()
     {
-        var measured = new[] { Ago(14, 0), Ago(10, 900e6), Ago(5, 0), Ago(0, 200e6) };
+        // The observed leak: a 13-37 Mbps feed against a min-based floor left 10-22 Mbps of
+        // standing candidacy. Against p90, an in-band reading leaves nothing.
+        var measured = new[] { Ago(14, 13e6), Ago(12, 30e6), Ago(10, 35e6), Ago(8, 24e6), Ago(6, 37e6), Ago(4, 28e6), Ago(2, 33e6), Ago(0, 26e6) };
+        var baseline = BandwidthHogsService.BaselineLocalBps(measured, 0, Now, MinSpan);
+        (30e6 - baseline).Should().BeLessThan(0, "an in-band rate must not exceed the baseline");
+    }
+
+    [Fact]
+    public void One_burst_sample_does_not_drag_the_baseline_up()
+    {
+        // Nine idle-band samples and one burst: p90 (lower interpolation) stays in the band, so
+        // the burst is judged against the band, not against itself.
+        var measured = new[] { Ago(14, 30e6), Ago(12, 29e6), Ago(11, 31e6), Ago(9, 30e6), Ago(8, 28e6), Ago(6, 30e6), Ago(5, 29e6), Ago(3, 31e6), Ago(2, 30e6), Ago(0, 230e6) };
+        BandwidthHogsService.BaselineLocalBps(measured, 0, Now, MinSpan).Should().BeLessThan(32e6);
+    }
+
+    [Fact]
+    public void An_occasional_burst_leaves_no_baseline()
+    {
+        // Mostly idle with one burst in the window: p90 sits at the idle level, so the burst
+        // reads as growth.
+        var measured = new[]
+        {
+            Ago(14, 0), Ago(13, 0), Ago(11, 0), Ago(10, 0), Ago(8, 0),
+            Ago(7, 0), Ago(5, 0), Ago(4, 0), Ago(2, 0), Ago(0, 200e6),
+        };
         BandwidthHogsService.BaselineLocalBps(measured, 0, Now, MinSpan).Should().Be(0);
+    }
+
+    [Fact]
+    public void Frequent_bursts_the_console_never_saw_read_as_local()
+    {
+        // A device hitting 200 Mbps often enough to own the p90, with the console's 15-minute max
+        // near zero, is doing local bursts (repeated LAN speed tests): baselined at that level.
+        // The same pattern on the WAN is protected by the ceiling, which captures the bursts.
+        var measured = new[] { Ago(14, 200e6), Ago(12, 0), Ago(10, 200e6), Ago(8, 200e6), Ago(6, 0), Ago(4, 200e6), Ago(2, 200e6), Ago(0, 200e6) };
+        BandwidthHogsService.BaselineLocalBps(measured, 0, Now, MinSpan).Should().BeApproximately(200e6, 1);
+        BandwidthHogsService.BaselineLocalBps(measured, 200e6, Now, MinSpan).Should().Be(0);
     }
 
     [Fact]
@@ -48,7 +85,7 @@ public class BandwidthHogsBaselineTests
     [Fact]
     public void A_burst_above_the_baseline_is_a_wan_candidate()
     {
-        // The NVR starts a firmware download: the floor over the horizon is still the feed, so
+        // The NVR starts a firmware download: the baseline over the horizon is still the feed, so
         // only the feed comes off and the burst above it competes for WAN.
         var measured = new[] { Ago(14, 30e6), Ago(7, 30e6), Ago(0, 230e6) };
         var baseline = BandwidthHogsService.BaselineLocalBps(measured, Ceiling(Both(14, 3e3), Both(0, 3e3)), Now, MinSpan);
