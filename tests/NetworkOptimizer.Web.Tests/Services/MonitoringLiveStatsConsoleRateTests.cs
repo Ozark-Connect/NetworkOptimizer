@@ -71,15 +71,27 @@ public class MonitoringLiveStatsConsoleRateTests
     }
 
     [Fact]
-    public void Row_rate_samples_keep_only_the_asked_for_window()
+    public void Port_rate_writes_feed_the_row_history_with_pruning_and_decimation()
     {
         var stats = Stats();
-        var keep = TimeSpan.FromMinutes(15);
-        stats.RecordRowRate("row-1", 1, 1, T0.AddMinutes(-20), keep);
-        stats.RecordRowRate("row-1", 2, 2, T0.AddMinutes(-10), keep);
-        var samples = stats.RecordRowRate("row-1", 3, 3, T0, keep);
+        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 10, 1, T0.AddMinutes(-20));
+        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 20, 2, T0.AddMinutes(-10));
+        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 99, 9, T0.AddMinutes(-10).AddSeconds(5)); // inside the spacing, dropped
+        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 30, 3, T0);
 
-        samples.Select(s => s.Down).Should().Equal(2, 3);
-        stats.RecordRowRate("row-2", 9, 9, T0, keep).Should().HaveCount(1);
+        var history = stats.RowRateHistory(MonitoringLiveStats.PortRowKey("aa:bb:cc:dd:ee:01", "eth1"));
+        history.Select(s => s.Down).Should().Equal(20, 30);
+    }
+
+    [Fact]
+    public void Wired_client_writes_feed_their_own_row_history()
+    {
+        var stats = Stats();
+        stats.RecordWiredClient(new WiredClientLiveSnapshot { ClientMac = "AA:BB:CC:DD:EE:02", TxThroughputBps = 5, RxThroughputBps = 1, LastUpdate = T0.AddMinutes(-1) });
+        stats.RecordWiredClient(new WiredClientLiveSnapshot { ClientMac = "aa:bb:cc:dd:ee:02", TxThroughputBps = 7, RxThroughputBps = 2, LastUpdate = T0 });
+
+        var history = stats.RowRateHistory(MonitoringLiveStats.WiredRowKey("aa:bb:cc:dd:ee:02"));
+        history.Select(s => s.Down).Should().Equal(5, 7);
+        stats.RowRateHistory(MonitoringLiveStats.WifiRowKey("aa:bb:cc:dd:ee:02")).Should().BeEmpty();
     }
 }

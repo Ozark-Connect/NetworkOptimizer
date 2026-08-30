@@ -198,6 +198,7 @@ public class MonitoringLiveStats
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return;
         var key = (Normalize(deviceMac), ifName);
         _portRates.TryGetValue(key, out var prior);
+        PortLiveRate stored;
         if (downBps == 0 && upBps == 0
             && prior != null
             && (prior.DownBps > 0 || prior.UpBps > 0)
@@ -206,19 +207,23 @@ public class MonitoringLiveStats
             _logger.LogTrace(
                 "Port rate hold: {Mac}/{If} was {Down:F0}/{Up:F0} bps, holding through single zero poll",
                 deviceMac, ifName, prior.DownBps, prior.UpBps);
-            _portRates[key] = prior with
+            stored = prior with
             {
                 LastUpdate = timestamp,
                 ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
             };
-            return;
         }
-        _portRates[key] = new PortLiveRate
+        else
         {
-            DownBps = downBps,
-            UpBps = upBps,
-            LastUpdate = timestamp,
-        };
+            stored = new PortLiveRate
+            {
+                DownBps = downBps,
+                UpBps = upBps,
+                LastUpdate = timestamp,
+            };
+        }
+        _portRates[key] = stored;
+        AppendRowRate(PortRowKey(deviceMac, ifName), stored.DownBps, stored.UpBps, timestamp);
     }
 
     public PortLiveRate? GetPortRate(string deviceMac, string ifName)
@@ -580,7 +585,7 @@ public class MonitoringLiveStats
             ClientMac = key,
             ApMac = Normalize(snapshot.ApMac),
         };
-        _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
+        var stored = _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
         {
             // One entry per client, so two access points claiming the same one race, and the later
             // write wins whether or not it is the live association. An access point can hold a
@@ -621,6 +626,8 @@ public class MonitoringLiveStats
             // MACs only) must not blank the one a source that does carry it already established.
             return fresh.Hostname is null ? fresh with { Hostname = prior.Hostname } : fresh;
         });
+        if (stored.TxThroughputBps != null || stored.RxThroughputBps != null)
+            AppendRowRate(WifiRowKey(key), stored.TxThroughputBps ?? 0, stored.RxThroughputBps ?? 0, stored.LastUpdate);
     }
 
     /// <summary>
@@ -676,7 +683,7 @@ public class MonitoringLiveStats
         if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
         var key = Normalize(snapshot.ClientMac);
         var fresh = snapshot with { ClientMac = key, ConsecutiveZeroPolls = 0 };
-        _wiredClients.AddOrUpdate(key, fresh, (_, prior) =>
+        var stored = _wiredClients.AddOrUpdate(key, fresh, (_, prior) =>
         {
             var newTx = fresh.TxThroughputBps ?? 0;
             var newRx = fresh.RxThroughputBps ?? 0;
@@ -684,6 +691,8 @@ public class MonitoringLiveStats
                 return prior with { TxThroughputBps = prior.TxThroughputBps, RxThroughputBps = prior.RxThroughputBps, LastUpdate = fresh.LastUpdate, ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1 };
             return fresh;
         });
+        if (stored.TxThroughputBps != null || stored.RxThroughputBps != null)
+            AppendRowRate(WiredRowKey(key), stored.TxThroughputBps ?? 0, stored.RxThroughputBps ?? 0, stored.LastUpdate);
     }
 
     public WiredClientLiveSnapshot? GetWiredClient(string clientMac)
@@ -738,20 +747,43 @@ public class MonitoringLiveStats
         return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
     }
 
-    // Recent measured rates per Bandwidth Hogs row, for its baseline-local read. Site-wide
-    // rather than per page, so a refresh does not restart the history the baseline needs.
+    // Recent measured rates per Bandwidth Hogs row, appended where the sources land (Wi-Fi client
+    // throughput, SNMP/port-table port rates, the wired-client fallback) so the baselines are
+    // always warm - no page needs to be open, and no new polling: the data flows anyway.
     private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _rowRates = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Records a row's measured rates and returns the samples of the last <paramref name="keepFor"/>.</summary>
-    public IReadOnlyList<(DateTime At, double Down, double Up)> RecordRowRate(string key, double down, double up, DateTime at, TimeSpan keepFor)
+    /// <summary>How much measured-rate history is kept per row, matching the console history.</summary>
+    public static readonly TimeSpan RowRateHistoryFor = TimeSpan.FromMinutes(15);
+
+    /// <summary>Sources write faster than a baseline needs; samples closer than this are dropped.</summary>
+    private static readonly TimeSpan RowRateSampleSpacing = TimeSpan.FromSeconds(10);
+
+    /// <summary>History key for a Wi-Fi client row.</summary>
+    public static string WifiRowKey(string clientMac) => "wifi:" + Normalize(clientMac);
+
+    /// <summary>History key for a switch-port row (a wired client's port, or a shared port's hub).</summary>
+    public static string PortRowKey(string deviceMac, string ifName) => "port:" + Normalize(deviceMac) + "|" + ifName;
+
+    /// <summary>History key for a wired client with no port rate (non-SNMP switch fallback).</summary>
+    public static string WiredRowKey(string clientMac) => "wired:" + Normalize(clientMac);
+
+    private void AppendRowRate(string key, double down, double up, DateTime at)
     {
         var list = _rowRates.GetOrAdd(key, _ => new());
         lock (list)
         {
+            if (list.Count > 0 && at - list[^1].At < RowRateSampleSpacing) return;
             list.Add((at, down, up));
-            list.RemoveAll(s => at - s.At > keepFor);
-            return list.ToArray();
+            list.RemoveAll(s => at - s.At > RowRateHistoryFor);
         }
+    }
+
+    /// <summary>A row's measured-rate samples over the kept history, oldest first.</summary>
+    public IReadOnlyList<(DateTime At, double Down, double Up)> RowRateHistory(string key)
+    {
+        if (string.IsNullOrEmpty(key) || !_rowRates.TryGetValue(key, out var list))
+            return Array.Empty<(DateTime, double, double)>();
+        lock (list) return list.ToArray();
     }
 
     /// <summary>Drop stale entries — called periodically by the agent.</summary>

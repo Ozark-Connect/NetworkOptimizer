@@ -31,13 +31,10 @@ public class BandwidthHogsService
     private static readonly TimeSpan DpiRecentWindow = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// How much history the per-client baselines are read over. A constant local flow (a camera
-    /// feed to an NVR) shows as a floor its measured rate never drops below across this horizon,
-    /// while the console's lagging WAN rate shows what part of that floor left the site.
+    /// Less history than this and no baseline is claimed: a flow we have not watched is a WAN
+    /// candidate. The histories themselves accumulate in the site's live cache as the sources
+    /// write (see MonitoringLiveStats.RowRateHistory), so nothing needs a page open.
     /// </summary>
-    private static readonly TimeSpan BaselineHorizon = TimeSpan.FromMinutes(15);
-
-    /// <summary>Less history than this and no baseline is claimed: a flow we have not watched is a WAN candidate.</summary>
     private static readonly TimeSpan BaselineMinSpan = TimeSpan.FromMinutes(5);
 
     /// <summary>
@@ -121,7 +118,7 @@ public class BandwidthHogsService
             .GroupBy(n => n.ParentId!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
-        var measured = new List<(LanNode Node, double Down, double Up, double? CapDown, double? CapUp)>();
+        var measured = new List<(LanNode Node, double Down, double Up, double? CapDown, double? CapUp, string? HistoryKey)>();
         foreach (var node in nodes)
         {
             var isHub = node.Kind == LanNodeKind.VirtualHub;
@@ -132,7 +129,14 @@ public class BandwidthHogsService
             if (link == null || !rates.TryGetValue(link.Id, out var rate)) continue;
             if (rate.DownstreamBps <= 0 && rate.UpstreamBps <= 0) continue;
             var (capDown, capUp) = ChainCap(node.ParentId, nodeById, linksInto, rates);
-            measured.Add((node, Math.Max(0, rate.DownstreamBps), Math.Max(0, rate.UpstreamBps), capDown, capUp));
+            // Where this row's rate history lives in the live cache: the client's own Wi-Fi
+            // throughput, its port's rate (also the hub case), or the wired fallback.
+            var historyKey = link.Kind == LanLinkKind.WifiClient && node.Mac != null
+                ? MonitoringLiveStats.WifiRowKey(node.Mac)
+                : link.PortKey is { Length: > 0 } pk && pk.IndexOf('|') is var sep && sep > 0
+                    ? MonitoringLiveStats.PortRowKey(pk[..sep], pk[(sep + 1)..])
+                    : node.Mac != null ? MonitoringLiveStats.WiredRowKey(node.Mac) : null;
+            measured.Add((node, Math.Max(0, rate.DownstreamBps), Math.Max(0, rate.UpstreamBps), capDown, capUp, historyKey));
         }
 
         // Live weights by the last quarter hour. At the playhead the window snaps to quarter-hour
@@ -157,10 +161,10 @@ public class BandwidthHogsService
         // playhead there is no history and the split runs on DPI weights alone.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
-        (double Down, double Up) BaselineLocal(string key, IReadOnlyList<string> macs, double down, double up)
+        (double Down, double Up) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
         {
-            if (liveStats == null) return (0, 0);
-            var samples = liveStats.RecordRowRate(key, down, up, now, BaselineHorizon);
+            if (liveStats == null || historyKey == null) return (0, 0);
+            var samples = liveStats.RowRateHistory(historyKey);
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
             if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0);
             return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), ceiling.Down, now, BaselineMinSpan),
@@ -194,7 +198,7 @@ public class BandwidthHogsService
                 excluded = NotAWanUser(m.Node.Mac!);
             }
             if (excluded) continue;
-            var baseline = BaselineLocal(m.Node.Id, macs, m.Down, m.Up);
+            var baseline = BaselineLocal(m.HistoryKey, macs);
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(Math.Max(0, m.Down - baseline.Down), bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(Math.Max(0, m.Up - baseline.Up), bytes.Up, m.CapUp));
