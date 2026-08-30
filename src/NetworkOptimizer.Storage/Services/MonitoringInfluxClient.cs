@@ -3076,8 +3076,9 @@ union(tables: [means, chan])
     /// changes, so <see cref="QueryLastUsageRollupHourAsync"/> can tell hours built the old way
     /// from hours built the new way and the rollup service re-rolls the old ones in place.
     /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
+    /// 3: the sample after a 32-bit read is dropped by the hc_counters flip, not by a speed cap.
     /// </summary>
-    public const int RollupVersion = 2;
+    public const int RollupVersion = 3;
 
     // A rollup row a reader may count: built at the current version. An hour rolled the old way
     // reads as empty until the rollup service rebuilds it (newest first, within minutes for a day),
@@ -3099,12 +3100,13 @@ union(tables: [means, chan])
     // counter as traffic, so zero readings are left out before differencing.
     private const string PortCounterSamples = @"exists r.bytes_in and exists r.bytes_out and r.bytes_in > 0 and r.bytes_out > 0";
 
-    // A walk can also hand back the 32-bit counter for one sample on a port whose 64-bit one is far
-    // past 2^32; the drop is discarded and the return counts the difference as traffic. A delta the
-    // port could not have carried in the seconds since the last sample is that, not traffic. Same
-    // tolerance the live rate calculator applies to a single reading.
+    // A walk can also hand back the 32-bit counter for one sample on a port whose 64-bit one is
+    // far past 2^32: the drop is discarded and the return counts a multiple of 2^32 as traffic. A
+    // delta at or above 2^32 bytes in one poll interval is always that recovery and never real
+    // traffic - a 10 GbE port at wire speed for 5 s moves 6.25 GB, while the 32-bit recovery is
+    // at least 4 GiB (4.29 GB) and every instance seen has been exactly 2^32 (42,949,672,960).
     private const string PortDeltaPlausible =
-        @"|> filter(fn: (r) => not exists r.speed_bps or r.speed_bps <= 0 or (float(v: r.bytes_in) * 8.0 <= float(v: r.speed_bps) * float(v: r.elapsed) * 1.4 and float(v: r.bytes_out) * 8.0 <= float(v: r.speed_bps) * float(v: r.elapsed) * 1.4))";
+        @"|> filter(fn: (r) => r.bytes_in < 4294967296 and r.bytes_out < 4294967296)";
 
     /// <summary>
     /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
@@ -3162,7 +3164,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => {ifFilter})
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""if_name"", ""port_id"", ""direction""])
@@ -3293,7 +3295,7 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
@@ -3487,7 +3489,7 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
