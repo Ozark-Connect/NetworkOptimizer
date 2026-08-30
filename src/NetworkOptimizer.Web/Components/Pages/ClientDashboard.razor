@@ -4551,6 +4551,10 @@
         .chart-container {
             margin-left: -0.75rem;
         }
+        /* Live Throughput bleeds into the card's right padding so the newest sample is at the edge. */
+        .live-chart-card .chart-container {
+            margin-right: -20px;
+        }
 
         .chart-container.signal-chart-container {
             margin-left: -2rem;

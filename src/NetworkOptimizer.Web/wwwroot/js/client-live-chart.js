@@ -105,13 +105,12 @@ function buildOpts() {
             padding: { left: 3, right: 26, top: -8, bottom: 12 },
             xaxis: { lines: { show: false } },
         },
-        // On a phone the plot takes the whole card, as the WAN live chart does: no value axis,
-        // and the padding pulled in past the container's own edges.
+        // On a phone the plot runs to the card's right edge (the container bleeds into the card
+        // padding there); the value axis stays, so the left keeps its room.
         responsive: [{
             breakpoint: 1024,
             options: {
-                yaxis: { show: false, min: 0, max: v => Math.max(v * 1.1, 1000) },
-                grid: { padding: { left: -5, right: -5, top: -8, bottom: 12 } },
+                grid: { padding: { left: 0, right: -5, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
