@@ -718,6 +718,22 @@ public class MonitoringLiveStats
         return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
     }
 
+    // Recent measured rates per Bandwidth Hogs row, for its WAN-idle steadiness test. Site-wide
+    // rather than per page, so a refresh does not restart the minute the test needs to arm.
+    private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _rowRates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Records a row's measured rates and returns the samples of the last <paramref name="keepFor"/>.</summary>
+    public IReadOnlyList<(DateTime At, double Down, double Up)> RecordRowRate(string key, double down, double up, DateTime at, TimeSpan keepFor)
+    {
+        var list = _rowRates.GetOrAdd(key, _ => new());
+        lock (list)
+        {
+            list.Add((at, down, up));
+            list.RemoveAll(s => at - s.At > keepFor);
+            return list.ToArray();
+        }
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -753,6 +769,12 @@ public class MonitoringLiveStats
         {
             if (kvp.Value.At < cutoff)
                 _consoleWanRates.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _rowRates)
+        {
+            bool stale;
+            lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
+            if (stale) _rowRates.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in _portRates)
         {

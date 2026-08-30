@@ -46,9 +46,6 @@ public class BandwidthHogsService
     /// <summary>A client's rate is steady if it has not risen by more than this fraction over <see cref="ConsoleLag"/>.</summary>
     private const double SteadyTolerance = 0.25;
 
-    /// <summary>Recent measured rates per row (client MAC or hub id), for the steadiness test. Live only.</summary>
-    private readonly Dictionary<string, List<(DateTime At, double Down, double Up)>> _recentRates = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>
     /// A client the console has known for this long, that moved under <see cref="ExclusionFloorBytes"/>
     /// through the WAN in it and nothing in the recent window, is not a WAN user: a camera streaming
@@ -167,8 +164,11 @@ public class BandwidthHogsService
             consoleRates?.GetConsoleWanRate(mac, ConsoleRateFreshness) is { } r ? (r.DownBps, r.UpBps) : null;
         (bool Down, bool Up) ConsoleIdle(string key, double down, double up, (double Down, double Up)? console)
         {
-            if (consoleRates == null || console is not { } c) return (false, false);
-            var (steadyDown, steadyUp) = RecordRecentRate(key, down, up, now);
+            if (consoleRates == null) return (false, false);
+            // Recorded whether or not the console answered this tick, so a gap in its readings
+            // does not restart the steadiness clock.
+            var (steadyDown, steadyUp) = RecordRecentRate(consoleRates, key, down, up, now);
+            if (console is not { } c) return (false, false);
             return (steadyDown && wanDownBps is { } wd && c.Down < wd * ConsoleIdleFraction,
                     steadyUp && wanUpBps is { } wu && c.Up < wu * ConsoleIdleFraction);
         }
@@ -456,14 +456,13 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// Records a row's measured rates and says, per direction, whether the rate has held steady
-    /// for <see cref="ConsoleLag"/>: long enough for the console to have noticed it.
+    /// Records a row's measured rates in the site's live cache and says, per direction, whether
+    /// the rate has held steady for <see cref="ConsoleLag"/>: long enough for the console to have
+    /// noticed it.
     /// </summary>
-    private (bool Down, bool Up) RecordRecentRate(string key, double down, double up, DateTime now)
+    private (bool Down, bool Up) RecordRecentRate(MonitoringLiveStats live, string key, double down, double up, DateTime now)
     {
-        if (!_recentRates.TryGetValue(key, out var samples)) _recentRates[key] = samples = new();
-        samples.Add((now, down, up));
-        samples.RemoveAll(s => now - s.At > ConsoleRateFreshness);
+        var samples = live.RecordRowRate(key, down, up, now, ConsoleRateFreshness);
         return (HeldSteady(samples.Select(s => (s.At, s.Down)).ToList(), now, down, ConsoleLag, SteadyTolerance),
                 HeldSteady(samples.Select(s => (s.At, s.Up)).ToList(), now, up, ConsoleLag, SteadyTolerance));
     }
