@@ -82,10 +82,21 @@ public class BandwidthHogsService
         var linksInto = links.GroupBy(l => l.ToNodeId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
+        // A shared port is the map's hub node: the port's rate lives on it, and the interfaces
+        // behind it are zero-rate leaves. The card lists the hub, not the leaves - the leaves'
+        // only rate is the console's per-MAC figure, a different measurement from the port's.
+        var membersByHub = nodes
+            .Where(n => n.Kind == LanNodeKind.WiredClient && !string.IsNullOrEmpty(n.Mac) && n.ParentId != null
+                && nodeById.TryGetValue(n.ParentId, out var parent) && parent.Kind == LanNodeKind.VirtualHub)
+            .GroupBy(n => n.ParentId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
         var measured = new List<(LanNode Node, double Down, double Up, double? CapDown, double? CapUp)>();
         foreach (var node in nodes)
         {
-            if (node.Kind is not (LanNodeKind.WifiClient or LanNodeKind.WiredClient) || string.IsNullOrEmpty(node.Mac)) continue;
+            var isHub = node.Kind == LanNodeKind.VirtualHub;
+            if (!isHub && (node.Kind is not (LanNodeKind.WifiClient or LanNodeKind.WiredClient) || string.IsNullOrEmpty(node.Mac))) continue;
+            if (!isHub && node.ParentId != null && membersByHub.ContainsKey(node.ParentId)) continue;
             if (!linksInto.TryGetValue(node.Id, out var into)) continue;
             var link = into.FirstOrDefault(l => l.Kind is LanLinkKind.WifiClient or LanLinkKind.WiredClient);
             if (link == null || !rates.TryGetValue(link.Id, out var rate)) continue;
@@ -101,7 +112,18 @@ public class BandwidthHogsService
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
         foreach (var m in measured)
         {
-            dpi.TryGetValue(m.Node.Mac!, out var bytes);
+            (double Down, double Up) bytes = default;
+            if (m.Node.Kind == LanNodeKind.VirtualHub)
+            {
+                // The port's WAN share is weighted by everything the console saw behind it.
+                if (membersByHub.TryGetValue(m.Node.Id, out var members))
+                    foreach (var member in members)
+                        if (dpi.TryGetValue(member.Mac!, out var b)) bytes = (bytes.Down + b.Down, bytes.Up + b.Up);
+            }
+            else
+            {
+                dpi.TryGetValue(m.Node.Mac!, out bytes);
+            }
             loadsDown.Add(new WanShareReconciler.Load(m.Down, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(m.Up, bytes.Up, m.CapUp));
         }
@@ -113,15 +135,17 @@ public class BandwidthHogsService
         {
             var m = measured[i];
             var (viaDevice, viaPort) = Via(m.Node, nodeById);
+            var isHub = m.Node.Kind == LanNodeKind.VirtualHub;
             rows.Add(new HogRow
             {
-                ClientMac = m.Node.Mac!,
-                Name = ResolveName(m.Node.Name, snapshot, m.Node.Mac!),
+                ClientMac = isHub ? m.Node.Id : m.Node.Mac!,
+                Name = isHub ? m.Node.Name : ResolveName(m.Node.Name, snapshot, m.Node.Mac!),
                 Ip = m.Node.Ip,
-                IsWired = m.Node.Kind == LanNodeKind.WiredClient,
+                IsWired = m.Node.Kind != LanNodeKind.WifiClient,
                 Band = m.Node.Band,
                 ViaDevice = viaDevice,
-                ViaPort = viaPort,
+                ViaPort = isHub ? null : viaPort,
+                PortClientCount = isHub && membersByHub.TryGetValue(m.Node.Id, out var members) ? members.Count : 0,
                 DownBps = m.Down,
                 UpBps = m.Up,
                 WanDownBps = splitDown.WanBps[i],
@@ -233,18 +257,46 @@ public class BandwidthHogsService
                         any = true;
                     }
                     if (!any || (down == 0 && up == 0)) continue;
-                    var top = group.OrderByDescending(o => o.Samples).First();
-                    var row = RowFor(top.ClientMac);
-                    rows[top.ClientMac] = row with
+                    var switchName = nodeById.TryGetValue("dev-" + group.Key.DeviceMac, out var sw) ? sw.Name : null;
+                    var macs = group.Select(o => o.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (macs.Count == 1)
                     {
-                        Name = row.Name ?? top.ClientName,
-                        Ip = row.Ip ?? top.ClientIp,
+                        var occupant = group.First();
+                        var row = RowFor(occupant.ClientMac);
+                        rows[occupant.ClientMac] = row with
+                        {
+                            Name = row.Name ?? occupant.ClientName,
+                            Ip = row.Ip ?? occupant.ClientIp,
+                            IsWired = true,
+                            DownBytes = down,
+                            UpBytes = up,
+                            ViaDevice = row.ViaDevice ?? switchName,
+                            ViaPort = row.ViaPort ?? $"Port {group.Key.Port}",
+                        };
+                        continue;
+                    }
+                    // A shared port: one row for the port, named as the map names its hub, with
+                    // the WAN bytes of everything behind it. The interfaces keep their own WAN rows.
+                    long wanDown = 0, wanUp = 0;
+                    string? portName = null;
+                    foreach (var mac in macs)
+                    {
+                        if (rows.TryGetValue(mac, out var member)) { wanDown += member.WanDownBytes; wanUp += member.WanUpBytes; }
+                        if (portName == null && nodeByMac.TryGetValue(mac, out var node) && !string.IsNullOrEmpty(node.SwitchPortName))
+                            portName = node.SwitchPortName;
+                    }
+                    var key = $"hub-{group.Key.DeviceMac}-{group.Key.Port}";
+                    rows[key] = new HogRow
+                    {
+                        ClientMac = key,
+                        Name = $"{portName ?? $"Port {group.Key.Port}"} ({macs.Count})",
                         IsWired = true,
                         DownBytes = down,
                         UpBytes = up,
-                        IsPortTotal = group.Select(o => o.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1,
-                        ViaDevice = row.ViaDevice ?? (nodeById.TryGetValue("dev-" + group.Key.DeviceMac, out var sw) ? sw.Name : null),
-                        ViaPort = row.ViaPort ?? $"Port {group.Key.Port}",
+                        WanDownBytes = wanDown,
+                        WanUpBytes = wanUp,
+                        ViaDevice = switchName,
+                        PortClientCount = macs.Count,
                     };
                 }
             }

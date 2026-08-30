@@ -21484,6 +21484,15 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.85rem;
 }
 
+.bandwidth-hogs-table .hogs-via .band-badge {
+    margin-right: 0.4rem;
+}
+
+.band-badge.hogs-port-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
 .bandwidth-hogs-table .hogs-sub {
     display: block;
     color: var(--text-muted);

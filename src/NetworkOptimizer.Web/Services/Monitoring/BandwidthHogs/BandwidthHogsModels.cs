@@ -31,8 +31,14 @@ public sealed record HogRow
     public long WanDownBytes { get; init; }
     public long WanUpBytes { get; init; }
 
-    /// <summary>The wired figures are the switch port's, and more than one client sat on it.</summary>
-    public bool IsPortTotal { get; init; }
+    /// <summary>
+    /// Above one, this row is a switch port that several interfaces share (a hypervisor, a server
+    /// with VLAN sub-interfaces) and its figures are the port's, as the map's hub node shows them.
+    /// The interfaces behind it are not listed separately where that would count them twice.
+    /// </summary>
+    public int PortClientCount { get; init; }
+
+    public bool IsPortGroup => PortClientCount > 1;
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Name) ? Name! : Ip ?? ClientMac;
 }

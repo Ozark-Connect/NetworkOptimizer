@@ -113,11 +113,11 @@
                                 <td class="hogs-client">
                                     @if (!string.IsNullOrEmpty(row.Ip))
                                     {
-                                        <a href="@ClientLink(row)" data-tooltip="@(row.IsPortTotal ? PortTotalTooltip : null)">@row.DisplayName</a>
+                                        <a href="@ClientLink(row)">@row.DisplayName</a>
                                     }
                                     else
                                     {
-                                        <span data-tooltip="@(row.IsPortTotal ? PortTotalTooltip : null)">@row.DisplayName</span>
+                                        <span data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</span>
                                     }
                                 </td>
                                 <td class="hide-mobile hogs-via">
@@ -127,11 +127,11 @@
                                     }
                                     else if (row.IsWired && row.ViaPort != null)
                                     {
-                                        <span>@row.ViaPort</span>
+                                        <span class="band-badge hogs-port-badge" data-tooltip="Switch port" data-tooltip-hover-only>@row.ViaPort</span>
                                     }
                                     @if (row.ViaDevice != null)
                                     {
-                                        <span> @row.ViaDevice</span>
+                                        <span>@row.ViaDevice</span>
                                     }
                                 </td>
                                 <td>
@@ -181,7 +181,9 @@
     private enum View { Wan, LanPlusWan }
 
     private const int TopCount = 10;
-    private const string PortTotalTooltip = "Everything through its switch port, which more than one client shared";
+
+    private static string? PortGroupTooltip(HogRow row) =>
+        row.IsPortGroup ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces" : null;
 
     private static readonly (int Hours, string Label)[] TimeFilters =
     {
@@ -356,18 +358,27 @@
         _ => row.DownBytes + row.UpBytes,
     };
 
-    private List<HogRow> TopRows()
+    /// <summary>
+    /// The rows this view can show. In the Data WAN view the DPI report already names every
+    /// interface behind a shared port, so the port's own row would count them twice and is left out.
+    /// </summary>
+    private IEnumerable<HogRow> VisibleRows()
     {
-        if (_result == null) return new List<HogRow>();
-        return _result.Rows.Where(r => RowValue(r) > 0).OrderByDescending(RowValue).Take(TopCount).ToList();
+        if (_result == null) return Enumerable.Empty<HogRow>();
+        return _mode == Mode.Data && _view == View.Wan
+            ? _result.Rows.Where(r => !r.IsPortGroup)
+            : _result.Rows;
     }
+
+    private List<HogRow> TopRows() =>
+        VisibleRows().Where(r => RowValue(r) > 0).OrderByDescending(RowValue).Take(TopCount).ToList();
 
     /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
     private double ShareDenominator(List<HogRow> shown)
     {
         if (_mode == Mode.Throughput && _view == View.Wan && _result != null)
             return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
-        return _result?.Rows.Sum(RowValue) ?? 0;
+        return VisibleRows().Sum(RowValue);
     }
 
     private string FormatDown(HogRow row) => (_mode, _view) switch
