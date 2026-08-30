@@ -74,6 +74,7 @@
                 }
             </div>
         }
+        <div class="hogs-zone">
         @if (_mode == Mode.Throughput && HistoricAt == null && _view == View.Wan && _result?.WarmupSecondsRemaining > 0)
         {
             <div class="alert-info hogs-warmup">
@@ -95,6 +96,7 @@
         {
             var rank = 0;
             var denominator = ShareDenominator();
+            var slots = _showAll ? MaxRows : CollapsedRows;
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
                     <colgroup>
@@ -116,7 +118,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var (row, fading) in rows)
+                        @foreach (var (row, fading) in rows.Take(slots))
                         {
                             rank++;
                             var value = RowValue(row);
@@ -171,10 +173,19 @@
                                 </td>
                             </tr>
                         }
+                        @for (var i = rows.Count; i < slots; i++)
+                        {
+                            <tr class="hogs-slot-empty"><td colspan="6">&nbsp;</td></tr>
+                        }
                     </tbody>
                 </table>
             </div>
+            <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(rows.Count > CollapsedRows ? null : "hogs-show-more-hidden")"
+                    @onclick="() => _showAll = !_showAll">
+                @(_showAll ? "Show fewer" : $"Show {rows.Count - CollapsedRows} more")
+            </button>
         }
+        </div>
     </div>
 </div>
 
@@ -211,6 +222,11 @@
     /// <summary>The list never grows past this, however many clear the share bar: on a near-idle
     /// WAN one percent of the denominator is a few Kbps and half the network would qualify.</summary>
     private const int MaxRows = 10;
+
+    /// <summary>Rows visible before Show more. Both states pad to a fixed slot count so the card never changes height.</summary>
+    private const int CollapsedRows = 5;
+
+    private bool _showAll;
 
     /// <summary>
     /// How long a live client stays listed after it last held the share. Rates move every few
