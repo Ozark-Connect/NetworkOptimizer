@@ -94,10 +94,24 @@ public class ClientUsageRollupService : BackgroundService
         var horizon = lastComplete - BackfillHorizon;
         if (!_seeded)
         {
-            var last = await _influx.QueryLastUsageRollupHourAsync(ct);
-            _next = last.HasValue ? last.Value.AddHours(1) : horizon;
+            // Only hours built at the current rollup arithmetic count as rolled; hours built an
+            // older way read as not rolled and are rebuilt in place. Always newest first, so a
+            // day reads right within minutes of an upgrade and a month within a few hours, and a
+            // restart resumes from the earliest hour already rebuilt.
+            var last = await _influx.QueryLastUsageRollupHourAsync(MonitoringInfluxClient.RollupVersion, ct);
+            var first = await _influx.QueryFirstUsageRollupHourAsync(MonitoringInfluxClient.RollupVersion, ct);
+            if (last.HasValue && first.HasValue)
+            {
+                _next = last.Value.AddHours(1);
+                _oldest = first.Value;
+            }
+            else
+            {
+                _next = lastComplete.AddHours(1);
+                _oldest = lastComplete.AddHours(1);
+            }
             if (_next < horizon) _next = horizon;
-            _oldest = await _influx.QueryFirstUsageRollupHourAsync(ct) ?? _next;
+            if (_oldest < horizon) _oldest = horizon;
             _seeded = true;
         }
 

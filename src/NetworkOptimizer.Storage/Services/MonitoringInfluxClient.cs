@@ -3072,6 +3072,41 @@ union(tables: [means, chan])
     private static readonly TimeSpan RollupLeadIn = TimeSpan.FromMinutes(2);
 
     /// <summary>
+    /// Stamped on every rollup point as <c>rollup_v</c>. Raised when the rollup's arithmetic
+    /// changes, so <see cref="QueryLastUsageRollupHourAsync"/> can tell hours built the old way
+    /// from hours built the new way and the rollup service re-rolls the old ones in place.
+    /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
+    /// </summary>
+    public const int RollupVersion = 2;
+
+    // A rollup row a reader may count: built at the current version. An hour rolled the old way
+    // reads as empty until the rollup service rebuilds it (newest first, within minutes for a day),
+    // which beats reading it inflated - and its tags can differ from the rebuilt row's, so an
+    // overwrite alone would not retire it.
+    private static readonly string RollupRowCurrent = $"exists r.rollup_v and r.rollup_v >= {RollupVersion}";
+
+    // A wireless client's counters arrive from two pollers with two different counter bases: the
+    // console's stat/sta and, where there is one, the AP Agent's station dump. Differencing them
+    // in one series counts every switch between the two as traffic. tx_retries is written by the
+    // AP Agent alone, so it tells the sources apart after the pivot; each source is differenced on
+    // its own, and the reader takes the agent's figure wherever the agent wrote one.
+    private const string WifiCounterSourceFields = @"or r._field == ""tx_retries""";
+    private const string WifiCounterSourceColumn =
+        @"|> map(fn: (r) => ({r with src: if exists r.tx_retries then ""agent"" else ""console""}))";
+
+    // A port's counter can read zero for one sample (an SNMP glitch the rate calculator already
+    // withholds a rate for). Differenced, the drop is discarded and the recovery counts the whole
+    // counter as traffic, so zero readings are left out before differencing.
+    private const string PortCounterSamples = @"exists r.bytes_in and exists r.bytes_out and r.bytes_in > 0 and r.bytes_out > 0";
+
+    // A walk can also hand back the 32-bit counter for one sample on a port whose 64-bit one is far
+    // past 2^32; the drop is discarded and the return counts the difference as traffic. A delta the
+    // port could not have carried in the seconds since the last sample is that, not traffic. Same
+    // tolerance the live rate calculator applies to a single reading.
+    private const string PortDeltaPlausible =
+        @"|> filter(fn: (r) => not exists r.speed_bps or r.speed_bps <= 0 or (float(v: r.bytes_in) * 8.0 <= float(v: r.speed_bps) * float(v: r.elapsed) * 1.4 and float(v: r.bytes_out) * 8.0 <= float(v: r.speed_bps) * float(v: r.elapsed) * 1.4))";
+
+    /// <summary>
     /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
     /// access point sent it, rx_bytes what it sent. The counters restart on every association, and
     /// a roam moves the series to another access point, so the points are merged across series and
@@ -3089,16 +3124,17 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes and exists r.rx_bytes)
-  |> group()
+  {WifiCounterSourceColumn}
+  |> group(columns: [""src""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
   |> fill(column: ""tx_bytes"", value: 0)
   |> fill(column: ""rx_bytes"", value: 0)
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
-  |> group(columns: [""_time""])
+  |> group(columns: [""_time"", ""src""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
   |> group()
   |> sort(columns: [""_time""])";
@@ -3126,9 +3162,9 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => {ifFilter})
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
+  |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
@@ -3136,6 +3172,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
+  {PortDeltaPlausible}
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.bytes_out, from: accumulator.from + r.bytes_in}}), identity: {{to: 0, from: 0}})
@@ -3144,20 +3181,34 @@ union(tables: [means, chan])
         return await ReadByteUsageAsync(flux, ct);
     }
 
+    /// <summary>
+    /// Reads per-bucket totals. Wireless rows arrive once per counter source (<c>src</c>); a bucket
+    /// the AP Agent covered takes the agent's figure alone, since the console's stray samples land
+    /// in the same minutes and would count the WAN part twice. Buckets it did not cover keep the
+    /// console's. Port rows carry no source and pass through.
+    /// </summary>
     private async Task<IReadOnlyList<ByteUsagePoint>> ReadByteUsageAsync(string flux, CancellationToken ct)
     {
-        var results = new List<ByteUsagePoint>();
+        var buckets = new Dictionary<DateTime, (long AgentTo, long AgentFrom, long OtherTo, long OtherFrom, bool Agent)>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             var time = record.GetTimeInDateTime();
             if (time == null) continue;
-            results.Add(new ByteUsagePoint(
-                ToUtc(time.Value),
-                (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0),
-                (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0)));
+            var t = ToUtc(time.Value);
+            var to = (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0);
+            var from = (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0);
+            var agent = record.GetValueByKey("src") as string == "agent";
+            buckets.TryGetValue(t, out var b);
+            buckets[t] = agent
+                ? (b.AgentTo + to, b.AgentFrom + from, b.OtherTo, b.OtherFrom, true)
+                : (b.AgentTo, b.AgentFrom, b.OtherTo + to, b.OtherFrom + from, b.Agent);
         }
-        results.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return results;
+        return buckets
+            .Select(kv => kv.Value.Agent
+                ? new ByteUsagePoint(kv.Key, kv.Value.AgentTo, kv.Value.AgentFrom)
+                : new ByteUsagePoint(kv.Key, kv.Value.OtherTo, kv.Value.OtherFrom))
+            .OrderBy(p => p.Time)
+            .ToList();
     }
 
     // ---- Hourly per-client usage rollup (longterm bucket) ----
@@ -3176,10 +3227,11 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes and exists r.rx_bytes)
-  |> group(columns: [""client_mac""])
+  {WifiCounterSourceColumn}
+  |> group(columns: [""client_mac"", ""src""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
   |> filter(fn: (r) => r._time >= {ToFluxInstant(hourStart)})
@@ -3188,24 +3240,50 @@ union(tables: [means, chan])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes, device_mac: r.device_mac, band: r.band}}), identity: {{to: 0, from: 0, device_mac: """", band: """"}})
   |> group()";
         var written = 0;
-        await foreach (var record in QueryFluxAsync(flux, ct))
+        foreach (var (mac, total) in await ReadClientTotalsBySourceAsync(flux, ct))
         {
-            var mac = record.GetValueByKey("client_mac") as string;
-            if (string.IsNullOrEmpty(mac)) continue;
-            var to = (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0);
-            var from = (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0);
-            if (to == 0 && from == 0) continue;
+            if (total.ToClientBytes == 0 && total.FromClientBytes == 0) continue;
             var point = PointData.Measurement("wifi_client")
-                .Tag("device_mac", record.GetValueByKey("device_mac") as string ?? "")
-                .Tag("band", record.GetValueByKey("band") as string ?? "")
+                .Tag("device_mac", total.DeviceMac ?? "")
+                .Tag("band", total.Band ?? "")
                 .Field("client_mac", mac)
-                .Field("tx_bytes_1h", to)
-                .Field("rx_bytes_1h", from)
+                .Field("tx_bytes_1h", total.ToClientBytes)
+                .Field("rx_bytes_1h", total.FromClientBytes)
+                .Field("rollup_v", (long)RollupVersion)
                 .Timestamp(hourStart.ToUniversalTime(), WritePrecision.Ns);
             Enqueue(point, longterm: true);
             written++;
         }
         return written;
+    }
+
+    private sealed record SourcedClientTotal(string ClientMac, long ToClientBytes, long FromClientBytes, string? DeviceMac, string? Band);
+
+    /// <summary>
+    /// Per-client totals from rows that arrive once per counter source. A client the AP Agent
+    /// wrote for takes the agent's total alone - the console's stray samples overlap it and would
+    /// count the WAN part twice; a client only the console wrote for keeps the console's.
+    /// </summary>
+    private async Task<Dictionary<string, SourcedClientTotal>> ReadClientTotalsBySourceAsync(string flux, CancellationToken ct)
+    {
+        var agent = new Dictionary<string, SourcedClientTotal>(StringComparer.OrdinalIgnoreCase);
+        var console = new Dictionary<string, SourcedClientTotal>(StringComparer.OrdinalIgnoreCase);
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = NormalizeMac(record.GetValueByKey("client_mac") as string ?? "");
+            if (mac.Length == 0) continue;
+            var row = new SourcedClientTotal(mac,
+                (long)(AsDoubleOrNull(record.GetValueByKey("to")) ?? 0),
+                (long)(AsDoubleOrNull(record.GetValueByKey("from")) ?? 0),
+                record.GetValueByKey("device_mac") as string,
+                record.GetValueByKey("band") as string);
+            var into = record.GetValueByKey("src") as string == "agent" ? agent : console;
+            into[mac] = into.TryGetValue(mac, out var prior)
+                ? row with { ToClientBytes = prior.ToClientBytes + row.ToClientBytes, FromClientBytes = prior.FromClientBytes + row.FromClientBytes }
+                : row;
+        }
+        foreach (var (mac, row) in console) agent.TryAdd(mac, row);
+        return agent;
     }
 
     /// <summary>Rolls one hour of every switch port's counters into the longterm bucket.</summary>
@@ -3215,9 +3293,9 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
+  |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
@@ -3225,6 +3303,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds} and r._time >= {ToFluxInstant(hourStart)})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
+  {PortDeltaPlausible}
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})
   |> group()";
         var written = 0;
@@ -3243,6 +3322,7 @@ union(tables: [means, chan])
                 .Tag("direction", record.GetValueByKey("direction") as string ?? "")
                 .Field("bytes_in_1h", bytesIn)
                 .Field("bytes_out_1h", bytesOut)
+                .Field("rollup_v", (long)RollupVersion)
                 .Timestamp(hourStart.ToUniversalTime(), WritePrecision.Ns);
             Enqueue(point, longterm: true);
             written++;
@@ -3250,14 +3330,18 @@ union(tables: [means, chan])
         return written;
     }
 
-    /// <summary>The start of the newest hour the rollup has written, or null when it never has.</summary>
-    public async Task<DateTime?> QueryLastUsageRollupHourAsync(CancellationToken ct = default)
+    /// <summary>
+    /// The start of the newest hour the rollup has written, or null when it never has. With
+    /// <paramref name="minVersion"/>, only hours built at that <see cref="RollupVersion"/> or later
+    /// count, so hours rolled the old way read as not rolled and get rebuilt.
+    /// </summary>
+    public async Task<DateTime?> QueryLastUsageRollupHourAsync(int minVersion = 0, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""bytes_out_1h"")
+  {RollupHourFilter(minVersion)}
   |> keep(columns: [""_time""])
   |> group()
   |> max(column: ""_time"")";
@@ -3269,14 +3353,18 @@ union(tables: [means, chan])
         return null;
     }
 
-    /// <summary>Start of the earliest hour with a usage rollup point, or null when none has been written.</summary>
-    public async Task<DateTime?> QueryFirstUsageRollupHourAsync(CancellationToken ct = default)
+    private static string RollupHourFilter(int minVersion) => minVersion > 0
+        ? $@"|> filter(fn: (r) => r._field == ""rollup_v"" and r._value >= {minVersion})"
+        : @"|> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""bytes_out_1h"")";
+
+    /// <summary>Start of the earliest hour with a usage rollup point (at <paramref name="minVersion"/> or later), or null when none has been written.</summary>
+    public async Task<DateTime?> QueryFirstUsageRollupHourAsync(int minVersion = 0, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""bytes_out_1h"")
+  {RollupHourFilter(minVersion)}
   |> keep(columns: [""_time""])
   |> group()
   |> min(column: ""_time"")";
@@ -3297,9 +3385,9 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes_1h)
+  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes_1h and {RollupRowCurrent})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
   |> group()
@@ -3319,9 +3407,9 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
   |> filter(fn: (r) => {ifFilter})
-  |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"")
+  |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.bytes_in_1h and exists r.bytes_out_1h)
+  |> filter(fn: (r) => exists r.bytes_in_1h and exists r.bytes_out_1h and {RollupRowCurrent})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.bytes_out_1h, from: accumulator.from + r.bytes_in_1h}}), identity: {{to: 0, from: 0}})
   |> group()
@@ -3354,17 +3442,20 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes and exists r.rx_bytes)
-  |> group(columns: [""client_mac""])
+  {WifiCounterSourceColumn}
+  |> group(columns: [""client_mac"", ""src""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
   |> fill(column: ""tx_bytes"", value: 0)
   |> fill(column: ""rx_bytes"", value: 0)
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
   |> group()";
-        return await ReadClientTotalsAsync(flux, ct);
+        return (await ReadClientTotalsBySourceAsync(flux, ct)).Values
+            .Select(t => new ClientByteTotal(t.ClientMac, t.ToClientBytes, t.FromClientBytes))
+            .ToList();
     }
 
     /// <summary>Every wireless client's rolled-up bytes from the longterm bucket.</summary>
@@ -3376,9 +3467,9 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes_1h and exists r.rx_bytes_1h)
+  |> filter(fn: (r) => exists r.client_mac and exists r.tx_bytes_1h and exists r.rx_bytes_1h and {RollupRowCurrent})
   |> group(columns: [""client_mac""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
   |> group()";
@@ -3396,9 +3487,9 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"" or r._field == ""speed_bps"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.bytes_in and exists r.bytes_out)
+  |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
@@ -3406,6 +3497,7 @@ union(tables: [means, chan])
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
+  {PortDeltaPlausible}
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})
   |> group()";
         return await ReadPortTotalsAsync(flux, "out", "in_", ct);
@@ -3420,9 +3512,9 @@ union(tables: [means, chan])
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"")
+  |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.bytes_in_1h and exists r.bytes_out_1h)
+  |> filter(fn: (r) => exists r.bytes_in_1h and exists r.bytes_out_1h and {RollupRowCurrent})
   |> group(columns: [""device_mac"", ""if_name""])
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in_1h, out: accumulator.out + r.bytes_out_1h}}), identity: {{in_: 0, out: 0}})
   |> group()";
@@ -3500,7 +3592,7 @@ union(tables: [means, chan])
     {
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""{field}"")
+  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""rollup_v"" and r._value >= {RollupVersion})
   |> keep(columns: [""_time"", ""_value""])
   |> group()
   |> sort(columns: [""_time""])

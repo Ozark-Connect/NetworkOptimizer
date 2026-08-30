@@ -2153,6 +2153,11 @@ public class MonitoringCollectionAgent : BackgroundService
             _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
         }
 
+        // A read the calculator does not trust is not stored either: one zero or corrupt sample in
+        // the counter series reads as the whole counter's worth of traffic once differenced.
+        if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+            return (rateInBps, rateOutBps);
+
         _ = _influx.WriteInterfaceCountersAsync(
             deviceMac: mac,
             ifName: ifName,
