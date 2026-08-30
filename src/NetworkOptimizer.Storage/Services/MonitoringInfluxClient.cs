@@ -3497,11 +3497,12 @@ union(tables: [means, chan])
     {
         if (!IsConfigured) return Array.Empty<PortByteTotal>();
         // Per-field, no pivot: this is the one query that reads EVERY interface's samples, and
-        // pivoting millions of raw rows to pair the two fields doubled its cost - the zero and
-        // plausibility guards work per field. The plausibility guard here is rate-based rather
-        // than the raw 2^32 constant: no LAN interface on supported gear moves 25 Gbps, while a
-        // 32-bit read recovery is a counter's whole magnitude and lands orders beyond it - and
-        // unlike the constant, this stays valid for sustained >7 Gbps traffic on fast ports.
+        // pivoting millions of raw rows to pair the two fields doubled its cost. The guards work
+        // per field, which also recovers one-directional flows the paired both-nonzero guard
+        // silently dropped (WOL ports, AP sub-interfaces). The delta guard stays the 2^32
+        // constant: a rate-based ceiling was tried and let a real 32-bit recovery through on a
+        // gigabit port (4.29 GB over 2.3 s reads as 15 Gbps, plausible only against per-link
+        // speed, which this stream does not carry).
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
@@ -3510,7 +3511,7 @@ union(tables: [means, chan])
   |> difference(nonNegative: true)
   |> elapsed(unit: 1s)
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
-  |> filter(fn: (r) => r._value < float(v: r.elapsed) * 3125000000.0)
+  |> filter(fn: (r) => r._value < 4294967296)
   |> group(columns: [""device_mac"", ""if_name"", ""_field""])
   |> sum()
   |> group()
