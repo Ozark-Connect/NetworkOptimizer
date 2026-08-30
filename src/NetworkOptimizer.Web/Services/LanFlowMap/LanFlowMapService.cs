@@ -1873,16 +1873,18 @@ public class LanFlowMapService
     /// as zero-rate logical leaves.
     /// </summary>
     /// <summary>
-    /// Each connected client's WAN bytes over the last day, from the cached site-wide DPI report.
-    /// Decides which interface a shared port's hub stands in for; empty when the console cannot say.
+    /// Each connected client's WAN bytes over the last day, from the site-wide DPI report IF a
+    /// reader has it cached. Never fetched from here: this runs inside the topology rebuild that
+    /// every live tick waits on, and a console can take seconds over a day of DPI. Decides which
+    /// interface a shared port's hub stands in for; empty means the lowest IP stands in instead.
     /// </summary>
-    private async Task<Dictionary<string, long>> WanBytesByMacAsync(CancellationToken ct)
+    private Task<Dictionary<string, long>> WanBytesByMacAsync(CancellationToken ct)
     {
         var bytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var now = DateTime.UtcNow;
-            var traffic = await _dashboard.GetSiteTrafficAsync(now - TimeSpan.FromHours(24), now, ct);
+            var traffic = _dashboard.PeekSiteTraffic(now - TimeSpan.FromHours(24), now);
             foreach (var c in traffic?.ClientUsageByApp ?? new())
             {
                 var mac = NormalizeMac(c.Client?.Mac ?? "");
@@ -1896,7 +1898,7 @@ public class LanFlowMapService
         {
             _logger.LogDebug(ex, "WAN bytes by client unavailable; shared ports link to their first interface");
         }
-        return bytes;
+        return Task.FromResult(bytes);
     }
 
     private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot, Dictionary<string, long> wanBytesByMac)

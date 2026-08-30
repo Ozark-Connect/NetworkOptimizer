@@ -572,11 +572,12 @@ public class MonitoringLiveStats
     {
         if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
         var key = Normalize(snapshot.ClientMac);
+        // A caller carrying a prior reading forward passes the prior's zero-poll count with it;
+        // every other caller leaves it at zero, as a fresh measurement should.
         var fresh = snapshot with
         {
             ClientMac = key,
             ApMac = Normalize(snapshot.ApMac),
-            ConsecutiveZeroPolls = 0,
         };
         _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
         {

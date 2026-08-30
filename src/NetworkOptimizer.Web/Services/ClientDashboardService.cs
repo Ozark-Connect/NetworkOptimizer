@@ -1580,6 +1580,25 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// The DPI report for a window if a reader has already fetched it and it is still cached; never
+    /// asks the console. For callers on a latency-sensitive path (the map's topology rebuild) that
+    /// can do without the answer this once.
+    /// </summary>
+    public UniFiClientTrafficResponse? PeekSiteTraffic(DateTime from, DateTime to)
+    {
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        return _cache != null && _cache.TryGetValue(TrafficCacheKey(from, to), out UniFiClientTrafficResponse? cached) ? cached : null;
+    }
+
+    // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses the
+    // same response until the window itself has moved on.
+    private string TrafficCacheKey(DateTime from, DateTime to)
+    {
+        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
+        return $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
+    }
+
+    /// <summary>
     /// UniFi Network's DPI report for every client on the site over a window: one console call,
     /// shared by every reader for <see cref="TrafficCacheFor"/>. Null when the console cannot answer.
     /// </summary>
@@ -1587,10 +1606,7 @@ public class ClientDashboardService
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null) return null;
         if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
-        // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses
-        // the same response until the window itself has moved on.
-        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
-        var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
+        var key = TrafficCacheKey(from, to);
         if (_cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) && cached != null)
             return cached;
 
