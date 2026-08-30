@@ -881,9 +881,9 @@ class LanFlowMap2D {
         let l=Infinity,r=-Infinity,t=Infinity,b=-Infinity;
         for(const p of pts){l=Math.min(l,p.x-p.hw);r=Math.max(r,p.x+p.hw);t=Math.min(t,p.y-p.hh);b=Math.max(b,p.y+p.hh);}
         const pad=40;
-        // On desktop the scrubber bar overlays the bottom of the stage (see _fitAll), so the
-        // usable height, and the bottom edge, sit above it.
-        const barPx=this._scrubberEl&&this._scrubberEl.parentElement===this._el?this._scrubberEl.offsetHeight+4:0;
+        // On desktop the scrubber bar overlays the bottom of the stage (see _fitAll), so top-down
+        // the usable height and the bottom edge sit above it; left-to-right nothing lands there.
+        const barPx=!this._hz&&this._scrubberEl&&this._scrubberEl.parentElement===this._el?this._scrubberEl.offsetHeight+4:0;
         const w=Math.max(1,r-l+pad*2), h=Math.max(1,b-t+pad*2);
         // One wheel step short of a tight fit, so the neighbors have air around them.
         this._scale=Math.max(this._scale,Math.min(this._cw/w,Math.max(1,this._ch-barPx)/h,2.5)/1.2);
@@ -892,7 +892,7 @@ class LanFlowMap2D {
         // The edge inset is the client's whole cell (its label hangs below or beside the dot)
         // plus a little air, in screen pixels at the chosen scale.
         const edgeX=G.clientCellW*this._scale+16, edgeY=G.clientCellH*this._scale+16;
-        if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2-(barPx/2)/this._scale;}
+        if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2;}
         else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
         this._isFitted=false;
         this._needsStaticRedraw=true;
