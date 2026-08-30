@@ -23,6 +23,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject ILogger<ClientDashboard> Logger
@@ -460,8 +461,14 @@
                 <div class="tab-pane">
                     @if (ShowLiveChart)
                     {
-                        <div class="card chart-card" data-tour="client-live-throughput">
+                        <div class="card chart-card live-chart-card" data-tour="client-live-throughput">
                             <h3>Live Throughput</h3>
+                            @if (_liveViewLinkEnabled)
+                            {
+                                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                                      Tooltip="Watch the WAN and the whole network in Live View"
+                                                      OnClick="OpenLiveViewAsync" />
+                            }
                             <div class="chart-container">
                                 <div id="client-live-chart"></div>
                             </div>
@@ -2098,6 +2105,9 @@
             Logger.LogDebug(ex, "Live throughput push failed");
         }
     }
+
+    private async Task OpenLiveViewAsync() =>
+        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync("/monitoring?tab=live"));
 
     private async Task DisposeLiveChartAsync()
     {
@@ -4176,6 +4186,16 @@
     }
     .usage-card .speed-hero-results {
         margin-bottom: 12px;
+    }
+    /* The eye sits in the card's top-right corner, as it does on Latency & Packet Loss. */
+    .live-chart-card {
+        position: relative;
+    }
+    .live-chart-card > .monitoring-jump-btn {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+        margin: 0;
     }
     .usage-chart-header {
         display: flex;
