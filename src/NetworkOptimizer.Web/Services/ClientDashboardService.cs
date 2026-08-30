@@ -1457,29 +1457,30 @@ public class ClientDashboardService
 
     /// <summary>
     /// A client's data usage over a window, WAN and LAN side by side. WAN comes from UniFi Network's
-    /// per-client report at the granularity nearest the window; LAN from our own counters at the same
-    /// bucket - the switch port's for a wired client (its own series when the port is unmapped), the
-    /// access point's for wireless - so the two charts line up bar for bar.
+    /// DPI tally (gateway-side, so WAN-only for wired and Wi-Fi alike) summed into the window's
+    /// bucket; LAN from our own counters at the same bucket - the switch port's for a wired client
+    /// (its own series when the port is unmapped), the access point's for wireless - so the two
+    /// charts line up bar for bar.
     /// </summary>
     public async Task<ClientDataUsage> GetDataUsageAsync(ClientIdentity client, DateTime from, DateTime to)
     {
         if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
         var span = to - from;
-        // UniFi's report granularities; the LAN query buckets to match.
-        var (granularity, bucket) = span <= TimeSpan.FromHours(6) ? ("5minutes", TimeSpan.FromMinutes(5))
-            : span <= TimeSpan.FromHours(48) ? ("hourly", TimeSpan.FromHours(1))
-            : ("daily", TimeSpan.FromDays(1));
+        var bucket = span <= TimeSpan.FromHours(6) ? TimeSpan.FromMinutes(5)
+            : span <= TimeSpan.FromHours(48) ? TimeSpan.FromHours(1)
+            : TimeSpan.FromDays(1);
         var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
         if (string.IsNullOrEmpty(client.Mac)) return usage;
 
         try
         {
+            // The DPI tally, the same one the Applications list below is drawn from, so the two
+            // agree. stat/report/*.user is not usable here: for a Wi-Fi client it is the access
+            // point's count, LAN + WAN, which put a NAS speed test in the WAN column.
             if (_connectionService.IsConnected && _connectionService.Client != null)
             {
-                var data = await _connectionService.Client.PostUserReportAsync(granularity, client.Mac,
-                    new DateTimeOffset(from).ToUnixTimeMilliseconds(), new DateTimeOffset(to).ToUnixTimeMilliseconds(),
-                    new[] { "time", "rx_bytes", "tx_bytes" });
-                usage.Wan = ParseUserReport(data, client.IsWired);
+                var rate = await _connectionService.Client.GetClientTrafficRateAsync(client.Mac, from, to);
+                usage.Wan = BucketTrafficRate(rate, bucket);
             }
         }
         catch (Exception ex)
@@ -1667,27 +1668,18 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// The report's rows in the client's terms. The frame depends on the client's kind: a wired
-    /// row is the client's own (rx_bytes is what it received, checked against its switch port), a
-    /// wireless row is the access point's (tx_bytes is what the client received, checked against
-    /// devices that only ever stream).
+    /// The console's 5-minute WAN buckets summed into the buckets the window is drawn in, in time
+    /// order. A bucket's bytes are its rate times its length; the client's frame is already the
+    /// console's.
     /// </summary>
-    private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data, bool wired)
+    public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
     {
-        var rows = new List<UsageBucket>();
-        if (data.ValueKind != System.Text.Json.JsonValueKind.Array) return rows;
-        foreach (var row in data.EnumerateArray())
-        {
-            if (!row.TryGetProperty("time", out var t) || !t.TryGetDouble(out var ms)) continue;
-            var time = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
-            var tx = row.TryGetProperty("tx_bytes", out var txEl) && txEl.TryGetDouble(out var txV) ? (long)txV : 0;
-            var rx = row.TryGetProperty("rx_bytes", out var rxEl) && rxEl.TryGetDouble(out var rxV) ? (long)rxV : 0;
-            rows.Add(wired
-                ? new UsageBucket(time, DownloadBytes: rx, UploadBytes: tx)
-                : new UsageBucket(time, DownloadBytes: tx, UploadBytes: rx));
-        }
-        rows.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return rows;
+        var ticks = bucket.Ticks;
+        return rate
+            .GroupBy(b => new DateTime(b.Time.Ticks - b.Time.Ticks % ticks, DateTimeKind.Utc))
+            .Select(g => new UsageBucket(g.Key, g.Sum(b => b.DownloadBytes), g.Sum(b => b.UploadBytes)))
+            .OrderBy(b => b.Time)
+            .ToList();
     }
 
     /// <summary>
