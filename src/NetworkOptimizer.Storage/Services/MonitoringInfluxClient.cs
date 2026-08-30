@@ -3077,8 +3077,9 @@ union(tables: [means, chan])
     /// from hours built the new way and the rollup service re-rolls the old ones in place.
     /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
     /// 3: the sample after a 32-bit read is dropped by the hc_counters flip, not by a speed cap.
+    /// 4: Wi-Fi counters zero negative deltas instead of skipping them, so a roam-back counts.
     /// </summary>
-    public const int RollupVersion = 3;
+    public const int RollupVersion = 4;
 
     // A rollup row a reader may count: built at the current version. An hour rolled the old way
     // reads as empty until the rollup service rebuilds it (newest first, within minutes for a day),
@@ -3094,6 +3095,14 @@ union(tables: [means, chan])
     private const string WifiCounterSourceFields = @"or r._field == ""tx_retries""";
     private const string WifiCounterSourceColumn =
         @"|> map(fn: (r) => ({r with src: if exists r.tx_retries then ""agent"" else ""console""}))";
+
+    // Wi-Fi byte counters reset on every association (a roam zeroes them on the new AP, and a
+    // roam-back zeroes them again while the old AP's series sat at billions). nonNegative: true
+    // skips the reset AND waits for the counter to climb past the old high-water mark, silently
+    // dropping all traffic in between. Zeroing negatives instead counts every positive delta
+    // including the ones after a roam-back.
+    private const string WifiDeltaZeroNeg =
+        @"|> map(fn: (r) => ({r with tx_bytes: if r.tx_bytes < 0 then 0 else r.tx_bytes, rx_bytes: if r.rx_bytes < 0 then 0 else r.rx_bytes}))";
 
     // A port's counter can read zero for one sample (an SNMP glitch the rate calculator already
     // withholds a rate for). Differenced, the drop is discarded and the recovery counts the whole
@@ -3132,9 +3141,8 @@ union(tables: [means, chan])
   {WifiCounterSourceColumn}
   |> group(columns: [""src""])
   |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
-  |> fill(column: ""tx_bytes"", value: 0)
-  |> fill(column: ""rx_bytes"", value: 0)
+  |> difference(columns: [""tx_bytes"", ""rx_bytes""])
+  {WifiDeltaZeroNeg}
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time"", ""src""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
@@ -3235,10 +3243,9 @@ union(tables: [means, chan])
   {WifiCounterSourceColumn}
   |> group(columns: [""client_mac"", ""src""])
   |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
+  |> difference(columns: [""tx_bytes"", ""rx_bytes""])
+  {WifiDeltaZeroNeg}
   |> filter(fn: (r) => r._time >= {ToFluxInstant(hourStart)})
-  |> fill(column: ""tx_bytes"", value: 0)
-  |> fill(column: ""rx_bytes"", value: 0)
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes, device_mac: r.device_mac, band: r.band}}), identity: {{to: 0, from: 0, device_mac: """", band: """"}})
   |> group()";
         var written = 0;
@@ -3450,9 +3457,8 @@ union(tables: [means, chan])
   {WifiCounterSourceColumn}
   |> group(columns: [""client_mac"", ""src""])
   |> sort(columns: [""_time""])
-  |> difference(nonNegative: true, columns: [""tx_bytes"", ""rx_bytes""])
-  |> fill(column: ""tx_bytes"", value: 0)
-  |> fill(column: ""rx_bytes"", value: 0)
+  |> difference(columns: [""tx_bytes"", ""rx_bytes""])
+  {WifiDeltaZeroNeg}
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes, from: accumulator.from + r.rx_bytes}}), identity: {{to: 0, from: 0}})
   |> group()";
         return (await ReadClientTotalsBySourceAsync(flux, ct)).Values
