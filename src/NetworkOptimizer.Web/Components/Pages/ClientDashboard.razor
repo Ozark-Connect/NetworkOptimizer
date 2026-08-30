@@ -1442,6 +1442,7 @@
     {
         PtrState.RefreshCallback = () => LoadTabDataAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
+        ConnectionService.OnConnectionChanged += OnConsoleConnectionChanged;
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
@@ -3745,8 +3746,21 @@
         };
     }
 
+    // The device list comes from the console; on an agent site it connects after the page has
+    // shown the picker, which would otherwise stay empty until a reload.
+    private void OnConsoleConnectionChanged()
+    {
+        if (!ConnectionService.IsConnected || _pickerClients.Count > 0) return;
+        _ = InvokeAsync(async () =>
+        {
+            try { await LoadPickerClientsAsync(); }
+            catch (ObjectDisposedException) { }
+        });
+    }
+
     public async ValueTask DisposeAsync()
     {
+        ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
         if (_liveChartMounted) await DisposeLiveChartAsync();
@@ -4583,9 +4597,15 @@
     @@media (max-width: 768px) {
         /* The Select Your Device picker shares its row with View: the combo shrinks to what is
            left rather than holding its desktop 400px, and a long name ellipsizes inside it. */
+        .client-picker-row {
+            flex-wrap: wrap;
+        }
         .client-picker-row .client-selector-combo {
-            flex: 1 1 0;
+            flex: 1 1 100%;
             min-width: 0;
+        }
+        .client-picker-row .btn {
+            margin: 0 auto;
         }
         .client-picker-row .filterable-select {
             width: 100%;
