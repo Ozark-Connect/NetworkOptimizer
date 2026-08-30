@@ -786,8 +786,7 @@ h1:focus {
     }
 
     .card.wan-live-chart-card {
-        padding-top: 0;
-        padding-bottom: 0;
+        padding: 0;
     }
 }
 

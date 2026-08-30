@@ -4551,9 +4551,11 @@
         .chart-container {
             margin-left: -0.75rem;
         }
-        /* Live Throughput bleeds into the card's right padding so the newest sample is at the edge. */
+        /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
+           sample lands on the right edge, the value labels sit close to the left. */
         .live-chart-card .chart-container {
-            margin-right: -20px;
+            margin-left: -1rem;
+            margin-right: -1rem;
         }
 
         .chart-container.signal-chart-container {
