@@ -885,7 +885,8 @@ class LanFlowMap2D {
         // usable height, and the bottom edge, sit above it.
         const barPx=this._scrubberEl&&this._scrubberEl.parentElement===this._el?this._scrubberEl.offsetHeight+4:0;
         const w=Math.max(1,r-l+pad*2), h=Math.max(1,b-t+pad*2);
-        this._scale=Math.max(this._scale,Math.min(this._cw/w,Math.max(1,this._ch-barPx)/h,2.5));
+        // One wheel step short of a tight fit, so the neighbors have air around them.
+        this._scale=Math.max(this._scale,Math.min(this._cw/w,Math.max(1,this._ch-barPx)/h,2.5)/1.2);
         // The client sits at the far edge of the tree's depth - the bottom top-down, the right
         // left-to-right - so it goes to that edge of the view and the context fills the rest.
         const edgePx=40;
