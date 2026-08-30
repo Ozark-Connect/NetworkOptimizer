@@ -4551,6 +4551,17 @@
         .chart-container {
             margin-left: -0.75rem;
         }
+        /* The Usage switch is two words, not the page's time filter: it keeps its own size beside
+           the heading instead of the phone's stretched time buttons. */
+        .usage-chart-header .time-range-selector {
+            flex: 0 0 auto;
+            width: auto;
+        }
+        .usage-chart-header .time-btn {
+            flex: 0 0 auto;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.75rem;
+        }
         /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
            sample lands on the right edge, the value labels sit close to the left. */
         .live-chart-card .chart-container {
