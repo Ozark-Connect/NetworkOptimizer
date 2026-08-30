@@ -143,7 +143,7 @@ public sealed class LiveWanScope
 
         try
         {
-            foreach (var wan in await _pathView.GetWansAsync())
+            foreach (var wan in await _pathView.GetSelectableWansAsync())
             {
                 var key = wan.WanInterface.ToLowerInvariant();
                 options.Add(new Option(

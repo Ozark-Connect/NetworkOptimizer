@@ -2378,7 +2378,7 @@
         var options = new List<WanOption>();
         try
         {
-            foreach (var wan in await PathView.GetWansAsync())
+            foreach (var wan in await PathView.GetSelectableWansAsync())
             {
                 var label = NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
                     wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null);
@@ -3794,7 +3794,7 @@
         }
         if (_wanCountChecked) return;
         _wanCountChecked = true;
-        try { _multiWanUiVisible = (await PathView.GetWansAsync()).Count > 1; }
+        try { _multiWanUiVisible = (await PathView.GetSelectableWansAsync()).Count > 1; }
         catch { _multiWanUiVisible = false; }
         await ApplyPendingLinkWanAsync();
     }

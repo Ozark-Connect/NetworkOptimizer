@@ -1955,7 +1955,7 @@ public class LanFlowMapService
         // Only WANs that pass the activity gate (up, or still holding an IP) render a
         // globe; base the "tag with WAN number" decision on that visible count so a lone
         // globe isn't labelled "(WAN1)" even when other WANs are configured but hidden.
-        var shownWanCount = wans.Count(w => w.Up || !string.IsNullOrEmpty(w.IpAddress));
+        var shownWanCount = wans.Count(w => w.IsActive);
 
         foreach (var wan in wans)
         {
@@ -1970,7 +1970,7 @@ public class LanFlowMapService
             // holding an IP) renders greyed like a discovery-pending cloud; an
             // effectively-unused WAN (down, no IP) is not shown at all.
             var hasIp = !string.IsNullOrEmpty(wan.IpAddress);
-            if (!wan.Up && !hasIp) continue;
+            if (!wan.IsActive) continue;
             var inactiveGrey = wan.Up != hasIp;
 
             UpstreamPathSnapshot? upstream = null;

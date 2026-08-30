@@ -4019,7 +4019,7 @@
         _multiWanHintChecked = true;
         try
         {
-            var wans = await PathView.GetWansAsync();
+            var wans = await PathView.GetSelectableWansAsync();
             _siteHasMultipleWans = wans.Count > 1;
             if (!_siteHasMultipleWans) return;
 
