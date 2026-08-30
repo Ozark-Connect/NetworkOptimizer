@@ -4581,6 +4581,14 @@
 
     /* Mobile responsive */
     @@media (max-width: 768px) {
+        /* Card headings sit close to the top edge on a phone; the eye follows them up. */
+        .chart-card,
+        .results-card {
+            padding-top: 10px;
+        }
+        .live-chart-card > .monitoring-jump-btn {
+            top: 0.4rem;
+        }
         .chart-container {
             margin-left: -0.75rem;
         }
