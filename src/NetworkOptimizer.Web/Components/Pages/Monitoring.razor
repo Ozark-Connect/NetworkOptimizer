@@ -5646,7 +5646,16 @@
             // The focus is a one-time arrival cue: once both maps have it, the parameter leaves the
             // URL so a refresh or a copied link does not replay it.
             if (_map2dMounted && FocusClientMac.Length > 0)
+            {
+                // Land the viewer at the maps rather than the top of the tab.
+                try
+                {
+                    await JS.InvokeVoidAsync("eval",
+                        "requestAnimationFrame(() => document.querySelector('.live-view-jump-row')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))");
+                }
+                catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the maps for the client focus failed"); }
                 NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "client"), forceLoad: false, replace: true);
+            }
         }
         else if (_activeTab != "live" && _map2dMounted)
         {
