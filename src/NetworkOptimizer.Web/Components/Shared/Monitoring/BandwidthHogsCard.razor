@@ -269,7 +269,7 @@
     private string ShareTooltip => (_mode, _view) switch
     {
         (Mode.Throughput, View.Wan) => _result?.WanEstimated == true
-            ? "Share of the WAN rate, estimated from WAN load and UniFi Network's traffic identification"
+            ? "Share of the WAN rate, estimated from load and traffic patterns"
             : "Share of the WAN rate; the clients' traffic matched the WAN load",
         (Mode.Throughput, _) => "Share of everything the listed clients are moving",
         (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
