@@ -88,7 +88,7 @@
         {
             var rank = 0;
             var top = RowValue(rows[0]);
-            var denominator = ShareDenominator(rows);
+            var denominator = ShareDenominator();
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
                     <thead>
@@ -180,7 +180,8 @@
     private enum Mode { Throughput, Data }
     private enum View { Wan, LanPlusWan }
 
-    private const int TopCount = 10;
+    /// <summary>A client under this share of the total is not a hog and is left off the list.</summary>
+    private const double MinSharePercent = 1;
 
     private static string? PortGroupTooltip(HogRow row) =>
         row.IsPortGroup ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces" : null;
@@ -370,11 +371,19 @@
             : _result.Rows;
     }
 
-    private List<HogRow> TopRows() =>
-        VisibleRows().Where(r => RowValue(r) > 0).OrderByDescending(RowValue).Take(TopCount).ToList();
+    /// <summary>Everyone holding at least <see cref="MinSharePercent"/> of the share denominator, largest first.</summary>
+    private List<HogRow> TopRows()
+    {
+        var denominator = ShareDenominator();
+        if (denominator <= 0) return new List<HogRow>();
+        return VisibleRows()
+            .Where(r => 100 * RowValue(r) / denominator >= MinSharePercent)
+            .OrderByDescending(RowValue)
+            .ToList();
+    }
 
     /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
-    private double ShareDenominator(List<HogRow> shown)
+    private double ShareDenominator()
     {
         if (_mode == Mode.Throughput && _view == View.Wan && _result != null)
             return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
