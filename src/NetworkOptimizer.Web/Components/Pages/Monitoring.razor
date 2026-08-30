@@ -4241,6 +4241,22 @@
         await JS.InvokeVoidAsync("noHighlightTarget", "monitoring-interfaces");
     }
 
+    /// <summary>
+    /// Lands a client-focus arrival at the maps rather than the top of the tab. Same wait as the
+    /// other deep-link scrolls here: ScrollRestoration settles the page 50 ms after the location
+    /// change and the tab is still laying out, so an immediate scroll is overridden.
+    /// </summary>
+    private async Task ScrollToLiveJumpRowAsync()
+    {
+        await Task.Delay(500);
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                "document.querySelector('.live-view-jump-row')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the maps for the client focus failed"); }
+    }
+
     private async Task ScrollToSfpChartsAsync()
     {
         await Task.Delay(300);
@@ -5647,13 +5663,7 @@
             // URL so a refresh or a copied link does not replay it.
             if (_map2dMounted && FocusClientMac.Length > 0)
             {
-                // Land the viewer at the maps rather than the top of the tab.
-                try
-                {
-                    await JS.InvokeVoidAsync("eval",
-                        "requestAnimationFrame(() => document.querySelector('.live-view-jump-row')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))");
-                }
-                catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the maps for the client focus failed"); }
+                _ = ScrollToLiveJumpRowAsync();
                 NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "client"), forceLoad: false, replace: true);
             }
         }
