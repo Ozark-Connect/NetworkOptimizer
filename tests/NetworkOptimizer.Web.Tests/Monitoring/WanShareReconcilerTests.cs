@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class WanShareReconcilerTests
 {
-    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null, double? console = null) => new(rate, dpi, cap, console);
+    private static WanShareReconciler.Load L(double rate, double dpi = 0, double? cap = null, bool idle = false) => new(rate, dpi, cap, idle);
 
     [Fact]
     public void Rates_that_add_up_to_the_wan_are_all_wan_and_not_an_estimate()
@@ -96,115 +96,48 @@ public class WanShareReconcilerTests
         WanShareReconciler.Allocate(100, Array.Empty<WanShareReconciler.Load>()).WanBps.Should().BeEmpty();
     }
 
-    // ---- The console's per-client WAN rate as a tie-break ----
+    // ---- The console's per-client rate as a WAN-idle litmus ----
 
     [Fact]
-    public void The_console_rate_is_a_floor_the_dpi_weights_cannot_take_away()
+    public void A_client_the_console_shows_idle_is_local_even_when_the_rates_add_up()
     {
-        // DPI history says 90/10, but the console sees the second client moving 80 on the WAN now.
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 80) });
-        split.Estimated.Should().BeTrue();
-        split.WanBps[1].Should().BeGreaterThanOrEqualTo(80);
-        split.WanBps.Sum().Should().BeApproximately(100, 1e-9);
-    }
-
-    [Fact]
-    public void A_client_the_console_sees_idle_on_the_wan_yields_to_one_it_sees_busy()
-    {
-        // Phone streaming from the NAS (console 0) against a client the console shows at 80:
-        // the WAN goes to the busy one, up to its soft cap, before the idle one gets any.
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 80) });
-        split.WanBps[1].Should().BeApproximately(100, 1e-9);
-        split.WanBps[0].Should().Be(0);
-    }
-
-    [Fact]
-    public void What_the_soft_caps_cannot_place_spills_under_the_hard_caps()
-    {
-        // A burst the console has not seen yet: every console rate is 0, so the soft caps hold
-        // nothing, and the WAN is still handed out by DPI weight under the measured rates.
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 900, console: 0), L(300, dpi: 100, console: 0) });
-        split.WanBps[0].Should().BeApproximately(90, 1e-9);
-        split.WanBps[1].Should().BeApproximately(10, 1e-9);
-    }
-
-    [Fact]
-    public void The_console_floor_is_clipped_to_the_uplink_chain()
-    {
-        // The console says 400, the client's own uplink carried 50: the counter is now, the console is a minute ago.
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100, cap: 50, console: 400), L(300, dpi: 100) });
-        split.WanBps[0].Should().Be(50);
-        split.WanBps.Sum().Should().BeApproximately(100, 1e-9);
-    }
-
-    [Fact]
-    public void Floors_that_claim_more_than_the_wan_are_scaled_down_together()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100, console: 80), L(300, dpi: 100, console: 80) });
-        split.WanBps.Should().Equal(50, 50);
-    }
-
-    [Fact]
-    public void Counter_skew_does_not_pool_on_a_local_heavy_client_the_console_sees_idle()
-    {
-        // The rig streams at 20 and the console agrees; the WAN reads 25 this tick (read a few
-        // seconds apart). The NVR moves 30 locally, console 0. The extra 5 is skew: the NVR may
-        // take only its DPI share of it, and the rest stays unattributed.
-        var split = WanShareReconciler.Allocate(25, new[] { L(20, dpi: 900, console: 20), L(30, dpi: 100, console: 0) });
-        split.WanBps[0].Should().Be(20);
-        split.WanBps[1].Should().BeApproximately(0.5, 1e-9);
-    }
-
-    [Fact]
-    public void A_burst_the_console_has_not_seen_still_goes_to_the_client_with_the_history()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(900, dpi: 900, console: 0), L(30, dpi: 100, console: 0) });
-        split.WanBps[0].Should().BeApproximately(90, 1e-9);
-        split.WanBps[1].Should().BeApproximately(10, 1e-9);
-    }
-
-    [Fact]
-    public void Without_a_console_rate_the_split_is_unchanged()
-    {
-        var with = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 300), L(100, dpi: 100) });
-        with.WanBps[0].Should().BeApproximately(75, 1e-9);
-        with.WanBps[1].Should().BeApproximately(25, 1e-9);
-    }
-
-    [Fact]
-    public void When_the_rates_add_up_a_client_too_big_to_hide_in_the_slack_stays_wan_whatever_the_console_says()
-    {
-        var split = WanShareReconciler.Allocate(100, new[] { L(60, console: 0), L(45, console: 0) });
+        // Phone saturating the WAN at 900; the NVR takes 30 of camera feed, steady, and the
+        // console sees it idle. 930 is within 15% of 900, and the NVR still gets nothing.
+        var split = WanShareReconciler.Allocate(900, new[] { L(900, dpi: 900), L(30, dpi: 100, idle: true) });
         split.Estimated.Should().BeFalse();
-        split.WanBps[0].Should().BeApproximately(60 * 100.0 / 105, 1e-9);
-        split.WanBps[1].Should().BeApproximately(45 * 100.0 / 105, 1e-9);
+        split.WanBps.Should().Equal(900, 0);
     }
 
     [Fact]
-    public void A_small_client_the_console_sees_idle_is_local_even_when_the_rates_add_up()
+    public void An_idle_client_is_out_of_the_sum_so_the_rest_can_still_add_up()
     {
-        // Phone saturating the WAN at 900; the NVR takes 30 of camera feed. 930 is within 15% of
-        // 900, so "it adds up" - but the console sees the NVR idle and 30 hides in the slack.
-        var split = WanShareReconciler.Allocate(900, new[] { L(900, dpi: 900, console: 0), L(30, dpi: 100, console: 0) });
-        split.Estimated.Should().BeFalse();
-        split.WanBps[0].Should().Be(900);
-        split.WanBps[1].Should().Be(0);
-    }
-
-    [Fact]
-    public void A_small_client_the_console_sees_busy_stays_wan_when_the_rates_add_up()
-    {
-        var split = WanShareReconciler.Allocate(900, new[] { L(900, console: 0), L(30, console: 30) });
-        split.WanBps[1].Should().BeApproximately(30 * 900.0 / 930, 1e-9);
-        split.WanBps.Sum().Should().BeApproximately(900, 1e-9);
-    }
-
-    [Fact]
-    public void A_small_idle_client_is_out_of_the_sum_and_the_estimate()
-    {
-        // Without the NVR the rig alone explains the WAN, so this is not an estimate.
-        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 900, console: 100), L(14, dpi: 100, console: 0) });
+        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 900), L(30, dpi: 100, idle: true) });
         split.Estimated.Should().BeFalse();
         split.WanBps.Should().Equal(100, 0);
+    }
+
+    [Fact]
+    public void An_idle_client_takes_no_share_of_an_estimate_either()
+    {
+        var split = WanShareReconciler.Allocate(100, new[] { L(300, dpi: 100), L(300, dpi: 900, idle: true) });
+        split.Estimated.Should().BeTrue();
+        split.WanBps.Should().Equal(100, 0);
+    }
+
+    [Fact]
+    public void Counter_skew_inside_the_slack_scales_the_rows_to_the_wan()
+    {
+        // The rig streams at 20 and the WAN reads 25 this tick; the NVR is idle. The rig takes the
+        // WAN and the rows never sum past it.
+        var split = WanShareReconciler.Allocate(25, new[] { L(20, dpi: 900), L(30, dpi: 100, idle: true) });
+        split.WanBps.Should().Equal(20, 0);
+    }
+
+    [Fact]
+    public void Without_the_litmus_the_split_is_unchanged()
+    {
+        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 300), L(100, dpi: 100) });
+        split.WanBps[0].Should().BeApproximately(75, 1e-9);
+        split.WanBps[1].Should().BeApproximately(25, 1e-9);
     }
 }

@@ -702,7 +702,13 @@ public class MonitoringLiveStats
     public void RecordConsoleWanRate(string clientMac, double downBps, double upBps, DateTime at)
     {
         if (string.IsNullOrEmpty(clientMac)) return;
-        _consoleWanRates[Normalize(clientMac)] = new ConsoleWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        var fresh = new ConsoleWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        _consoleWanRates.AddOrUpdate(Normalize(clientMac), fresh, (_, prior) =>
+            // The console's -r fields read 0/0 for one sample between active ones, as the client
+            // snapshots already allow for. One zero is held; two in a row are idle.
+            fresh.DownBps == 0 && fresh.UpBps == 0 && (prior.DownBps > 0 || prior.UpBps > 0) && !prior.HeldZero
+                ? prior with { At = at, HeldZero = true }
+                : fresh);
     }
 
     /// <summary>The console's WAN rate for a client, or null when it has none newer than <paramref name="maxAge"/>.</summary>
@@ -910,7 +916,11 @@ public record DeviceLiveStats
 /// The gateway's measurement, so WAN traffic only, and behind the moment by the console's own
 /// reporting delay.
 /// </summary>
-public readonly record struct ConsoleWanRate(double DownBps, double UpBps, DateTime At);
+public readonly record struct ConsoleWanRate(double DownBps, double UpBps, DateTime At)
+{
+    /// <summary>Internal: this reading is a prior one held through a single zero poll.</summary>
+    public bool HeldZero { get; init; }
+}
 
 /// <summary>
 /// Throughput snapshot for a wired client, derived from UniFi client stats.
