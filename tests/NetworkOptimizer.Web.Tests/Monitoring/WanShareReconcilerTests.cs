@@ -16,9 +16,12 @@ public class WanShareReconcilerTests
     [Fact]
     public void Rates_that_add_up_to_the_wan_are_all_wan_and_not_an_estimate()
     {
+        // Within the threshold, but 105 against a WAN of 100 is counter skew: the rows scale to the WAN.
         var split = WanShareReconciler.Allocate(100, new[] { L(60), L(45) });
         split.Estimated.Should().BeFalse();
-        split.WanBps.Should().Equal(60, 45);
+        split.WanBps[0].Should().BeApproximately(60 * 100.0 / 105, 1e-9);
+        split.WanBps[1].Should().BeApproximately(45 * 100.0 / 105, 1e-9);
+        split.WanBps.Sum().Should().BeApproximately(100, 1e-9);
     }
 
     [Fact]
@@ -169,10 +172,39 @@ public class WanShareReconcilerTests
     }
 
     [Fact]
-    public void When_the_rates_add_up_the_console_rate_is_not_consulted()
+    public void When_the_rates_add_up_a_client_too_big_to_hide_in_the_slack_stays_wan_whatever_the_console_says()
     {
         var split = WanShareReconciler.Allocate(100, new[] { L(60, console: 0), L(45, console: 0) });
         split.Estimated.Should().BeFalse();
-        split.WanBps.Should().Equal(60, 45);
+        split.WanBps[0].Should().BeApproximately(60 * 100.0 / 105, 1e-9);
+        split.WanBps[1].Should().BeApproximately(45 * 100.0 / 105, 1e-9);
+    }
+
+    [Fact]
+    public void A_small_client_the_console_sees_idle_is_local_even_when_the_rates_add_up()
+    {
+        // Phone saturating the WAN at 900; the NVR takes 30 of camera feed. 930 is within 15% of
+        // 900, so "it adds up" - but the console sees the NVR idle and 30 hides in the slack.
+        var split = WanShareReconciler.Allocate(900, new[] { L(900, dpi: 900, console: 0), L(30, dpi: 100, console: 0) });
+        split.Estimated.Should().BeFalse();
+        split.WanBps[0].Should().Be(900);
+        split.WanBps[1].Should().Be(0);
+    }
+
+    [Fact]
+    public void A_small_client_the_console_sees_busy_stays_wan_when_the_rates_add_up()
+    {
+        var split = WanShareReconciler.Allocate(900, new[] { L(900, console: 0), L(30, console: 30) });
+        split.WanBps[1].Should().BeApproximately(30 * 900.0 / 930, 1e-9);
+        split.WanBps.Sum().Should().BeApproximately(900, 1e-9);
+    }
+
+    [Fact]
+    public void A_small_idle_client_is_out_of_the_sum_and_the_estimate()
+    {
+        // Without the NVR the rig alone explains the WAN, so this is not an estimate.
+        var split = WanShareReconciler.Allocate(100, new[] { L(100, dpi: 900, console: 100), L(14, dpi: 100, console: 0) });
+        split.Estimated.Should().BeFalse();
+        split.WanBps.Should().Equal(100, 0);
     }
 }

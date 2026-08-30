@@ -5,7 +5,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
 /// per-client WAN counter at second resolution, so this is a reconciliation, per direction:
 /// <list type="number">
 /// <item>The clients' rates add up to the WAN rate within <see cref="Threshold"/>: the WAN explains
-/// the whole load, nothing is local, every client's WAN rate is its measured rate.</item>
+/// the whole load, nothing is local, every client's WAN rate is its measured rate. One exception
+/// in both cases: a client the console sees idle on the WAN, whose rate would fit inside the
+/// threshold's slack, is local (bounded by its console soft cap) and out of the sum.</item>
 /// <item>They exceed it: some traffic never left the site. Each client is bounded by its measured
 /// rate and by what its uplink chain carried. The console's per-client WAN rate, where fresh,
 /// sets a floor inside that bound and a soft cap of <see cref="ConsoleCapFactor"/> times itself;
@@ -47,17 +49,30 @@ public static class WanShareReconciler
         if (n == 0 || wanRateBps <= 0) return new Split(wan, false);
 
         var caps = new double[n];
+        var local = new bool[n];
         double sum = 0;
         for (var i = 0; i < n; i++)
         {
             var rate = Math.Max(0, loads[i].RateBps);
             caps[i] = loads[i].ChainCapBps is { } chain ? Math.Min(rate, Math.Max(0, chain)) : rate;
+            // A client the console sees idle on the WAN, small enough to hide inside the
+            // threshold's slack, is local whatever the totals say: at a saturated WAN the slack
+            // is wider than a camera feed, and "it adds up" would call the feed WAN.
+            if (loads[i].ConsoleWanBps is { } console && console < wanRateBps * ConsoleIdleFraction && rate <= wanRateBps * threshold)
+            {
+                local[i] = true;
+                wan[i] = Math.Min(caps[i], Math.Max(0, console) * ConsoleCapFactor);
+                caps[i] = wan[i];
+                continue;
+            }
             sum += rate;
         }
 
         if (sum <= wanRateBps * (1 + threshold))
         {
-            Array.Copy(caps, wan, n);
+            // The slack is counters read seconds apart; the rows still never sum past the WAN.
+            var scale = sum > wanRateBps ? wanRateBps / sum : 1;
+            for (var i = 0; i < n; i++) if (!local[i]) wan[i] = caps[i] * scale;
             return new Split(wan, false);
         }
 
@@ -65,25 +80,26 @@ public static class WanShareReconciler
         var anyDpi = false;
         for (var i = 0; i < n; i++)
         {
+            if (local[i]) continue;
             weights[i] = Math.Max(0, loads[i].DpiBytes);
             anyDpi |= weights[i] > 0;
         }
         if (!anyDpi)
-            for (var i = 0; i < n; i++) weights[i] = caps[i];
+            for (var i = 0; i < n; i++) weights[i] = local[i] ? 0 : caps[i];
 
         // Console floors first: what the console saw a client move on the WAN, it moved. Scaled
         // down together when they claim more than the WAN carried, since they lag it.
         double floors = 0;
         for (var i = 0; i < n; i++)
         {
-            if (loads[i].ConsoleWanBps is not { } console) continue;
+            if (local[i] || loads[i].ConsoleWanBps is not { } console) continue;
             wan[i] = Math.Min(Math.Max(0, console), caps[i]);
             floors += wan[i];
         }
         if (floors > wanRateBps)
         {
             var scale = wanRateBps / floors;
-            for (var i = 0; i < n; i++) wan[i] *= scale;
+            for (var i = 0; i < n; i++) if (!local[i]) wan[i] *= scale;
             return new Split(wan, true);
         }
 
