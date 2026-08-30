@@ -37,8 +37,10 @@ const C = {
 };
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
-// How long the arrival focus ring shows (mount option focusClient).
+// How long the arrival focus ring shows once its node exists (mount option focusClient), and
+// how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
+const FOCUS_GIVE_UP_MS = 30000;
 // Signal color arrives per node, blended on the server's per-band ramp. Nothing about the curve
 // is decided here - a palette in the browser is how the map drifted from the gauges before.
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
@@ -1882,7 +1884,10 @@ class LanFlowMap2D {
         if(this._focus){
             const now=performance.now();
             const n=this._treeMap.get(this._focus.id);
-            if(now>=this._focus.until)this._focus=null;
+            // The clock starts when the node first exists, not at mount: the snapshot and the
+            // layout arrive well after the page does. A node that never shows gives up.
+            if(this._focus.until==null&&n&&n.x!=null&&this._isNodeVisible(n))this._focus.until=now+FOCUS_MS;
+            if(now>=(this._focus.until??this._focus.giveUp))this._focus=null;
             else if(n&&n.x!=null&&this._isNodeVisible(n)){
                 if(!this._focus.zoomed){this._focus.zoomed=true;this._zoomToNode(n);}
                 const t=(now%1500)/1500, grow=8*t;
@@ -2488,7 +2493,7 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
-    if(opts?.focusClient)_inst._focus={id:'cli-'+String(opts.focusClient).toLowerCase().replaceAll('-',':'),until:performance.now()+FOCUS_MS};
+    if(opts?.focusClient)_inst._focus={id:'cli-'+String(opts.focusClient).toLowerCase().replaceAll('-',':'),until:null,giveUp:performance.now()+FOCUS_GIVE_UP_MS};
     // Fullscreen the element that holds the map AND its sibling controls, where a page has them:
     // expanding the stage alone leaves its timeline behind the overlay.
     if(opts?.fullscreenEl)_inst._fsTarget=document.getElementById(opts.fullscreenEl);

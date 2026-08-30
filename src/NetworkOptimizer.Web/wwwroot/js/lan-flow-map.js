@@ -58,8 +58,10 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
-// How long the arrival focus glow shows (mount option focusClient).
+// How long the arrival focus glow shows once its node exists (mount option focusClient), and
+// how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
+const FOCUS_GIVE_UP_MS = 30000;
 
 // Deterministic PRNG (mulberry32) seeded off a node id. Lets a roamed client scatter
 // near its AP using the same distribution as a freshly-added client, while staying
@@ -224,7 +226,9 @@ export class LanFlowMap {
         // A client to glow for a moment on arrival (Client Performance's Live View link).
         this._focusClientId = options.focusClient
             ? 'cli-' + String(options.focusClient).toLowerCase().replaceAll('-', ':') : null;
-        this._focusUntil = this._focusClientId ? performance.now() + FOCUS_MS : 0;
+        // The clock starts when the node first exists, not here: the scene builds after the fetch.
+        this._focusUntil = 0;
+        this._focusGiveUp = this._focusClientId ? performance.now() + FOCUS_GIVE_UP_MS : 0;
         this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
@@ -1913,6 +1917,11 @@ export class LanFlowMap {
         if (!this._focusClientId) return;
         const group = this._nodeMeshes.get(this._focusClientId);
         const { core, halo, baseEmissive } = group?.userData ?? {};
+        if (!this._focusUntil) {
+            if (core) this._focusUntil = nowMs + FOCUS_MS;
+            else if (nowMs >= this._focusGiveUp) this._focusClientId = null;
+            if (!this._focusUntil) return;
+        }
         // A rebuilt scene hands the client a new mesh: put the old one back and glow the new.
         const stale = this._focusGlowing && this._focusGlowing.core !== core;
         if (nowMs >= this._focusUntil || !core || stale) {
