@@ -290,7 +290,7 @@ else
         Math.Max(1, (int)Math.Ceiling((double)AllSfps.Count / PageSize));
 
     private List<MonitoredSfp> SortedSfps() => AllSfps
-        .OrderBy(s => ParseIpForSorting(ResolveDeviceIp(s.DeviceMac)))
+        .OrderBy(s => NetworkOptimizer.Core.Helpers.NetworkUtilities.IpSortKey(ResolveDeviceIp(s.DeviceMac)), StringComparer.Ordinal)
         .ThenBy(s => int.TryParse(s.PortName, out var p) ? p : 9999)
         .ToList();
 
@@ -350,20 +350,6 @@ else
             && !string.IsNullOrEmpty(t.DeviceMac)
             && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
         return target?.Address ?? "255.255.255.255";
-    }
-
-    private static long ParseIpForSorting(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip)) return long.MaxValue;
-        var parts = ip.Split('.');
-        if (parts.Length != 4) return long.MaxValue;
-        long result = 0;
-        foreach (var part in parts)
-        {
-            if (!int.TryParse(part, out var octet)) return long.MaxValue;
-            result = (result << 8) | (uint)(octet & 0xFF);
-        }
-        return result;
     }
 
     private static string FormatOptical(double? value, string unit)
