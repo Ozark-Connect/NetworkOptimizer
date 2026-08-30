@@ -680,7 +680,15 @@ public class LanFlowMapService
             // fall inside that stale window and keep reading empty (the "test didn't show for
             // minutes, then appeared once the window rolled" symptom). Live-edge fetches are
             // used for this response only and always re-fetched fresh next time.
-            if (!atLiveEdge) _cache.HistoricData = cached;
+            if (!atLiveEdge)
+            {
+                // The window runs 5 min ahead of `at`, which for a recent instant reaches past the
+                // settle line: that stretch was fetched before its points were written, and serving
+                // it later showed a roam's first half and never its second. Keep only what had
+                // settled at fetch time; anything beyond misses the cache and reads fresh.
+                var settled = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds);
+                _cache.HistoricData = cached.To > settled ? cached with { To = settled } : cached;
+            }
         }
 
         var ratesByDevice = cached.RatesByDevice;
