@@ -142,10 +142,11 @@ public class BandwidthHogsService
         var history = await DpiTotalsAsync(end - ExclusionLookback, end, ct);
         var firstSeen = await FirstSeenAsync(ct);
 
-        bool NotAWanUser(string mac) =>
-            firstSeen.TryGetValue(mac, out var seen) && seen <= end - ExclusionLookback
-            && (!history.TryGetValue(mac, out var h) || h.Down + h.Up < ExclusionFloorBytes)
-            && (!dpi.TryGetValue(mac, out var r) || r.Down + r.Up <= 0);
+        bool NotAWanUser(string mac) => IsNotAWanUser(
+            firstSeen.TryGetValue(mac, out var seen) ? seen : null,
+            history.TryGetValue(mac, out var h) ? h.Down + h.Up : 0,
+            dpi.TryGetValue(mac, out var r) ? r.Down + r.Up : 0,
+            end, ExclusionLookback, ExclusionFloorBytes);
 
         var included = new List<int>(measured.Count);
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
@@ -160,16 +161,10 @@ public class BandwidthHogsService
         {
             if (liveStats == null) return (0, 0);
             var samples = liveStats.RecordRowRate(key, down, up, now, BaselineHorizon);
-            var console = new List<(DateTime At, double Down, double Up)>();
-            foreach (var mac in macs)
-            {
-                var h = liveStats.ConsoleRateHistory(mac);
-                if (console.Count == 0) console.AddRange(h);
-                else for (var k = 0; k < Math.Min(console.Count, h.Count); k++)
-                    console[k] = (console[k].At, console[k].Down + h[k].Down, console[k].Up + h[k].Up);
-            }
-            return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), console.Select(s => (s.At, s.Down)).ToList(), now, BaselineMinSpan),
-                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), console.Select(s => (s.At, s.Up)).ToList(), now, BaselineMinSpan));
+            var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
+            if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0);
+            return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), ceiling.Down, now, BaselineMinSpan),
+                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), ceiling.Up, now, BaselineMinSpan));
         }
 
         for (var i = 0; i < measured.Count; i++)
@@ -455,23 +450,49 @@ public class BandwidthHogsService
     }
 
     /// <summary>
+    /// The most WAN the console's history could explain of a row: per direction, the sum over its
+    /// client(s) of each history's maximum. Null unless every client's history spans
+    /// <paramref name="minSpan"/> - a client the console has not covered leaves the whole row's
+    /// baseline unclaimed rather than understated.
+    /// </summary>
+    public static (double Down, double Up)? ConsoleWanCeiling(
+        IReadOnlyList<IReadOnlyList<(DateTime At, double Down, double Up)>> histories,
+        DateTime now, TimeSpan minSpan)
+    {
+        if (histories.Count == 0) return null;
+        double down = 0, up = 0;
+        foreach (var h in histories)
+        {
+            if (!h.Any(s => now - s.At >= minSpan)) return null;
+            down += h.Max(s => s.Down);
+            up += h.Max(s => s.Up);
+        }
+        return (down, up);
+    }
+
+    /// <summary>
     /// A row's baseline local rate in one direction: the floor its measured rate held across the
     /// history, less the most the console's WAN figure explained of it. Only a constant flow
     /// produces one (a bursty client's floor is ~0), and anything the row moves above it is a WAN
-    /// candidate as usual. Zero until both histories span <paramref name="minSpan"/>: a flow we
-    /// have not watched is a WAN candidate, never quietly ruled local.
+    /// candidate as usual. Zero until the measured history spans <paramref name="minSpan"/>: a
+    /// flow we have not watched is a WAN candidate, never quietly ruled local.
     /// </summary>
     public static double BaselineLocalBps(
         IReadOnlyList<(DateTime At, double Bps)> measured,
-        IReadOnlyList<(DateTime At, double Bps)> console,
+        double consoleCeilingBps,
         DateTime now, TimeSpan minSpan)
     {
-        if (measured.Count == 0 || console.Count == 0) return 0;
-        if (!measured.Any(s => now - s.At >= minSpan) || !console.Any(s => now - s.At >= minSpan)) return 0;
-        var floor = measured.Min(s => s.Bps);
-        var wan = console.Max(s => s.Bps);
-        return Math.Max(0, floor - wan);
+        if (measured.Count == 0 || !measured.Any(s => now - s.At >= minSpan)) return 0;
+        return Math.Max(0, measured.Min(s => s.Bps) - consoleCeilingBps);
     }
+
+    /// <summary>
+    /// The never-touches-the-WAN exclusion: known to the console since before the lookback, under
+    /// the byte floor across it, and nothing at all in the recent window. Null first-seen (an
+    /// unknown client) never excludes.
+    /// </summary>
+    public static bool IsNotAWanUser(DateTime? firstSeen, double lookbackBytes, double recentBytes, DateTime end, TimeSpan lookback, long floorBytes) =>
+        firstSeen is { } seen && seen <= end - lookback && lookbackBytes < floorBytes && recentBytes <= 0;
 
     /// <summary>
     /// The least any hop between the client's device and the gateway carried, with the reconciler's

@@ -1653,22 +1653,7 @@ public class ClientDashboardService
             var traffic = await GetSiteTrafficAsync(from, to);
             var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
             if (mine == null) return Array.Empty<AppUsageRow>();
-            return mine.UsageByApp
-                .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
-                .Select(u => u.Category == DpiUnidentifiedCategory
-                    ? new AppUsageRow("Unidentified", "", null, DpiCatalog.IconClass(u.Category, u.Application),
-                        u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
-                        Note: "UniFi Network could not identify this traffic")
-                    : DpiCatalog.AppName(u.Category, u.Application) is { } name
-                        ? new AppUsageRow(name, DpiCatalog.CategoryName(u.Category) ?? "",
-                            DpiCatalog.IconDomain(u.Category, u.Application), DpiCatalog.IconClass(u.Category, u.Application),
-                            u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds)
-                        : new AppUsageRow($"Application {u.Application}", DpiCatalog.CategoryName(u.Category) ?? "",
-                            null, DpiCatalog.IconClass(u.Category, u.Application),
-                            u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
-                            Note: "UniFi Network knows this application; our catalog has no name for it yet"))
-                .OrderByDescending(r => r.TotalBytes)
-                .ToList();
+            return BuildAppRows(mine.UsageByApp);
         }
         catch (Exception ex)
         {
@@ -1676,6 +1661,24 @@ public class ClientDashboardService
             return Array.Empty<AppUsageRow>();
         }
     }
+
+    /// <summary>The Applications rows for one client's DPI usage, largest first; see <see cref="GetAppUsageAsync"/>.</summary>
+    public static List<AppUsageRow> BuildAppRows(IEnumerable<UniFiAppUsage> usage) => usage
+        .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
+        .Select(u => u.Category == DpiUnidentifiedCategory
+            ? new AppUsageRow("Unidentified", "", null, DpiCatalog.IconClass(u.Category, u.Application),
+                u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                Note: "UniFi Network could not identify this traffic")
+            : DpiCatalog.AppName(u.Category, u.Application) is { } name
+                ? new AppUsageRow(name, DpiCatalog.CategoryName(u.Category) ?? "",
+                    DpiCatalog.IconDomain(u.Category, u.Application), DpiCatalog.IconClass(u.Category, u.Application),
+                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds)
+                : new AppUsageRow($"Application {u.Application}", DpiCatalog.CategoryName(u.Category) ?? "",
+                    null, DpiCatalog.IconClass(u.Category, u.Application),
+                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                    Note: "UniFi Network knows this application; our catalog has no name for it yet"))
+        .OrderByDescending(r => r.TotalBytes)
+        .ToList();
 
     /// <summary>
     /// The console's 5-minute WAN buckets summed into the buckets the window is drawn in, in time
