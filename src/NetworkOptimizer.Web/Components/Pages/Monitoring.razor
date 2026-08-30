@@ -5643,6 +5643,10 @@
                     $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}', focusClient: '{FocusClientMac}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
+            // The focus is a one-time arrival cue: once both maps have it, the parameter leaves the
+            // URL so a refresh or a copied link does not replay it.
+            if (_map2dMounted && FocusClientMac.Length > 0)
+                NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "client"), forceLoad: false, replace: true);
         }
         else if (_activeTab != "live" && _map2dMounted)
         {
