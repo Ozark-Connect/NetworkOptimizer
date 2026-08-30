@@ -1064,7 +1064,20 @@ class LanFlowMap2D {
     // Double-click a client to open its performance dashboard (matches the 3D map).
     _onDoubleClick(e){
         const rect=this._canvas.getBoundingClientRect();
-        const hit=this._nodeAt(e.clientX-rect.left,e.clientY-rect.top);
+        const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
+        // A WAN cloud opens that WAN's ISP Health report, named as every other link names it -
+        // the primary included, since the report remembers the WAN it was last left on.
+        if(!this._hideClouds){
+            const w=this._screenToWorld(sx,sy);
+            const cloud=this._clouds.find(c=>Math.hypot(w.x-c.x,w.y-c.y)<=G.cloudR);
+            if(cloud){
+                const wan=cloud.d.wanInterface;
+                const url='/monitoring?tab=isp-health'+(wan?'&wan='+encodeURIComponent(wan):'');
+                window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+                return;
+            }
+        }
+        const hit=this._nodeAt(sx,sy);
         if(!hit)return;
         const d=hit.d;
         // Switches and gateways scroll to the port stats table and isolate that device.
