@@ -527,7 +527,7 @@ class LanFlowMap2D {
             const a=e.target.closest('[data-action]')?.dataset.action;
             if(a==='zin')this._zoomBy(1.3);
             else if(a==='zout')this._zoomBy(1/1.3);
-            else if(a==='fit')this._fitAll();
+            else if(a==='fit')this._fitAll(true);
         });
         this._el.appendChild(tb);
 
@@ -888,8 +888,11 @@ class LanFlowMap2D {
         this._needsStaticRedraw=true;
     }
 
-    _fitAll(){
+    _fitAll(force){
         if(!this._root)return;
+        // The first load fits again once the device images land, which would undo a focus zoom
+        // taken a frame earlier; only the Fit button overrides an active focus.
+        if(this._focus?.zoomed&&!force)return;
         this._calcBounds(true);
         const margin=10;
         // On desktop the scrubber bar overlays the bottom of the stage (on mobile
