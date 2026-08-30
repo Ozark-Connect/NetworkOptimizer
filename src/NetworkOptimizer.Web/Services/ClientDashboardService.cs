@@ -1438,10 +1438,10 @@ public class ClientDashboardService
 
     /// <summary>
     /// The site-wide DPI response is one call for every client on the site, and its totals move
-    /// by the minute at most - so one fetch serves every Client Performance page for this long.
-    /// The per-client report stays on the page's own cadence.
+    /// by the minute at most - so one fetch serves every Client Performance page and Bandwidth
+    /// Hogs card for this long. The per-client report stays on the page's own cadence.
     /// </summary>
-    private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(1);
 
     /// <summary>The least time between two DPI fetches for one site, whoever asks.</summary>
     private static readonly TimeSpan TrafficFetchSpacing = TimeSpan.FromSeconds(2);
