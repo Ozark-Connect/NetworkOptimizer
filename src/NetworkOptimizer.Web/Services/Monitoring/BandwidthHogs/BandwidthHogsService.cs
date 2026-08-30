@@ -31,11 +31,19 @@ public class BandwidthHogsService
     private static readonly TimeSpan DpiRecentWindow = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// Less history than this and no baseline is claimed: a flow we have not watched is a WAN
-    /// candidate. The histories themselves accumulate in the site's live cache as the sources
-    /// write (see MonitoringLiveStats.RowRateHistory), so nothing needs a page open.
+    /// Less history than this and no baseline is claimed. Only as long as the console needs to
+    /// corroborate a WAN flow (its rates catch one within a minute): a baseline computed over a
+    /// shorter span could call a WAN flow local before the ceiling knew about it, and that error
+    /// self-heals within the console's lag either way. The histories accumulate in the site's
+    /// live cache as the sources write (MonitoringLiveStats.RowRateHistory) - no page needed.
     /// </summary>
-    private static readonly TimeSpan BaselineMinSpan = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan BaselineMinSpan = TimeSpan.FromSeconds(90);
+
+    /// <summary>How long a persisted baseline may stand in for a live one after a restart.</summary>
+    private static readonly TimeSpan RowBaselineSeedLife = TimeSpan.FromHours(24);
+
+    /// <summary>A live console rate older than this says nothing about now.</summary>
+    private static readonly TimeSpan ConsoleNowFreshness = TimeSpan.FromSeconds(90);
 
     /// <summary>
     /// A client the console has known for this long, that moved under <see cref="ExclusionFloorBytes"/>
@@ -158,22 +166,43 @@ public class BandwidthHogsService
         var included = new List<int>(measured.Count);
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
-        // Live only: each row's baseline local rate (what it moves constantly that the console's
-        // lagging WAN figure never accounted for) comes off its rate before the split, so an NVR
-        // taking camera feeds is not a WAN candidate until it goes above its own baseline. At the
-        // playhead there is no history and the split runs on DPI weights alone.
+        // Live only; at the playhead the split runs on DPI weights alone. Per-row source
+        // hierarchy, best evidence first:
+        //   1. (Future) the gateway agent's conntrack-measured WAN: exact from its first report,
+        //      a covered row bypasses everything below - see gateway-conntrack-spec.md.
+        //   2. A baseline armed from the live histories, or the persisted one a restart reloaded:
+        //      the baseline comes off the rate and the rest is the WAN candidate.
+        //   3. Nothing learned: attribute only what the console's own signals corroborate, which
+        //      survive OUR restarts because they are console-side.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
-        (double Down, double Up, double? Floor, double? Ceiling) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
+        (double Down, double Up, bool Known, double? Floor, double? Ceiling) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
         {
-            if (liveStats == null || historyKey == null) return (0, 0, null, null);
+            if (liveStats == null) return (0, 0, true, null, null);
+            if (historyKey == null) return (0, 0, true, null, null);
             var samples = liveStats.RowRateHistory(historyKey);
             var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? Percentile90(samples.Select(s => s.Down)) : (double?)null;
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
-            if (ConsoleWanCeiling(histories, now, BaselineMinSpan) is not { } ceiling) return (0, 0, floor, null);
-            return (BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), ceiling.Down, now, BaselineMinSpan),
-                    BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), ceiling.Up, now, BaselineMinSpan),
-                    floor, ceiling.Down);
+            var ceiling = ConsoleWanCeiling(histories, now, BaselineMinSpan);
+            if (floor != null && ceiling is { } c)
+            {
+                var down = BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), c.Down, now, BaselineMinSpan);
+                var up = BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), c.Up, now, BaselineMinSpan);
+                liveStats.RecordRowBaseline(historyKey, down, up, now);
+                return (down, up, true, floor, c.Down);
+            }
+            if (liveStats.GetRowBaseline(historyKey, RowBaselineSeedLife) is { } seed)
+                return (seed.DownBps, seed.UpBps, true, floor, ceiling?.Down);
+            return (0, 0, false, floor, ceiling?.Down);
+        }
+        (double Down, double Up)? ConsoleNow(IReadOnlyList<string> macs)
+        {
+            if (liveStats == null) return null;
+            (double Down, double Up)? sum = null;
+            foreach (var mac in macs)
+                if (liveStats.GetConsoleWanRate(mac, ConsoleNowFreshness) is { } r)
+                    sum = ((sum?.Down ?? 0) + r.DownBps, (sum?.Up ?? 0) + r.UpBps);
+            return sum;
         }
 
         // TEMPORARY diagnostics for the NVR mis-attribution investigation: one block every 10 s
@@ -211,10 +240,22 @@ public class BandwidthHogsService
             }
             if (excluded) continue;
             var baseline = BaselineLocal(m.HistoryKey, macs);
+            double effDown, effUp;
+            if (baseline.Known)
+            {
+                effDown = Math.Max(0, m.Down - baseline.Down);
+                effUp = Math.Max(0, m.Up - baseline.Up);
+            }
+            else
+            {
+                var console = ConsoleNow(macs);
+                effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
+                effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
+            }
             included.Add(i);
-            loadsDown.Add(new WanShareReconciler.Load(Math.Max(0, m.Down - baseline.Down), bytes.Down, m.CapDown));
-            loadsUp.Add(new WanShareReconciler.Load(Math.Max(0, m.Up - baseline.Up), bytes.Up, m.CapUp));
-            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1} effDn={Math.Max(0, m.Down - baseline.Down) / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
+            loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
+            loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
+            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1}{(baseline.Known ? "" : " unarmed")} effDn={effDown / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
@@ -521,6 +562,16 @@ public class BandwidthHogsService
         var sorted = values.OrderBy(v => v).ToArray();
         return sorted.Length == 0 ? 0 : sorted[(int)Math.Floor(0.9 * (sorted.Length - 1))];
     }
+
+    /// <summary>
+    /// With nothing learned about a row (a truly cold start), its WAN candidacy is capped at what
+    /// the console's own signals corroborate: twice the larger of its recent DPI rate and its
+    /// live console rate. Both are console-side, so they survive our restarts - a local-heavy
+    /// device reads ~0 from the very first split, at the cost of a brand-new burst
+    /// under-attributing for the half-minute the console needs to see it.
+    /// </summary>
+    public static double UnarmedWanCapBps(double dpiRecentBytes, TimeSpan dpiWindow, double? consoleBps) =>
+        2 * Math.Max(Math.Max(0, dpiRecentBytes) * 8 / dpiWindow.TotalSeconds, Math.Max(0, consoleBps ?? 0));
 
     /// <summary>
     /// The never-touches-the-WAN exclusion: known to the console since before the lookback, under

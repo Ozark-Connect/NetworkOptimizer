@@ -71,6 +71,20 @@ public class MonitoringLiveStatsConsoleRateTests
     }
 
     [Fact]
+    public void Row_baselines_round_trip_and_expire()
+    {
+        var stats = Stats();
+        stats.RecordRowBaseline("port:aa|eth1", 30e6, 1e6, DateTime.UtcNow.AddMinutes(-5));
+        stats.RecordRowBaseline("wifi:bb", 5e6, 0, DateTime.UtcNow.AddHours(-25));
+
+        var fresh = stats.GetRowBaseline("port:aa|eth1", TimeSpan.FromHours(24));
+        fresh.Should().NotBeNull();
+        fresh!.Value.DownBps.Should().Be(30e6);
+        stats.GetRowBaseline("wifi:bb", TimeSpan.FromHours(24)).Should().BeNull();
+        stats.GetRowBaseline("missing", TimeSpan.FromHours(24)).Should().BeNull();
+    }
+
+    [Fact]
     public void Port_rate_writes_feed_the_row_history_with_pruning_and_decimation()
     {
         var stats = Stats();

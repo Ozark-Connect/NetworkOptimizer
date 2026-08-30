@@ -786,6 +786,88 @@ public class MonitoringLiveStats
         lock (list) return list.ToArray();
     }
 
+    // ---- Bandwidth Hogs learned baselines, persisted so a restart starts armed ----
+
+    /// <summary>A row's learned baseline local rate, and when it was last computed live.</summary>
+    public readonly record struct RowBaseline(double DownBps, double UpBps, DateTime At);
+
+    private readonly ConcurrentDictionary<string, RowBaseline> _rowBaselines = new(StringComparer.OrdinalIgnoreCase);
+    private int _rowBaselinesLoadStarted;
+    private DateTime _rowBaselinesPersistedAt = DateTime.UtcNow;
+    private static readonly TimeSpan RowBaselinePersistEvery = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RowBaselineKeepFor = TimeSpan.FromHours(24);
+
+    /// <summary>Records a row's live-computed baseline; the newest per key survives restarts.</summary>
+    public void RecordRowBaseline(string key, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        EnsureRowBaselinesLoaded();
+        _rowBaselines[key] = new RowBaseline(Math.Max(0, downBps), Math.Max(0, upBps), at);
+    }
+
+    /// <summary>The learned baseline for a row, or null when none newer than <paramref name="maxAge"/>.</summary>
+    public RowBaseline? GetRowBaseline(string key, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        EnsureRowBaselinesLoaded();
+        return _rowBaselines.TryGetValue(key, out var b) && DateTime.UtcNow - b.At <= maxAge ? b : null;
+    }
+
+    private void EnsureRowBaselinesLoaded()
+    {
+        if (Interlocked.Exchange(ref _rowBaselinesLoadStarted, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var db = await CreateSiteContextAsync(CancellationToken.None);
+                var cutoff = DateTime.UtcNow - RowBaselineKeepFor;
+                // TryAdd only: anything computed live since startup outranks the persisted copy.
+                foreach (var row in await db.HogRowBaselines.AsNoTracking().ToListAsync())
+                    if (row.UpdatedAt >= cutoff)
+                        _rowBaselines.TryAdd(row.RowKey, new RowBaseline(row.DownBps, row.UpBps, row.UpdatedAt));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not load persisted Bandwidth Hogs baselines");
+            }
+        });
+    }
+
+    private async Task PersistRowBaselinesAsync()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - RowBaselineKeepFor;
+            foreach (var stale in _rowBaselines.Where(kv => kv.Value.At < cutoff).Select(kv => kv.Key).ToList())
+                _rowBaselines.TryRemove(stale, out _);
+            var live = _rowBaselines.ToArray();
+            await using var db = await CreateSiteContextAsync(CancellationToken.None);
+            var stored = await db.HogRowBaselines.ToDictionaryAsync(r => r.RowKey);
+            foreach (var (key, b) in live)
+            {
+                if (stored.TryGetValue(key, out var row))
+                {
+                    if (row.UpdatedAt >= b.At) continue;
+                    row.DownBps = b.DownBps;
+                    row.UpBps = b.UpBps;
+                    row.UpdatedAt = b.At;
+                }
+                else
+                {
+                    db.HogRowBaselines.Add(new HogRowBaseline { RowKey = key, DownBps = b.DownBps, UpBps = b.UpBps, UpdatedAt = b.At });
+                }
+            }
+            foreach (var row in stored.Values.Where(r => r.UpdatedAt < cutoff))
+                db.HogRowBaselines.Remove(row);
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not persist Bandwidth Hogs baselines");
+        }
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -833,6 +915,11 @@ public class MonitoringLiveStats
             bool stale;
             lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
             if (stale) _consoleRateHistory.TryRemove(kvp.Key, out _);
+        }
+        if (DateTime.UtcNow - _rowBaselinesPersistedAt >= RowBaselinePersistEvery && !_rowBaselines.IsEmpty)
+        {
+            _rowBaselinesPersistedAt = DateTime.UtcNow;
+            _ = Task.Run(PersistRowBaselinesAsync);
         }
         foreach (var kvp in _portRates)
         {

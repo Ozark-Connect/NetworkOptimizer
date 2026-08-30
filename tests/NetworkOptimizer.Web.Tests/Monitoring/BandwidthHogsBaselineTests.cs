@@ -101,6 +101,18 @@ public class BandwidthHogsBaselineTests
     }
 
     [Fact]
+    public void An_unarmed_row_is_capped_at_what_the_console_corroborates()
+    {
+        var window = TimeSpan.FromMinutes(15);
+        // Cold NVR: no DPI, console ~0 -> capped to ~0 from the first split.
+        BandwidthHogsService.UnarmedWanCapBps(0, window, 3e3).Should().BeLessThan(10e3);
+        // Cold client with recent DPI history: capped at twice that average rate.
+        BandwidthHogsService.UnarmedWanCapBps(dpiRecentBytes: 90e6, window, null).Should().BeApproximately(2 * 90e6 * 8 / 900, 1);
+        // A live console rate corroborates on its own once it lands.
+        BandwidthHogsService.UnarmedWanCapBps(0, window, 400e6).Should().Be(800e6);
+    }
+
+    [Fact]
     public void The_ceiling_sums_each_members_own_maximum()
     {
         // A hub with two interfaces: one peaked at 10, the other at 4, at different times.
