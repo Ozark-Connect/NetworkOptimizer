@@ -142,7 +142,7 @@
                                     }
                                     else if (row.IsWired && row.ViaPort != null)
                                     {
-                                        <span class="band-badge hogs-port-badge" data-tooltip="Switch port" data-tooltip-hover-only>@row.ViaPort</span>
+                                        <span class="band-badge hogs-port-badge" data-tooltip="@PortTooltip(row.ViaPort)" data-tooltip-hover-only>@row.ViaPort</span>
                                     }
                                     @if (row.ViaDevice != null)
                                     {
@@ -221,6 +221,13 @@
     /// <summary>When each (view, client) last held the share, stamped as answers land - never
     /// during a render, so a paused list does not keep extending them.</summary>
     private readonly Dictionary<string, DateTime> _lastQualified = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// "Switch port" explains a user-defined port label; a stock name (Port 3, SFP+ 1) already
+    /// says what it is, so it carries no tooltip.
+    /// </summary>
+    private static string? PortTooltip(string port) =>
+        System.Text.RegularExpressions.Regex.IsMatch(port, @"^(Port|SFP\+?|SFP28) \d+$") ? null : "Switch port";
 
     private static string? PortGroupTooltip(HogRow row) =>
         !row.IsPortGroup ? null
