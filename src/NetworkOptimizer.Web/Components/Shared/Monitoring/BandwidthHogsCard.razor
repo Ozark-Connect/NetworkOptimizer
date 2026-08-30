@@ -481,7 +481,7 @@
     /// The largest <see cref="MinRows"/> whatever their share, then everyone holding at least
     /// <see cref="MinSharePercent"/> of the share denominator, largest first. Live throughput also
     /// keeps, dimmed, anyone who held it within <see cref="HogDecay"/> - and nothing past
-    /// <see cref="MaxRows"/> either way.
+    /// <see cref="MaxRows"/> either way. Show more lifts the floor: the top MaxRows by value.
     /// </summary>
     private List<(HogRow Row, bool Fading)> TopRows()
     {
@@ -492,7 +492,8 @@
             .Where(r => RowValue(r) > 0 || live)
             .OrderByDescending(RowValue)
             .Select((r, index) => (Row: r, Index: index, Qualifies: Qualifies(r, _view, denominator)))
-            .Where(x => x.Index < MinRows && RowValue(x.Row) > 0
+            .Where(x => (_showAll && RowValue(x.Row) > 0)
+                || x.Index < MinRows && RowValue(x.Row) > 0
                 || x.Qualifies
                 || (live && _lastQualified.TryGetValue(QualifiedKey(_view, x.Row), out var t) && now - t <= HogDecay))
             .Take(MaxRows)
