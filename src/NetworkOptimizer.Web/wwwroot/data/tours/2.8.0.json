@@ -43,6 +43,7 @@
       "level": "major",
       "url": "/client-dashboard?ip={wifi-client-ip}&tab=data",
       "selector": "[data-tour=\"client-data\"]",
+      "scroll": "top",
       "title": "Client Data Usage",
       "listLabel": "See what a device actually used, on the WAN and on your LAN",
       "body": "A fourth tab on Client Performance. **WAN** is the device's usage as UniFi Network counts it at the gateway. **LAN + WAN** is everything through its access point or switch port, so local traffic your Console never sees is in it, with the local share estimated underneath.\n\nBelow them, **Applications** breaks the WAN usage down by app the way UniFi Network identified it, largest first. Ranges up to 24 hours refresh every 30 seconds; the longer ones read from an hourly rollup, so 7 and 30 days open in a moment.",

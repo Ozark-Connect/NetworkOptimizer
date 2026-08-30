@@ -289,6 +289,7 @@
             var result = await SafeJsAsync<string>("noTour.showStep", _selfRef, new
             {
                 settleMs = resolved.Step.Menu ? 350 : 0, // the menu's slide-in transition
+                scroll = resolved.Step.Scroll,
                 selector = resolved.Step.Selector,
                 matchText = resolved.Step.MatchText,
                 alsoSelectors = resolved.Step.AlsoSelectors,

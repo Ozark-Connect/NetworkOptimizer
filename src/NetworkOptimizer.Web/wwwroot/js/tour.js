@@ -118,9 +118,12 @@ window.noTour = (function () {
         return new Promise(r => setTimeout(r, ms));
     }
 
-    async function ensureInView(el) {
+    // `scroll` is 'top' to put the target's top edge at the top of the view (a tall target, such
+    // as a whole tab, is walked from its head), otherwise the target is centered.
+    async function ensureInView(el, scroll) {
+        const top = scroll === 'top';
         try {
-            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+            el.scrollIntoView({ block: top ? 'start' : 'center', inline: 'nearest' });
         } catch {
             el.scrollIntoView();
         }
@@ -128,13 +131,15 @@ window.noTour = (function () {
 
         const rect = el.getBoundingClientRect();
         const vh = window.innerHeight;
-        if (rect.top >= 8 && rect.bottom <= vh - 8) return;
+        if (top ? Math.abs(rect.top - 8) <= 8 : (rect.top >= 8 && rect.bottom <= vh - 8)) return;
 
         const scroller = scrollableAncestor(el);
         const isDocument = scroller === document.scrollingElement || scroller === document.documentElement;
         const viewTop = isDocument ? 0 : scroller.getBoundingClientRect().top;
         const viewHeight = isDocument ? vh : scroller.clientHeight;
-        scroller.scrollTop += (rect.top - viewTop) - (viewHeight / 2) + (rect.height / 2);
+        scroller.scrollTop += top
+            ? (rect.top - viewTop) - 8
+            : (rect.top - viewTop) - (viewHeight / 2) + (rect.height / 2);
         await sleep(150);
     }
 
@@ -313,7 +318,7 @@ window.noTour = (function () {
             // A target that is sliding into view (the side menu on a phone) measures at its old
             // place until the transition ends.
             if (opts.settleMs) await sleep(opts.settleMs);
-            await ensureInView(el);
+            await ensureInView(el, opts.scroll);
             if (gen !== generation) return 'stale';
 
             const overlay = document.createElement('div');
