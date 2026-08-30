@@ -864,6 +864,28 @@ class LanFlowMap2D {
         this._tapStart=null;
     }
 
+    // Frame a node with its context: the device it hangs from and that device's clients, so
+    // the viewer sees where it sits, not one dot on an empty canvas. The user's own framing
+    // from here on (this clears the fitted state, so churn does not snap the view back).
+    _zoomToNode(n){
+        let par=null;
+        for(const cand of this._treeMap.values()){
+            if(cand.clients?.includes(n)||cand.infra?.includes(n)){par=cand;break;}
+        }
+        const box=par||n;
+        const pts=[{x:box.x,y:box.y,hw:G.boxW/2,hh:G.boxH/2}];
+        for(const c of (box.clients||[]))if(this._isNodeVisible(c))pts.push({x:c.x,y:c.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
+        if(box!==n)pts.push({x:n.x,y:n.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
+        let l=Infinity,r=-Infinity,t=Infinity,b=-Infinity;
+        for(const p of pts){l=Math.min(l,p.x-p.hw);r=Math.max(r,p.x+p.hw);t=Math.min(t,p.y-p.hh);b=Math.max(b,p.y+p.hh);}
+        const pad=40;
+        const w=Math.max(1,r-l+pad*2), h=Math.max(1,b-t+pad*2);
+        this._scale=Math.max(this._scale,Math.min(this._cw/w,this._ch/h,2.5));
+        this._ox=(l+r)/2; this._oy=(t+b)/2;
+        this._isFitted=false;
+        this._needsStaticRedraw=true;
+    }
+
     _fitAll(){
         if(!this._root)return;
         this._calcBounds(true);
@@ -1862,6 +1884,7 @@ class LanFlowMap2D {
             const n=this._treeMap.get(this._focus.id);
             if(now>=this._focus.until)this._focus=null;
             else if(n&&n.x!=null&&this._isNodeVisible(n)){
+                if(!this._focus.zoomed){this._focus.zoomed=true;this._zoomToNode(n);}
                 const t=(now%1500)/1500, grow=8*t;
                 const isDev=n.d.kind===NK.Gateway||n.d.kind===NK.Switch||n.d.kind===NK.AP;
                 ctx.strokeStyle=C.downstream;
