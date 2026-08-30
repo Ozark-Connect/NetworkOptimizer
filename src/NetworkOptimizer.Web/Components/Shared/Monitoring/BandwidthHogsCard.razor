@@ -88,7 +88,6 @@
         else
         {
             var rank = 0;
-            var top = RowValue(rows[0].Row);
             var denominator = ShareDenominator();
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
@@ -116,7 +115,8 @@
                             rank++;
                             var value = RowValue(row);
                             var share = denominator > 0 ? 100 * value / denominator : 0;
-                            var width = top > 0 ? 100 * value / top : 0;
+                            // The bar IS the share, so the number and the bar say one thing.
+                            var width = Math.Min(100, share);
                             <tr class="@(fading ? "hogs-fading" : null)">
                                 <td class="hogs-rank hide-mobile">@rank</td>
                                 <td class="hogs-client">
