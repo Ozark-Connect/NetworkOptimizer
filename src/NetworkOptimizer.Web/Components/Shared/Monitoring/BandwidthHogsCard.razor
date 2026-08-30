@@ -74,6 +74,12 @@
                 }
             </div>
         }
+        @if (_mode == Mode.Throughput && HistoricAt == null && _view == View.Wan && _result?.WarmupSecondsRemaining > 0)
+        {
+            <div class="alert-info hogs-warmup">
+                Warming up - device WAN rates may read low or inaccurately for the next @_result.WarmupSecondsRemaining seconds.
+            </div>
+        }
         @{ var rows = TopRows(); }
         @if (_result == null && !_error)
         {

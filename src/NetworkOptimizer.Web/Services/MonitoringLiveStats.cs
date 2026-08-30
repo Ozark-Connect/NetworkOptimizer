@@ -59,6 +59,9 @@ public class MonitoringLiveStats
         return await _dbFactory.CreateDbContextAsync(ct);
     }
 
+    /// <summary>When this cache came to life; readers use it to say how warmed up its histories are.</summary>
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
+
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
 
     // Last time SNMP data was seen for a device, keyed by normalized MAC. On an

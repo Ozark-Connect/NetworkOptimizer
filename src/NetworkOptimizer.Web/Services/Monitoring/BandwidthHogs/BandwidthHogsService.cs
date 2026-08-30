@@ -306,6 +306,9 @@ public class BandwidthHogsService
             WanCapacityDownBps = capDownTotal,
             WanCapacityUpBps = capUpTotal,
             WanEstimated = splitDown.Estimated || splitUp.Estimated,
+            WarmupSecondsRemaining = liveStats == null
+                ? 0
+                : (int)Math.Max(0, Math.Ceiling((liveStats.StartedAt + BaselineMinSpan - now).TotalSeconds)),
             At = at,
         };
     }

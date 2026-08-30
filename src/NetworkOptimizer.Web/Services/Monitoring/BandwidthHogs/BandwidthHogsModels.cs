@@ -59,6 +59,13 @@ public sealed record HogsResult
     /// <summary>True when the WAN split had to be estimated in either direction.</summary>
     public bool WanEstimated { get; init; }
 
+    /// <summary>
+    /// Seconds until the live baselines behind the WAN split have enough history to arm. Positive
+    /// only in the first moments after the server starts, when unlearned rows attribute
+    /// conservatively and device WAN rates can read low.
+    /// </summary>
+    public int WarmupSecondsRemaining { get; init; }
+
     /// <summary>Data mode: whether the LAN + WAN figures were read, or only the WAN ones.</summary>
     public bool IncludesLan { get; init; }
 
