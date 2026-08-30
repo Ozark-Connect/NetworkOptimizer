@@ -105,7 +105,9 @@ public class BandwidthHogsService
             measured.Add((node, Math.Max(0, rate.DownstreamBps), Math.Max(0, rate.UpstreamBps), capDown, capUp));
         }
 
-        var end = at ?? DateTime.UtcNow;
+        // Live weights by the last quarter hour. At the playhead the window snaps to quarter-hour
+        // boundaries, so every position inside one shares a single cached DPI report.
+        var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % DpiRecentWindow.Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
         var dpi = await DpiTotalsAsync(end - DpiRecentWindow, end, ct);
 
         var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
@@ -400,9 +402,24 @@ public class BandwidthHogsService
         return totals;
     }
 
+    private static readonly TimeSpan CapacityCacheFor = TimeSpan.FromMinutes(5);
+    private (string Keys, DateTime At, (double? Down, double? Up) Value)? _capacity;
+
+    /// <summary>The selected WANs' expected speeds, read once per <see cref="CapacityCacheFor"/>:
+    /// they change when someone edits the WAN, not every three seconds.</summary>
     private async Task<(double? Down, double? Up)> CapacityAsync(IReadOnlyCollection<string> wanKeys, CancellationToken ct)
     {
         if (wanKeys.Count == 0) return (null, null);
+        var signature = string.Join(",", wanKeys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+        if (_capacity is { } cached && cached.Keys == signature && DateTime.UtcNow - cached.At < CapacityCacheFor)
+            return cached.Value;
+        var value = await ReadCapacityAsync(wanKeys, ct);
+        _capacity = (signature, DateTime.UtcNow, value);
+        return value;
+    }
+
+    private async Task<(double? Down, double? Up)> ReadCapacityAsync(IReadOnlyCollection<string> wanKeys, CancellationToken ct)
+    {
         try
         {
             var groups = wanKeys.Select(k => GatewayWanHelper.WanNetworkGroupFromKey(k)).ToHashSet(StringComparer.OrdinalIgnoreCase);

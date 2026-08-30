@@ -1582,7 +1582,10 @@ public class ClientDashboardService
         if (_cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) && cached != null)
             return cached;
         var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
-        if (traffic != null && _cache != null) _cache.Set(key, traffic, TrafficCacheFor);
+        // A window that ended a while ago will not change; playback re-asks for it far more often
+        // than a live page asks for the present.
+        var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheFor;
+        if (traffic != null && _cache != null) _cache.Set(key, traffic, life);
         return traffic;
     }
 

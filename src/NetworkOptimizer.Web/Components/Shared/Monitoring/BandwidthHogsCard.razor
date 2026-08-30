@@ -223,6 +223,8 @@
     private DateTime? _loadedAt;
     private string _loadedWanKeys = "";
     private System.Threading.Timer? _timer;
+    private System.Threading.Timer? _seekTimer;
+    private static readonly TimeSpan SeekDebounce = TimeSpan.FromMilliseconds(400);
 
     // Same key shape chart-window.js writes for the Network Performance and Stats tabs, so this is
     // one more remembered window per site, per tab, in this browser.
@@ -259,7 +261,21 @@
         if (!_ready) return;
         var wanKeys = string.Join(",", WanKeys);
         if (HistoricAt != _loadedAt || (HistoricAt != null && wanKeys != _loadedWanKeys))
-            _ = RefreshAsync();
+            ScheduleSeekRefresh();
+    }
+
+    /// <summary>
+    /// A drag or playback moves the playhead many times a second; one refresh after it settles,
+    /// not one per position.
+    /// </summary>
+    private void ScheduleSeekRefresh()
+    {
+        _seekTimer?.Dispose();
+        _seekTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(RefreshAsync); }
+            catch { /* circuit going away */ }
+        }, null, SeekDebounce, Timeout.InfiniteTimeSpan);
     }
 
     private async Task RestorePreferencesAsync()
@@ -356,10 +372,12 @@
             var wanKeys = WanKeys.ToList();
             _loadedAt = at;
             _loadedWanKeys = string.Join(",", wanKeys);
+            // At the playhead the window snaps to five minutes, so a drag inside them reuses the
+            // same cached answer rather than asking for each position.
+            var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % TimeSpan.FromMinutes(5).Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
             var result = _mode == Mode.Throughput
                 ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys)
-                : await Hogs.GetDataUsageAsync((at ?? DateTime.UtcNow) - TimeSpan.FromHours(_hours), at ?? DateTime.UtcNow,
-                    includeLan: _view == View.LanPlusWan);
+                : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
             _result = result;
             _error = false;
             StampQualified(at);
@@ -375,7 +393,7 @@
         }
         await InvokeAsync(StateHasChanged);
         // The playhead moved while this was answering: answer for where it is now.
-        if (HistoricAt != _loadedAt) _ = RefreshAsync();
+        if (HistoricAt != _loadedAt) ScheduleSeekRefresh();
     }
 
     private double RowValue(HogRow row) => RowValue(row, _view);
@@ -493,5 +511,9 @@
         _ => "band-5ghz",
     };
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _seekTimer?.Dispose();
+    }
 }
