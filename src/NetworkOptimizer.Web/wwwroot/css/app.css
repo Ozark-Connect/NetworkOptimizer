@@ -21466,18 +21466,10 @@ body:has(.top-bar-hidden) .btn-fit {
     text-overflow: ellipsis;
 }
 
-.hogs-zone {
-    position: relative;
-}
-
 .hogs-warmup {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 2;
     padding: 0.75rem 1rem;
     border-radius: var(--border-radius);
+    margin-bottom: 1rem;
     font-size: 0.85rem;
 }
 
