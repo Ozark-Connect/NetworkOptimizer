@@ -1472,7 +1472,10 @@ public class ClientDashboardService
     {
         if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
         var span = to - from;
-        var bucket = span <= TimeSpan.FromHours(6) ? TimeSpan.FromMinutes(5)
+        // Raw counters (and their 5-minute buckets) only up to the rollup top-up's own reach: a
+        // counter query reads every point in the window (client identity is a field, not a tag),
+        // so longer windows read the hourly rollup and chart hourly.
+        var bucket = span <= TimeSpan.FromHours(2) ? TimeSpan.FromMinutes(5)
             : span <= TimeSpan.FromHours(48) ? TimeSpan.FromHours(1)
             : TimeSpan.FromDays(1);
         var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
@@ -1506,10 +1509,11 @@ public class ClientDashboardService
             var points = bucket < TimeSpan.FromHours(1)
                 ? await LanUsageFromCountersAsync(influx, client, ifNames, from, to, bucket)
                 : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
-            // No rollup yet (the first hours after an upgrade): the counters still answer a day,
-            // slowly. Never for days - that scan is minutes on any hardware, and the rollup fills
-            // in behind on its own.
-            if (points.Count == 0 && bucket == TimeSpan.FromHours(1))
+            // No rollup yet, or one that does not reach the window's start (a rebuild rolls
+            // newest first, and partial coverage reads silently low): the counters still answer a
+            // day, slowly. Never for days - that scan is minutes on any hardware, and the rollup
+            // fills in behind on its own.
+            if (bucket == TimeSpan.FromHours(1) && (points.Count == 0 || points[0].Time > from.AddHours(1)))
                 points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
