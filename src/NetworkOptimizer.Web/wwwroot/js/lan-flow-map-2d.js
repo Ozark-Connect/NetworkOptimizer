@@ -892,7 +892,7 @@ class LanFlowMap2D {
         // The edge inset, in screen pixels at the chosen scale: top-down the client's whole cell,
         // since its label hangs below the dot; left-to-right the dot plus room for half a label,
         // which is centered under it, so the client sits close to the edge.
-        const edgeX=G.clientR*this._scale+56, edgeY=G.clientCellH*this._scale+16;
+        const edgeX=G.clientR*this._scale+61, edgeY=G.clientCellH*this._scale+16;
         if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2;}
         else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
         this._isFitted=false;
