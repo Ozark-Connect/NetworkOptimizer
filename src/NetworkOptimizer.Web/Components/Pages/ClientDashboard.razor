@@ -2519,8 +2519,12 @@
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
             // The device's frame: its download is the stored UploadMbps (what the server sent it).
-            rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download"));
-            rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload"));
+            // A one-direction result stores 0 for the leg it never measured; that leg gets no
+            // point rather than a real-looking zero sawing the line to the floor.
+            if (r.UploadMbps > 0)
+                rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download"));
+            if (r.DownloadMbps > 0)
+                rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload"));
 
             if (r.PingMs.HasValue)
                 rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
@@ -2531,11 +2535,13 @@
         // LTTB downsample speed charts, sync upload to same timestamps as download
         var dlDown = DownsampleLttb(rawDownload, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
         var keptSpeedTs = new HashSet<long>(dlDown.Select(p => p.X));
+        // Upload-only results have no download twin to sync against; they ride through as-is.
+        var downloadTs = new HashSet<long>(rawDownload.Select(p => p.X));
 
         _speedDownloadData.Clear();
         _speedDownloadData.AddRange(dlDown);
         _speedUploadData.Clear();
-        _speedUploadData.AddRange(rawUpload.Where(p => keptSpeedTs.Contains(p.X)));
+        _speedUploadData.AddRange(rawUpload.Where(p => keptSpeedTs.Contains(p.X) || !downloadTs.Contains(p.X)));
 
         // LTTB downsample latency charts, sync jitter to same timestamps as ping
         var pingDown = DownsampleLttb(rawPing, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
