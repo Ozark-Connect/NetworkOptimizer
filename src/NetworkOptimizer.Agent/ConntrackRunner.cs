@@ -9,13 +9,14 @@ namespace NetworkOptimizer.Agent;
 
 /// <summary>
 /// The gateway's conntrack sampler: reads <c>/proc/net/nf_conntrack</c> on the server-pushed
-/// cadence, differences per flow at the source (see <see cref="ConntrackAccountant"/>), and
-/// ships per-client WAN window deltas - two ways. Every window goes out live on the tunnel
-/// (lost with it, superseded by the next window), and ~30s aggregates ride the
-/// store-and-forward <see cref="ResultBuffer"/> into the time series, so a tunnel outage
-/// costs the live view only. No per-flow records, destinations, or ports ever leave this
-/// process. Runs for the life of the agent like the SNMP runner: config survives tunnel
-/// drops, and <c>enabled=false</c> from the server is the fleet-wide kill switch.
+/// cadence (2s), differences per flow at the source (see <see cref="ConntrackAccountant"/>),
+/// and ships per-client WAN window deltas two ways. Every window goes out live on the tunnel
+/// (superseded by the next, so a lost one costs nothing), and ~6s aggregates ride the
+/// store-and-forward <see cref="ResultBuffer"/> into the time series - acked, spooled,
+/// replayed across outages - so the series matches the SNMP fast tier's grain while the live
+/// split stays 2s-fresh. No per-flow records, destinations, or ports ever leave this process.
+/// Runs for the life of the agent like the SNMP runner: config survives tunnel drops, and
+/// <c>enabled=false</c> from the server is the fleet-wide kill switch.
 /// </summary>
 public sealed class ConntrackRunner
 {
@@ -27,8 +28,8 @@ public sealed class ConntrackRunner
     private static readonly TimeSpan PassBudget = TimeSpan.FromMilliseconds(250);
     private const int MaxIntervalSeconds = 30;
 
-    /// <summary>How long aggregates accumulate before one batch is enqueued for the time series.</summary>
-    private static readonly TimeSpan AggregateEvery = TimeSpan.FromSeconds(30);
+    /// <summary>How long windows accumulate before one batch is enqueued for the time series.</summary>
+    private static readonly TimeSpan AggregateEvery = TimeSpan.FromSeconds(6);
 
     private static readonly TimeSpan NeighborRefreshEvery = TimeSpan.FromSeconds(60);
 
@@ -96,7 +97,7 @@ public sealed class ConntrackRunner
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
-                    SamplePass(interval);
+                    SamplePass();
                 }
                 catch (Exception ex)
                 {
@@ -116,7 +117,9 @@ public sealed class ConntrackRunner
         }
     }
 
-    private void SamplePass(int windowSeconds)
+    private DateTime _lastPassAt;
+
+    private void SamplePass()
     {
         var view = RefreshHostView();
         List<ConntrackFlow> flows;
@@ -125,15 +128,26 @@ public sealed class ConntrackRunner
 
         var wasSeeded = _accountant.Seeded;
         var deltas = _accountant.Account(flows, view);
-        if (!wasSeeded) return;
+        var now = DateTime.UtcNow;
+        // The window is the ACTUAL gap since the previous pass, not the nominal interval: a
+        // stretched cadence or a slow pass otherwise labels a long window short, and every rate
+        // computed from it inflates by the ratio.
+        var windowSeconds = _lastPassAt == default
+            ? 0
+            : (int)Math.Clamp(Math.Round((now - _lastPassAt).TotalSeconds), 1, 120);
+        _lastPassAt = now;
+        if (!wasSeeded || windowSeconds == 0)
+        {
+            _pendingSince = now;
+            return;
+        }
 
-        var now = DateTimeOffset.UtcNow;
-        // Sent even with no clients: an empty window is the statement that the feed is alive
-        // and every client's WAN is zero right now - which is exactly what lets the server
-        // treat "no entry" as measured-idle rather than as lost coverage.
+        // Live batch every window, straight onto the tunnel. Sent even with no clients: an empty
+        // window says the feed is alive and every client's WAN is zero right now, which is what
+        // lets the server treat "no entry" as measured-idle rather than as lost coverage.
         var live = new ConntrackSampleBatch
         {
-            TimestampUnixMs = now.ToUnixTimeMilliseconds(),
+            TimestampUnixMs = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
             WindowSeconds = windowSeconds,
         };
         foreach (var d in deltas)
@@ -154,18 +168,18 @@ public sealed class ConntrackRunner
         LiveSend?.Invoke(new AgentMessage { ConntrackSamples = live });
         _pendingWindowSeconds += windowSeconds;
 
-        if (DateTime.UtcNow - _pendingSince >= AggregateEvery)
+        if (now - _pendingSince >= AggregateEvery)
             FlushAggregate(now);
     }
 
-    private void FlushAggregate(DateTimeOffset now)
+    private void FlushAggregate(DateTime now)
     {
         // Enqueued even with no clients: the empty batch is the persisted statement that the
         // feed covered this window with nothing moving, which is what lets a totals reader
         // pick conntrack over DPI for an idle hour instead of reading it as a coverage gap.
         var batch = new ConntrackSampleBatch
         {
-            TimestampUnixMs = now.ToUnixTimeMilliseconds(),
+            TimestampUnixMs = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
             WindowSeconds = _pendingWindowSeconds,
             Aggregated = true,
         };
@@ -183,7 +197,7 @@ public sealed class ConntrackRunner
         }
         _enqueue(new AgentMessage { ConntrackSamples = batch });
         _pending.Clear();
-        _pendingSince = DateTime.UtcNow;
+        _pendingSince = now;
         _pendingWindowSeconds = 0;
     }
 

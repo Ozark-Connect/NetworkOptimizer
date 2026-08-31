@@ -310,7 +310,7 @@ while (!cts.IsCancellationRequested)
         {
             tunnel.OnConntrackConfig = conntrackRunner.UpdateConfig;
             // Live batches ride this tunnel directly (superseded by the next window, so a lost
-            // one costs nothing); the ~30s aggregates ride the result buffer like everything else.
+            // one costs nothing); the ~6s aggregates ride the result buffer like everything else.
             conntrackRunner.LiveSend = tunnel.TrySend;
         }
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
