@@ -758,12 +758,28 @@ public class MonitoringLiveStats
     /// <summary>A client's conntrack-measured WAN rate, computed from a window's byte deltas.</summary>
     public readonly record struct ClientWanRate(double DownBps, double UpBps, DateTime At);
 
+    /// <summary>Floor for <see cref="ConntrackFreshness"/>; the live value scales with the
+    /// agent's actual cadence so a stretched sampler shows honest (lumpier) measured data
+    /// instead of the coverage flapping to the estimated split between its batches.</summary>
+    private static readonly TimeSpan ConntrackFreshnessFloor = TimeSpan.FromSeconds(20);
+
+    private volatile int _lastConntrackWindowSeconds;
+
     /// <summary>
-    /// How old a conntrack rate may be and still cover a row. Three 5s windows, so one late or
-    /// stretched sample pass rides through; past it the row falls back to the estimated split
-    /// rather than showing a stale measurement as current.
+    /// How old a conntrack rate may be and still cover a row: three of the agent's own reported
+    /// windows, floored at 20s. Past it the row falls back to the estimated split rather than
+    /// showing a stale measurement as current.
     /// </summary>
-    public static readonly TimeSpan ConntrackFreshness = TimeSpan.FromSeconds(20);
+    public TimeSpan ConntrackFreshness
+    {
+        get
+        {
+            var window = _lastConntrackWindowSeconds;
+            return window > 0 && TimeSpan.FromSeconds(window * 3) > ConntrackFreshnessFloor
+                ? TimeSpan.FromSeconds(window * 3)
+                : ConntrackFreshnessFloor;
+        }
+    }
 
     /// <summary>The synthetic identity for WAN bytes conntrack saw but could not attribute
     /// (endpoints with no neighbor entry - VPN road warriors, rotated IPv6 privacy addresses).</summary>
@@ -780,8 +796,13 @@ public class MonitoringLiveStats
         _lastConntrackBatchAt = at;
     }
 
-    /// <summary>Stamps a conntrack batch that carried no client samples (an idle WAN is still coverage).</summary>
-    public void NoteConntrackBatch(DateTime at) => _lastConntrackBatchAt = at;
+    /// <summary>Stamps a conntrack batch (an empty one included: an idle WAN is still coverage),
+    /// remembering the window it covered so the freshness gate tracks the agent's real cadence.</summary>
+    public void NoteConntrackBatch(DateTime at, int windowSeconds = 0)
+    {
+        _lastConntrackBatchAt = at;
+        if (windowSeconds > 0) _lastConntrackWindowSeconds = windowSeconds;
+    }
 
     /// <summary>A client's measured WAN rate, or null when none newer than <paramref name="maxAge"/>.
     /// A covered site's idle client has no entry (or a stale one): coverage says its WAN is zero,
@@ -793,7 +814,7 @@ public class MonitoringLiveStats
     }
 
     /// <summary>Whether the gateway agent's conntrack feed is currently flowing for this site.</summary>
-    public bool HasConntrackCoverage(TimeSpan maxAge) => DateTime.UtcNow - _lastConntrackBatchAt <= maxAge;
+    public bool HasConntrackCoverage() => DateTime.UtcNow - _lastConntrackBatchAt <= ConntrackFreshness;
 
     /// <summary>When the conntrack feed last reported, or null if it never has.</summary>
     public DateTime? LastConntrackBatchAt => _lastConntrackBatchAt == DateTime.MinValue ? null : _lastConntrackBatchAt;

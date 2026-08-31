@@ -1827,7 +1827,7 @@ public class AgentProbeResultSink
             }
             foreach (var (mac, bytes) in rates)
                 liveStats.RecordClientWanRate(mac, bytes.Down * 8.0 / window, bytes.Up * 8.0 / window, timestamp);
-            liveStats.NoteConntrackBatch(timestamp);
+            liveStats.NoteConntrackBatch(timestamp, batch.WindowSeconds);
             return;
         }
 

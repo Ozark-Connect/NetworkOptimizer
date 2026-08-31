@@ -256,7 +256,7 @@ public class BandwidthHogsService
             }
         }
         var conntrackCovered = playbackRates != null
-            || (liveStats != null && liveStats.HasConntrackCoverage(MonitoringLiveStats.ConntrackFreshness));
+            || (liveStats != null && liveStats.HasConntrackCoverage());
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
@@ -318,7 +318,7 @@ public class BandwidthHogsService
                             measuredUp += r.Up;
                         }
                     }
-                    else if (liveStats!.GetClientWanRate(mac, MonitoringLiveStats.ConntrackFreshness) is { } r2)
+                    else if (liveStats!.GetClientWanRate(mac, liveStats.ConntrackFreshness) is { } r2)
                     {
                         measuredDown += r2.DownBps;
                         measuredUp += r2.UpBps;

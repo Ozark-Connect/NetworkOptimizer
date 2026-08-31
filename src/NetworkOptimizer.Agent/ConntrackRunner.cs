@@ -23,10 +23,21 @@ public sealed class ConntrackRunner
     private const string ProcPath = "/proc/net/nf_conntrack";
     private const string AcctSysctlPath = "/proc/sys/net/netfilter/nf_conntrack_acct";
 
-    /// <summary>A sample pass over this budget stretches the cadence one step (self-protection
-    /// on huge tables); a pass back under a third of it relaxes one step.</summary>
-    private static readonly TimeSpan PassBudget = TimeSpan.FromMilliseconds(250);
+    /// <summary>
+    /// A sample pass over this budget stretches the cadence one step; a pass under it steps back
+    /// down. Purely a pathological-table guard: flood-measured on a live gateway (2026-08-31),
+    /// flat-out 1MB-gulp reads at ~57 ms each moved WAN latency and loss not at all, so the
+    /// budget protects CPU, not the data plane. The old 250 ms budget with an
+    /// under-a-third-to-relax rule RATCHETED: at a few thousand flows the read alone kept every
+    /// pass between the two thresholds, so one slow spell pinned the cadence at 30s forever and
+    /// short bulk flows (an entire speed test) vanished from the accounting.
+    /// </summary>
+    private static readonly TimeSpan PassBudget = TimeSpan.FromMilliseconds(1000);
     private const int MaxIntervalSeconds = 30;
+
+    /// <summary>One read syscall for tables into the tens of thousands of flows: chunked reads of
+    /// the proc file cost ~3x the kernel time (168 vs 57 ms measured at ~2.5k flows).</summary>
+    private const int ReadBufferBytes = 1 << 20;
 
     /// <summary>How long windows accumulate before one batch is enqueued for the time series.</summary>
     private static readonly TimeSpan AggregateEvery = TimeSpan.FromSeconds(6);
@@ -106,11 +117,12 @@ public sealed class ConntrackRunner
                 stopwatch.Stop();
 
                 // Self-protection: a pass over budget stretches the cadence, and says so via
-                // window_seconds on the batches - the server never has to know why.
+                // window_seconds on the batches - the server never has to know why. Steps back
+                // DOWN on any pass under budget - never a sticky ratchet (see PassBudget).
                 if (stopwatch.Elapsed > PassBudget)
                     _stretchedInterval = Math.Min(MaxIntervalSeconds, Math.Max(interval, _stretchedInterval) * 2);
-                else if (stopwatch.Elapsed < PassBudget / 3)
-                    _stretchedInterval = 0;
+                else if (_stretchedInterval > 0)
+                    _stretchedInterval = _stretchedInterval / 2 >= interval * 2 ? _stretchedInterval / 2 : 0;
             }
             var delay = _stretchedInterval > interval ? _stretchedInterval : interval;
             await Task.Delay(TimeSpan.FromSeconds(delay), ct);
@@ -123,7 +135,8 @@ public sealed class ConntrackRunner
     {
         var view = RefreshHostView();
         List<ConntrackFlow> flows;
-        using (var reader = new StreamReader(ProcPath))
+        using (var reader = new StreamReader(new FileStream(
+                   ProcPath, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes)))
             flows = ConntrackParser.Parse(reader);
 
         var wasSeeded = _accountant.Seeded;
