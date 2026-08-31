@@ -1740,15 +1740,22 @@ public class ClientDashboardService
 
         bool Covered(DateTime bucketStart)
         {
+            // A sub-hour bucket is judged by whether its CONTAINING HOUR is covered for the part
+            // of it that has elapsed. Scaling the hour's seconds by bucket/hour instead assumed
+            // the coverage spread across the whole hour, which read every recent bucket of an
+            // in-progress hour as uncovered for its first ~40 minutes - and handed the chart's
+            // tail to the DPI report's 15-minute lag.
+            if (bucket < TimeSpan.FromHours(1))
+            {
+                var hour = new DateTime(bucketStart.Ticks - bucketStart.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
+                var hourExpected = Math.Min(3600, Math.Max(0, (to - hour).TotalSeconds));
+                return hourExpected > 0
+                    && coverageHours.GetValueOrDefault(hour) >= ConntrackBucketCoverageFraction * hourExpected;
+            }
             long seconds = 0;
             var end = bucketStart + bucket;
-            for (var h = new DateTime(bucketStart.Ticks - bucketStart.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
-                 h < end; h = h.AddHours(1))
-            {
-                if (!coverageHours.TryGetValue(h, out var s)) continue;
-                // A sub-hour bucket borrows its containing hour's coverage proportionally.
-                seconds += bucket < TimeSpan.FromHours(1) ? (long)(s * bucket.TotalSeconds / 3600) : s;
-            }
+            for (var h = bucketStart; h < end; h = h.AddHours(1))
+                seconds += coverageHours.GetValueOrDefault(h);
             var expected = Math.Min(bucket.TotalSeconds, Math.Max(0, (to - bucketStart).TotalSeconds));
             return expected > 0 && seconds >= ConntrackBucketCoverageFraction * expected;
         }

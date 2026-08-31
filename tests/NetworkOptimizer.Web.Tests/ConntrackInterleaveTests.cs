@@ -84,6 +84,34 @@ public class ConntrackInterleaveTests
     }
 
     [Fact]
+    public void SubHourBucketInAPartiallyElapsedCoveredHourIsCovered()
+    {
+        // 12 minutes into the hour with ~full coverage of those minutes: the recent 5-minute
+        // buckets are covered. Scaling the hour's coverage by bucket/hour instead read them as
+        // uncovered for the hour's first ~40 minutes and handed the chart's tail to DPI's lag.
+        var coverage = new Dictionary<DateTime, long> { [T0] = 700 };
+        var measured = new List<MonitoringInfluxClient.ClientWanPoint> { new(T0.AddMinutes(6), 40, 10) };
+        var dpi = new List<UsageBucket> { new(T0.AddMinutes(5), 500, 100) };
+
+        var result = ClientDashboardService.InterleaveWanBuckets(
+            dpi, measured, coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12));
+
+        result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(40);
+    }
+
+    [Fact]
+    public void SubHourBucketInAMostlyUncoveredElapsedHourKeepsDpi()
+    {
+        var coverage = new Dictionary<DateTime, long> { [T0] = 300 }; // 5 min covered of 12 elapsed
+        var dpi = new List<UsageBucket> { new(T0.AddMinutes(5), 500, 100) };
+
+        var result = ClientDashboardService.InterleaveWanBuckets(
+            dpi, Array.Empty<MonitoringInfluxClient.ClientWanPoint>(), coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12));
+
+        result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(500);
+    }
+
+    [Fact]
     public void CoverageBoundaryWalksTheNewestContiguousRun()
     {
         var from = T0;
