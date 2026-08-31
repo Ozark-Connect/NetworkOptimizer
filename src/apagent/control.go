@@ -172,7 +172,20 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 // bounce back, never to force a departure, so a device with nowhere else to go is never stranded.
 //
 // hostapd scopes a ban to one VAP, so every VAP carrying the same SSID has to be told.
+//
+// A network running 802.11r is never banned. A hostapd ban answers every auth - fast transition
+// included - with status 17 and wipes the client's PMKSA, which clients read as a hostile AP:
+// observed teaching an iPhone to sit out minutes on a weak AP rather than retry, and feeding
+// stahtd's auth-flood limiter into a stuck state. Losing the bounce guard there is the lesser cost.
 func banOnDeparture(ctx context.Context, table *Table, vaps []string, holding, mac string, banMs int, voluntary time.Duration) {
+	if ft, err := ftEnabledOnVap(ctx, holding); err != nil {
+		slog.Warn("not banning, could not read the VAP's key_mgmt", "mac", mac, "vap", holding, "error", err)
+		return
+	} else if ft {
+		slog.Info("not banning, the network runs 802.11r fast transition", "mac", mac, "vap", holding)
+		return
+	}
+
 	started := time.Now()
 	deadline := started.Add(departureWindow)
 	for time.Now().Before(deadline) {
@@ -237,6 +250,34 @@ func banAcrossSsid(ctx context.Context, table *Table, vaps []string, holding, ma
 		banned = append(banned, vap)
 	}
 	slog.Info("banned after departure", "mac", mac, "ssid", ssid, "vaps", banned, "ban_ms", banMs)
+}
+
+// ftEnabledOnVap reports whether the VAP's network uses 802.11r fast transition. Read at ban time
+// rather than cached: it follows the SSID's security settings, which can change under a running
+// agent on any provision.
+func ftEnabledOnVap(ctx context.Context, vap string) (bool, error) {
+	out, err := runCommand(ctx, ubusCallTimeout, "hostapd_cli", "-i", vap, "get_config")
+	if err != nil {
+		return false, err
+	}
+	return ftInKeyMgmt(out), nil
+}
+
+// ftInKeyMgmt reports whether a hostapd get_config answer lists an FT AKM (FT-SAE, FT-PSK, ...)
+// in its key_mgmt line.
+func ftInKeyMgmt(config string) bool {
+	for _, line := range strings.Split(config, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), "key_mgmt=")
+		if !found {
+			continue
+		}
+		for _, akm := range strings.Fields(rest) {
+			if strings.HasPrefix(akm, "FT-") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // vapHoldingClient asks each VAP whether it currently holds the client.

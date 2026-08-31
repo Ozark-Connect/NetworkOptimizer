@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -38,7 +37,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
     /// How long a client is kept off the access point it just left. Five seconds was not enough: a
     /// phone sat out the ban on its new access point and went straight back the instant it lifted.
     /// The agent applies it only to a client that left before the disassociation timer, so a client
-    /// that could use no candidate is never locked out.
+    /// that could use no candidate is never locked out - and never on a network running 802.11r,
+    /// where a hostapd ban refuses fast-transition auths and poisons the client against the AP.
     /// </summary>
     private const int BounceGuardMs = 20000;
 
