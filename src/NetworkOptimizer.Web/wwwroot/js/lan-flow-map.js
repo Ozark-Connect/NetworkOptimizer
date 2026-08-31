@@ -1915,7 +1915,14 @@ export class LanFlowMap {
     // raised emissive into the glow.
     _pulseFocus(nowMs) {
         if (!this._focusClientId) return;
-        const group = this._nodeMeshes.get(this._focusClientId);
+        let group = this._nodeMeshes.get(this._focusClientId);
+        // A VirtualHub member can be missing or hidden while the hub stands in for it on
+        // screen; glow the hub, or the arrival focus breathes on nothing.
+        if (!group || !group.visible) {
+            const node = (this._snapshot?.nodes ?? []).find(n => n.id === this._focusClientId);
+            const parent = node?.parentId ? this._nodeMeshes.get(node.parentId) : null;
+            if (parent?.userData?.node?.kind === NODE_KIND.VirtualHub) group = parent;
+        }
         const { core, halo, baseEmissive } = group?.userData ?? {};
         if (!this._focusUntil) {
             if (core) this._focusUntil = nowMs + FOCUS_MS;
