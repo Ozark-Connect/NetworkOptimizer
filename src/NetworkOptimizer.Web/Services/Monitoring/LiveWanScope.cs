@@ -155,6 +155,7 @@ public sealed class LiveWanScope
             }
         }
         catch { /* console unreachable - contexts below still describe the WANs we know of */ }
+        var consoleWanCount = options.Count;
 
         try
         {
@@ -183,15 +184,11 @@ public sealed class LiveWanScope
         if (_selected.Count == 0 && options.Count > 0)
             _selected.Add(ResolveDefaultKey(options));
 
-        // Only a load that actually saw a WAN settles the list. Right after a restart an
-        // agent-routed console is either not connected (throws above) or JUST connected and
-        // answering with an empty list for its first moments - and latching on that
-        // empty-but-successful answer froze the scope with zero options for the circuit's life:
-        // no selector, no selected key, and Bandwidth Hogs' expected-speed capacity never asked
-        // for, until a page refresh made a fresh instance. No real site has zero WANs, so empty
-        // is always the transient; the periodic reload retries until something answers, and
-        // stops the moment it does.
-        _loaded = options.Count > 0;
+        // Only a load where the CONSOLE named a WAN settles the list. An agent-routed console is
+        // down or answering empty for its first moments while the context fallback still fills
+        // the secondaries, and latching on that froze the scope without the console-only primary
+        // until a page refresh. Fallback options render meanwhile; the periodic reload retries.
+        _loaded = consoleWanCount > 0;
     }
 
     /// <summary>
