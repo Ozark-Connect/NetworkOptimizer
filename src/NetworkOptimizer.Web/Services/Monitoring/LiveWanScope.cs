@@ -359,12 +359,18 @@ public sealed class LiveWanScope
             // Stored as a comma list since the selection became a set. A single key is still a
             // valid list of one, so a value written before comparison mode existed restores fine.
             var stored = await _js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            var keys = (stored ?? "")
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var storedKeys = (stored ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var keys = storedKeys
                 .Where(k => Options.Any(o => string.Equals(o.Key, k, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
             // A link chose while this read was in flight - it outranks what was stored.
             if (_pinned) return;
+            // A stored WAN missing from a list the console has not settled yet is not stale - it
+            // is the console-only WAN still loading. Retry on a later render instead of latching
+            // the fallback default in for the session.
+            if (!_loaded && keys.Count < storedKeys.Length)
+                _restored = false;
             // Every stored WAN gone (renamed, removed) leaves the default rather than nothing.
             if (keys.Count > 0)
             {
