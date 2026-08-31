@@ -233,6 +233,15 @@ func resteerOnBounce(ctx context.Context, table *Table, vaps []string, holding, 
 	window := time.Duration(req.BanMs) * time.Millisecond
 	ssidVaps := vapsSharingSsid(table, vaps, holding)
 
+	// The first request keeps the current AP last so a client with nowhere to go can stay. A
+	// re-steered client just proved it can move and came back, and leaving its own AP on the menu
+	// lets a band hop satisfy the request: observed as a 5/6 GHz ping-pong that never left the AP.
+	candidates := stripOwnCandidates(req.Candidates, ownNeighborhood(ctx, table, vaps))
+	if len(candidates) == 0 {
+		slog.Info("no bounce guard, every candidate is on this access point", "mac", mac)
+		return
+	}
+
 	for attempt := 1; ; attempt++ {
 		returned := awaitReturn(ctx, ssidVaps, mac, window)
 		if returned == "" {
@@ -249,7 +258,7 @@ func resteerOnBounce(ctx context.Context, table *Table, vaps []string, holding, 
 			addr = link
 		}
 		args, err := json.Marshal(map[string]any{
-			"addr": addr, "duration": duration, "abridged": req.Abridged, "neighbors": req.Candidates,
+			"addr": addr, "duration": duration, "abridged": req.Abridged, "neighbors": candidates,
 		})
 		if err != nil {
 			return
@@ -270,6 +279,46 @@ func resteerOnBounce(ctx context.Context, table *Table, vaps []string, holding, 
 			return
 		}
 	}
+}
+
+// ownMarks describes this access point for candidate filtering: its VAPs' own neighbor elements
+// (shadow entries included - the server's candidate lists are built from these very strings) and
+// its BSSIDs as bare hex, the prefix a neighbor element opens with.
+type ownMarks struct {
+	elements map[string]bool
+	bssidHex map[string]bool
+}
+
+func ownNeighborhood(ctx context.Context, table *Table, vaps []string) ownMarks {
+	marks := ownMarks{elements: map[string]bool{}, bssidHex: map[string]bool{}}
+	for _, r := range neighborReports(ctx, vaps) {
+		marks.elements[strings.ToLower(r.Element)] = true
+		marks.bssidHex[strings.ReplaceAll(r.Bssid, ":", "")] = true
+	}
+	for _, v := range table.Vaps() {
+		hex := strings.ToLower(strings.ReplaceAll(v.Bssid, ":", ""))
+		if len(hex) == 12 {
+			marks.bssidHex[hex] = true
+		}
+	}
+	return marks
+}
+
+// stripOwnCandidates drops candidates that lead back to this access point, matched by exact
+// element or by the BSSID the element opens with.
+func stripOwnCandidates(candidates []string, own ownMarks) []string {
+	kept := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		el := strings.ToLower(c)
+		if own.elements[el] {
+			continue
+		}
+		if len(el) >= 12 && own.bssidHex[el[:12]] {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	return kept
 }
 
 // awaitReturn watches the SSID's VAPs for the client to reappear, returning the VAP holding it,
