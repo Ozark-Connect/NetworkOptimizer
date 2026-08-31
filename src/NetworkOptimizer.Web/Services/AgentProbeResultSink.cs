@@ -1834,6 +1834,11 @@ public class AgentProbeResultSink
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
         var (wanKeys, primaryKey) = await WanKeyMapAsync(connection.SiteSlug, ct);
+        // ONE point per (client, wan tag) per batch, samples summed first. Distinct raw egress
+        // interfaces can map to the same tag (the primary and an unknown interface both write
+        // untagged), and two points on one series at one timestamp silently overwrite in
+        // InfluxDB - which cost whole speed tests, whichever sample happened to write last.
+        var sums = new Dictionary<(string Mac, string? Tag), (long Down, long Up, int Flows)>();
         foreach (var sample in batch.Clients)
         {
             var mac = ResolveConntrackIdentity(connection.SiteSlug, sample);
@@ -1841,9 +1846,12 @@ public class AgentProbeResultSink
             if (!string.IsNullOrEmpty(sample.WanIfname) && wanKeys.TryGetValue(sample.WanIfname, out var key)
                 && !string.Equals(key, primaryKey, StringComparison.OrdinalIgnoreCase))
                 wanTag = key;
-            await influx.WriteClientWanUsageAsync(mac, wanTag,
-                sample.WanDownBytes, sample.WanUpBytes, batch.WindowSeconds, sample.Flows, timestamp);
+            var sum = sums.TryGetValue((mac, wanTag), out var s) ? s : (0L, 0L, 0);
+            sums[(mac, wanTag)] = (sum.Item1 + sample.WanDownBytes, sum.Item2 + sample.WanUpBytes, sum.Item3 + sample.Flows);
         }
+        foreach (var ((mac, wanTag), sum) in sums)
+            await influx.WriteClientWanUsageAsync(mac, wanTag,
+                sum.Down, sum.Up, batch.WindowSeconds, sum.Flows, timestamp);
         // The coverage heartbeat: written for every aggregated batch, clients or none.
         await influx.WriteClientWanUsageAsync(MonitoringInfluxClient.ClientWanCoverageMarker, null,
             0, 0, batch.WindowSeconds, 0, timestamp);
