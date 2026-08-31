@@ -486,7 +486,8 @@
                     @if (_latestSpeedResult != null)
                     {
                         <div class="card speed-hero">
-                            <div class="speed-hero-results">
+                            <div class="speed-hero-results speed-hero-link"
+                                 @onclick="async () => { if (_latestSpeedResult is { } latest) await ScrollToResult(latest.Id); }">
                                 @* The device's frame: its download is what the server sent it, the stored UploadMbps. *@
                                 <div class="speed-metric download">
                                     <span class="speed-label">Download</span>
@@ -4235,6 +4236,17 @@
     /* Speed Hero (.card provides bg/border/radius) */
     .speed-hero {
         padding: 24px;
+    }
+    .speed-hero-link {
+        cursor: pointer;
+        border: 1px solid var(--bg-tertiary);
+        border-radius: 8px;
+        padding: 12px 16px;
+        width: fit-content;
+        margin: 0 auto;
+    }
+    .speed-hero-link:hover {
+        background: var(--bg-hover);
     }
     .speed-hero-results {
         display: flex;
