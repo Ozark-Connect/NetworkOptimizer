@@ -236,8 +236,27 @@ public class BandwidthHogsService
         //      survive OUR restarts because they are console-side.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
-        var conntrackCovered = liveStats != null
-            && liveStats.HasConntrackCoverage(MonitoringLiveStats.ConntrackFreshness);
+        // At the playhead, tier 1 replays the stored aggregates: the window that covered the
+        // instant answers with the measured rates, so live and playback tell one story. Null
+        // means the feed was not covering that moment - pre-agent history, or an agent outage -
+        // and the estimated split answers exactly as it always has.
+        IReadOnlyDictionary<string, (double Down, double Up)>? playbackRates = null;
+        if (at is { } playheadAt)
+        {
+            try
+            {
+                var measuredAt = await _influx.QueryClientWanRatesAtAsync(playheadAt, ct);
+                if (measuredAt != null)
+                    playbackRates = measuredAt.ToDictionary(
+                        r => r.ClientMac, r => (r.DownBps, r.UpBps), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Bandwidth Hogs: measured WAN unavailable at the playhead; splitting from DPI");
+            }
+        }
+        var conntrackCovered = playbackRates != null
+            || (liveStats != null && liveStats.HasConntrackCoverage(MonitoringLiveStats.ConntrackFreshness));
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
@@ -291,10 +310,18 @@ public class BandwidthHogsService
                     : new[] { m.Node.Mac! };
                 foreach (var mac in rowMacs)
                 {
-                    if (liveStats!.GetClientWanRate(mac, MonitoringLiveStats.ConntrackFreshness) is { } r)
+                    if (playbackRates != null)
                     {
-                        measuredDown += r.DownBps;
-                        measuredUp += r.UpBps;
+                        if (playbackRates.TryGetValue(NormalizeMac(mac), out var r))
+                        {
+                            measuredDown += r.Down;
+                            measuredUp += r.Up;
+                        }
+                    }
+                    else if (liveStats!.GetClientWanRate(mac, MonitoringLiveStats.ConntrackFreshness) is { } r2)
+                    {
+                        measuredDown += r2.DownBps;
+                        measuredUp += r2.UpBps;
                     }
                 }
                 wanDown[i] = measuredDown;

@@ -924,6 +924,62 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return totals.Select(kv => new ClientWanTotal(kv.Key, kv.Value.Down, kv.Value.Up)).ToList();
     }
 
+    /// <summary>A client's measured WAN rate at a playback instant, from the aggregate window
+    /// that covered it.</summary>
+    public sealed record ClientWanRateAt(string ClientMac, double DownBps, double UpBps);
+
+    /// <summary>
+    /// Every client's measured WAN rate at one instant, from the raw 30s aggregates: for each
+    /// client, the point whose window covers <paramref name="at"/> (stamped at window END, so the
+    /// candidate range reaches one window past the instant). Null when the coverage heartbeat has
+    /// no window covering the instant - the feed was not running then, and the caller falls back
+    /// to the estimated split rather than reading absence as idle.
+    /// </summary>
+    public async Task<IReadOnlyList<ClientWanRateAt>?> QueryClientWanRatesAtAsync(
+        DateTime at, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        // Windows are ~30s but a stretched cadence can run longer; 90s of slack bounds the scan.
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(at.AddSeconds(-90))}, stop: {ToFluxInstant(at.AddSeconds(90))})
+  |> filter(fn: (r) => r._measurement == ""client_wan"")
+  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.window_seconds)";
+        // Nearest covering window per (client, wan) series - edge slack can make two sequential
+        // windows on one series both qualify, and only one may count - then WANs sum per client.
+        var bySeries = new Dictionary<(string Mac, string Wan), (double DistanceMs, double Down, double Up)>();
+        var covered = false;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = record.GetTimeInDateTime();
+            var mac = record.GetValueByKey("client_mac") as string;
+            if (time == null || string.IsNullOrEmpty(mac)) continue;
+            var end = ToUtc(time.Value);
+            var window = AsDoubleOrNull(record.GetValueByKey("window_seconds")) ?? 0;
+            if (window <= 0) continue;
+            // A little slack on each edge: windows are stamped when the flush runs, a beat
+            // after the last sample they cover.
+            if (at < end.AddSeconds(-window - 5) || at > end.AddSeconds(5)) continue;
+            if (mac == ClientWanCoverageMarker)
+            {
+                covered = true;
+                continue;
+            }
+            var down = (AsDoubleOrNull(record.GetValueByKey("down_bytes")) ?? 0) * 8 / window;
+            var up = (AsDoubleOrNull(record.GetValueByKey("up_bytes")) ?? 0) * 8 / window;
+            var distance = Math.Abs((end - at).TotalMilliseconds);
+            var key = (mac.ToLowerInvariant(), record.GetValueByKey("wan") as string ?? "");
+            if (!bySeries.TryGetValue(key, out var seen) || distance < seen.DistanceMs)
+                bySeries[key] = (distance, down, up);
+        }
+        if (!covered) return null;
+        return bySeries
+            .GroupBy(kv => kv.Key.Mac)
+            .Select(g => new ClientWanRateAt(g.Key, g.Sum(kv => kv.Value.Down), g.Sum(kv => kv.Value.Up)))
+            .ToList();
+    }
+
     /// <summary>
     /// Per-hour conntrack coverage seconds over a window, from the coverage heartbeat series -
     /// raw windows and rolled hours merged (max wins where both answer). The interleave rule
