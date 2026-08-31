@@ -292,19 +292,17 @@ public class BandwidthHogsService
                 : Array.Empty<(DateTime, double, double)>();
             var evidence = wanHistory != null && rowHist.Count > 0 ? CorroboratedWan(rowHist, wanHistory) : null;
             var baseline = BaselineLocal(m.HistoryKey, macs, rowHist, evidence);
-            // The console's per-client rates are WAN-only, so they are a standing sanity cap on
-            // every known row: an idle-on-WAN device caps at ~zero no matter what a skewed or
-            // seeded baseline says. The traffic report stays out of this arm - its 15-minute
-            // memory would hold the cap open long after a burst ended - and the co-movement lift
-            // below may exceed the cap, so a matched burst attributes ahead of the console's lag.
+            // The console is a lagging indicator and shapes only the BASELINE (the ceiling inside
+            // BaselineLocal); it never gates live attribution. A known row attributes its raw
+            // excess over the learned habit - suppressing local flows is the baseline's job.
             var console = ConsoleNow(macs);
             double rawDown, rawUp, effDown, effUp;
             if (baseline.Known)
             {
                 rawDown = Math.Max(0, m.Down - baseline.Down);
                 rawUp = Math.Max(0, m.Up - baseline.Up);
-                effDown = Math.Min(rawDown, 2 * (console?.Down ?? 0));
-                effUp = Math.Min(rawUp, 2 * (console?.Up ?? 0));
+                effDown = rawDown;
+                effUp = rawUp;
             }
             else
             {
