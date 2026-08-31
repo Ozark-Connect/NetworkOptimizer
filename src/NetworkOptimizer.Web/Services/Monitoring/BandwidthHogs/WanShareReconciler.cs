@@ -9,7 +9,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
 /// <list type="number">
 /// <item>The clients' rates add up to the WAN rate within <see cref="Threshold"/>: the WAN explains
 /// the whole load, nothing is local, every client's WAN rate is its rate, scaled together to the
-/// WAN rate when the slack (counters read seconds apart) puts the total over it.</item>
+/// WAN rate when the slack (counters read seconds apart) puts the total over it. A leftover the
+/// capped rates cannot cover - a burst shorter than the corroborating sources' lag - is released
+/// against the clients' headroom (their rate above the cap), proportionally, marked estimated.</item>
 /// <item>They exceed it: some traffic never left the site. The WAN rate is water-filled across
 /// clients in proportion to their recent DPI WAN bytes, each capped by its rate and by what its
 /// uplink chain carried. A client with no recent DPI bytes gets none; when nobody has any (DPI
@@ -22,8 +24,12 @@ public static class WanShareReconciler
     public const double Threshold = 0.15;
 
     /// <summary>One client's rate (baseline local traffic already out), its DPI WAN bytes over the
-    /// recent window, and the least its uplink chain carried (null when no hop had a rate).</summary>
-    public readonly record struct Load(double RateBps, double DpiBytes, double? ChainCapBps);
+    /// recent window, the least its uplink chain carried (null when no hop had a rate), and how far
+    /// above the corroborated cap its measured rate runs - spendable only against a WAN deficit.</summary>
+    public readonly record struct Load(double RateBps, double DpiBytes, double? ChainCapBps, double HeadroomBps = 0);
+
+    /// <summary>A leftover smaller than this is counter slack, not a deficit worth estimating over.</summary>
+    private const double ReleaseFloorBps = 1_000_000;
 
     /// <summary>Per-client WAN rates in input order, and whether they are an estimate (case 2).</summary>
     public readonly record struct Split(double[] WanBps, bool Estimated);
@@ -46,8 +52,17 @@ public static class WanShareReconciler
         if (sum <= wanRateBps * (1 + threshold))
         {
             var scale = sum > wanRateBps ? wanRateBps / sum : 1;
-            for (var i = 0; i < n; i++) wan[i] = caps[i] * scale;
-            return new Split(wan, false);
+            double allocated = 0;
+            for (var i = 0; i < n; i++) { wan[i] = caps[i] * scale; allocated += wan[i]; }
+            // A deficit the capped rates cannot explain is a burst the corroborating sources have
+            // not caught up to; whoever holds uncapped headroom spends it, proportionally.
+            var leftover = wanRateBps - allocated;
+            double headroom = 0;
+            for (var i = 0; i < n; i++) headroom += Math.Max(0, loads[i].HeadroomBps);
+            if (leftover < ReleaseFloorBps || headroom <= 0) return new Split(wan, false);
+            var factor = Math.Min(1, leftover / headroom);
+            for (var i = 0; i < n; i++) wan[i] += Math.Max(0, loads[i].HeadroomBps) * factor;
+            return new Split(wan, true);
         }
 
         var weights = new double[n];

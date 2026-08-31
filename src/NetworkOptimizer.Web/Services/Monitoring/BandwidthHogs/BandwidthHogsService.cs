@@ -298,16 +298,20 @@ public class BandwidthHogsService
             // memory would hold the cap open long after a burst ended - and the co-movement lift
             // below may exceed the cap, so a matched burst attributes ahead of the console's lag.
             var console = ConsoleNow(macs);
-            double effDown, effUp;
+            double rawDown, rawUp, effDown, effUp;
             if (baseline.Known)
             {
-                effDown = Math.Min(Math.Max(0, m.Down - baseline.Down), 2 * (console?.Down ?? 0));
-                effUp = Math.Min(Math.Max(0, m.Up - baseline.Up), 2 * (console?.Up ?? 0));
+                rawDown = Math.Max(0, m.Down - baseline.Down);
+                rawUp = Math.Max(0, m.Up - baseline.Up);
+                effDown = Math.Min(rawDown, 2 * (console?.Down ?? 0));
+                effUp = Math.Min(rawUp, 2 * (console?.Up ?? 0));
             }
             else
             {
-                effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
-                effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
+                rawDown = m.Down;
+                rawUp = m.Up;
+                effDown = Math.Min(rawDown, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
+                effUp = Math.Min(rawUp, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
             }
             // The WAN line's own co-movement can only raise the candidate - but it is evidence
             // about the moments that matched, not a standing property: the lift applies only while
@@ -320,8 +324,8 @@ public class BandwidthHogsService
                 if (evidence.FracUp is { } cu && evidence.MatchedUp.Contains(lastAt)) effUp = Math.Max(effUp, cu * m.Up);
             }
             included.Add(i);
-            loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
-            loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
+            loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown, Math.Max(0, rawDown - effDown)));
+            loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp, Math.Max(0, rawUp - effUp)));
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
