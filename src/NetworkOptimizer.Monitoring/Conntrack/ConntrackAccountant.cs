@@ -40,20 +40,17 @@ public sealed class ConntrackAccountant
             snapshot[flow.Key] = (flow.OrigBytes, flow.ReplyBytes);
             if (!seeded) continue;
 
-            long dOrig, dReply;
-            if (_previous!.TryGetValue(flow.Key, out var prev)
-                && flow.OrigBytes >= prev.Orig && flow.ReplyBytes >= prev.Reply)
-            {
-                dOrig = flow.OrigBytes - prev.Orig;
-                dReply = flow.ReplyBytes - prev.Reply;
-            }
-            else
-            {
-                // New flow (or a reused tuple whose counters restarted): everything it
-                // holds happened since the last pass saw nothing for it.
-                dOrig = flow.OrigBytes;
-                dReply = flow.ReplyBytes;
-            }
+            // A tuple with no prior counters is SEED-ONLY, never billed its full total: the proc
+            // table is a seq-file read, so an existing long-lived flow can be missed in one pass
+            // under churn and reappear the next carrying its whole history - billing that as one
+            // window inflated a client by orders of magnitude. Seeding instead loses at most one
+            // window of a genuinely new flow's bytes: an undercount, never an inflation, which is
+            // this feed's doctrine (v2's destroy events recover exact short-flow bytes).
+            if (!_previous!.TryGetValue(flow.Key, out var prev)
+                || flow.OrigBytes < prev.Orig || flow.ReplyBytes < prev.Reply)
+                continue;
+            var dOrig = flow.OrigBytes - prev.Orig;
+            var dReply = flow.ReplyBytes - prev.Reply;
             if (dOrig == 0 && dReply == 0) continue;
 
             if (Classify(flow, view) is not { } c) continue;

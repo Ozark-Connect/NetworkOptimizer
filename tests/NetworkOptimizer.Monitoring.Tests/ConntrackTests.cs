@@ -195,35 +195,45 @@ public class ConntrackAccountantTests
     }
 
     [Fact]
-    public void CounterGoneBackwardReadsAsNewFlow()
+    public void CounterGoneBackwardSeedsAsNewFlowAndDeltasFromThere()
     {
-        // A reused tuple whose counters restarted holds only its own bytes: they all count,
-        // and a negative delta cannot exist.
+        // A reused tuple whose counters restarted is seeded, not billed: its next delta counts.
         var accountant = new ConntrackAccountant();
         var view = GatewayView();
         accountant.Account(new[] { NattedFlow(1_000_000, 5_000_000) }, view);
-        var deltas = accountant.Account(new[] { NattedFlow(400, 900) }, view);
+        accountant.Account(new[] { NattedFlow(400, 900) }, view).Should().BeEmpty();
+        var deltas = accountant.Account(new[] { NattedFlow(500, 1200) }, view);
 
         var d = deltas.Should().ContainSingle().Subject;
-        d.UpBytes.Should().Be(400);
-        d.DownBytes.Should().Be(900);
+        d.UpBytes.Should().Be(100);
+        d.DownBytes.Should().Be(300);
     }
 
     [Fact]
-    public void FlowBornBetweenSamplesCountsItsFullBytes()
+    public void UnseenTupleIsSeedOnlyNeverBilledItsTotal()
     {
+        // The proc table is a seq-file read: an existing flow can be missed in one pass under
+        // churn and reappear with its whole history. Billing that as one window inflated a
+        // client by orders of magnitude (seen live: 164 GB "in 15 minutes" on a 1 Gbps WAN).
+        // Seeding loses at most one window of a truly new flow - undercount, never inflation.
         var accountant = new ConntrackAccountant();
         var view = GatewayView();
         accountant.Account(new[] { NattedFlow(100, 100, sport: 1000) }, view);
         var deltas = accountant.Account(new[]
         {
             NattedFlow(100, 100, sport: 1000),
-            NattedFlow(5000, 60000, sport: 2000),
+            NattedFlow(5_000_000_000, 60_000_000_000, sport: 2000),
         }, view);
+        deltas.Should().BeEmpty(); // the reappeared/new tuple only seeds
 
-        var d = deltas.Should().ContainSingle().Subject; // sport 1000 moved nothing
-        d.UpBytes.Should().Be(5000);
-        d.DownBytes.Should().Be(60000);
+        var next = accountant.Account(new[]
+        {
+            NattedFlow(100, 100, sport: 1000),
+            NattedFlow(5_000_001_000, 60_000_002_000, sport: 2000),
+        }, view);
+        var d = next.Should().ContainSingle().Subject;
+        d.UpBytes.Should().Be(1000);
+        d.DownBytes.Should().Be(2000);
     }
 
     [Fact]
@@ -233,9 +243,10 @@ public class ConntrackAccountantTests
         var view = GatewayView();
         accountant.Account(new[] { NattedFlow(100, 100) }, view);
         accountant.Account(System.Array.Empty<ConntrackFlow>(), view).Should().BeEmpty();
-        // And its tuple coming back later reads as a new flow, not as a resumed counter.
-        var deltas = accountant.Account(new[] { NattedFlow(50, 70) }, view);
-        deltas.Should().ContainSingle().Subject.UpBytes.Should().Be(50);
+        // Its tuple coming back reads as a fresh seed, never as a resumed counter.
+        accountant.Account(new[] { NattedFlow(50, 70) }, view).Should().BeEmpty();
+        var deltas = accountant.Account(new[] { NattedFlow(90, 100) }, view);
+        deltas.Should().ContainSingle().Subject.UpBytes.Should().Be(40);
     }
 
     [Fact]
