@@ -52,6 +52,10 @@ public class BandwidthHogsService
     /// to a TV is an episodic burst, and an hour of dead raw-excess is too high a price for it.</summary>
     private const int HabitMinSamples = 30;
 
+    /// <summary>How far the measured rate may run past the console's WAN-only figure and still
+    /// count as "the console explains all of it" (plus one co-movement step of chatter).</summary>
+    private const double ConsoleAgreementSlack = 0.25;
+
     /// <summary>A live console rate older than this says nothing about now.</summary>
     private static readonly TimeSpan ConsoleNowFreshness = TimeSpan.FromSeconds(90);
 
@@ -328,6 +332,17 @@ public class BandwidthHogsService
             {
                 if (evidence.CurrentDown > 0) effDown = Math.Max(effDown, Math.Min(m.Down, evidence.CurrentDown));
                 if (evidence.CurrentUp > 0) effUp = Math.Max(effUp, Math.Min(m.Up, evidence.CurrentUp));
+            }
+            // When the console's WAN-only rate explains roughly ALL of the measured rate, that IS
+            // the WAN figure - lag is irrelevant on a long-lived flow, and the min bounds a stale
+            // reading by what the device moves right now. A device with local traffic on top
+            // (measured well above the console) never qualifies, so nothing local rides in.
+            if (console is { } agrees)
+            {
+                if (m.Down <= agrees.Down * (1 + ConsoleAgreementSlack) + CoMoveMinStepBps)
+                    effDown = Math.Max(effDown, Math.Min(m.Down, agrees.Down));
+                if (m.Up <= agrees.Up * (1 + ConsoleAgreementSlack) + CoMoveMinStepBps)
+                    effUp = Math.Max(effUp, Math.Min(m.Up, agrees.Up));
             }
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown, Math.Max(0, rawDown - effDown)));
