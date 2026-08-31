@@ -125,7 +125,6 @@ public sealed class LiveWanScope
         if (_loaded) return;
 
         var options = new List<Option>();
-        var consoleAnswered = false;
 
         // Read first: a live WAN needs to know whether a context names it, and the answer decides
         // where a "fix my monitoring" link can usefully send someone.
@@ -154,7 +153,6 @@ public sealed class LiveWanScope
                     NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName),
                     keysWithContext.Contains(key)));
             }
-            consoleAnswered = true;
         }
         catch { /* console unreachable - contexts below still describe the WANs we know of */ }
 
@@ -185,11 +183,15 @@ public sealed class LiveWanScope
         if (_selected.Count == 0 && options.Count > 0)
             _selected.Add(ResolveDefaultKey(options));
 
-        // Only a load that actually saw something settles the list. Right after a restart the
-        // console has not connected yet, so it answers nothing and the WANs it alone knows about
-        // are missing - latching on that left the filter short one WAN until the page was
-        // reloaded, since a new circuit gets a new instance and tries again.
-        _loaded = consoleAnswered || options.Count > 0;
+        // Only a load that actually saw a WAN settles the list. Right after a restart an
+        // agent-routed console is either not connected (throws above) or JUST connected and
+        // answering with an empty list for its first moments - and latching on that
+        // empty-but-successful answer froze the scope with zero options for the circuit's life:
+        // no selector, no selected key, and Bandwidth Hogs' expected-speed capacity never asked
+        // for, until a page refresh made a fresh instance. No real site has zero WANs, so empty
+        // is always the transient; the periodic reload retries until something answers, and
+        // stops the moment it does.
+        _loaded = options.Count > 0;
     }
 
     /// <summary>
