@@ -8,7 +8,13 @@ report, parsed per kind) beside LAN + WAN from our counters, never summed; an ho
 tab reads it for anything wider than six hours. Gateway conntrack accounting then replaces the
 estimated WAN split with measured per-client WAN on sites covered by an on-gateway agent - per-flow
 deltas differenced at the source, nothing per-flow leaving the gateway, unresolvable endpoints in an
-explicit unattributed remainder.
+explicit unattributed remainder - and draws the measured WAN share as a dashed overlay on Live
+Throughput (idle-but-covered backfills as zero via the coverage markers).
+
+**Known-bad history, accepted:** hours rolled up before the port_table one-writer fix (~2026-08-29
+to -31, clients on non-SNMP switches where an agent SNMP relay also wrote) are inflated in the
+longterm rollup and stay that way - the raw samples carry the same zigzag, so a re-roll reproduces
+it. Affects the main test site's camera and at most a few preview installs; do not re-roll for this.
 
 **Wired stays per port, deliberately.** The port total is a true number with a stated scope (the
 card says "everything through its switch port"), where a per-device number from the console's
