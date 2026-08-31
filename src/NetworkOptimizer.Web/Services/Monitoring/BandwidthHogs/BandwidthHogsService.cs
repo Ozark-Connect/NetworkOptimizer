@@ -304,11 +304,16 @@ public class BandwidthHogsService
                 effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
                 effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
             }
-            // The WAN line's own co-movement can only raise the candidate: a row whose rate steps
-            // the WAN total stepped with is WAN traffic no matter what the baseline says.
-            double? corrDown = evidence?.FracDown, corrUp = evidence?.FracUp;
-            if (corrDown is { } cd) effDown = Math.Max(effDown, cd * m.Down);
-            if (corrUp is { } cu) effUp = Math.Max(effUp, cu * m.Up);
+            // The WAN line's own co-movement can only raise the candidate - but it is evidence
+            // about the moments that matched, not a standing property: the lift applies only while
+            // the row's latest sample sits inside a matched burst, so a finished WAN test cannot
+            // ride a steady local flow into the WAN column for the rest of the window.
+            if (evidence != null && rowHist.Count > 0)
+            {
+                var lastAt = rowHist[^1].At;
+                if (evidence.FracDown is { } cd && evidence.MatchedDown.Contains(lastAt)) effDown = Math.Max(effDown, cd * m.Down);
+                if (evidence.FracUp is { } cu && evidence.MatchedUp.Contains(lastAt)) effUp = Math.Max(effUp, cu * m.Up);
+            }
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
