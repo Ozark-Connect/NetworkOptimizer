@@ -189,6 +189,64 @@ function toPoint(p) {
 
 function hasWan(p) { return p.wanDown != null || p.wanUp != null; }
 
+// A WAN sample gap past this is a coverage break: the dashed line ends instead of bridging it.
+const MAX_WAN_GAP_MS = 15000;
+
+// One total series' value at an arbitrary instant, interpolated between its surrounding points.
+function seriesAt(pts, t, key) {
+    let before = null, after = null;
+    for (const p of pts) {
+        if (p[key] == null) continue;
+        if (p.time <= t) before = p;
+        else { after = p; break; }
+    }
+    if (before && after && after.time > before.time) {
+        const f = (t - before.time) / (after.time - before.time);
+        return before[key] + (after[key] - before[key]) * f;
+    }
+    return (before ?? after)?.[key] ?? null;
+}
+
+// The WAN pair is drawn area-conserved under the total, not as its own polyline: within each WAN
+// window the measured bytes are redistributed along the total curve's shape (wan = total x scale,
+// scale = window's WAN bytes / area under the total, capped at 1). The raw windows are coarser
+// than the totals, so drawing them directly puts flat blocks through the totals' spikes - crossing
+// a line WAN physically cannot cross (it rides the same port/radio). Render-time only: the
+// buffers keep the raw measurements, and the area under the dashes stays the measured bytes.
+function reshapeWanSeries(wanPts, pts, wanKey, totKey) {
+    const src = wanPts.filter(p => p[wanKey] != null);
+    const out = [];
+    const pushGap = () => { if (out.length && out[out.length - 1].y != null) out.push({ x: out[out.length - 1].x + 1, y: null }); };
+    for (let i = 0; i < src.length; i++) {
+        const a = src[i], b = src[i + 1];
+        if (!b || b.time - a.time <= 0 || b.time - a.time > MAX_WAN_GAP_MS) {
+            // No window ahead: a lone sample still shows, clamped pointwise, then the line breaks.
+            if (!out.length || out[out.length - 1].x < a.time) {
+                const tot = seriesAt(pts, a.time, totKey);
+                out.push({ x: a.time, y: tot != null ? Math.min(a[wanKey], tot) : a[wanKey] });
+            }
+            pushGap();
+            continue;
+        }
+        const times = [a.time];
+        for (const p of pts) if (p.time > a.time && p.time < b.time) times.push(p.time);
+        times.push(b.time);
+        const tot = times.map(t => seriesAt(pts, t, totKey) ?? 0);
+        let area = 0;
+        for (let k = 1; k < times.length; k++)
+            area += (tot[k - 1] + tot[k]) / 2 * (times[k] - times[k - 1]);
+        const avgTot = area / (b.time - a.time);
+        const avgWan = (a[wanKey] + b[wanKey]) / 2;
+        const scale = avgTot > 0 ? Math.min(1, avgWan / avgTot) : 0;
+        for (let k = 0; k < times.length; k++) {
+            // The segment's first point duplicates the previous segment's end; keep that one.
+            if (k === 0 && out.length && out[out.length - 1].x >= times[0]) continue;
+            out.push({ x: times[k], y: tot[k] * scale });
+        }
+    }
+    return out;
+}
+
 function updateChart() {
     if (!chart || (buffer.length === 0 && wanBuffer.length === 0)) return;
     if (tooltipShowing()) return;
@@ -213,8 +271,8 @@ function updateChart() {
     chart.updateSeries([
         { name: 'Download',     data: pts.map(p => ({ x: p.time, y: p.down })) },
         { name: 'Upload',       data: pts.map(p => ({ x: p.time, y: p.up })) },
-        { name: 'WAN Download', data: wanPts.map(p => ({ x: p.time, y: p.wanDown })) },
-        { name: 'WAN Upload',   data: wanPts.map(p => ({ x: p.time, y: p.wanUp })) },
+        { name: 'WAN Download', data: reshapeWanSeries(wanPts, pts, 'wanDown', 'down') },
+        { name: 'WAN Upload',   data: reshapeWanSeries(wanPts, pts, 'wanUp', 'up') },
     ], false);
 }
 
