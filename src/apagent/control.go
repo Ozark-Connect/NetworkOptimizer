@@ -153,10 +153,7 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 	}
 
 	if req.BanMs > 0 {
-		// Past this the access point has disassociated the client itself, so leaving is no longer
-		// evidence that it chose to.
-		voluntary := time.Duration(duration) * beaconInterval
-		go banOnDeparture(context.WithoutCancel(ctx), table, vaps, vap, mac, req.BanMs, voluntary)
+		go guardDeparture(context.WithoutCancel(ctx), table, vaps, vap, mac, req, duration)
 	}
 
 	return &RoamResult{
@@ -167,53 +164,156 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 	}, nil
 }
 
-// banOnDeparture blocks the client from rejoining this AP for a moment, but only once it has
-// actually left. A client that ignores the request keeps its association: the ban exists to stop a
-// bounce back, never to force a departure, so a device with nowhere else to go is never stranded.
-//
-// hostapd scopes a ban to one VAP, so every VAP carrying the same SSID has to be told.
-//
-// A network running 802.11r is never banned. A hostapd ban answers every auth - fast transition
-// included - with status 17 and wipes the client's PMKSA, which clients read as a hostile AP:
-// observed teaching an iPhone to sit out minutes on a weak AP rather than retry, and feeding
-// stahtd's auth-flood limiter into a stuck state. Losing the bounce guard there is the lesser cost.
-func banOnDeparture(ctx context.Context, table *Table, vaps []string, holding, mac string, banMs int, voluntary time.Duration) {
-	if ft, err := ftEnabledOnVap(ctx, holding); err != nil {
-		slog.Warn("not banning, could not read the VAP's key_mgmt", "mac", mac, "vap", holding, "error", err)
+// guardDeparture applies the bounce guard once the client has actually left: a ban on a plain RSN
+// network, a re-steer on one running fast transition. A client that ignores the request keeps its
+// association: the guard exists to stop a bounce back, never to force a departure, so a device
+// with nowhere else to go is never stranded.
+func guardDeparture(ctx context.Context, table *Table, vaps []string, holding, mac string, req RoamRequest, duration int) {
+	voluntary := time.Duration(duration) * beaconInterval
+
+	left, elapsed := awaitDeparture(ctx, holding, mac)
+	if !left {
 		return
-	} else if ft {
-		slog.Info("not banning, the network runs 802.11r fast transition", "mac", mac, "vap", holding)
+	}
+	// Only a client that left before the disassociation timer chose to. One the access point
+	// pushed off could use none of the candidates, and guarding against its return is how a
+	// device ends up on no SSID at all.
+	if elapsed > voluntary {
+		slog.Info("no bounce guard, client was disassociated rather than moving",
+			"mac", mac, "after", elapsed.Round(time.Millisecond).String())
 		return
 	}
 
+	ft, err := ftEnabledOnVap(ctx, holding)
+	if err != nil {
+		// Not knowing must never ban: on an FT network the ban is the worse harm, and the
+		// re-steer is safe on any network.
+		slog.Warn("could not read the VAP's key_mgmt, guarding by re-steer",
+			"mac", mac, "vap", holding, "error", err)
+		ft = true
+	}
+	if ft {
+		resteerOnBounce(ctx, table, vaps, holding, mac, req, duration, voluntary)
+		return
+	}
+	banAcrossSsid(ctx, table, vaps, holding, mac, req.BanMs)
+}
+
+// awaitDeparture watches the VAP for the client to leave, reporting whether it did within the
+// window and how long it took.
+func awaitDeparture(ctx context.Context, vap, mac string) (bool, time.Duration) {
 	started := time.Now()
 	deadline := started.Add(departureWindow)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return
+			return false, 0
 		case <-time.After(departurePoll):
 		}
-		if vapHoldingClient(ctx, []string{holding}, mac) != "" {
-			continue
+		if vapHoldingClient(ctx, []string{vap}, mac) == "" {
+			return true, time.Since(started)
 		}
+	}
+	return false, 0
+}
 
-		// Only a client that left before the disassociation timer chose to. One the access point
-		// pushed off could use none of the candidates, and banning it is how a device ends up on
-		// no SSID at all.
-		if elapsed := time.Since(started); elapsed > voluntary {
-			slog.Info("not banning, client was disassociated rather than moving",
-				"mac", mac, "after", elapsed.Round(time.Millisecond).String())
+// maxResteers caps how many times a bounced client is asked again. A couple of evictions in quick
+// succession get a client to deprioritize this AP on its own; past that it has made its choice.
+const maxResteers = 2
+
+// resteerOnBounce is the FT network's bounce guard. A hostapd ban answers every auth - fast
+// transition included - with status 17 and wipes the client's PMKSA, which clients read as a
+// hostile AP: observed teaching an iPhone to sit out minutes on a weak AP rather than retry, and
+// feeding stahtd's auth-flood limiter into a stuck state. So a client that fast-transitions
+// straight back is asked to move again with the same request instead - every transition stays
+// clean, and the repeat eviction earns the deprioritization the ban used to force.
+func resteerOnBounce(ctx context.Context, table *Table, vaps []string, holding, mac string, req RoamRequest, duration int, voluntary time.Duration) {
+	// The same window the ban would have covered, restarted per eviction. A bounce can land on
+	// any band of the SSID the client was steered off, so the whole set is watched.
+	window := time.Duration(req.BanMs) * time.Millisecond
+	ssidVaps := vapsSharingSsid(table, vaps, holding)
+
+	for attempt := 1; ; attempt++ {
+		returned := awaitReturn(ctx, ssidVaps, mac, window)
+		if returned == "" {
+			slog.Info("bounce guard clear, client stayed away", "mac", mac, "resteers", attempt-1)
+			return
+		}
+		if attempt > maxResteers {
+			slog.Info("client keeps returning, leaving it", "mac", mac, "vap", returned)
 			return
 		}
 
-		banAcrossSsid(ctx, table, vaps, holding, mac, banMs)
-		return
+		addr := mac
+		if link := table.LinkAddrForVap(mac, returned); link != "" {
+			addr = link
+		}
+		args, err := json.Marshal(map[string]any{
+			"addr": addr, "duration": duration, "abridged": req.Abridged, "neighbors": req.Candidates,
+		})
+		if err != nil {
+			return
+		}
+		if _, err := ubusCall(ctx, "hostapd."+returned, "wnm_disassoc_imminent", string(args)); err != nil {
+			slog.Warn("re-steer failed", "mac", mac, "vap", returned, "error", err)
+			return
+		}
+		slog.Info("re-steering after bounce", "mac", mac, "vap", returned, "attempt", attempt)
+
+		left, elapsed := awaitDeparture(ctx, returned, mac)
+		if !left {
+			slog.Info("client kept its association after re-steer", "mac", mac, "vap", returned)
+			return
+		}
+		if elapsed > voluntary {
+			slog.Info("no further guard, client was disassociated rather than moving", "mac", mac)
+			return
+		}
 	}
 }
 
-// banAcrossSsid bans the client on every VAP sharing the holding VAP's SSID.
+// awaitReturn watches the SSID's VAPs for the client to reappear, returning the VAP holding it,
+// or "" when it stayed away for the whole window.
+func awaitReturn(ctx context.Context, vaps []string, mac string, window time.Duration) string {
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(departurePoll):
+		}
+		if vap := vapHoldingClient(ctx, vaps, mac); vap != "" {
+			return vap
+		}
+	}
+	return ""
+}
+
+// banAcrossSsid bans the client on every VAP sharing the holding VAP's SSID. hostapd scopes a ban
+// to one VAP, so the whole set has to be told.
 func banAcrossSsid(ctx context.Context, table *Table, vaps []string, holding, mac string, banMs int) {
+	args, err := json.Marshal(map[string]any{
+		"addr": mac, "reason": banReasonUnspecified, "deauth": false, "ban_time": banMs,
+	})
+	if err != nil {
+		return
+	}
+
+	targets := vapsSharingSsid(table, vaps, holding)
+	banned := make([]string, 0, len(targets))
+	for _, vap := range targets {
+		if _, err := ubusCall(ctx, "hostapd."+vap, "del_client", string(args)); err != nil {
+			slog.Warn("ban failed", "mac", mac, "vap", vap, "error", err)
+			continue
+		}
+		banned = append(banned, vap)
+	}
+	slog.Info("banned after departure", "mac", mac, "vaps", banned, "ban_ms", banMs)
+}
+
+// vapsSharingSsid is the holding VAP plus every VAP carrying its SSID - the scope both bounce
+// guards operate on, since a steered client can land on any band of the network it left.
+func vapsSharingSsid(table *Table, vaps []string, holding string) []string {
 	ssid := ""
 	for _, v := range table.Vaps() {
 		if v.Name == holding {
@@ -231,25 +331,13 @@ func banAcrossSsid(ctx context.Context, table *Table, vaps []string, holding, ma
 		}
 	}
 
-	args, err := json.Marshal(map[string]any{
-		"addr": mac, "reason": banReasonUnspecified, "deauth": false, "ban_time": banMs,
-	})
-	if err != nil {
-		return
-	}
-
-	banned := make([]string, 0, len(targets))
+	out := make([]string, 0, len(targets))
 	for _, vap := range vaps {
-		if !targets[vap] {
-			continue
+		if targets[vap] {
+			out = append(out, vap)
 		}
-		if _, err := ubusCall(ctx, "hostapd."+vap, "del_client", string(args)); err != nil {
-			slog.Warn("ban failed", "mac", mac, "vap", vap, "error", err)
-			continue
-		}
-		banned = append(banned, vap)
 	}
-	slog.Info("banned after departure", "mac", mac, "ssid", ssid, "vaps", banned, "ban_ms", banMs)
+	return out
 }
 
 // ftEnabledOnVap reports whether the VAP's network uses 802.11r fast transition. Read at ban time
