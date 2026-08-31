@@ -372,7 +372,9 @@ public sealed class LiveWanScope
             if (!_loaded && keys.Count < storedKeys.Length)
                 _restored = false;
             // Every stored WAN gone (renamed, removed) leaves the default rather than nothing.
-            if (keys.Count > 0)
+            // Apply only on a real change: a partial match re-applied on every retry render
+            // would notify, re-render, and retry again - a render loop.
+            if (keys.Count > 0 && !(_selected.Count == keys.Count && keys.All(_selected.Contains)))
             {
                 _selected.Clear();
                 foreach (var k in keys) _selected.Add(k);
