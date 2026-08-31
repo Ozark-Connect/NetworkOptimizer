@@ -47,6 +47,11 @@ public class BandwidthHogsService
     /// flight must not baseline itself while it is being attributed.</summary>
     public static readonly TimeSpan BaselineRecentGuard = TimeSpan.FromMinutes(3);
 
+    /// <summary>Habit is a level a device LIVES at: samples at or above it must span about five
+    /// cumulative minutes (at the 10 s row spacing) before it counts. An NVR backup or a stream
+    /// to a TV is an episodic burst, and an hour of dead raw-excess is too high a price for it.</summary>
+    private const int HabitMinSamples = 30;
+
     /// <summary>A live console rate older than this says nothing about now.</summary>
     private static readonly TimeSpan ConsoleNowFreshness = TimeSpan.FromSeconds(90);
 
@@ -639,18 +644,22 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// The top of the local band: the highest rate that has stood for at least
+    /// The top of the local band: the highest rate the row has LIVED at - held for
+    /// <see cref="HabitMinSamples"/> cumulative samples, all older than
     /// <see cref="BaselineRecentGuard"/>. WAN-corroborated samples are excluded before this is
-    /// called, so what remains is local by election - and the guard keeps a burst still in
-    /// flight from baselining itself while it is being attributed.
+    /// called, so what remains is local by election; an episodic LAN burst (a backup, a stream)
+    /// stays out, while a band occupied all hour tops out at its top. Short histories take the
+    /// plain max - episodic and habitual cannot be told apart yet.
     /// </summary>
     public static double HabitTopBps(IEnumerable<(DateTime At, double Bps)> measured, DateTime now)
     {
-        double top = 0;
+        var held = new List<double>();
         foreach (var (at, bps) in measured)
-            if (now - at >= BaselineRecentGuard && bps > top)
-                top = bps;
-        return top;
+            if (now - at >= BaselineRecentGuard)
+                held.Add(bps);
+        if (held.Count == 0) return 0;
+        held.Sort((a, b) => b.CompareTo(a));
+        return held.Count <= HabitMinSamples ? held[0] : held[HabitMinSamples - 1];
     }
 
     /// <summary>Lower-interpolation p90: sorted[floor(0.9 * (n-1))], so small sample sets pick a

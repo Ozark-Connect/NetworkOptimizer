@@ -94,6 +94,29 @@ public class BandwidthHogsBaselineTests
     }
 
     [Fact]
+    public void An_episodic_lan_burst_is_not_habit()
+    {
+        // An hour at a ~30 Mbps band with a two-minute 833 Mbps backup in the middle: habit is
+        // the level lived at, so the backup's dozen samples never become the baseline.
+        var measured = new List<(DateTime, double)>();
+        for (var m = 55; m >= 4; m--) measured.Add(Ago(m, 30e6));
+        for (var i = 0; i < 12; i++) measured.Add((Now.AddMinutes(-20).AddSeconds(i * 10), 833e6));
+        BandwidthHogsService.BaselineLocalBps(measured.OrderBy(s => s.Item1).ToList(), 0, Now, MinSpan)
+            .Should().BeApproximately(30e6, 1);
+    }
+
+    [Fact]
+    public void A_level_lived_at_for_minutes_is_habit()
+    {
+        // The same level held for six cumulative minutes is a habit, episodic no longer.
+        var measured = new List<(DateTime, double)>();
+        for (var m = 55; m >= 4; m--) measured.Add(Ago(m, 30e6));
+        for (var i = 0; i < 36; i++) measured.Add((Now.AddMinutes(-25).AddSeconds(i * 10), 200e6));
+        BandwidthHogsService.BaselineLocalBps(measured.OrderBy(s => s.Item1).ToList(), 0, Now, MinSpan)
+            .Should().BeApproximately(200e6, 1);
+    }
+
+    [Fact]
     public void Too_little_measured_history_claims_no_baseline()
     {
         var measured = new[] { Ago(2, 30e6), Ago(0, 30e6) };
