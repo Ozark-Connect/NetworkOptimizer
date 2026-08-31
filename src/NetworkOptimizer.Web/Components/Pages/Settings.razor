@@ -4666,8 +4666,9 @@
         string.IsNullOrWhiteSpace(AgentServerUrl.Url)
             ? "https://your-network-optimizer" : AgentServerUrl.Url!.TrimEnd('/');
 
+    // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: release/2.8 scripts fetch preview binaries.
     private string NativeUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
+        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-native.sh"
         + $" | sudo bash -s -- --server \"{AgentServerBase()}\"";
 
     // An agent in an LXC is the bare-metal agent with a container around it, so it
@@ -4679,7 +4680,7 @@
     // Monitoring-only gateway installer: no --lan-speed-test (the router must not
     // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
     private string GatewayUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh"
+        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh"
         + $" | bash -s -- --server \"{AgentServerBase()}\"";
 
     // Placeholder shows what a blank override resolves to - the online agent's

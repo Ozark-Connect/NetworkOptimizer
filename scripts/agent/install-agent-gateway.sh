@@ -52,7 +52,10 @@ INSTALL_DIR="/data/netopt-agent"
 SERVICE_NAME="netopt-agent"
 INSECURE=false
 UNINSTALL=false
-RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
+# PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: fetch the newest v2.8.0-preview*
+# binaries; releases/latest would hand back the pre-conntrack stable agent.
+PREVIEW_TAG="$(curl -fsSL 'https://api.github.com/repos/Ozark-Connect/NetworkOptimizer/releases?per_page=20' 2>/dev/null | sed -n 's/.*"tag_name": *"\(v2\.8\.0-preview[0-9]*\)".*/\1/p' | head -n1)" || PREVIEW_TAG=""
+RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${PREVIEW_TAG:-v2.8.0-preview4}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -245,5 +248,5 @@ step "Done"
 ok "Agent installed and running (monitoring-only)"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
 note "Logs:   journalctl -u ${SERVICE_NAME} -f"
-note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh) --uninstall"
+note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh) --uninstall"
 printf '\n'
