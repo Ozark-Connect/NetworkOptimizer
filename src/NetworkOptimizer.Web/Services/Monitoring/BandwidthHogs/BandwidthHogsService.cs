@@ -56,6 +56,21 @@ public class BandwidthHogsService
     private static readonly TimeSpan ExclusionLookback = TimeSpan.FromHours(24);
     private const long ExclusionFloorBytes = 1_000_000;
 
+    /// <summary>A rate change smaller than this is noise to the co-movement check.</summary>
+    private const double CoMoveMinStepBps = 5_000_000;
+
+    /// <summary>Row steps longer than this bridge a sampling gap and are not compared.</summary>
+    private static readonly TimeSpan CoMoveMaxStep = TimeSpan.FromSeconds(30);
+
+    /// <summary>How far a WAN sample may sit from a row sample and still describe the same moment.</summary>
+    private static readonly TimeSpan CoMoveAlignTolerance = TimeSpan.FromSeconds(8);
+
+    /// <summary>The WAN must move at least this share of a row's step to corroborate it; smaller coincident wiggle is chance.</summary>
+    private const double CoMoveMatchRatio = 0.5;
+
+    /// <summary>Significant steps needed before the fraction is evidence rather than a coin flip.</summary>
+    private const int CoMoveMinSteps = 3;
+
     private static readonly TimeSpan FirstSeenCacheFor = TimeSpan.FromMinutes(5);
     private (DateTime At, Dictionary<string, DateTime> Map)? _firstSeen;
 
@@ -117,7 +132,8 @@ public class BandwidthHogsService
     /// reconciled against the selected WANs' rate.
     /// </summary>
     public async Task<HogsResult> GetThroughputAsync(
-        DateTime? at, double? wanDownBps, double? wanUpBps, IReadOnlyCollection<string> wanKeys, CancellationToken ct = default)
+        DateTime? at, double? wanDownBps, double? wanUpBps, IReadOnlyCollection<string> wanKeys,
+        IReadOnlyCollection<string>? wanHistoryKeys = null, CancellationToken ct = default)
     {
         var snapshot = await _map.BuildSnapshotAsync(ct);
         List<LanNode> nodes;
@@ -199,6 +215,9 @@ public class BandwidthHogsService
         //      survive OUR restarts because they are console-side.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
+        var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
+            ? WanRateHistory(wanHistoryKeys.Select(liveStats.RowRateHistory).ToList())
+            : null;
         (double Down, double Up, bool Known, double? Floor, double? Ceiling) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
         {
             if (liveStats == null) return (0, 0, true, null, null);
@@ -275,10 +294,19 @@ public class BandwidthHogsService
                 effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
                 effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
             }
+            // The WAN line's own co-movement can only raise the candidate: a row whose rate steps
+            // the WAN total stepped with is WAN traffic no matter what the baseline says.
+            double? corrDown = null, corrUp = null;
+            if (wanHistory != null && m.HistoryKey != null)
+            {
+                (corrDown, corrUp) = CorroboratedWanFraction(liveStats!.RowRateHistory(m.HistoryKey), wanHistory);
+                if (corrDown is { } cd) effDown = Math.Max(effDown, cd * m.Down);
+                if (corrUp is { } cu) effUp = Math.Max(effUp, cu * m.Up);
+            }
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
-            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1}{(baseline.Known ? "" : " unarmed")} effDn={effDown / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
+            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1}{(baseline.Known ? "" : " unarmed")} corrDn={(corrDown is { } cr ? cr.ToString("F2") : "none")} effDn={effDown / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
@@ -689,6 +717,81 @@ public class BandwidthHogsService
             _logger.LogDebug(ex, "Bandwidth Hogs: DPI report unavailable; WAN split weighted by rate");
         }
         return totals;
+    }
+
+    /// <summary>
+    /// The selected WAN interfaces' live histories merged into one series, in WAN semantics: the
+    /// stored Down is the port's TX, which on a WAN port is upload to the ISP, so the fields swap.
+    /// Null without at least three usable samples.
+    /// </summary>
+    public static List<(DateTime At, double Down, double Up)>? WanRateHistory(
+        IReadOnlyList<IReadOnlyList<(DateTime At, double Down, double Up)>> histories)
+    {
+        var lists = histories.Where(h => h.Count > 0).ToList();
+        if (lists.Count == 0) return null;
+        var result = new List<(DateTime, double, double)>(lists[0].Count);
+        foreach (var s in lists[0])
+        {
+            double down = s.Up, up = s.Down;
+            var ok = true;
+            for (var i = 1; i < lists.Count; i++)
+            {
+                var near = Nearest(lists[i], s.At);
+                if (near == null || (near.Value.At - s.At).Duration() > CoMoveAlignTolerance) { ok = false; break; }
+                down += near.Value.Up;
+                up += near.Value.Down;
+            }
+            if (ok) result.Add((s.At, down, up));
+        }
+        return result.Count >= 3 ? result : null;
+    }
+
+    /// <summary>
+    /// How much of a row's rate the WAN line itself corroborates: the share of the row's
+    /// significant rate steps that the WAN total moved with, in step and in the same direction.
+    /// Null when the histories hold too little movement to judge; the caller only ever uses the
+    /// answer to raise a row's WAN candidate, never to lower it.
+    /// </summary>
+    public static (double? Down, double? Up) CorroboratedWanFraction(
+        IReadOnlyList<(DateTime At, double Down, double Up)> row,
+        IReadOnlyList<(DateTime At, double Down, double Up)> wan) =>
+        (CoMoveFraction(row, wan, s => s.Down), CoMoveFraction(row, wan, s => s.Up));
+
+    private static double? CoMoveFraction(
+        IReadOnlyList<(DateTime At, double Down, double Up)> row,
+        IReadOnlyList<(DateTime At, double Down, double Up)> wan,
+        Func<(DateTime At, double Down, double Up), double> rate)
+    {
+        double moved = 0, matched = 0;
+        var steps = 0;
+        for (var i = 1; i < row.Count; i++)
+        {
+            var gap = row[i].At - row[i - 1].At;
+            if (gap <= TimeSpan.Zero || gap > CoMoveMaxStep) continue;
+            var dRow = rate(row[i]) - rate(row[i - 1]);
+            if (Math.Abs(dRow) < CoMoveMinStepBps) continue;
+            var wa = Nearest(wan, row[i - 1].At);
+            var wb = Nearest(wan, row[i].At);
+            if (wa == null || wb == null || wa.Value.At >= wb.Value.At) continue;
+            if ((wa.Value.At - row[i - 1].At).Duration() > CoMoveAlignTolerance) continue;
+            if ((wb.Value.At - row[i].At).Duration() > CoMoveAlignTolerance) continue;
+            var dWan = rate(wb.Value) - rate(wa.Value);
+            moved += Math.Abs(dRow);
+            steps++;
+            if (Math.Sign(dWan) == Math.Sign(dRow) && Math.Abs(dWan) >= CoMoveMatchRatio * Math.Abs(dRow))
+                matched += Math.Min(Math.Abs(dRow), Math.Abs(dWan));
+        }
+        return steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null;
+    }
+
+    private static (DateTime At, double Down, double Up)? Nearest(
+        IReadOnlyList<(DateTime At, double Down, double Up)> samples, DateTime t)
+    {
+        (DateTime At, double Down, double Up)? best = null;
+        foreach (var s in samples)
+            if (best == null || (s.At - t).Duration() < (best.Value.At - t).Duration())
+                best = s;
+        return best;
     }
 
     /// <summary>When the console first saw each connected client, read once per

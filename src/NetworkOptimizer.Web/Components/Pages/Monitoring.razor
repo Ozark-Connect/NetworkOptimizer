@@ -4874,6 +4874,28 @@
         return (down, up);
     }
 
+    /// <summary>The live-cache history keys behind <see cref="GetWanRates"/>' interfaces, resolved the same way.</summary>
+    private List<string> GetWanHistoryKeys()
+    {
+        var keys = new List<string>();
+        if (_gatewayMac == null) return keys;
+        var selected = LiveWan.SelectedOptions;
+        if (selected.Count == 0)
+        {
+            foreach (var ifName in _gatewayWanIfNames)
+                keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName));
+            return keys;
+        }
+        foreach (var wan in selected)
+        {
+            var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
+                ? _gatewayWanIfNames.FirstOrDefault()
+                : wan.CounterIfName;
+            if (!string.IsNullOrEmpty(ifName)) keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName!));
+        }
+        return keys;
+    }
+
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
         LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
@@ -4957,7 +4979,7 @@
         var wanRates = GetWanRates();
         <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
                            WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
-                           WanKeys="LiveWan.SelectedKeys" />
+                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>

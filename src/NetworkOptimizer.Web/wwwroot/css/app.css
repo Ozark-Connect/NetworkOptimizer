@@ -21477,6 +21477,10 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-top: 0.5rem;
 }
 
+.hogs-show-more-hidden {
+    visibility: hidden;
+}
+
 .bandwidth-hogs-table .hogs-col-rank { width: 2.6rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }

@@ -190,7 +190,7 @@
             </div>
             @if (_mode == Mode.Throughput)
             {
-                <button type="button" class="btn btn-secondary btn-sm hogs-show-more"
+                <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(_showAll || VisibleRows(_view).Count() > CollapsedRows ? null : "hogs-show-more-hidden")"
                         @onclick="() => _showAll = !_showAll">
                     @(_showAll ? "Show fewer" : "Show more")
                 </button>
@@ -212,6 +212,9 @@
 
     /// <summary>The selected WAN keys, for their expected speeds.</summary>
     [Parameter] public IReadOnlyCollection<string> WanKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>Live-cache history keys for the selected WAN interfaces, for co-movement corroboration.</summary>
+    [Parameter] public IReadOnlyCollection<string> WanHistoryKeys { get; set; } = Array.Empty<string>();
 
     private enum Mode { Throughput, Data }
     private enum View { Wan, LanPlusWan }
@@ -441,7 +444,7 @@
             // same cached answer rather than asking for each position.
             var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % TimeSpan.FromMinutes(5).Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
             var result = _mode == Mode.Throughput
-                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys)
+                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys)
                 : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
             _result = result;
             _error = false;
