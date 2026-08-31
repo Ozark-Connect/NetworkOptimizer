@@ -335,6 +335,11 @@ export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0, inter
     return withBreaks;
 }
 
+// Blazor-driven ApexCharts hand tooltip.custom a serialized function string, which cannot
+// import a module - so the shared tooltip also stands at a window hook for them (first
+// consumer: Client Performance's Speed History, whose LTTB'd series do not share x values).
+window.netoptValueSortedTooltip = valueSortedTooltip;
+
 /**
  * True while a tooltip is open anywhere under <paramref name="root"/>. A poll tick that
  * redraws under the pointer tears the tooltip away mid-read, so the tick is skipped and

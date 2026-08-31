@@ -3369,6 +3369,10 @@
                 Shared = true,
                 Intersect = false,
                 X = new TooltipX { Format = "MMM dd, HH:mm" },
+                // The shared Monitoring tooltip, via its window hook (a serialized function
+                // string cannot import the module): after LTTB the two legs no longer share x
+                // values, and the stock shared tooltip then resolves only the hovered series.
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }",
                 Y = new TooltipY
                 {
                     Formatter = @"function(val) { return val.toFixed(1) + ' Mbps'; }"
