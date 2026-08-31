@@ -148,6 +148,31 @@ public class BandwidthHogsCoMovementTests
     }
 
     [Fact]
+    public void Mid_burst_the_matched_credit_attributes_directly()
+    {
+        // A single rise the WAN moved with: the row is inside the burst right now, so the
+        // step's own credit attributes - no window fraction, no dilution by past history.
+        var row = H(S(30, 0), S(20, 0), S(10, 10e6), S(0, 10e6));
+        var wan = H(S(30, 1e6), S(20, 1e6), S(10, 12e6), S(0, 12e6));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.CurrentDown.Should().BeApproximately(10e6, 1e5);
+    }
+
+    [Fact]
+    public void After_the_burst_nothing_stays_lifted()
+    {
+        // A device with a 30 Mbps local level ran a matched burst and returned to it. The
+        // post-burst samples sit at the local level: no current credit, and the local-level
+        // samples stay in the baseline's history.
+        var row = H(S(40, 30e6), S(30, 130e6), S(20, 130e6), S(10, 30e6), S(0, 30e6));
+        var wan = H(S(40, 0), S(30, 100e6), S(20, 100e6), S(10, 0), S(0, 0));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.CurrentDown.Should().Be(0);
+        evidence.MatchedDown.Should().NotContain(Now.AddSeconds(-10), "the level the burst returned to is habit");
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-30));
+    }
+
+    [Fact]
     public void A_flat_wan_line_matches_no_samples()
     {
         var row = H(S(40, 5e6), S(30, 30e6), S(20, 8e6), S(10, 33e6), S(0, 6e6));

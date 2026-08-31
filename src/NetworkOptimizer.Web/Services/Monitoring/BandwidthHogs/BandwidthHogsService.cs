@@ -315,15 +315,14 @@ public class BandwidthHogsService
                 effDown = Math.Min(rawDown, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
                 effUp = Math.Min(rawUp, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
             }
-            // The WAN line's own co-movement can only raise the candidate - but it is evidence
-            // about the moments that matched, not a standing property: the lift applies only while
-            // the row's latest sample sits inside a matched burst, so a finished WAN test cannot
-            // ride a steady local flow into the WAN column for the rest of the window.
-            if (evidence != null && rowHist.Count > 0)
+            // Inside a matched burst the WAN line itself vouches for the row: attribute the
+            // burst's own matched credit directly. Not a window fraction - a night of history
+            // must not dilute the burst happening now - and zero the moment the row's latest
+            // sample returns to a local level.
+            if (evidence != null)
             {
-                var lastAt = rowHist[^1].At;
-                if (evidence.FracDown is { } cd && evidence.MatchedDown.Contains(lastAt)) effDown = Math.Max(effDown, cd * m.Down);
-                if (evidence.FracUp is { } cu && evidence.MatchedUp.Contains(lastAt)) effUp = Math.Max(effUp, cu * m.Up);
+                if (evidence.CurrentDown > 0) effDown = Math.Max(effDown, Math.Min(m.Down, evidence.CurrentDown));
+                if (evidence.CurrentUp > 0) effUp = Math.Max(effUp, Math.Min(m.Up, evidence.CurrentUp));
             }
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown, Math.Max(0, rawDown - effDown)));
@@ -788,22 +787,25 @@ public class BandwidthHogsService
         return (e.FracDown, e.FracUp);
     }
 
-    /// <summary>Co-movement evidence for one row: the corroborated share of its significant steps
-    /// per direction, and the sample instants those matched steps touched - WAN moments the
-    /// baseline must not learn a local habit from. Fractions are null (and the matched sets
-    /// unusable) without enough movement to judge.</summary>
-    public sealed record CoMoveEvidence(double? FracDown, double? FracUp, HashSet<DateTime> MatchedDown, HashSet<DateTime> MatchedUp);
+    /// <summary>Co-movement evidence for one row, per direction: the corroborated share of its
+    /// significant steps (null without enough movement to judge), the burst-side sample instants
+    /// the baseline must not learn a local habit from, and the credit of the matched burst the
+    /// row is inside RIGHT NOW - zero whenever its latest sample sits at a local level.</summary>
+    public sealed record CoMoveEvidence(
+        double? FracDown, double? FracUp,
+        HashSet<DateTime> MatchedDown, HashSet<DateTime> MatchedUp,
+        double CurrentDown, double CurrentUp);
 
     public static CoMoveEvidence CorroboratedWan(
         IReadOnlyList<(DateTime At, double Down, double Up)> row,
         IReadOnlyList<(DateTime At, double Down, double Up)> wan)
     {
-        var (fracDown, matchedDown) = CoMoveDirection(row, wan, s => s.Down);
-        var (fracUp, matchedUp) = CoMoveDirection(row, wan, s => s.Up);
-        return new CoMoveEvidence(fracDown, fracUp, matchedDown, matchedUp);
+        var (fracDown, matchedDown, currentDown) = CoMoveDirection(row, wan, s => s.Down);
+        var (fracUp, matchedUp, currentUp) = CoMoveDirection(row, wan, s => s.Up);
+        return new CoMoveEvidence(fracDown, fracUp, matchedDown, matchedUp, currentDown, currentUp);
     }
 
-    private static (double? Frac, HashSet<DateTime> Matched) CoMoveDirection(
+    private static (double? Frac, HashSet<DateTime> Matched, double CurrentBps) CoMoveDirection(
         IReadOnlyList<(DateTime At, double Down, double Up)> row,
         IReadOnlyList<(DateTime At, double Down, double Up)> wan,
         Func<(DateTime At, double Down, double Up), double> rate)
@@ -811,6 +813,9 @@ public class BandwidthHogsService
         double moved = 0, matched = 0;
         var steps = 0;
         var hits = new HashSet<DateTime>();
+        // Only the burst SIDE of a matched step joins the set: the low endpoint is the local
+        // level, and letting it in once lifted a device's local flow right after its test ended.
+        var edges = new List<(DateTime At, double Level, double Credit)>();
         // Both histories are time-ordered, so the nearest WAN sample only ever advances: an hour
         // of history costs one walk, not a scan per step.
         var hint = 0;
@@ -842,26 +847,30 @@ public class BandwidthHogsService
             if (best > 0)
             {
                 matched += best;
-                hits.Add(row[i - 1].At);
-                hits.Add(row[i].At);
+                var high = dRow > 0 ? i : i - 1;
+                hits.Add(row[high].At);
+                edges.Add((row[high].At, rate(row[high]), best));
             }
         }
-        // A matched step excludes its endpoints, but a burst is mostly plateau and the plateau is
-        // what climbs the p90. Exclusion holds while the level does, for CoMoveBurstHold past the
-        // last matched edge, so one chance match cannot hollow out a steady device's history.
-        var body = new HashSet<DateTime>();
-        var edge = DateTime.MinValue;
-        for (var i = 1; i < row.Count; i++)
+        // A burst is mostly plateau, and the plateau is what climbs the baseline. Exclusion holds
+        // for samples still AT a matched edge's level, bounded by CoMoveBurstHold past the edge,
+        // so it can never walk down onto the local level the burst returned to.
+        var currentCredit = 0d;
+        if (edges.Count > 0)
         {
-            if (hits.Contains(row[i - 1].At)) edge = row[i - 1].At > edge ? row[i - 1].At : edge;
-            else if (!body.Contains(row[i - 1].At)) continue;
-            if (row[i].At - edge > CoMoveBurstHold) continue;
-            if (Math.Abs(rate(row[i]) - rate(row[i - 1])) >= CoMoveMinStepBps) continue;
-            if (rate(row[i]) < CoMoveMinStepBps) continue;
-            body.Add(row[i].At);
+            var ei = 0;
+            (DateTime At, double Level, double Credit)? anchor = null;
+            for (var i = 0; i < row.Count; i++)
+            {
+                while (ei < edges.Count && edges[ei].At <= row[i].At) anchor = edges[ei++];
+                if (anchor is not { } a) continue;
+                if (row[i].At - a.At > CoMoveBurstHold) continue;
+                if (Math.Abs(rate(row[i]) - a.Level) >= CoMoveMinStepBps) continue;
+                hits.Add(row[i].At);
+                if (i == row.Count - 1) currentCredit = Math.Min(rate(row[i]), a.Credit);
+            }
         }
-        hits.UnionWith(body);
-        return (steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null, hits);
+        return (steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null, hits, currentCredit);
     }
 
     private static int NearestFrom(
