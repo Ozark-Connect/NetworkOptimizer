@@ -292,17 +292,23 @@ public class BandwidthHogsService
                 : Array.Empty<(DateTime, double, double)>();
             var evidence = wanHistory != null && rowHist.Count > 0 ? CorroboratedWan(rowHist, wanHistory) : null;
             var baseline = BaselineLocal(m.HistoryKey, macs, rowHist, evidence);
+            // The console's lagging figures are a standing sanity cap on every row, not just the
+            // cold-start guard: a skewed learned baseline (a zero seeded off a young history)
+            // otherwise hands a local flow the pool with nothing to answer to. The co-movement
+            // lift below may exceed the cap, so a matched burst attributes ahead of the lag.
+            var console = ConsoleNow(macs);
+            var capDown = UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down);
+            var capUp = UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up);
             double effDown, effUp;
             if (baseline.Known)
             {
-                effDown = Math.Max(0, m.Down - baseline.Down);
-                effUp = Math.Max(0, m.Up - baseline.Up);
+                effDown = Math.Min(Math.Max(0, m.Down - baseline.Down), capDown);
+                effUp = Math.Min(Math.Max(0, m.Up - baseline.Up), capUp);
             }
             else
             {
-                var console = ConsoleNow(macs);
-                effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
-                effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
+                effDown = Math.Min(m.Down, capDown);
+                effUp = Math.Min(m.Up, capUp);
             }
             // The WAN line's own co-movement can only raise the candidate - but it is evidence
             // about the moments that matched, not a standing property: the lift applies only while
