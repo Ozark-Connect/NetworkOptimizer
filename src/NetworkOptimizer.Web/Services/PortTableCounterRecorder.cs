@@ -45,6 +45,18 @@ public static class PortTableCounterRecorder
     // Switches currently on the port table, per path, so the hand-over is logged once each way.
     private static readonly ConcurrentDictionary<string, byte> _fallingBack = new();
 
+    // One writer per switch. The direct fast tier and the agent SNMP relay both reach this
+    // recorder, with console snapshots of different ages; interleaved into one series, the age
+    // gap re-bills as traffic on every nonNegative difference (measured ~12x on a camera port).
+    // The first writer to claim a switch keeps it while it keeps writing; the other takes over
+    // only after the owner has been quiet for the hand-over gap the usage queries already drop
+    // a delta across.
+    private static readonly ConcurrentDictionary<string, (string Writer, DateTime At)> _owner = new();
+
+    // The same writer re-entering faster than this is batch fan-out (the relay sink records once
+    // per device batch, ~9 a cycle), not a new pass.
+    private static readonly TimeSpan MinRewriteInterval = TimeSpan.FromSeconds(1.5);
+
     /// <summary>Writes every uncovered switch's ports for this pass. Returns the number of ports written.</summary>
     public static int Record(
         IEnumerable<UniFiDeviceResponse> devices,
@@ -70,6 +82,10 @@ public static class PortTableCounterRecorder
                     logger.LogDebug("Port stats for switch {Name} ({Mac}) are back on SNMP", device.Name, mac);
                 continue;
             }
+            if (_owner.TryGetValue(mac, out var owner)
+                && (owner.Writer != cacheKeyPrefix ? now - owner.At < HandoverGap : now - owner.At < MinRewriteInterval))
+                continue;
+            _owner[mac] = (cacheKeyPrefix, now);
             if (_fallingBack.TryAdd(stateKey, 0))
                 logger.LogDebug("Port stats for switch {Name} ({Mac}) are read from the UniFi API port table ({Ports} ports): {Reason}",
                     device.Name, mac, device.PortTable.Count, reason);
