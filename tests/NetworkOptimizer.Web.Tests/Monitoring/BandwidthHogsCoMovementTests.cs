@@ -93,4 +93,36 @@ public class BandwidthHogsCoMovementTests
         wan![1].Down.Should().Be(260e6);
         wan[1].Up.Should().Be(6e6);
     }
+
+    [Fact]
+    public void A_step_landing_across_a_wan_sample_boundary_still_matches()
+    {
+        // The AP and the gateway sample a few seconds apart, so every step lands between two WAN
+        // samples and the aligned delta reads zero; only the shifted comparisons see the moves.
+        var row = H(S(70, 0), S(60, 900e6), S(50, 0), S(40, 900e6), S(30, 0), S(20, 900e6), S(10, 0));
+        var wan = H(S(75, 0), S(65, 0), S(55, 900e6), S(45, 0), S(35, 900e6), S(25, 0), S(15, 900e6), S(5, 0));
+        var (down, _) = BandwidthHogsService.CorroboratedWanFraction(row, wan);
+        down.Should().NotBeNull();
+        down!.Value.Should().BeGreaterThan(0.9);
+    }
+
+    [Fact]
+    public void Matched_steps_name_the_samples_the_baseline_must_skip()
+    {
+        var row = H(S(40, 0), S(30, 100e6), S(20, 600e6), S(10, 900e6), S(0, 0));
+        var wan = H(S(40, 0), S(30, 100e6), S(20, 600e6), S(10, 900e6), S(0, 0));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.FracDown.Should().NotBeNull();
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-30));
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-10));
+    }
+
+    [Fact]
+    public void A_flat_wan_line_matches_no_samples()
+    {
+        var row = H(S(40, 5e6), S(30, 30e6), S(20, 8e6), S(10, 33e6), S(0, 6e6));
+        var wan = H(S(40, 50e6), S(30, 50e6), S(20, 50e6), S(10, 50e6), S(0, 50e6));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.MatchedDown.Should().BeEmpty("uncorroborated bursts stay in the baseline's history");
+    }
 }

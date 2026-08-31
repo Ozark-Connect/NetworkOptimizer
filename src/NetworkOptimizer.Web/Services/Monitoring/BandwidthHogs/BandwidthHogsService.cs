@@ -218,18 +218,23 @@ public class BandwidthHogsService
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
             ? WanRateHistory(wanHistoryKeys.Select(liveStats.RowRateHistory).ToList())
             : null;
-        (double Down, double Up, bool Known, double? Floor, double? Ceiling) BaselineLocal(string? historyKey, IReadOnlyList<string> macs)
+        (double Down, double Up, bool Known, double? Floor, double? Ceiling) BaselineLocal(
+            string? historyKey, IReadOnlyList<string> macs,
+            IReadOnlyList<(DateTime At, double Down, double Up)> samples, CoMoveEvidence? evidence)
         {
             if (liveStats == null) return (0, 0, true, null, null);
             if (historyKey == null) return (0, 0, true, null, null);
-            var samples = liveStats.RowRateHistory(historyKey);
-            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? Percentile90(samples.Select(s => s.Down)) : (double?)null;
+            // WAN-corroborated samples are not local habit: the p90 learns from what is left, so
+            // a device hitting the WAN on repeat cannot teach the baseline its own burst rate.
+            var localDown = (evidence?.FracDown != null ? samples.Where(s => !evidence.MatchedDown.Contains(s.At)) : samples).ToList();
+            var localUp = (evidence?.FracUp != null ? samples.Where(s => !evidence.MatchedUp.Contains(s.At)) : samples).ToList();
+            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? Percentile90(localDown.Select(s => s.Down)) : (double?)null;
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
             var ceiling = ConsoleWanCeiling(histories, now, BaselineMinSpan);
             if (floor != null && ceiling is { } c)
             {
-                var down = BaselineLocalBps(samples.Select(s => (s.At, s.Down)).ToList(), c.Down, now, BaselineMinSpan);
-                var up = BaselineLocalBps(samples.Select(s => (s.At, s.Up)).ToList(), c.Up, now, BaselineMinSpan);
+                var down = BaselineLocalBps(localDown.Select(s => (s.At, s.Down)).ToList(), c.Down, now, BaselineMinSpan);
+                var up = BaselineLocalBps(localUp.Select(s => (s.At, s.Up)).ToList(), c.Up, now, BaselineMinSpan);
                 liveStats.RecordRowBaseline(historyKey, down, up, now);
                 return (down, up, true, floor, c.Down);
             }
@@ -281,7 +286,13 @@ public class BandwidthHogsService
                 excluded = NotAWanUser(m.Node.Mac!);
             }
             if (excluded) continue;
-            var baseline = BaselineLocal(m.HistoryKey, macs);
+            // Corroboration first: matched samples are WAN evidence, and the baseline learns the
+            // local habit from what is left rather than from the bursts it is meant to attribute.
+            var rowHist = m.HistoryKey != null && liveStats != null
+                ? liveStats.RowRateHistory(m.HistoryKey)
+                : Array.Empty<(DateTime, double, double)>();
+            var evidence = wanHistory != null && rowHist.Count > 0 ? CorroboratedWan(rowHist, wanHistory) : null;
+            var baseline = BaselineLocal(m.HistoryKey, macs, rowHist, evidence);
             double effDown, effUp;
             if (baseline.Known)
             {
@@ -296,13 +307,9 @@ public class BandwidthHogsService
             }
             // The WAN line's own co-movement can only raise the candidate: a row whose rate steps
             // the WAN total stepped with is WAN traffic no matter what the baseline says.
-            double? corrDown = null, corrUp = null;
-            if (wanHistory != null && m.HistoryKey != null)
-            {
-                (corrDown, corrUp) = CorroboratedWanFraction(liveStats!.RowRateHistory(m.HistoryKey), wanHistory);
-                if (corrDown is { } cd) effDown = Math.Max(effDown, cd * m.Down);
-                if (corrUp is { } cu) effUp = Math.Max(effUp, cu * m.Up);
-            }
+            double? corrDown = evidence?.FracDown, corrUp = evidence?.FracUp;
+            if (corrDown is { } cd) effDown = Math.Max(effDown, cd * m.Down);
+            if (corrUp is { } cu) effUp = Math.Max(effUp, cu * m.Up);
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
@@ -754,34 +761,77 @@ public class BandwidthHogsService
     /// </summary>
     public static (double? Down, double? Up) CorroboratedWanFraction(
         IReadOnlyList<(DateTime At, double Down, double Up)> row,
-        IReadOnlyList<(DateTime At, double Down, double Up)> wan) =>
-        (CoMoveFraction(row, wan, s => s.Down), CoMoveFraction(row, wan, s => s.Up));
+        IReadOnlyList<(DateTime At, double Down, double Up)> wan)
+    {
+        var e = CorroboratedWan(row, wan);
+        return (e.FracDown, e.FracUp);
+    }
 
-    private static double? CoMoveFraction(
+    /// <summary>Co-movement evidence for one row: the corroborated share of its significant steps
+    /// per direction, and the sample instants those matched steps touched - WAN moments the
+    /// baseline must not learn a local habit from. Fractions are null (and the matched sets
+    /// unusable) without enough movement to judge.</summary>
+    public sealed record CoMoveEvidence(double? FracDown, double? FracUp, HashSet<DateTime> MatchedDown, HashSet<DateTime> MatchedUp);
+
+    public static CoMoveEvidence CorroboratedWan(
+        IReadOnlyList<(DateTime At, double Down, double Up)> row,
+        IReadOnlyList<(DateTime At, double Down, double Up)> wan)
+    {
+        var (fracDown, matchedDown) = CoMoveDirection(row, wan, s => s.Down);
+        var (fracUp, matchedUp) = CoMoveDirection(row, wan, s => s.Up);
+        return new CoMoveEvidence(fracDown, fracUp, matchedDown, matchedUp);
+    }
+
+    private static (double? Frac, HashSet<DateTime> Matched) CoMoveDirection(
         IReadOnlyList<(DateTime At, double Down, double Up)> row,
         IReadOnlyList<(DateTime At, double Down, double Up)> wan,
         Func<(DateTime At, double Down, double Up), double> rate)
     {
         double moved = 0, matched = 0;
         var steps = 0;
+        var hits = new HashSet<DateTime>();
         for (var i = 1; i < row.Count; i++)
         {
             var gap = row[i].At - row[i - 1].At;
             if (gap <= TimeSpan.Zero || gap > CoMoveMaxStep) continue;
             var dRow = rate(row[i]) - rate(row[i - 1]);
             if (Math.Abs(dRow) < CoMoveMinStepBps) continue;
-            var wa = Nearest(wan, row[i - 1].At);
-            var wb = Nearest(wan, row[i].At);
-            if (wa == null || wb == null || wa.Value.At >= wb.Value.At) continue;
-            if ((wa.Value.At - row[i - 1].At).Duration() > CoMoveAlignTolerance) continue;
-            if ((wb.Value.At - row[i].At).Duration() > CoMoveAlignTolerance) continue;
-            var dWan = rate(wb.Value) - rate(wa.Value);
+            var ja = NearestIndex(wan, row[i - 1].At);
+            var jb = NearestIndex(wan, row[i].At);
+            if (ja < 0 || jb < 0 || ja >= jb) continue;
+            if ((wan[ja].At - row[i - 1].At).Duration() > CoMoveAlignTolerance) continue;
+            if ((wan[jb].At - row[i].At).Duration() > CoMoveAlignTolerance) continue;
             moved += Math.Abs(dRow);
             steps++;
-            if (Math.Sign(dWan) == Math.Sign(dRow) && Math.Abs(dWan) >= CoMoveMatchRatio * Math.Abs(dRow))
-                matched += Math.Min(Math.Abs(dRow), Math.Abs(dWan));
+            // The two histories sample the same moment a few seconds apart, so a step can land
+            // split across a WAN sample boundary; judge it shifted a sample each way too, and
+            // widened by one, taking the strongest same-direction match.
+            double best = 0;
+            foreach (var (sa, sb) in new[] { (ja, jb), (ja - 1, jb - 1), (ja + 1, jb + 1), (ja - 1, jb + 1) })
+            {
+                if (sa < 0 || sb >= wan.Count || sa >= sb) continue;
+                var dWan = rate(wan[sb]) - rate(wan[sa]);
+                if (Math.Sign(dWan) != Math.Sign(dRow) || Math.Abs(dWan) < CoMoveMatchRatio * Math.Abs(dRow)) continue;
+                best = Math.Max(best, Math.Min(Math.Abs(dRow), Math.Abs(dWan)));
+            }
+            if (best > 0)
+            {
+                matched += best;
+                hits.Add(row[i - 1].At);
+                hits.Add(row[i].At);
+            }
         }
-        return steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null;
+        return (steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null, hits);
+    }
+
+    private static int NearestIndex(
+        IReadOnlyList<(DateTime At, double Down, double Up)> samples, DateTime t)
+    {
+        var best = -1;
+        for (var i = 0; i < samples.Count; i++)
+            if (best < 0 || (samples[i].At - t).Duration() < (samples[best].At - t).Duration())
+                best = i;
+        return best;
     }
 
     private static (DateTime At, double Down, double Up)? Nearest(
