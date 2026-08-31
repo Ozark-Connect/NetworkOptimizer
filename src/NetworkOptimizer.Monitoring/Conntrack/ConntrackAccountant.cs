@@ -6,67 +6,152 @@ namespace NetworkOptimizer.Monitoring.Conntrack;
 /// <summary>One client's WAN byte deltas over a sample window, per egress interface.
 /// Empty <see cref="Ip"/> and <see cref="Mac"/> is the explicit unattributed remainder;
 /// a non-empty Ip with an empty Mac is an endpoint the server must map (the gateway's own
-/// addresses among them).</summary>
-public sealed record ClientWanDelta(string Ip, string Mac, string WanIfName, long DownBytes, long UpBytes, int Flows);
+/// addresses among them). <see cref="ReconDownBytes"/>/<see cref="ReconUpBytes"/> are
+/// destroy-event reconcile bytes - exact, but possibly minutes late - which totals readers
+/// add and rate readers ignore.</summary>
+public sealed record ClientWanDelta(
+    string Ip, string Mac, string WanIfName, long DownBytes, long UpBytes, int Flows,
+    long ReconDownBytes = 0, long ReconUpBytes = 0);
 
 /// <summary>
-/// Turns successive conntrack table snapshots into per-client WAN window deltas. Holds the
-/// previous snapshot's per-flow counters; a counter that went backward is a new flow reusing
-/// the tuple (its counter holds only its own bytes, so the full value is the delta), and a
-/// negative delta therefore cannot exist. The first pass seeds and emits nothing - a flow's
-/// pre-existing total must not be billed to the window the runner started in.
+/// Turns successive conntrack table snapshots into per-client WAN window deltas, and destroy
+/// events into per-flow reconcile deltas. Per-tuple state persists across snapshots: a seed
+/// (the counters at first sight, billed only when the flow's death reconciles), the last
+/// billed counters, and a last-seen pass - so a tuple a seq-file read misses for a pass keeps
+/// its baseline instead of re-seeding and losing its growth. The first pass seeds and emits
+/// nothing: a flow's pre-existing total must not be billed to the window the runner started in.
 /// </summary>
 public sealed class ConntrackAccountant
 {
-    private Dictionary<string, (long Orig, long Reply)>? _previous;
+    // A tuple unseen this many passes is gone (its destroy event was lost or never fired for
+    // us): evicted unbilled - an undercount, never an inflation, which is this feed's doctrine.
+    private const int RetainUnseenPasses = 5;
+
+    private sealed class Entry
+    {
+        public long Orig, Reply;
+        public long SeedOrig, SeedReply;
+        // Whether the seed is billable at destroy: true for a flow first seen mid-run (its
+        // seed is its own pre-first-sight bytes), false for flows already in the very first
+        // snapshot (their seed is pre-coverage history, which DPI-sourced hours already hold).
+        public bool SeedBillable;
+        public int LastSeenPass;
+    }
+
+    private readonly Dictionary<string, Entry> _flows = new();
+    private int _pass;
 
     /// <summary>Whether a pass has seeded the snapshot yet (the first emits no deltas).</summary>
-    public bool Seeded => _previous != null;
+    public bool Seeded => _pass > 0;
 
     /// <summary>
-    /// Accounts one snapshot against the previous, returning per-client deltas summed by
+    /// Accounts one snapshot against the tracked state, returning per-client deltas summed by
     /// (client, egress interface). WAN flows only: inter-VLAN routed traffic - which the
     /// gateway also conntracks - is excluded by the both-ends-site-local test, the exact
     /// mistake UniFi's own tallies make.
     /// </summary>
     public List<ClientWanDelta> Account(IReadOnlyList<ConntrackFlow> flows, ConntrackHostView view)
     {
-        var snapshot = new Dictionary<string, (long Orig, long Reply)>(flows.Count);
+        _pass++;
+        var seededBefore = _pass > 1;
         var totals = new Dictionary<(string Ip, string Mac, string IfName), (long Down, long Up, int Flows)>();
-        var seeded = _previous != null;
 
         foreach (var flow in flows)
         {
-            snapshot[flow.Key] = (flow.OrigBytes, flow.ReplyBytes);
-            if (!seeded) continue;
+            if (_flows.TryGetValue(flow.Key, out var entry))
+            {
+                entry.LastSeenPass = _pass;
+                // A counter that went backward is a new flow reusing the tuple. SEED-ONLY,
+                // never billed its full total: billing a reappearing flow's cumulative bytes
+                // as one window inflated a client by orders of magnitude. The seed is retained
+                // and billed if and when the flow's destroy event reconciles it.
+                if (flow.OrigBytes < entry.Orig || flow.ReplyBytes < entry.Reply)
+                {
+                    entry.Orig = flow.OrigBytes;
+                    entry.Reply = flow.ReplyBytes;
+                    entry.SeedOrig = flow.OrigBytes;
+                    entry.SeedReply = flow.ReplyBytes;
+                    entry.SeedBillable = true;
+                    continue;
+                }
+                var dOrig = flow.OrigBytes - entry.Orig;
+                var dReply = flow.ReplyBytes - entry.Reply;
+                entry.Orig = flow.OrigBytes;
+                entry.Reply = flow.ReplyBytes;
+                if (dOrig == 0 && dReply == 0) continue;
+                if (!seededBefore) continue;
 
-            // A tuple with no prior counters is SEED-ONLY, never billed its full total: the proc
-            // table is a seq-file read, so an existing long-lived flow can be missed in one pass
-            // under churn and reappear the next carrying its whole history - billing that as one
-            // window inflated a client by orders of magnitude. Seeding instead loses at most one
-            // window of a genuinely new flow's bytes: an undercount, never an inflation, which is
-            // this feed's doctrine (v2's destroy events recover exact short-flow bytes).
-            if (!_previous!.TryGetValue(flow.Key, out var prev)
-                || flow.OrigBytes < prev.Orig || flow.ReplyBytes < prev.Reply)
-                continue;
-            var dOrig = flow.OrigBytes - prev.Orig;
-            var dReply = flow.ReplyBytes - prev.Reply;
-            if (dOrig == 0 && dReply == 0) continue;
-
-            if (Classify(flow, view) is not { } c) continue;
-            var key = (c.Ip, c.Mac, c.IfName);
-            var sum = totals.TryGetValue(key, out var t) ? t : (0L, 0L, 0);
-            totals[key] = (
-                sum.Item1 + (c.DownIsReply ? dReply : dOrig),
-                sum.Item2 + (c.DownIsReply ? dOrig : dReply),
-                sum.Item3 + 1);
+                if (Classify(flow, view) is not { } c) continue;
+                var key = (c.Ip, c.Mac, c.IfName);
+                var sum = totals.TryGetValue(key, out var t) ? t : (0L, 0L, 0);
+                totals[key] = (
+                    sum.Item1 + (c.DownIsReply ? dReply : dOrig),
+                    sum.Item2 + (c.DownIsReply ? dOrig : dReply),
+                    sum.Item3 + 1);
+            }
+            else
+            {
+                _flows[flow.Key] = new Entry
+                {
+                    Orig = flow.OrigBytes,
+                    Reply = flow.ReplyBytes,
+                    SeedOrig = flow.OrigBytes,
+                    SeedReply = flow.ReplyBytes,
+                    SeedBillable = seededBefore,
+                    LastSeenPass = _pass,
+                };
+            }
         }
 
-        _previous = snapshot;
+        // Evict tuples gone from the table longer than the retention: their destroy event was
+        // lost, and holding them forever would grow the map with the table's whole history.
+        List<string>? stale = null;
+        foreach (var (key, entry) in _flows)
+            if (_pass - entry.LastSeenPass > RetainUnseenPasses)
+                (stale ??= new List<string>()).Add(key);
+        if (stale != null)
+            foreach (var key in stale) _flows.Remove(key);
+
         return totals
             .Select(kv => new ClientWanDelta(kv.Key.Ip, kv.Key.Mac, kv.Key.IfName, kv.Value.Down, kv.Value.Up, kv.Value.Flows))
             .Where(d => d.DownBytes > 0 || d.UpBytes > 0)
             .ToList();
+    }
+
+    /// <summary>
+    /// Reconciles one destroy event: the dying flow's final counters minus what the sampled
+    /// deltas already billed, plus its retained seed where billable. A tuple never seen at all
+    /// (born and dead between passes) bills its full final counters - the event is
+    /// authoritative for exactly one connection's lifetime and cannot fire twice, so none of
+    /// the seq-file-miss ambiguity that forbids full-billing in <see cref="Account"/> applies.
+    /// Null when there is nothing to bill or the flow is not accountable WAN traffic.
+    /// </summary>
+    public ClientWanDelta? AccountDestroy(ConntrackFlow flow, ConntrackHostView view)
+    {
+        // Before the second pass nothing distinguishes pre-coverage flows; bill nothing.
+        if (_pass < 2) return null;
+
+        long reconOrig, reconReply;
+        if (_flows.TryGetValue(flow.Key, out var entry))
+        {
+            // Final counters below the tracked baseline: this event is not for the flow the
+            // entry tracks (the tuple was reused). Skip and keep the entry - undercount doctrine.
+            if (flow.OrigBytes < entry.Orig || flow.ReplyBytes < entry.Reply) return null;
+            reconOrig = flow.OrigBytes - entry.Orig + (entry.SeedBillable ? entry.SeedOrig : 0);
+            reconReply = flow.ReplyBytes - entry.Reply + (entry.SeedBillable ? entry.SeedReply : 0);
+            _flows.Remove(flow.Key);
+        }
+        else
+        {
+            reconOrig = flow.OrigBytes;
+            reconReply = flow.ReplyBytes;
+        }
+        if (reconOrig == 0 && reconReply == 0) return null;
+
+        if (Classify(flow, view) is not { } c) return null;
+        return new ClientWanDelta(c.Ip, c.Mac, c.IfName, 0, 0, 0,
+            ReconDownBytes: c.DownIsReply ? reconReply : reconOrig,
+            ReconUpBytes: c.DownIsReply ? reconOrig : reconReply);
     }
 
     private readonly record struct Classified(string Ip, string Mac, string IfName, bool DownIsReply);

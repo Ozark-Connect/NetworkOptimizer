@@ -722,7 +722,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
     public const string ClientWanCoverageMarker = "_coverage";
 
     public Task WriteClientWanUsageAsync(
-        string clientMac, string? wanKey, long downBytes, long upBytes, int windowSeconds, int flows, DateTime timestamp)
+        string clientMac, string? wanKey, long downBytes, long upBytes, int windowSeconds, int flows, DateTime timestamp,
+        long reconDownBytes = 0, long reconUpBytes = 0)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("client_wan")
@@ -732,6 +733,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Field("window_seconds", (long)windowSeconds)
             .Field("flows", (long)flows)
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        // Destroy-event reconcile bytes: exact per-flow totals that can land minutes late
+        // (TIME_WAIT), so they are separate fields - usage readers add them, rate readers
+        // (playback, the chart overlay) never see them and cannot draw a phantom burst.
+        if (reconDownBytes > 0) point = point.Field("recon_down_bytes", reconDownBytes);
+        if (reconUpBytes > 0) point = point.Field("recon_up_bytes", reconUpBytes);
         if (!string.IsNullOrEmpty(wanKey)) point = point.Tag("wan", wanKey);
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -786,8 +792,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
     /// Stamped on client_wan rollup points as <c>rollup_v</c>. Independent of
     /// <see cref="RollupVersion"/> on purpose: bumping the wifi/port rollup arithmetic must
     /// never re-roll conntrack data or vice versa - the two feeds age on their own terms.
+    /// 2: destroy-event reconcile bytes folded into the hourly totals.
     /// </summary>
-    public const int ClientWanRollupVersion = 1;
+    public const int ClientWanRollupVersion = 2;
 
     /// <summary>Rolls one hour of client_wan windows into the longterm bucket: a pure per-series
     /// sum (the deltas were differenced at the source), plus the summed coverage seconds.</summary>
@@ -797,9 +804,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(hourStart)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
-  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
+  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.up_bytes)
+  |> map(fn: (r) => ({{r with down_bytes: r.down_bytes + (if exists r.recon_down_bytes then r.recon_down_bytes else 0), up_bytes: r.up_bytes + (if exists r.recon_up_bytes then r.recon_up_bytes else 0)}}))
   |> group(columns: [""client_mac"", ""wan""])
   |> reduce(fn: (r, accumulator) => ({{down: accumulator.down + r.down_bytes, up: accumulator.up + r.up_bytes, cov: accumulator.cov + r.window_seconds}}), identity: {{down: 0, up: 0, cov: 0}})
   |> group()";
@@ -859,9 +867,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"")
+  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.up_bytes)
+  |> map(fn: (r) => ({{r with down_bytes: r.down_bytes + (if exists r.recon_down_bytes then r.recon_down_bytes else 0), up_bytes: r.up_bytes + (if exists r.recon_up_bytes then r.recon_up_bytes else 0)}}))
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{down: accumulator.down + r.down_bytes, up: accumulator.up + r.up_bytes}}), identity: {{down: 0, up: 0}})
@@ -946,9 +955,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var rawFlux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rolledThrough)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
-  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"")
+  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.up_bytes)
+  |> map(fn: (r) => ({{r with down_bytes: r.down_bytes + (if exists r.recon_down_bytes then r.recon_down_bytes else 0), up_bytes: r.up_bytes + (if exists r.recon_up_bytes then r.recon_up_bytes else 0)}}))
   |> group(columns: [""client_mac""])
   |> reduce(fn: (r, accumulator) => ({{down: accumulator.down + r.down_bytes, up: accumulator.up + r.up_bytes}}), identity: {{down: 0, up: 0}})
   |> group()";

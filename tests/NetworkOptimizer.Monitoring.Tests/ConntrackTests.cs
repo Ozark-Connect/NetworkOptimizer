@@ -262,4 +262,140 @@ public class ConntrackAccountantTests
         d.DownBytes.Should().Be(60);
         d.Flows.Should().Be(2);
     }
+
+    [Fact]
+    public void MissedPassKeepsTheBaselineInsteadOfReseeding()
+    {
+        // A seq-file read can skip an existing flow for one pass. The entry is retained, so
+        // the reappearance deltas from the old baseline instead of losing the growth to a
+        // fresh seed.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { NattedFlow(100, 100) }, view);
+        accountant.Account(System.Array.Empty<ConntrackFlow>(), view).Should().BeEmpty();
+        var deltas = accountant.Account(new[] { NattedFlow(600, 1100) }, view);
+
+        var d = deltas.Should().ContainSingle().Subject;
+        d.UpBytes.Should().Be(500);
+        d.DownBytes.Should().Be(1000);
+    }
+}
+
+public class ConntrackDestroyReconcileTests
+{
+    private static ConntrackHostView GatewayView()
+    {
+        var view = new ConntrackHostView();
+        view.AddHostAddress(IPAddress.Parse("192.168.1.1"), "br0");
+        view.AddConnectedSubnet(IPAddress.Parse("192.168.1.0"), 24);
+        view.AddHostAddress(IPAddress.Parse("198.51.100.7"), "eth4");
+        view.AddNeighbor(IPAddress.Parse("192.168.1.100"), "aa:bb:cc:dd:ee:01");
+        return view;
+    }
+
+    private static ConntrackFlow ProcFlow(long origBytes, long replyBytes, int sport = 51512) =>
+        ConntrackParser.ParseLine(
+            $"ipv4     2 tcp      6 100 ESTABLISHED src=192.168.1.100 dst=203.0.113.34 sport={sport} dport=443 packets=1 bytes={origBytes} src=203.0.113.34 dst=198.51.100.7 sport=443 dport={sport} packets=1 bytes={replyBytes} [ASSURED] mark=0")!;
+
+    private static ConntrackFlow EventFlow(long origBytes, long replyBytes, int sport = 51512) =>
+        ConntrackParser.ParseLine(
+            $"[DESTROY] tcp      6 src=192.168.1.100 dst=203.0.113.34 sport={sport} dport=443 packets=99 bytes={origBytes} src=203.0.113.34 dst=198.51.100.7 sport=443 dport={sport} packets=99 bytes={replyBytes} [ASSURED] mark=0")!;
+
+    [Fact]
+    public void EventLineAndProcLineShareOneFlowKey()
+    {
+        // The reconcile lookup depends on it: `conntrack -E` has two bare lead tokens where
+        // /proc has four, and both must key identically.
+        EventFlow(1, 2).Key.Should().Be(ProcFlow(1, 2).Key);
+    }
+
+    [Fact]
+    public void DestroyBillsTailPlusSeedForAFlowFirstSeenMidRun()
+    {
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);          // pass 1: unrelated
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1000, 50_000) }, view); // first sight: seed
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1500, 80_000) }, view); // billed 500/30k
+
+        var r = accountant.AccountDestroy(EventFlow(2000, 100_000), view);
+        r.Should().NotBeNull();
+        r!.ReconUpBytes.Should().Be(2000 - 1500 + 1000);    // tail + the retained seed
+        r.ReconDownBytes.Should().Be(100_000 - 80_000 + 50_000);
+        r.DownBytes.Should().Be(0); // recon rides its own fields, never the live rate
+        r.Mac.Should().Be("aa:bb:cc:dd:ee:01");
+    }
+
+    [Fact]
+    public void DestroyOfAFirstSnapshotFlowBillsOnlyTheTail()
+    {
+        // A flow already present in the very first snapshot carries pre-coverage history: its
+        // seed is never billed (DPI-sourced hours already hold those bytes), only its tail.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(1_000_000, 9_000_000) }, view);
+        accountant.Account(new[] { ProcFlow(1_000_100, 9_000_200) }, view);
+
+        var r = accountant.AccountDestroy(EventFlow(1_000_150, 9_000_500), view);
+        r.Should().NotBeNull();
+        r!.ReconUpBytes.Should().Be(50);
+        r.ReconDownBytes.Should().Be(300);
+    }
+
+    [Fact]
+    public void DestroyOfANeverSeenTupleBillsItsFullCounters()
+    {
+        // Born and dead entirely between passes: the event is authoritative for exactly one
+        // connection and cannot fire twice, so full billing carries none of the seq-file-miss
+        // ambiguity that forbids it in Account.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+
+        var r = accountant.AccountDestroy(EventFlow(700, 40_000, sport: 2000), view);
+        r.Should().NotBeNull();
+        r!.ReconUpBytes.Should().Be(700);
+        r.ReconDownBytes.Should().Be(40_000);
+    }
+
+    [Fact]
+    public void DestroyBelowTheTrackedBaselineIsSkippedAndTheEntryKept()
+    {
+        // A reused tuple's stray event: the entry tracks a newer flow whose counters are
+        // already past the dead one's. Skip - undercount doctrine - and keep tracking.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.Account(new[] { ProcFlow(5000, 5000) }, view);
+
+        accountant.AccountDestroy(EventFlow(100, 100), view).Should().BeNull();
+        var deltas = accountant.Account(new[] { ProcFlow(6000, 7000) }, view);
+        deltas.Should().ContainSingle().Subject.UpBytes.Should().Be(1000);
+    }
+
+    [Fact]
+    public void DestroyBeforeTheSecondPassBillsNothing()
+    {
+        // Until a second pass runs, nothing distinguishes pre-coverage flows from new ones.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.AccountDestroy(EventFlow(700, 40_000), view).Should().BeNull();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.AccountDestroy(EventFlow(700, 40_000), view).Should().BeNull();
+    }
+
+    [Fact]
+    public void ReconciledFlowDoesNotDoubleBillOnALingeringSnapshot()
+    {
+        // The destroy removed the entry; if the same tuple somehow lingers in a later read it
+        // reads as a fresh seed, never as a resumed counter.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.Account(new[] { ProcFlow(1000, 1000) }, view);
+        accountant.AccountDestroy(EventFlow(1200, 1300), view).Should().NotBeNull();
+
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1200, 1300) }, view).Should().BeEmpty();
+    }
 }

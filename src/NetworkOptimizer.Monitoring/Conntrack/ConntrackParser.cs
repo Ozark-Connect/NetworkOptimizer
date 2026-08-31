@@ -48,20 +48,20 @@ public static class ConntrackParser
         string origPorts = "", replyPorts = "";
         var inReply = false;
         string proto = "";
-        var protoSeen = 0;
 
         foreach (var token in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
             var eq = token.IndexOf('=');
             if (eq < 0)
             {
-                // Layout: "<l3proto> <l3num> <l4proto> <l4num> [timeout] [state] key=value..."
-                // The l4 protocol name is the third bare token; states/flags are bracketed or upper-case.
-                if (protoSeen < 3 && token[0] != '[')
-                {
-                    protoSeen++;
-                    if (protoSeen == 3) proto = token;
-                }
+                // /proc layout: "<l3proto> <l3num> <l4proto> <l4num> [timeout] [state] key=value...";
+                // `conntrack -E` layout: "[DESTROY] <l4proto> <l4num> key=value...". In both, the l4
+                // protocol name is the first lowercase bare token that is not the l3 name - keyed
+                // this way so a /proc snapshot and an event line produce the SAME flow key.
+                if (proto.Length == 0 && token[0] != '['
+                    && token != "ipv4" && token != "ipv6" && !char.IsAsciiDigit(token[0])
+                    && char.IsAsciiLetterLower(token[0]))
+                    proto = token;
                 continue;
             }
             var name = token[..eq];

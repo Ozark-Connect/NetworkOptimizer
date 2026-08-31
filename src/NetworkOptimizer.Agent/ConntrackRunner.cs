@@ -52,10 +52,22 @@ public sealed class ConntrackRunner
     private ConntrackHostView? _view;
     private DateTime _viewBuiltAt;
 
-    // (ip, mac, ifname) -> summed window bytes/flows since the last aggregate flush.
-    private readonly Dictionary<(string, string, string), (long Down, long Up, int Flows)> _pending = new();
+    // (ip, mac, ifname) -> summed window bytes/flows since the last aggregate flush. Recon
+    // fields carry destroy-event reconciles: exact, possibly minutes late (TIME_WAIT), and
+    // deliberately absent from the live batches so a late reconcile can never paint a phantom
+    // line-rate blip on the live split.
+    private readonly Dictionary<(string, string, string), (long Down, long Up, int Flows, long ReconDown, long ReconUp)> _pending = new();
     private DateTime _pendingSince = DateTime.UtcNow;
     private int _pendingWindowSeconds;
+
+    // Destroy events from the listener child process, parsed off its stdout thread; drained at
+    // pass start on the sampling thread. Bounded: overflow drops events (undercount, never a
+    // stall), and a dropped flow's entry ages out of the accountant unbilled.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<ConntrackFlow> _destroyQueue = new();
+    private const int DestroyQueueCap = 20000;
+    private int _destroyQueueCount;
+    private Process? _destroyListener;
+    private DateTime _listenerStartedAt;
 
     /// <summary>Live path: the current tunnel's TrySend, set while a tunnel is up. Null drops
     /// the live batch - the buffer-borne aggregate still carries the bytes.</summary>
@@ -99,10 +111,23 @@ public sealed class ConntrackRunner
 
     public async Task RunAsync(CancellationToken ct)
     {
+        try
+        {
+            await RunLoopAsync(ct);
+        }
+        finally
+        {
+            StopDestroyListener();
+        }
+    }
+
+    private async Task RunLoopAsync(CancellationToken ct)
+    {
         while (!ct.IsCancellationRequested)
         {
             var config = _config;
             var interval = Math.Max(2, config?.IntervalSeconds is > 0 ? config!.IntervalSeconds : 5);
+            ManageDestroyListener(config is { Enabled: true }, ct);
             if (config is { Enabled: true })
             {
                 var stopwatch = Stopwatch.StartNew();
@@ -134,6 +159,20 @@ public sealed class ConntrackRunner
     private void SamplePass()
     {
         var view = RefreshHostView();
+
+        // Destroy reconciles first, against the state as of the LAST pass: a tuple that died
+        // and was reused inside one window then reconciles the old flow before the snapshot
+        // seeds the new one. Recon bytes join the aggregate only, never the live batch.
+        while (_destroyQueue.TryDequeue(out var dead))
+        {
+            Interlocked.Decrement(ref _destroyQueueCount);
+            if (_accountant.AccountDestroy(dead, view) is not { } r) continue;
+            var rkey = (r.Ip, r.Mac, r.WanIfName);
+            var rsum = _pending.TryGetValue(rkey, out var rp) ? rp : (0L, 0L, 0, 0L, 0L);
+            _pending[rkey] = (rsum.Item1, rsum.Item2, rsum.Item3,
+                rsum.Item4 + r.ReconDownBytes, rsum.Item5 + r.ReconUpBytes);
+        }
+
         List<ConntrackFlow> flows;
         using (var reader = new StreamReader(new FileStream(
                    ProcPath, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes)))
@@ -175,8 +214,8 @@ public sealed class ConntrackRunner
                 Flows = d.Flows,
             });
             var key = (d.Ip, d.Mac, d.WanIfName);
-            var sum = _pending.TryGetValue(key, out var p) ? p : (0L, 0L, 0);
-            _pending[key] = (sum.Item1 + d.DownBytes, sum.Item2 + d.UpBytes, Math.Max(sum.Item3, d.Flows));
+            var sum = _pending.TryGetValue(key, out var p) ? p : (0L, 0L, 0, 0L, 0L);
+            _pending[key] = (sum.Item1 + d.DownBytes, sum.Item2 + d.UpBytes, Math.Max(sum.Item3, d.Flows), sum.Item4, sum.Item5);
         }
         LiveSend?.Invoke(new AgentMessage { ConntrackSamples = live });
         _pendingWindowSeconds += windowSeconds;
@@ -206,12 +245,77 @@ public sealed class ConntrackRunner
                 WanDownBytes = sum.Down,
                 WanUpBytes = sum.Up,
                 Flows = sum.Flows,
+                ReconDownBytes = sum.ReconDown,
+                ReconUpBytes = sum.ReconUp,
             });
         }
         _enqueue(new AgentMessage { ConntrackSamples = batch });
         _pending.Clear();
         _pendingSince = now;
         _pendingWindowSeconds = 0;
+    }
+
+    private static readonly string[] ConntrackToolPaths = { "/usr/sbin/conntrack", "/sbin/conntrack", "/usr/bin/conntrack" };
+    private static readonly TimeSpan ListenerRestartBackoff = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Keeps the destroy-event listener alive while accounting is enabled: the vendor's own
+    /// `conntrack -E -e DESTROY` (the same ctnetlink subscription a native socket would hold,
+    /// with a fraction of the failure surface), one line per dying flow with final counters.
+    /// No conntrack-tools on the host means sampling-only accounting, exactly as before.
+    /// </summary>
+    private void ManageDestroyListener(bool enabled, CancellationToken ct)
+    {
+        if (!enabled || ct.IsCancellationRequested)
+        {
+            StopDestroyListener();
+            return;
+        }
+        if (_destroyListener is { HasExited: false }) return;
+        if (DateTime.UtcNow - _listenerStartedAt < ListenerRestartBackoff) return;
+        var tool = ConntrackToolPaths.FirstOrDefault(File.Exists);
+        if (tool == null) return;
+
+        _listenerStartedAt = DateTime.UtcNow;
+        try
+        {
+            var psi = new ProcessStartInfo(tool, "-E -e DESTROY")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            var process = Process.Start(psi);
+            if (process == null) return;
+            _destroyListener = process;
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is not { } line) return;
+                if (Volatile.Read(ref _destroyQueueCount) >= DestroyQueueCap) return;
+                if (ConntrackParser.ParseLine(line) is not { } flow) return;
+                _destroyQueue.Enqueue(flow);
+                Interlocked.Increment(ref _destroyQueueCount);
+            };
+            process.ErrorDataReceived += (_, _) => { };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            Console.WriteLine($"Conntrack destroy listener started ({tool})");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Conntrack destroy listener failed to start: {ex.Message}");
+            _destroyListener = null;
+        }
+    }
+
+    private void StopDestroyListener()
+    {
+        var process = _destroyListener;
+        _destroyListener = null;
+        if (process == null) return;
+        try { if (!process.HasExited) process.Kill(); } catch { /* already gone */ }
+        try { process.Dispose(); } catch { /* already gone */ }
+        while (_destroyQueue.TryDequeue(out _)) Interlocked.Decrement(ref _destroyQueueCount);
     }
 
     /// <summary>
