@@ -83,6 +83,16 @@
             <h2 class="card-title">Run a Speed Test</h2>
         </div>
         <div class="card-body">
+            @* The two options draw only once the agent/gateway availability has settled: the
+               resolve is in-memory and DB reads (milliseconds), while drawing first paints
+               "Unavailable" defaults that flip a beat later. A failed resolve still draws -
+               _vantageResolved is set in a finally. *@
+            @if (!_vantageResolved)
+            {
+                <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+            }
+            else
+            {
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -231,6 +241,7 @@
                 </div>
                 }
             </div>
+            }
 
             @if (!string.IsNullOrEmpty(_errorMessage))
             {
@@ -879,14 +890,25 @@
         // Gateway SSH availability is a DB read - determine it even when the console
         // (and, on an agent-backed site, the agent) is offline, so the Gateway (Direct)
         // option recovers on its own when the agent reconnects rather than needing a reload.
-        var gatewayTask = RefreshGatewaySshConfigAsync();
+        //
+        // Availability resolves BEFORE the slow history/WAN loads are awaited: it is
+        // in-memory and DB reads, and the run-test cards hold their spinner until it lands
+        // (see the _vantageResolved gate). The finally guarantees they draw even when the
+        // resolve throws - with the same defaults an early draw showed before the gate.
+        try
+        {
+            await RefreshGatewaySshConfigAsync();
+            await RefreshAgentAvailabilityAsync();
+        }
+        finally
+        {
+            _vantageResolved = true;
+        }
+        StartAgentStatusPolling();
+        StateHasChanged();
 
         await historyTask;
         if (wanTask != null) await wanTask;
-        await gatewayTask;
-
-        await RefreshAgentAvailabilityAsync();
-        StartAgentStatusPolling();
 
         BuildWanSelectorOptions();
 
