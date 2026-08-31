@@ -1604,6 +1604,20 @@
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
         _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
 
+        // A cross-link can hand the page the viewer's own device as ?ip=. That is this very
+        // browser, so reload as the bare own-device page - pinned-address mode would withhold
+        // the walk-test features. Same judgement the picker applies when you pick yourself.
+        if (!_isOwnDevice && !string.IsNullOrEmpty(IpParam)
+            && await IsOwnAddressAsync(NetworkUtilities.NormalizeToIPv4String(IpParam)!))
+        {
+            var target = "/client-dashboard";
+            if (_activeTab != "speed") target += "?tab=" + _activeTab;
+            if (!string.IsNullOrEmpty(RangeParam))
+                target += (target.Contains('?') ? "&" : "?") + "range=" + Uri.EscapeDataString(RangeParam);
+            NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+            return;
+        }
+
         // Default-site own-device identity: the viewer's address comes from a browser request,
         // which needs JS, so it lands here rather than in OnInitializedAsync.
         if (_awaitingLocalIp)
