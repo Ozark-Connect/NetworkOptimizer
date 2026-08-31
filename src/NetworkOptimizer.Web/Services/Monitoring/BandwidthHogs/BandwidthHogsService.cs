@@ -74,9 +74,6 @@ public class BandwidthHogsService
     private static readonly TimeSpan FirstSeenCacheFor = TimeSpan.FromMinutes(5);
     private (DateTime At, Dictionary<string, DateTime> Map)? _firstSeen;
 
-    /// <summary>Temporary: last time the split diagnostics were logged (see GetThroughputAsync).</summary>
-    private DateTime _lastSplitLog;
-
     /// <summary>
     /// Raw counters answer up to here, the rollup past it. Kept at the top-up's own reach: a
     /// counter query reads every point in the window (client identity is a field, not a tag), so
@@ -252,13 +249,6 @@ public class BandwidthHogsService
             return sum;
         }
 
-        // TEMPORARY diagnostics for the NVR mis-attribution investigation: one block every 10 s
-        // per direction pair, showing each row's inputs and what it was attributed. Remove once
-        // the split's behavior is settled.
-        var logThis = at == null && _logger.IsEnabled(LogLevel.Debug) && now - _lastSplitLog >= TimeSpan.FromSeconds(10);
-        if (logThis) _lastSplitLog = now;
-        var diag = logThis ? new List<string>() : null;
-
         for (var i = 0; i < measured.Count; i++)
         {
             var m = measured[i];
@@ -313,17 +303,9 @@ public class BandwidthHogsService
             included.Add(i);
             loadsDown.Add(new WanShareReconciler.Load(effDown, bytes.Down, m.CapDown));
             loadsUp.Add(new WanShareReconciler.Load(effUp, bytes.Up, m.CapUp));
-            diag?.Add($"{m.Node.Name ?? m.Node.Mac} rate={m.Down / 1e6:F1}/{m.Up / 1e6:F1}Mbps floorDn={(baseline.Floor is { } f ? (f / 1e6).ToString("F1") : "none")} consCeilDn={(baseline.Ceiling is { } c ? (c / 1e6).ToString("F2") : "none")} baseDn={baseline.Down / 1e6:F1}{(baseline.Known ? "" : " unarmed")} corrDn={(corrDown is { } cr ? cr.ToString("F2") : "none")} effDn={effDown / 1e6:F1} dpiDn={bytes.Down / 1e6:F0}MB");
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
-        if (diag != null)
-        {
-            for (var j = 0; j < included.Count; j++)
-                diag[j] += $" -> wanDn={splitDown.WanBps[j] / 1e6:F1} wanUp={splitUp.WanBps[j] / 1e6:F1}";
-            _logger.LogDebug("Hogs split wanDn={WanDown:F1}Mbps wanUp={WanUp:F1}Mbps estDn={EstDown} estUp={EstUp}\n  {Rows}",
-                (wanDownBps ?? 0) / 1e6, (wanUpBps ?? 0) / 1e6, splitDown.Estimated, splitUp.Estimated, string.Join("\n  ", diag));
-        }
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
         for (var j = 0; j < included.Count; j++)
