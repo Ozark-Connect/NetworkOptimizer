@@ -1101,7 +1101,8 @@ class LanFlowMap2D {
             }
             return;
         }
-        if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient)return;
+        // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
+        if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient&&d.kind!==NK.VirtualHub)return;
         if(!d.ip)return;
         // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
         const tab=d.kind===NK.WifiClient?'&tab=signal':'';

@@ -21413,3 +21413,152 @@ body:has(.top-bar-hidden) .btn-fit {
         padding-inline: 0.875rem;
     }
 }
+
+/* Bandwidth Hogs (Monitoring - Live View) */
+.bandwidth-hogs-card .card-header {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+}
+
+.bandwidth-hogs-controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.bandwidth-hogs-controls .time-btn {
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-window {
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.bandwidth-hogs-wan-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-detail {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Fixed proportions: the rates re-render every few seconds, and an auto-laid table let each
+   new figure nudge its column. Digits are tabular for the same reason. */
+.bandwidth-hogs-table {
+    min-width: 0;
+    table-layout: fixed;
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+}
+
+.bandwidth-hogs-table th,
+.bandwidth-hogs-table td {
+    padding: 0.5rem 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hogs-warmup {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.hogs-show-more {
+    margin-top: 0.5rem;
+}
+
+.hogs-show-more-hidden {
+    visibility: hidden;
+}
+
+.bandwidth-hogs-table .hogs-col-rank { width: 2.6rem; }
+.bandwidth-hogs-table .hogs-col-via { width: 26%; }
+.bandwidth-hogs-table .hogs-col-rate { width: 14%; }
+.bandwidth-hogs-table .hogs-col-share { width: 17%; }
+
+.bandwidth-hogs-table .hogs-rank {
+    color: var(--text-muted);
+}
+
+.bandwidth-hogs-table .hogs-client a {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.bandwidth-hogs-table .hogs-client a:hover {
+    color: var(--primary-color);
+}
+
+.bandwidth-hogs-table .hogs-via {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.bandwidth-hogs-table .hogs-via .band-badge {
+    margin-right: 0.4rem;
+}
+
+.band-badge.hogs-port-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.bandwidth-hogs-table tr.hogs-fading td {
+    opacity: 0.55;
+}
+
+.bandwidth-hogs-table .hogs-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.hogs-share {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hogs-share .hogs-bar {
+    display: block;
+    width: 80px;
+    height: 6px;
+    border-radius: 0 3px 3px 0;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.hogs-share .hogs-fill {
+    display: block;
+    height: 100%;
+    border-radius: 0 3px 3px 0;
+    background: var(--speed-download-color);
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-controls {
+        margin-left: 0;
+    }
+
+    .bandwidth-hogs-table th,
+    .bandwidth-hogs-table td {
+        padding: 0.5rem 0.4rem;
+    }
+
+    .bandwidth-hogs-table .hogs-col-rate { width: 25%; }
+    .bandwidth-hogs-table .hogs-col-share { width: 16%; }
+
+    .hogs-share .hogs-bar {
+        display: none;
+    }
+}

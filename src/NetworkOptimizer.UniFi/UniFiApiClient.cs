@@ -2502,7 +2502,10 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// GET v2/api/site/{site}/traffic - every client's WAN usage by DPI application over a window, in
-    /// the client's frame. Site-wide: the endpoint has no per-client form, so callers pick their MAC.
+    /// the client's frame. Site-wide: callers pick their MAC. Gateway-side for every client, so a
+    /// Wi-Fi client's local traffic is not in it. includeUnidentified is required: without it the
+    /// console drops the traffic its DPI could not name (category 255), which a speed test to an
+    /// unknown server is entirely, and the totals no longer match the Network app's.
     /// </summary>
     public async Task<UniFiClientTrafficResponse?> GetClientTrafficByAppAsync(
         DateTime from,
@@ -2516,7 +2519,7 @@ public class UniFiApiClient : IDisposable
 
         var startMs = new DateTimeOffset(from.ToUniversalTime()).ToUnixTimeMilliseconds();
         var endMs = new DateTimeOffset(to.ToUniversalTime()).ToUnixTimeMilliseconds();
-        var url = BuildV2ApiPath($"site/{_site}/traffic?start={startMs}&end={endMs}");
+        var url = BuildV2ApiPath($"site/{_site}/traffic?start={startMs}&end={endMs}&includeUnidentified=true");
 
         return await ExecuteRequestAsync(async () =>
         {
@@ -2528,6 +2531,45 @@ public class UniFiApiClient : IDisposable
             }
             return await response.Content.ReadFromJsonAsync<UniFiClientTrafficResponse>(cancellationToken: cancellationToken);
         });
+    }
+
+    /// <summary>
+    /// POST v2/api/site/{site}/app-traffic-rate - a client's WAN traffic over a window in 5-minute
+    /// buckets, from the same DPI tally as <see cref="GetClientTrafficByAppAsync"/> (the Network
+    /// app's Internet Activity graph). The buckets sum to that call's totals. Empty when the
+    /// console cannot answer. The endpoint also takes several MACs (rows concatenated, unlabeled)
+    /// or none (the whole site, each bucket with a top_app); neither is modelled here.
+    /// </summary>
+    public async Task<List<UniFiTrafficRateBucket>> GetClientTrafficRateAsync(
+        string clientMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return new List<UniFiTrafficRateBucket>();
+        }
+
+        var startMs = new DateTimeOffset(from.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var endMs = new DateTimeOffset(to.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var url = BuildV2ApiPath($"site/{_site}/app-traffic-rate?start={startMs}&end={endMs}&includeUnidentified=true");
+
+        var buckets = await ExecuteRequestAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(new { client_macs = new[] { clientMac } }),
+                Encoding.UTF8,
+                "application/json");
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Client traffic rate request failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<List<UniFiTrafficRateBucket>>(cancellationToken: cancellationToken);
+        });
+        return buckets ?? new List<UniFiTrafficRateBucket>();
     }
 
     private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =

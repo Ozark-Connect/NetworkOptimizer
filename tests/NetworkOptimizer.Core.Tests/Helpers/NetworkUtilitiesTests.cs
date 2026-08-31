@@ -791,4 +791,24 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region IpSortKey Tests
+
+    [Fact]
+    public void IpSortKey_OrdersIpv4Numerically()
+    {
+        var sorted = new[] { "10.0.0.10", "10.0.0.9", "10.0.0.100", "192.0.2.1" }
+            .OrderBy(NetworkUtilities.IpSortKey, StringComparer.Ordinal).ToList();
+        sorted.Should().Equal("10.0.0.9", "10.0.0.10", "10.0.0.100", "192.0.2.1");
+    }
+
+    [Fact]
+    public void IpSortKey_Ipv4BeforeIpv6BeforeUnparseable()
+    {
+        var sorted = new[] { "not-an-ip", "2001:db8::1", "198.51.100.7", null }
+            .OrderBy(NetworkUtilities.IpSortKey, StringComparer.Ordinal).ToList();
+        sorted.Should().Equal("198.51.100.7", "2001:db8::1", null, "not-an-ip");
+    }
+
+    #endregion
 }

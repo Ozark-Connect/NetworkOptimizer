@@ -447,12 +447,14 @@
         {
             @Map2dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map3dCard</div>
         }
         else
         {
             @Map3dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map2dCard</div>
         }
 
@@ -4301,6 +4303,7 @@
         // Drive each live consumer independently so one being unmounted doesn't starve
         // the other. Historic playback (at any speed) flows through OnMapTimeChanged;
         // this only gates live auto-refresh on pause/resume.
+        _mapPaused = paused;
         if (_wanLiveChartMounted)
         {
             if (paused)
@@ -4871,6 +4874,28 @@
         return (down, up);
     }
 
+    /// <summary>The live-cache history keys behind <see cref="GetWanRates"/>' interfaces, resolved the same way.</summary>
+    private List<string> GetWanHistoryKeys()
+    {
+        var keys = new List<string>();
+        if (_gatewayMac == null) return keys;
+        var selected = LiveWan.SelectedOptions;
+        if (selected.Count == 0)
+        {
+            foreach (var ifName in _gatewayWanIfNames)
+                keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName));
+            return keys;
+        }
+        foreach (var wan in selected)
+        {
+            var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
+                ? _gatewayWanIfNames.FirstOrDefault()
+                : wan.CounterIfName;
+            if (!string.IsNullOrEmpty(ifName)) keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName!));
+        }
+        return keys;
+    }
+
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
         LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
@@ -4945,6 +4970,16 @@
                 <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
             </div>
         </div>
+    };
+
+    private bool _mapPaused;
+
+    private RenderFragment BandwidthHogs => __builder =>
+    {
+        var wanRates = GetWanRates();
+        <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
+                           WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
+                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>

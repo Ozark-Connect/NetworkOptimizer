@@ -1,0 +1,591 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs
+@inject BandwidthHogsService Hogs
+@inject SiteContextService SiteContext
+@inject Microsoft.JSInterop.IJSRuntime JS
+@inject ILogger<BandwidthHogsCard> Logger
+@implements IDisposable
+
+<div class="card bandwidth-hogs-card" style="margin-top: 1rem;" data-tour="bandwidth-hogs">
+    <div class="card-header">
+        <div class="card-title-group">
+            <h2 class="card-title">Bandwidth Hogs</h2>
+            @* The maps' own mode badge, so the card says what they say about the moment it shows. *@
+            @if (HistoricAt != null)
+            {
+                <span class="lan-flow-map-mode is-historic" style="cursor: pointer;" data-tooltip="Click to return to live" data-tooltip-hover-only
+                      @onclick="ReturnToLiveAsync">Historic</span>
+            }
+            else if (_mode == Mode.Throughput)
+            {
+                <span class="lan-flow-map-mode">Live</span>
+            }
+        </div>
+        <div class="card-header-right bandwidth-hogs-controls">
+            <div class="time-range-selector">
+                <button class="time-btn @(_mode == Mode.Throughput ? "active" : "")" @onclick="() => SetModeAsync(Mode.Throughput)">Throughput</button>
+                <button class="time-btn @(_mode == Mode.Data ? "active" : "")" @onclick="() => SetModeAsync(Mode.Data)">Data</button>
+            </div>
+            <div class="time-range-selector">
+                <button class="time-btn @(_view == View.Wan ? "active" : "")" @onclick="() => SetViewAsync(View.Wan)">WAN</button>
+                <button class="time-btn @(_view == View.LanPlusWan ? "active" : "")" @onclick="() => SetViewAsync(View.LanPlusWan)">LAN + WAN</button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (_mode == Mode.Data)
+        {
+            <div class="time-range-selector bandwidth-hogs-window">
+                @foreach (var (hours, label) in TimeFilters)
+                {
+                    <button class="time-btn @(_hours == hours ? "active" : "")" @onclick="() => SetHoursAsync(hours)">@label</button>
+                }
+            </div>
+        }
+        @if (_mode == Mode.Throughput && _view == View.Wan && _result != null)
+        {
+            <div class="bandwidth-hogs-wan-line">
+                @{ var (liveDown, liveUp) = CurrentWanRate(); }
+                @if (liveDown == null && liveUp == null)
+                {
+                    <span class="hogs-wan-detail">WAN rate unavailable</span>
+                }
+                else
+                {
+                    var down = liveDown ?? 0;
+                    var up = liveUp ?? 0;
+                    var capacity = (_result.WanCapacityDownBps ?? 0) + (_result.WanCapacityUpBps ?? 0);
+                    if (capacity > 0)
+                    {
+                        <strong>WAN @Math.Round(100 * (down + up) / capacity)% saturated</strong>
+                        <span class="hogs-wan-detail">
+                            <span class="speed-down">@DisplayFormatters.FormatRate(down)</span> of @DisplayFormatters.FormatRate(_result.WanCapacityDownBps) down,
+                            <span class="speed-up">@DisplayFormatters.FormatRate(up)</span> of @DisplayFormatters.FormatRate(_result.WanCapacityUpBps) up
+                        </span>
+                    }
+                    else
+                    {
+                        <strong>WAN</strong>
+                        <span class="hogs-wan-detail">
+                            <span class="speed-down">@DisplayFormatters.FormatRate(down)</span> down,
+                            <span class="speed-up">@DisplayFormatters.FormatRate(up)</span> up
+                        </span>
+                    }
+                }
+            </div>
+        }
+        @if (_mode == Mode.Throughput && HistoricAt == null && _view == View.Wan && _result?.WarmupSecondsRemaining > 0)
+        {
+            <div class="alert-info hogs-warmup">
+                Warming up - device WAN rates may read low or inaccurately for the next @_result.WarmupSecondsRemaining seconds.
+            </div>
+        }
+        @{ var rows = TopRows(); }
+        @if (_result == null && !_error)
+        {
+            <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+        }
+        else if (rows.Count == 0)
+        {
+            <div class="empty-state">
+                <p>@EmptyText</p>
+            </div>
+        }
+        else
+        {
+            var rank = 0;
+            var denominator = ShareDenominator();
+            var slots = _mode == Mode.Data ? rows.Count : _showAll ? MaxRows : CollapsedRows;
+            <div class="table-responsive">
+                <table class="data-table bandwidth-hogs-table">
+                    <colgroup>
+                        <col class="hogs-col-rank hide-mobile" />
+                        <col class="hogs-col-client" />
+                        @if (_mode == Mode.Throughput)
+                        {
+                            <col class="hogs-col-via hide-mobile" />
+                        }
+                        <col class="hogs-col-rate" />
+                        <col class="hogs-col-rate" />
+                        <col class="hogs-col-share" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th class="hogs-rank hide-mobile">#</th>
+                            <th>Client</th>
+                            @if (_mode == Mode.Throughput)
+                            {
+                                <th class="hide-mobile">Via</th>
+                            }
+                            <th>Download</th>
+                            <th>Upload</th>
+                            <th><span data-tooltip="@ShareTooltip">Share</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var (row, fading) in rows.Take(slots))
+                        {
+                            rank++;
+                            var value = RowValue(row);
+                            var share = denominator > 0 ? 100 * value / denominator : 0;
+                            // The bar IS the share, so the number and the bar say one thing.
+                            var width = Math.Min(100, share);
+                            <tr class="@(fading ? "hogs-fading" : null)">
+                                <td class="hogs-rank hide-mobile">@rank</td>
+                                <td class="hogs-client">
+                                    @if (!string.IsNullOrEmpty(row.Ip))
+                                    {
+                                        <a href="@ClientLink(row)" data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</a>
+                                    }
+                                    else
+                                    {
+                                        <span data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</span>
+                                    }
+                                </td>
+                                @if (_mode == Mode.Throughput)
+                                {
+                                    <td class="hide-mobile hogs-via">
+                                        @if (!row.IsWired && row.Band != null)
+                                        {
+                                            <span class="band-badge @BandClass(row.Band)">@row.Band GHz</span>
+                                        }
+                                        else if (row.IsWired && row.ViaPort != null)
+                                        {
+                                            <span class="band-badge hogs-port-badge" data-tooltip="@PortTooltip(row.ViaPort)" data-tooltip-hover-only>@row.ViaPort</span>
+                                        }
+                                        @if (row.ViaDevice != null)
+                                        {
+                                            <span>@row.ViaDevice</span>
+                                        }
+                                    </td>
+                                }
+                                <td>
+                                    <span class="speed-down">@FormatDown(row)</span>
+                                    @if (ShowLocal)
+                                    {
+                                        <span class="hogs-sub">Local @DisplayFormatters.FormatBytes(Math.Max(0, row.DownBytes - row.WanDownBytes))</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="speed-up">@FormatUp(row)</span>
+                                    @if (ShowLocal)
+                                    {
+                                        <span class="hogs-sub">Local @DisplayFormatters.FormatBytes(Math.Max(0, row.UpBytes - row.WanUpBytes))</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="hogs-share">
+                                        <span>@DisplayFormatters.FormatShare(share)%</span>
+                                        <span class="hogs-bar"><span class="hogs-fill" style="width: @width.ToString("0", System.Globalization.CultureInfo.InvariantCulture)%"></span></span>
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                        @for (var i = rows.Count; i < slots; i++)
+                        {
+                            <tr class="hogs-slot-empty"><td colspan="6">&nbsp;</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_mode == Mode.Throughput)
+            {
+                <button type="button" class="btn btn-secondary btn-sm hogs-show-more @(_showAll || VisibleRows(_view).Count() > CollapsedRows ? null : "hogs-show-more-hidden")"
+                        @onclick="() => _showAll = !_showAll">
+                    @(_showAll ? "Show fewer" : "Show more")
+                </button>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The map's playhead; null while live. A change re-answers the list for that instant.</summary>
+    [Parameter] public DateTime? HistoricAt { get; set; }
+
+    /// <summary>The map is paused: live refresh holds until it resumes.</summary>
+    [Parameter] public bool Paused { get; set; }
+
+    /// <summary>The selected WAN(s)' rate right now, or at the playhead, from the Live View tiles.</summary>
+    [Parameter] public double? WanDownBps { get; set; }
+    [Parameter] public double? WanUpBps { get; set; }
+
+    /// <summary>The selected WAN keys, for their expected speeds.</summary>
+    [Parameter] public IReadOnlyCollection<string> WanKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>Live-cache history keys for the selected WAN interfaces, for co-movement corroboration.</summary>
+    [Parameter] public IReadOnlyCollection<string> WanHistoryKeys { get; set; } = Array.Empty<string>();
+
+    private enum Mode { Throughput, Data }
+    private enum View { Wan, LanPlusWan }
+
+    /// <summary>A client under this share of the total is not a hog and is left off the list.</summary>
+    private const double MinSharePercent = 1;
+
+    /// <summary>
+    /// Share alone is not enough: on a near-idle network one percent of the denominator is a few
+    /// Kbps, which qualified half the network and let it linger through the decay. A hog moves
+    /// real traffic, whatever its share.
+    /// </summary>
+    private const double MinQualifyBps = 250_000;
+
+    /// <summary>The largest few are always worth seeing, share or no share: five live, ten over a window.</summary>
+    private int MinRows => _mode == Mode.Data ? 10 : 5;
+
+    /// <summary>The list never grows past this, however many clear the share bar: on a near-idle
+    /// WAN one percent of the denominator is a few Kbps and half the network would qualify.</summary>
+    private const int MaxRows = 10;
+
+    /// <summary>Rows visible before Show more. Both states pad to a fixed slot count so the card never changes height.</summary>
+    private const int CollapsedRows = 5;
+
+    private bool _showAll;
+
+    /// <summary>
+    /// How long a live client stays listed after it last held the share. Rates move every few
+    /// seconds, and a list that drops a client the instant it dips is one that flickers.
+    /// </summary>
+    private static readonly TimeSpan HogDecay = TimeSpan.FromSeconds(60);
+
+    /// <summary>When each (view, client) last held the share, stamped as answers land - never
+    /// during a render, so a paused list does not keep extending them.</summary>
+    private readonly Dictionary<string, DateTime> _lastQualified = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// "Switch port" explains a user-defined port label; a stock name (Port 3, SFP+ 1) already
+    /// says what it is, so it carries no tooltip.
+    /// </summary>
+    private static string? PortTooltip(string port) =>
+        System.Text.RegularExpressions.Regex.IsMatch(port, @"^(Port|SFP\+?|SFP28) \d+$") ? null : "Switch port";
+
+    private static string? PortGroupTooltip(HogRow row) =>
+        !row.IsPortGroup ? null
+        : row.Ip != null
+            ? $"Everything through this switch port, shared by {row.PortClientCount} interfaces. Opens the busiest one; the others are in its selector."
+            : $"Everything through this switch port, shared by {row.PortClientCount} interfaces";
+
+    private static readonly (int Hours, string Label)[] TimeFilters =
+    {
+        (1, "1h"), (6, "6h"), (24, "24h"), (168, "7d"), (720, "30d"),
+    };
+
+    private Mode _mode = Mode.Throughput;
+    private View _view = View.Wan;
+    private int _hours = 24;
+    private HogsResult? _result;
+    private bool _error;
+    private int _loading;
+    private bool _ready;
+    private DateTime? _loadedAt;
+    private string _loadedWanKeys = "";
+    private System.Threading.Timer? _timer;
+    private System.Threading.Timer? _seekTimer;
+    private DateTime _lastLiveRefresh = DateTime.MinValue;
+    private static readonly TimeSpan LiveRefreshFloor = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SeekDebounce = TimeSpan.FromMilliseconds(400);
+
+    // Same key shape chart-window.js writes for the Network Performance and Stats tabs, so this is
+    // one more remembered window per site, per tab, in this browser.
+    private string WindowStorageKey => $"netopt.win.{(SiteContext.IsDefault ? "" : SiteContext.Slug)}.bandwidth-hogs";
+    private string ViewStorageKey => SiteContext.ScopeStorageKey("bandwidthHogsView");
+
+    private bool ShowLocal => _mode == Mode.Data && _view == View.LanPlusWan;
+
+    private string EmptyText => _mode == Mode.Data
+        ? "No usage recorded for this range."
+        : HistoricAt != null ? "No client traffic at this moment." : "No client traffic right now.";
+
+    private string ShareTooltip => (_mode, _view) switch
+    {
+        (Mode.Throughput, View.Wan) => _result?.WanEstimated == true
+            ? "Share of the WAN rate, estimated from load and traffic patterns"
+            : "Share of the WAN rate; the clients' traffic matched the WAN load",
+        (Mode.Throughput, _) => "Share of everything the listed clients are moving",
+        (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
+        _ => "Share of everything through the clients' ports and radios",
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RestorePreferencesAsync();
+        _ready = true;
+        await RefreshAsync();
+        ArmTimer();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!_ready) return;
+        var wanKeys = string.Join(",", WanKeys);
+        if (HistoricAt != _loadedAt || (HistoricAt != null && wanKeys != _loadedWanKeys))
+        {
+            ScheduleSeekRefresh();
+            return;
+        }
+        // Live throughput refreshes on the page's own tick - the one the tiles beside it render
+        // on - so the two never sit a timer phase apart. Once a second at most; the answer is a
+        // few in-memory lookups, and the source moves no faster than that anyway.
+        if (_mode == Mode.Throughput && HistoricAt == null && !Paused
+            && DateTime.UtcNow - _lastLiveRefresh >= LiveRefreshFloor)
+            _ = RefreshAsync();
+    }
+
+    /// <summary>
+    /// A drag or playback moves the playhead many times a second; one refresh after it settles,
+    /// not one per position.
+    /// </summary>
+    private void ScheduleSeekRefresh()
+    {
+        _seekTimer?.Dispose();
+        _seekTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(RefreshAsync); }
+            catch { /* circuit going away */ }
+        }, null, SeekDebounce, Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task RestorePreferencesAsync()
+    {
+        try
+        {
+            // The view is a preference; the mode is not. Live View opens live, and Data is a
+            // drill-down someone chose for one investigation, so it always starts on Throughput.
+            var view = await JS.InvokeAsync<string?>("localStorage.getItem", ViewStorageKey);
+            if (Enum.TryParse<View>(view, true, out var v)) _view = v;
+            var hours = await JS.InvokeAsync<string?>("localStorage.getItem", WindowStorageKey);
+            if (int.TryParse(hours, out var h) && TimeFilters.Any(t => t.Hours == h)) _hours = h;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: could not read saved preferences");
+        }
+    }
+
+    private async Task SetModeAsync(Mode mode)
+    {
+        if (_mode == mode) return;
+        _mode = mode;
+        _result = null;
+        ArmTimer();
+        await RefreshAsync();
+    }
+
+    private async Task SetViewAsync(View view)
+    {
+        if (_view == view) return;
+        _view = view;
+        await PersistViewAsync();
+        // A WAN-only data answer has no LAN figures; the first look at LAN + WAN reads them.
+        if (_mode == Mode.Data && view == View.LanPlusWan && _result?.IncludesLan != true)
+        {
+            _result = null;
+            await RefreshAsync();
+        }
+    }
+
+    private async Task SetHoursAsync(int hours)
+    {
+        if (_hours == hours) return;
+        _hours = hours;
+        _result = null;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", WindowStorageKey, hours.ToString()); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not save the time filter"); }
+        ArmTimer();
+        await RefreshAsync();
+    }
+
+    /// <summary>The same return-to-live the maps' badge performs; the playhead change comes back through the page.</summary>
+    private async Task ReturnToLiveAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.getInstance?.()?._returnToLive?.();"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not return the map to live"); }
+    }
+
+    private async Task PersistViewAsync()
+    {
+        try { await JS.InvokeVoidAsync("localStorage.setItem", ViewStorageKey, _view.ToString()); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Bandwidth Hogs: could not save the view"); }
+    }
+
+    private void ArmTimer()
+    {
+        _timer?.Dispose();
+        // Data follows the Data tab's cadence: a day or less every minute, the long windows every
+        // five (those are the site-wide scans). The WAN half is cached five minutes either way.
+        var period = _mode == Mode.Throughput ? TimeSpan.FromSeconds(3)
+            : _hours <= 24 ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
+        _timer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    if (Paused || HistoricAt != null) return;
+                    await RefreshAsync();
+                });
+            }
+            catch { /* circuit going away */ }
+        }, null, period, period);
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (Interlocked.CompareExchange(ref _loading, 1, 0) != 0) return;
+        try
+        {
+            // Recorded up front: what this answer is FOR, so a failure does not ask again forever.
+            var at = HistoricAt;
+            var wanKeys = WanKeys.ToList();
+            _loadedAt = at;
+            _loadedWanKeys = string.Join(",", wanKeys);
+            if (at == null) _lastLiveRefresh = DateTime.UtcNow;
+            // At the playhead the window snaps to five minutes, so a drag inside them reuses the
+            // same cached answer rather than asking for each position.
+            var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % TimeSpan.FromMinutes(5).Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
+            var result = _mode == Mode.Throughput
+                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys)
+                : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
+            _result = result;
+            _error = false;
+            StampQualified(at);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: refresh failed");
+            _error = true;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _loading, 0);
+        }
+        await InvokeAsync(StateHasChanged);
+        // The playhead moved while this was answering: answer for where it is now.
+        if (HistoricAt != _loadedAt) ScheduleSeekRefresh();
+    }
+
+    private double RowValue(HogRow row) => RowValue(row, _view);
+
+    private double RowValue(HogRow row, View view) => (_mode, view) switch
+    {
+        (Mode.Throughput, View.Wan) => row.WanDownBps + row.WanUpBps,
+        (Mode.Throughput, _) => row.DownBps + row.UpBps,
+        (Mode.Data, View.Wan) => row.WanDownBytes + row.WanUpBytes,
+        _ => row.DownBytes + row.UpBytes,
+    };
+
+    /// <summary>
+    /// The rows this view can show. In the Data WAN view the DPI report already names every
+    /// interface behind a shared port, so the port's own row would count them twice and is left out.
+    /// </summary>
+    private IEnumerable<HogRow> VisibleRows(View view)
+    {
+        if (_result == null) return Enumerable.Empty<HogRow>();
+        return _mode == Mode.Data && view == View.Wan
+            ? _result.Rows.Where(r => !r.IsPortGroup)
+            : _result.Rows;
+    }
+
+    private bool Qualifies(HogRow row, View view, double denominator) =>
+        denominator > 0 && RowValue(row, view) >= MinQualifyBps
+        && 100 * RowValue(row, view) / denominator >= MinSharePercent;
+
+    /// <summary>
+    /// The largest <see cref="MinRows"/> whatever their share, then everyone holding at least
+    /// <see cref="MinSharePercent"/> of the share denominator, largest first. Live throughput also
+    /// keeps, dimmed, anyone who held it within <see cref="HogDecay"/> - and nothing past
+    /// <see cref="MaxRows"/> either way. Show more lifts the floor: the top MaxRows by value.
+    /// </summary>
+    private List<(HogRow Row, bool Fading)> TopRows()
+    {
+        var denominator = ShareDenominator();
+        var live = _mode == Mode.Throughput && HistoricAt == null;
+        var now = DateTime.UtcNow;
+        return VisibleRows(_view)
+            .Where(r => RowValue(r) > 0 || live)
+            .OrderByDescending(RowValue)
+            .Select((r, index) => (Row: r, Index: index, Qualifies: Qualifies(r, _view, denominator)))
+            .Where(x => (_showAll && RowValue(x.Row) > 0)
+                || x.Index < MinRows && RowValue(x.Row) > 0
+                || x.Qualifies
+                || (live && _lastQualified.TryGetValue(QualifiedKey(_view, x.Row), out var t) && now - t <= HogDecay))
+            .Take(MaxRows)
+            .Select(x => (x.Row, Fading: !x.Qualifies && x.Index >= MinRows))
+            .ToList();
+    }
+
+    /// <summary>Records, for both views, who holds the share in a freshly landed live answer.</summary>
+    private void StampQualified(DateTime? at)
+    {
+        if (_mode != Mode.Throughput || at != null) return;
+        var now = DateTime.UtcNow;
+        foreach (var view in new[] { View.Wan, View.LanPlusWan })
+        {
+            var denominator = ShareDenominator(view);
+            foreach (var row in VisibleRows(view))
+                if (Qualifies(row, view, denominator)) _lastQualified[QualifiedKey(view, row)] = now;
+        }
+        foreach (var stale in _lastQualified.Where(kv => now - kv.Value > HogDecay).Select(kv => kv.Key).ToList())
+            _lastQualified.Remove(stale);
+    }
+
+    private static string QualifiedKey(View view, HogRow row) => $"{view}|{row.ClientMac}";
+
+    private double ShareDenominator() => ShareDenominator(_view);
+
+    /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
+    private double ShareDenominator(View view)
+    {
+        // The answer's own WAN rate, never the live one: the split was made against it, and a
+        // client allocated at a higher rate divided by a lower one read 200%.
+        if (_mode == Mode.Throughput && view == View.Wan && _result != null)
+            return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
+        return VisibleRows(view).Sum(r => RowValue(r, view));
+    }
+
+    /// <summary>
+    /// The WAN rate as the tiles beside the card carry it right now, so the WAN line moves with
+    /// them rather than with the card's own refresh. At the playhead, the answer's own.
+    /// </summary>
+    private (double? Down, double? Up) CurrentWanRate() =>
+        HistoricAt == null && _result?.At == null
+            ? (WanDownBps, WanUpBps)
+            : (_result?.WanDownBps, _result?.WanUpBps);
+
+    private string FormatDown(HogRow row) => (_mode, _view) switch
+    {
+        (Mode.Throughput, View.Wan) => DisplayFormatters.FormatRate(row.WanDownBps),
+        (Mode.Throughput, _) => DisplayFormatters.FormatRate(row.DownBps),
+        (Mode.Data, View.Wan) => DisplayFormatters.FormatBytes(row.WanDownBytes),
+        _ => DisplayFormatters.FormatBytes(row.DownBytes),
+    };
+
+    private string FormatUp(HogRow row) => (_mode, _view) switch
+    {
+        (Mode.Throughput, View.Wan) => DisplayFormatters.FormatRate(row.WanUpBps),
+        (Mode.Throughput, _) => DisplayFormatters.FormatRate(row.UpBps),
+        (Mode.Data, View.Wan) => DisplayFormatters.FormatBytes(row.WanUpBytes),
+        _ => DisplayFormatters.FormatBytes(row.UpBytes),
+    };
+
+    private string ClientLink(HogRow row)
+    {
+        var ip = Uri.EscapeDataString(row.Ip ?? "");
+        if (_mode == Mode.Throughput) return $"/client-dashboard?ip={ip}&tab=speed";
+        var range = TimeFilters.First(t => t.Hours == _hours).Label;
+        return $"/client-dashboard?ip={ip}&tab=data&range={range}";
+    }
+
+    private static string BandClass(string band) => band switch
+    {
+        "2.4" => "band-2ghz",
+        "6" => "band-6ghz",
+        _ => "band-5ghz",
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _seekTimer?.Dispose();
+    }
+}

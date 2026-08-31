@@ -43,8 +43,12 @@ public record ThroughputSample(DateTime Time, double? DownloadBps, double? Uploa
 /// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
 public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
 
-/// <summary>One application's share of a client's WAN traffic, as UniFi Network identified it.</summary>
-public record AppUsageRow(string Name, string Category, string? IconDomain, string? IconClass, long DownloadBytes, long UploadBytes, long ActivitySeconds)
+/// <summary>
+/// One application's share of a client's WAN traffic, as UniFi Network identified it.
+/// <paramref name="Note"/> explains a name that is not an application's: traffic UniFi Network
+/// could not identify, or an application our catalog has no name for.
+/// </summary>
+public record AppUsageRow(string Name, string Category, string? IconDomain, string? IconClass, long DownloadBytes, long UploadBytes, long ActivitySeconds, string? Note = null)
 {
     public long TotalBytes => DownloadBytes + UploadBytes;
 }

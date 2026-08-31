@@ -23,6 +23,7 @@ public class LanFlowMapService
     // singleton) so the map's device/topology source is the current site's console,
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
+    private readonly ClientDashboardService _dashboard;
     private readonly MonitoringLiveStats _liveStats;
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly MonitoringInfluxClient _influx;
@@ -48,9 +49,11 @@ public class LanFlowMapService
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
+        ClientDashboardService dashboard,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
     {
+        _dashboard = dashboard;
         _connection = connection;
         _liveStats = liveStats;
         _apAgentTelemetry = apAgentTelemetry;
@@ -232,7 +235,7 @@ public class LanFlowMapService
         }
 
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
-        GroupMultiClientPorts(snapshot);
+        GroupMultiClientPorts(snapshot, await WanBytesByMacAsync(ct));
         await BuildWanAndClouds(topology, snapshot, ct);
 
         // WAN interface names for InfluxDB rate queries, one per WAN (ppp* tunnel
@@ -1869,7 +1872,36 @@ public class LanFlowMapService
     /// hub (carrying the real port rate) and the members hang off the hub
     /// as zero-rate logical leaves.
     /// </summary>
-    private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot)
+    /// <summary>
+    /// Each connected client's WAN bytes over the last day, from the site-wide DPI report IF a
+    /// reader has it cached. Never fetched from here: this runs inside the topology rebuild that
+    /// every live tick waits on, and a console can take seconds over a day of DPI. Decides which
+    /// interface a shared port's hub stands in for; empty means the lowest IP stands in instead.
+    /// </summary>
+    private Task<Dictionary<string, long>> WanBytesByMacAsync(CancellationToken ct)
+    {
+        var bytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var traffic = _dashboard.PeekSiteTraffic(now - TimeSpan.FromHours(24), now);
+            foreach (var c in traffic?.ClientUsageByApp ?? new())
+            {
+                var mac = NormalizeMac(c.Client?.Mac ?? "");
+                if (mac.Length == 0) continue;
+                long total = 0;
+                foreach (var u in c.UsageByApp) total += u.BytesReceived + u.BytesTransmitted;
+                bytes[mac] = total;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN bytes by client unavailable; shared ports link to their first interface");
+        }
+        return Task.FromResult(bytes);
+    }
+
+    private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot, Dictionary<string, long> wanBytesByMac)
     {
         var leafLinkByNodeId = snapshot.Links
             .Where(l => l.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(l.PortKey))
@@ -1897,6 +1929,15 @@ public class LanFlowMapService
             // is left null - the hub is synthetic, not a real device.
             var hubId = $"hub-{parentId}-{portKey}";
             var portName = members.Select(m => m.Node.SwitchPortName).FirstOrDefault(s => !string.IsNullOrEmpty(s));
+            // The hub stands in for the interface behind it with the most WAN traffic lately, so a
+            // click on the port lands on the client someone most likely means; with no traffic to
+            // go on, the lowest IP, which is usually the host's own interface rather than a
+            // sub-interface. A wrong guess is one pick away in Client Performance's own selector.
+            var representative = members
+                .Where(m => !string.IsNullOrEmpty(m.Node.Ip) && !string.IsNullOrEmpty(m.Node.Mac))
+                .OrderByDescending(m => wanBytesByMac.TryGetValue(m.Node.Mac!, out var b) ? b : 0)
+                .ThenBy(m => NetworkUtilities.IpSortKey(m.Node.Ip!))
+                .FirstOrDefault();
             var hubNode = new LanNode
             {
                 Id = hubId,
@@ -1904,6 +1945,7 @@ public class LanFlowMapService
                 Name = string.IsNullOrEmpty(portName)
                     ? $"{members.Count} interfaces"
                     : $"{portName} ({members.Count})",
+                Ip = representative.Node?.Ip,
                 ParentId = parentId,
                 SwitchPortName = portName,
                 WiredLinkSpeedMbps = representativeLink.CapacityBps.HasValue

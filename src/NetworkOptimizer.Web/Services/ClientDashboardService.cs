@@ -1438,36 +1438,58 @@ public class ClientDashboardService
 
     /// <summary>
     /// The site-wide DPI response is one call for every client on the site, and its totals move
-    /// by the minute at most - so one fetch serves every Client Performance page for this long.
-    /// The per-client report stays on the page's own cadence.
+    /// by the minute at most - so one fetch serves every Client Performance page and Bandwidth
+    /// Hogs card for this long. Graded by window length: a short window refreshes every minute,
+    /// but a week or month of DPI is a multi-second console call, and an open long-window view
+    /// re-asking it every minute is the console hammering this cache exists to prevent.
     /// </summary>
-    private static readonly TimeSpan TrafficCacheFor = TimeSpan.FromMinutes(5);
+    private static TimeSpan TrafficCacheLife(TimeSpan window) =>
+        window <= TimeSpan.FromHours(6) ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
+
+    /// <summary>The DPI category UniFi Network files traffic it could not identify under.</summary>
+    private const int DpiUnidentifiedCategory = 255;
+
+    /// <summary>The least time between two DPI fetches for one site, whoever asks.</summary>
+    private static readonly TimeSpan TrafficFetchSpacing = TimeSpan.FromSeconds(2);
+
+    private sealed class SiteTrafficGate
+    {
+        public readonly SemaphoreSlim Lock = new(1, 1);
+        public DateTime LastFetch = DateTime.MinValue;
+    }
+
+    // Static because the service is scoped: every circuit on a site must share one gate.
+    private static readonly ConcurrentDictionary<string, SiteTrafficGate> TrafficGates = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// A client's data usage over a window, WAN and LAN side by side. WAN comes from UniFi Network's
-    /// per-client report at the granularity nearest the window; LAN from our own counters at the same
-    /// bucket - the switch port's for a wired client (its own series when the port is unmapped), the
-    /// access point's for wireless - so the two charts line up bar for bar.
+    /// DPI tally (gateway-side, so WAN-only for wired and Wi-Fi alike) summed into the window's
+    /// bucket; LAN from our own counters at the same bucket - the switch port's for a wired client
+    /// (its own series when the port is unmapped), the access point's for wireless - so the two
+    /// charts line up bar for bar.
     /// </summary>
     public async Task<ClientDataUsage> GetDataUsageAsync(ClientIdentity client, DateTime from, DateTime to)
     {
         if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
         var span = to - from;
-        // UniFi's report granularities; the LAN query buckets to match.
-        var (granularity, bucket) = span <= TimeSpan.FromHours(6) ? ("5minutes", TimeSpan.FromMinutes(5))
-            : span <= TimeSpan.FromHours(48) ? ("hourly", TimeSpan.FromHours(1))
-            : ("daily", TimeSpan.FromDays(1));
+        // Raw counters (and their 5-minute buckets) only up to the rollup top-up's own reach: a
+        // counter query reads every point in the window (client identity is a field, not a tag),
+        // so longer windows read the hourly rollup and chart hourly.
+        var bucket = span <= TimeSpan.FromHours(2) ? TimeSpan.FromMinutes(5)
+            : span <= TimeSpan.FromHours(48) ? TimeSpan.FromHours(1)
+            : TimeSpan.FromDays(1);
         var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
         if (string.IsNullOrEmpty(client.Mac)) return usage;
 
         try
         {
+            // The DPI tally, the same one the Applications list below is drawn from, so the two
+            // agree. stat/report/*.user is not usable here: for a Wi-Fi client it is the access
+            // point's count, LAN + WAN, which put a NAS speed test in the WAN column.
             if (_connectionService.IsConnected && _connectionService.Client != null)
             {
-                var data = await _connectionService.Client.PostUserReportAsync(granularity, client.Mac,
-                    new DateTimeOffset(from).ToUnixTimeMilliseconds(), new DateTimeOffset(to).ToUnixTimeMilliseconds(),
-                    new[] { "time", "rx_bytes", "tx_bytes" });
-                usage.Wan = ParseUserReport(data, client.IsWired);
+                var rate = await _connectionService.Client.GetClientTrafficRateAsync(client.Mac, from, to);
+                usage.Wan = BucketTrafficRate(rate, bucket);
             }
         }
         catch (Exception ex)
@@ -1487,10 +1509,13 @@ public class ClientDashboardService
             var points = bucket < TimeSpan.FromHours(1)
                 ? await LanUsageFromCountersAsync(influx, client, ifNames, from, to, bucket)
                 : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
-            // No rollup yet (the first hours after an upgrade): the counters still answer a day,
-            // slowly. Never for days - that scan is minutes on any hardware, and the rollup fills
-            // in behind on its own.
-            if (points.Count == 0 && bucket == TimeSpan.FromHours(1))
+            // No rollup yet, or one that does not reach the window's start (a rebuild rolls
+            // newest first, and partial coverage reads silently low): the counters still answer,
+            // up to a week - measured at ~2 s for a wireless client's 7 days, and a wired port's
+            // series filter pushes down to storage. Past a week the rollup is the only answer,
+            // and it fills in behind on its own.
+            if (bucket >= TimeSpan.FromHours(1) && span <= TimeSpan.FromDays(7)
+                && (points.Count == 0 || points[0].Time > from.AddHours(1)))
                 points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
@@ -1568,39 +1593,76 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// The DPI report for a window if a reader has already fetched it and it is still cached; never
+    /// asks the console. For callers on a latency-sensitive path (the map's topology rebuild) that
+    /// can do without the answer this once.
+    /// </summary>
+    public UniFiClientTrafficResponse? PeekSiteTraffic(DateTime from, DateTime to)
+    {
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        return _cache != null && _cache.TryGetValue(TrafficCacheKey(from, to), out UniFiClientTrafficResponse? cached) ? cached : null;
+    }
+
+    // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses the
+    // same response until the window itself has moved on.
+    private string TrafficCacheKey(DateTime from, DateTime to)
+    {
+        var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheLife(to - from).TotalMinutes;
+        return $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
+    }
+
+    /// <summary>
+    /// UniFi Network's DPI report for every client on the site over a window: one console call,
+    /// shared by every reader for <see cref="TrafficCacheFor"/>. Null when the console cannot answer.
+    /// </summary>
+    public async Task<UniFiClientTrafficResponse?> GetSiteTrafficAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return null;
+        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        var key = TrafficCacheKey(from, to);
+        if (_cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) && cached != null)
+            return cached;
+
+        // One fetch at a time per site, at most one every TrafficFetchSpacing: the callers are
+        // every open Client Performance page and Bandwidth Hogs card, and a burst of misses (a
+        // playhead crossing several windows) must not become a burst of console calls.
+        var gate = TrafficGates.GetOrAdd(_siteContext.Slug, _ => new SiteTrafficGate());
+        await gate.Lock.WaitAsync(ct);
+        try
+        {
+            if (_cache != null && _cache.TryGetValue(key, out cached) && cached != null)
+                return cached;
+            var wait = gate.LastFetch + TrafficFetchSpacing - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+            gate.LastFetch = DateTime.UtcNow;
+            var traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to, ct);
+            // A window that ended a while ago will not change; playback re-asks for it far more
+            // often than a live page asks for the present.
+            var life = to < DateTime.UtcNow - TimeSpan.FromMinutes(10) ? TimeSpan.FromHours(1) : TrafficCacheLife(to - from);
+            if (traffic != null && _cache != null) _cache.Set(key, traffic, life);
+            return traffic;
+        }
+        finally
+        {
+            gate.Lock.Release();
+        }
+    }
+
+    /// <summary>
     /// The client's WAN traffic by application over a window, from UniFi Network's DPI, named through
-    /// the embedded catalog. Largest first; an application the catalog cannot name is kept as
-    /// "Unidentified" rather than dropped, so the shares still add up.
+    /// the embedded catalog. Largest first. Two rows are not applications and say so: what UniFi
+    /// Network could not identify at all (category 255, its own "Unidentified"), and an application
+    /// it did identify but our catalog has no name for, shown by id so the gap reads as ours.
     /// </summary>
     public async Task<IReadOnlyList<AppUsageRow>> GetAppUsageAsync(ClientIdentity client, DateTime from, DateTime to)
     {
-        if (string.IsNullOrEmpty(client.Mac) || !_connectionService.IsConnected || _connectionService.Client == null)
-            return Array.Empty<AppUsageRow>();
-        if (from < to - MaxUsageWindow) from = to - MaxUsageWindow;
+        if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<AppUsageRow>();
         try
         {
-            // Keyed on the window rounded to the cache life, so a page reloading every 30 s reuses
-            // the same response until the window itself has moved on.
-            var slot = (long)(to - DateTime.UnixEpoch).TotalMinutes / (long)TrafficCacheFor.TotalMinutes;
-            var key = $"client-traffic:{_siteContext.Slug}:{(long)(to - from).TotalMinutes}:{slot}";
-            var traffic = _cache != null && _cache.TryGetValue(key, out UniFiClientTrafficResponse? cached) ? cached : null;
-            if (traffic == null)
-            {
-                traffic = await _connectionService.Client.GetClientTrafficByAppAsync(from, to);
-                if (traffic != null && _cache != null) _cache.Set(key, traffic, TrafficCacheFor);
-            }
+            var traffic = await GetSiteTrafficAsync(from, to);
             var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
             if (mine == null) return Array.Empty<AppUsageRow>();
-            return mine.UsageByApp
-                .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
-                .Select(u => new AppUsageRow(
-                    DpiCatalog.AppName(u.Category, u.Application) ?? "Unidentified",
-                    DpiCatalog.CategoryName(u.Category) ?? "Unknown",
-                    DpiCatalog.IconDomain(u.Category, u.Application),
-                    DpiCatalog.IconClass(u.Category, u.Application),
-                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds))
-                .OrderByDescending(r => r.TotalBytes)
-                .ToList();
+            return BuildAppRows(mine.UsageByApp);
         }
         catch (Exception ex)
         {
@@ -1609,28 +1671,39 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>The Applications rows for one client's DPI usage, largest first; see <see cref="GetAppUsageAsync"/>.</summary>
+    public static List<AppUsageRow> BuildAppRows(IEnumerable<UniFiAppUsage> usage) => usage
+        .Where(u => u.BytesReceived > 0 || u.BytesTransmitted > 0)
+        .Select(u => u.Category == DpiUnidentifiedCategory
+            ? new AppUsageRow("Unidentified", "", null, DpiCatalog.IconClass(u.Category, u.Application),
+                u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                Note: "UniFi Network could not identify this traffic")
+            : DpiCatalog.AppName(u.Category, u.Application) is { } name
+                ? new AppUsageRow(name, DpiCatalog.CategoryName(u.Category) ?? "",
+                    DpiCatalog.IconDomain(u.Category, u.Application), DpiCatalog.IconClass(u.Category, u.Application),
+                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds)
+                : new AppUsageRow($"Application {u.Application}", DpiCatalog.CategoryName(u.Category) ?? "",
+                    null, DpiCatalog.IconClass(u.Category, u.Application),
+                    u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
+                    Note: "UniFi Network knows this application; our catalog has no name for it yet"))
+        .OrderByDescending(r => r.TotalBytes)
+        .ToList();
+
     /// <summary>
-    /// The report's rows in the client's terms. The frame depends on the client's kind: a wired
-    /// row is the client's own (rx_bytes is what it received, checked against its switch port), a
-    /// wireless row is the access point's (tx_bytes is what the client received, checked against
-    /// devices that only ever stream).
+    /// The console's 5-minute WAN buckets summed into the buckets the window is drawn in, in time
+    /// order. The console stamps a bucket with its END (a 12:28 test lands in the one labeled
+    /// 12:30), while our LAN buckets are stamped with their start, so each is filed by its start
+    /// to line the two charts up. A bucket's bytes are its rate times its length.
     /// </summary>
-    private static List<UsageBucket> ParseUserReport(System.Text.Json.JsonElement data, bool wired)
+    public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
     {
-        var rows = new List<UsageBucket>();
-        if (data.ValueKind != System.Text.Json.JsonValueKind.Array) return rows;
-        foreach (var row in data.EnumerateArray())
-        {
-            if (!row.TryGetProperty("time", out var t) || !t.TryGetDouble(out var ms)) continue;
-            var time = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
-            var tx = row.TryGetProperty("tx_bytes", out var txEl) && txEl.TryGetDouble(out var txV) ? (long)txV : 0;
-            var rx = row.TryGetProperty("rx_bytes", out var rxEl) && rxEl.TryGetDouble(out var rxV) ? (long)rxV : 0;
-            rows.Add(wired
-                ? new UsageBucket(time, DownloadBytes: rx, UploadBytes: tx)
-                : new UsageBucket(time, DownloadBytes: tx, UploadBytes: rx));
-        }
-        rows.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return rows;
+        var ticks = bucket.Ticks;
+        return rate
+            .Select(b => (Start: b.Time.AddSeconds(-b.IntervalSeconds), Bucket: b))
+            .GroupBy(x => new DateTime(x.Start.Ticks - x.Start.Ticks % ticks, DateTimeKind.Utc), x => x.Bucket)
+            .Select(g => new UsageBucket(g.Key, g.Sum(b => b.DownloadBytes), g.Sum(b => b.UploadBytes)))
+            .OrderBy(b => b.Time)
+            .ToList();
     }
 
     /// <summary>

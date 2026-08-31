@@ -1294,6 +1294,11 @@ public class AgentProbeResultSink
                 Time = timestamp,
             });
 
+            // A read the calculator does not trust is not stored: differenced, one bad sample
+            // reads as the whole counter's worth of traffic.
+            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+                continue;
+
             await influx.WriteInterfaceCountersAsync(
                 deviceMac: sample.DeviceMac,
                 ifName: sample.IfName,

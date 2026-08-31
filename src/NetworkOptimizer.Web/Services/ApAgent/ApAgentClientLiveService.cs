@@ -122,6 +122,11 @@ public sealed class ApAgentClientLiveService
                 IdleSeconds = idle,
                 TxThroughputBps = tx ?? prior?.TxThroughputBps,
                 RxThroughputBps = rx ?? prior?.RxThroughputBps,
+                // A carried rate is not a new measurement. Resetting the zero-poll count here let a
+                // client that went quiet keep its last rate for as long as the page polled it: the
+                // collector's zero was held once, then this re-asserted the old rate with the count
+                // cleared, and the next zero was held again.
+                ConsecutiveZeroPolls = tx == null ? prior?.ConsecutiveZeroPolls ?? 0 : 0,
                 Source = WifiClientSource.ApAgent,
                 LastUpdate = DateTime.UtcNow,
             });

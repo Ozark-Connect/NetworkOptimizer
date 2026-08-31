@@ -369,6 +369,21 @@ public static class NetworkUtilities
             ?? usable.FirstOrDefault();
     }
 
+    /// <summary>
+    /// A key that orders addresses numerically when compared ordinally: IPv4 by octet, then IPv6
+    /// by its bytes, then anything unparseable by its text. "10.0.0.9" sorts before "10.0.0.10",
+    /// which a plain string sort gets wrong.
+    /// </summary>
+    public static string IpSortKey(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip)) return "z:";
+        if (!IPAddress.TryParse(ip.Trim(), out var parsed)) return "z:" + ip.Trim();
+        var bytes = parsed.GetAddressBytes();
+        return parsed.AddressFamily == AddressFamily.InterNetwork
+            ? "4:" + string.Join(".", bytes.Select(b => b.ToString("D3")))
+            : "6:" + Convert.ToHexString(bytes);
+    }
+
     public static bool IsPrivateIpAddress(string ipAddress)
     {
         if (!IPAddress.TryParse(ipAddress, out var ip))

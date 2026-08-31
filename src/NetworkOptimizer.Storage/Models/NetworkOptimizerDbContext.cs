@@ -26,6 +26,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
     public DbSet<OutageAcknowledgement> OutageAcknowledgements { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
+    public DbSet<HogRowBaseline> HogRowBaselines { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
