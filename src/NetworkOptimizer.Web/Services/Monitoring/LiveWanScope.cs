@@ -294,6 +294,20 @@ public sealed class LiveWanScope
         _pinned = false;
     }
 
+    /// <summary>
+    /// Forgets a visit's claim on the selection when the user LEAVES the live surface (a tab
+    /// change): clears the pin and re-arms the restore, so returning to the tab re-reads the
+    /// stored selection - the Network Performance filter's leave-and-return behavior. Distinct
+    /// from <see cref="ReleaseLink"/> on purpose: the URL also drops its ?wan= mid-look (time
+    /// filter changes, resuming Live), where re-reading storage would yank the view off the WAN
+    /// being watched.
+    /// </summary>
+    public void ForgetVisitClaim()
+    {
+        _pinned = false;
+        _restored = false;
+    }
+
     public async Task<bool> SelectFromLinkAsync(string? wanParam)
     {
         if (string.IsNullOrWhiteSpace(wanParam) || Options.Count == 0) return false;

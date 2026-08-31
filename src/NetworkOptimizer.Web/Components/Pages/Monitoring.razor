@@ -2922,6 +2922,9 @@
             if (!confirmed) return;
         }
         var enteringPerformance = tab == "performance" && _activeTab != "performance";
+        // Leaving Live View ends a link's claim on the WAN tiles: coming back re-reads the
+        // stored selection, matching the Network Performance filter's leave-and-return behavior.
+        if (_activeTab == "live" && tab != "live") LiveWan.ForgetVisitClaim();
         _activeTab = tab;
         ResetThresholdSavedFlags();
         if (enteringPerformance) await AdoptSharedWanFocusAsync();
