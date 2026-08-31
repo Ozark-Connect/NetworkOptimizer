@@ -750,6 +750,54 @@ public class MonitoringLiveStats
         return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
     }
 
+    // ---- Gateway conntrack: measured per-client WAN rates ----
+    // THE per-client WAN cache everything else has been approximating: the on-gateway agent's
+    // conntrack window deltas, recorded as rates by the tunnel sink. Source of truth from the
+    // first batch - no arming period, no baseline dependency.
+
+    /// <summary>A client's conntrack-measured WAN rate, computed from a window's byte deltas.</summary>
+    public readonly record struct ClientWanRate(double DownBps, double UpBps, DateTime At);
+
+    /// <summary>
+    /// How old a conntrack rate may be and still cover a row. Three 5s windows, so one late or
+    /// stretched sample pass rides through; past it the row falls back to the estimated split
+    /// rather than showing a stale measurement as current.
+    /// </summary>
+    public static readonly TimeSpan ConntrackFreshness = TimeSpan.FromSeconds(20);
+
+    /// <summary>The synthetic identity for WAN bytes conntrack saw but could not attribute
+    /// (endpoints with no neighbor entry - VPN road warriors, rotated IPv6 privacy addresses).</summary>
+    public const string ConntrackUnattributed = "unattributed";
+
+    private readonly ConcurrentDictionary<string, ClientWanRate> _clientWanRates = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _lastConntrackBatchAt = DateTime.MinValue;
+
+    /// <summary>Records a client's measured WAN rate from a conntrack window (all WANs summed).</summary>
+    public void RecordClientWanRate(string clientMac, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return;
+        _clientWanRates[Normalize(clientMac)] = new ClientWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        _lastConntrackBatchAt = at;
+    }
+
+    /// <summary>Stamps a conntrack batch that carried no client samples (an idle WAN is still coverage).</summary>
+    public void NoteConntrackBatch(DateTime at) => _lastConntrackBatchAt = at;
+
+    /// <summary>A client's measured WAN rate, or null when none newer than <paramref name="maxAge"/>.
+    /// A covered site's idle client has no entry (or a stale one): coverage says its WAN is zero,
+    /// which is why callers pair this with <see cref="HasConntrackCoverage"/>.</summary>
+    public ClientWanRate? GetClientWanRate(string clientMac, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _clientWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
+    }
+
+    /// <summary>Whether the gateway agent's conntrack feed is currently flowing for this site.</summary>
+    public bool HasConntrackCoverage(TimeSpan maxAge) => DateTime.UtcNow - _lastConntrackBatchAt <= maxAge;
+
+    /// <summary>When the conntrack feed last reported, or null if it never has.</summary>
+    public DateTime? LastConntrackBatchAt => _lastConntrackBatchAt == DateTime.MinValue ? null : _lastConntrackBatchAt;
+
     // Recent measured rates per Bandwidth Hogs row, appended where the sources land (Wi-Fi client
     // throughput, SNMP/port-table port rates, the wired-client fallback) so the baselines are
     // always warm - no page needs to be open, and no new polling: the data flows anyway.

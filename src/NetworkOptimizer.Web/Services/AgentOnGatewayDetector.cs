@@ -64,13 +64,54 @@ public class AgentOnGatewayDetector
         SiteConnectionRegistry siteConnections,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteAgentCoverage agentCoverage,
+        AgentTunnelRegistry tunnelRegistry,
         ILogger<AgentOnGatewayDetector> logger)
     {
         _enrollment = enrollment;
         _siteConnections = siteConnections;
         _siteDbFactory = siteDbFactory;
         _agentCoverage = agentCoverage;
+        _tunnelRegistry = tunnelRegistry;
         _logger = logger;
+    }
+
+    private readonly AgentTunnelRegistry _tunnelRegistry;
+
+    // Verdicts agents REPORTED in their hello (#1108): installer-recorded fact, authoritative
+    // over correlation whenever present. Absent from the hello leaves an agent out of this map
+    // entirely, which is what keeps every pre-flag install on the correlation path unchanged.
+    private readonly ConcurrentDictionary<(string Slug, int AgentId), bool> _reported = new();
+
+    /// <summary>
+    /// Adopts an agent's self-reported on-gateway flag (from its hello) as the authoritative
+    /// answer for that agent, and persists it under the same per-agent key the correlation
+    /// path uses, so a restart answers identically before the tunnel is back. Called only when
+    /// the hello actually carried the flag - never for absent, whose meaning is "ask the
+    /// correlation path exactly as before".
+    /// </summary>
+    public async Task NoteReportedAsync(string siteSlug, int agentId, bool onGateway)
+    {
+        _reported[(siteSlug, agentId)] = onGateway;
+        _agentCache[(siteSlug, agentId)] = (onGateway, DateTime.UtcNow);
+        await PersistAsync(siteSlug, SystemSettingKeys.AgentOnGatewayFor(agentId), onGateway);
+    }
+
+    /// <summary>
+    /// The reported verdict for a site, when any of its CONNECTED agents carries one: true if
+    /// any reported true, false if every connected agent reported (all false), null when none
+    /// reported - which sends the caller to the correlation path.
+    /// </summary>
+    private bool? ReportedForSite(string siteSlug)
+    {
+        var connections = _tunnelRegistry.GetForSite(siteSlug);
+        if (connections.Count == 0) return null;
+        var any = false;
+        foreach (var connection in connections)
+        {
+            if (connection.OnGateway is not { } reported) return null;
+            any |= reported;
+        }
+        return any;
     }
 
     /// <summary>
@@ -87,6 +128,13 @@ public class AgentOnGatewayDetector
         if (string.IsNullOrWhiteSpace(siteSlug)) return false;
         if (siteSlug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(siteSlug))
             return false;
+
+        // Reported flags first (#1108): when every connected agent said where it runs, the
+        // installer's answer is authoritative and no console round trip happens at all. Any
+        // agent that did not say sends the whole question to the correlation path below,
+        // exactly as before the flag existed.
+        if (ReportedForSite(siteSlug) is { } reported)
+            return reported;
 
         var hasCached = _cache.TryGetValue(siteSlug, out var cached);
         if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
@@ -149,6 +197,16 @@ public class AgentOnGatewayDetector
             return false;
 
         var key = (siteSlug, agentId);
+
+        // Reported flag first (#1108): the live connection's is the source of truth, and the
+        // adopted copy answers across the reconnect gap. An agent that never reported falls
+        // through to the correlation path below, byte-for-byte the pre-flag behavior.
+        var live = _tunnelRegistry.GetForSite(siteSlug).FirstOrDefault(c => c.AgentId == agentId);
+        if (live?.OnGateway is { } liveReported)
+            return liveReported;
+        if (_reported.TryGetValue(key, out var adopted))
+            return adopted;
+
         var hasCached = _agentCache.TryGetValue(key, out var cached);
         if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
             return cached.OnGateway;

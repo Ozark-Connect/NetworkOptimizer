@@ -835,6 +835,10 @@ builder.Services.AddMutatingService<IApMapAdminService>(sp => sp.GetRequiredServ
 // to remove, matching the card).
 builder.Services.AddScoped<UpnpNoteService>();
 builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredService<UpnpNoteService>());
+// Bandwidth Hogs' gateway-agent conntrack status (reads Viewer, dismissal Site Admin).
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.IConntrackStatusService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are

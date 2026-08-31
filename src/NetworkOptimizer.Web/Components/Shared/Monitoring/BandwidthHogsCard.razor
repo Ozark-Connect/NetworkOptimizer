@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs
 @inject BandwidthHogsService Hogs
+@inject IConntrackStatusService ConntrackStatus
 @inject SiteContextService SiteContext
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject ILogger<BandwidthHogsCard> Logger
@@ -79,6 +80,29 @@
             <div class="alert-info hogs-warmup">
                 Warming up - device WAN rates may read low or inaccurately for the next @_result.WarmupSecondsRemaining seconds.
             </div>
+        }
+        @if (HistoricAt == null && _view == View.Wan && _agentStatus is { } status)
+        {
+            @if (status.State == GatewayAgentConntrackState.GatewayAgentNeedsUpdate)
+            {
+                <div class="alert-info hogs-agent-notice">
+                    <strong>Update the Monitoring Agent on your gateway</strong> - newer agent builds measure
+                    per-device WAN usage right at the gateway, upgrading these figures from estimates to
+                    measurements across all WAN stats.
+                </div>
+            }
+            else if (status.State == GatewayAgentConntrackState.NoGatewayAgent && !status.SuggestionDismissed)
+            {
+                <SiteAdminOnly>
+                    <div class="alert-info hogs-agent-notice">
+                        <span>
+                            <strong>Measure per-device WAN at the source</strong> - install the Monitoring Agent on your
+                            UniFi gateway and these WAN figures become measurements instead of estimates.
+                        </span>
+                        <button type="button" class="btn btn-secondary btn-sm" @onclick="DismissAgentSuggestionAsync">Dismiss</button>
+                    </div>
+                </SiteAdminOnly>
+            }
         }
         @{ var rows = TopRows(); }
         @if (_result == null && !_error)
@@ -297,13 +321,19 @@
 
     private string ShareTooltip => (_mode, _view) switch
     {
-        (Mode.Throughput, View.Wan) => _result?.WanEstimated == true
-            ? "Share of the WAN rate, estimated from load and traffic patterns"
-            : "Share of the WAN rate; the clients' traffic matched the WAN load",
+        (Mode.Throughput, View.Wan) => _result?.WanMeasured == true
+            ? "Share of the WAN rate, measured on the gateway"
+            : _result?.WanEstimated == true
+                ? "Share of the WAN rate, estimated from load and traffic patterns"
+                : "Share of the WAN rate; the clients' traffic matched the WAN load",
         (Mode.Throughput, _) => "Share of everything the listed clients are moving",
         (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
         _ => "Share of everything through the clients' ports and radios",
     };
+
+    private GatewayAgentConntrackStatus? _agentStatus;
+    private DateTime _agentStatusAt = DateTime.MinValue;
+    private static readonly TimeSpan AgentStatusRefreshEvery = TimeSpan.FromMinutes(1);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -312,6 +342,35 @@
         _ready = true;
         await RefreshAsync();
         ArmTimer();
+    }
+
+    /// <summary>The gateway-agent notice state, refreshed a minute at a time off the card's own
+    /// refresh - it self-clears on the first capable hello, so it has to be re-asked.</summary>
+    private async Task RefreshAgentStatusAsync()
+    {
+        if (DateTime.UtcNow - _agentStatusAt < AgentStatusRefreshEvery) return;
+        _agentStatusAt = DateTime.UtcNow;
+        try
+        {
+            _agentStatus = await ConntrackStatus.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: agent status unavailable");
+        }
+    }
+
+    private async Task DismissAgentSuggestionAsync()
+    {
+        try
+        {
+            await ConntrackStatus.DismissGatewayAgentSuggestionAsync();
+            _agentStatus = _agentStatus is { } s ? s with { SuggestionDismissed = true } : null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: could not dismiss the agent suggestion");
+        }
     }
 
     protected override void OnParametersSet()
@@ -447,6 +506,7 @@
                 ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys)
                 : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
             _result = result;
+            await RefreshAgentStatusAsync();
             _error = false;
             StampQualified(at);
         }

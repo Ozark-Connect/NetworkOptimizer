@@ -21473,6 +21473,17 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.85rem;
 }
 
+.hogs-agent-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
 .hogs-show-more {
     margin-top: 0.5rem;
 }

@@ -60,6 +60,12 @@ public sealed record HogsResult
     public bool WanEstimated { get; init; }
 
     /// <summary>
+    /// True when every row's WAN figure is the gateway agent's conntrack measurement rather
+    /// than any split: tier 1 of the source hierarchy, exact from its first report.
+    /// </summary>
+    public bool WanMeasured { get; init; }
+
+    /// <summary>
     /// Seconds until the live baselines behind the WAN split have enough history to arm. Positive
     /// only in the first moments after the server starts, when unlearned rows attribute
     /// conservatively and device WAN rates can read low.

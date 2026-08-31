@@ -210,9 +210,21 @@ if (config.LanSpeedTest)
 ResultBuffer? resultBuffer = null;
 ProbeRunner? probeRunner = null;
 SnmpRunner? snmpRunner = null;
+ConntrackRunner? conntrackRunner = null;
 Task? probeTask = null;
 Task? snmpTask = null;
+Task? conntrackTask = null;
 Task? watchdogTask = null;
+
+// Capabilities for the hello. conntrack-accounting only when the installer said this is a
+// gateway AND the conntrack source proved readable right now - a permissions or module
+// surprise downgrades to "not capable", never to a lie.
+var conntrackCapable = config.OnGateway == true && ConntrackRunner.SourceReadable();
+var capabilities = conntrackCapable ? new[] { "conntrack-accounting" } : Array.Empty<string>();
+if (config.OnGateway == true)
+    Console.WriteLine(conntrackCapable
+        ? "Conntrack accounting available (on-gateway, byte counters readable)"
+        : "On-gateway install, but conntrack byte counters are not readable - conntrack accounting unavailable");
 var spoolPath = Path.Combine(
     Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
 
@@ -265,6 +277,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
     snmpRunner = new SnmpRunner(resultBuffer.Enqueue);
     probeTask = probeRunner.RunAsync(cts.Token);
     snmpTask = snmpRunner.RunAsync(cts.Token);
+    if (conntrackCapable)
+    {
+        conntrackRunner = new ConntrackRunner(resultBuffer.Enqueue);
+        conntrackTask = conntrackRunner.RunAsync(cts.Token);
+    }
 }
 
 // Restart-based self-heal for a wedged async socket engine (every install
@@ -289,6 +306,13 @@ while (!cts.IsCancellationRequested)
         var probeRequestRunner = new ProbeRequestRunner(tunnel);
         tunnel.OnProbeConfig = probeRunner!.UpdateConfig;
         tunnel.OnSnmpConfig = snmpRunner!.UpdateConfig;
+        if (conntrackRunner != null)
+        {
+            tunnel.OnConntrackConfig = conntrackRunner.UpdateConfig;
+            // Live batches ride this tunnel directly (superseded by the next window, so a lost
+            // one costs nothing); the ~30s aggregates ride the result buffer like everything else.
+            conntrackRunner.LiveSend = tunnel.TrySend;
+        }
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
             wanConfig.DefaultServerId);
@@ -322,6 +346,7 @@ while (!cts.IsCancellationRequested)
                 speedTestServer != null ? SpeedTestPagePort(config) : 0,
                 speedTestServer != null,
                 NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor.SupportsSourceBinding,
+                config.OnGateway, capabilities,
                 config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
@@ -335,6 +360,7 @@ while (!cts.IsCancellationRequested)
         }
         finally
         {
+            if (conntrackRunner != null) conntrackRunner.LiveSend = null;
             connectionCts.Cancel();
             // Nothing to salvage: the drain only peeks, so every unacked frame is
             // still in the buffer and replays on the next connection.
@@ -383,6 +409,10 @@ if (snmpTask != null)
 {
     try { await snmpTask; } catch (OperationCanceledException) { }
 }
+if (conntrackTask != null)
+{
+    try { await conntrackTask; } catch (OperationCanceledException) { }
+}
 if (watchdogTask != null)
 {
     try { await watchdogTask; } catch (OperationCanceledException) { }
@@ -420,7 +450,13 @@ namespace NetworkOptimizer.Agent
         string? ProbeSourceIp = null,
         bool LanSpeedTest = false,
         int LanSpeedTestPort = 24443,
-        IReadOnlyList<string>? ProxyAllowedCidrs = null);
+        IReadOnlyList<string>? ProxyAllowedCidrs = null,
+        // Written by the installers at install time (#1108): the gateway installer writes true,
+        // install-native.sh false. NULLABLE on purpose - an agent.json predating the key must
+        // send ABSENT on the hello so the server stays on its IP-correlation path; defaulting
+        // to false here would authoritatively misclassify every pre-flag gateway install the
+        // moment its binary was upgraded.
+        bool? OnGateway = null);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
 

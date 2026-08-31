@@ -394,11 +394,21 @@ ok "WAN speed test helper"
 
 CONFIG="${INSTALL_DIR}/agent.json"
 
+# Whether this host is a UniFi OS gateway, for agent.json's onGateway key. The refusal
+# above means this normally answers false; under --force-native on a real gateway,
+# ubnt-device-info is present and the truth wins over the override.
+ON_GATEWAY=false
+command -v ubnt-device-info >/dev/null 2>&1 && ON_GATEWAY=true
+
 step "Configuring the agent"
 # Preserve an already-enrolled config so re-running the installer (e.g. to
 # update the binary) never wipes the persisted agent key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
+    # Upgrades keep the enrolled config, so the on-gateway key is ADDED when missing (#1108).
+    if ! grep -q '"onGateway"' "$CONFIG"; then
+        sed -i "0,/{/s/{/{\n  \"onGateway\": ${ON_GATEWAY},/" "$CONFIG"
+    fi
     # ...except the speed test port, when this run asked for a different one. nginx's listener is
     # rewritten below either way, and the agent announces the port from here - so leaving this
     # alone would have the agent advertising a port it no longer serves, which is precisely the
@@ -418,6 +428,7 @@ else
         echo "  \"serverUrl\": \"${SERVER%/}\","
         echo "  \"tunnelUrl\": \"${SERVER%/}\","
         echo "  \"enrollmentToken\": \"${TOKEN}\","
+        echo "  \"onGateway\": ${ON_GATEWAY},"
         printf '  "ignoreSslErrors": %s' "$INSECURE"
         if [ "$LAN_SPEED_TEST" = true ]; then
             printf ',\n  "lanSpeedTest": true'
