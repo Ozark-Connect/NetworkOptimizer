@@ -3741,7 +3741,9 @@
                                                                     : "probes, path discovery and SNMP") run there instead of on this
                                                                 server. Turn on if this server is off-site, or you want a separate
                                                                 agent.@if (_siteHasMultipleWans)
-                                                                {<text> Agent(s) can still probe for Multi-WAN monitoring with this off.</text>}
+                                                                {<text> Agent(s) can still probe for @(SiteHasGatewayAgent(site.Id) ? "Multi-WAN and WAN usage" : "Multi-WAN") monitoring with this off.</text>}
+                                                                else if (SiteHasGatewayAgent(site.Id))
+                                                                {<text> Agent(s) can still provide WAN usage monitoring with this off.</text>}
                                                             </label>
                                                             @if (AgentCoversSite(site.Id))
                                                             {

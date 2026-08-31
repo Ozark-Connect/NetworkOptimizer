@@ -1744,7 +1744,10 @@ public class AgentProbeResultSink
             var config = new ConntrackConfig
             {
                 Enabled = settings is { Enabled: true },
-                IntervalSeconds = 5,
+                // 2s is the agent's floor: a measured pass is ~15 ms on a ~1k-flow table, so this
+                // costs under 1% of a gateway core and keeps the live split near-real-time. The
+                // agent's self-throttle stretches it on its own when a huge table runs over budget.
+                IntervalSeconds = 2,
             };
             if (config.Enabled)
             {
