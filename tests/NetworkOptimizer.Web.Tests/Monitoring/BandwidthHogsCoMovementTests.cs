@@ -118,6 +118,36 @@ public class BandwidthHogsCoMovementTests
     }
 
     [Fact]
+    public void One_speed_test_is_evidence_and_its_plateau_is_excluded()
+    {
+        // A single 60 s test: matched rise, four plateau samples, matched fall. The pair of
+        // matched edges arms the evidence, and the burst's body joins the excluded set so it
+        // cannot climb the baseline's p90.
+        var row = H(S(70, 1e6), S(60, 900e6), S(50, 900e6), S(40, 900e6), S(30, 900e6), S(20, 900e6), S(10, 1e6));
+        var wan = H(S(70, 0), S(60, 900e6), S(50, 900e6), S(40, 900e6), S(30, 900e6), S(20, 900e6), S(10, 0));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.FracDown.Should().NotBeNull("a matched rise and fall is dual evidence");
+        evidence.FracDown!.Value.Should().BeApproximately(1.0, 0.01);
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-50));
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-40));
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-30));
+    }
+
+    [Fact]
+    public void Plateau_exclusion_does_not_spread_past_the_hold()
+    {
+        // One matched rise, then a level held far longer than the hold: exclusion covers the
+        // first minutes and lets the rest stand, so a steady device keeps its history.
+        var samples = new List<(DateTime, double, double)> { S(720, 1e6), S(710, 100e6) };
+        for (var s = 700; s >= 0; s -= 10) samples.Add(S(s, 100e6));
+        var wan = new List<(DateTime, double, double)> { S(720, 0), S(710, 100e6) };
+        for (var s = 700; s >= 0; s -= 10) wan.Add(S(s, 100e6));
+        var evidence = BandwidthHogsService.CorroboratedWan(samples, wan);
+        evidence.MatchedDown.Should().Contain(Now.AddSeconds(-710));
+        evidence.MatchedDown.Should().NotContain(Now.AddSeconds(-100), "the hold bounds how far exclusion spreads");
+    }
+
+    [Fact]
     public void A_flat_wan_line_matches_no_samples()
     {
         var row = H(S(40, 5e6), S(30, 30e6), S(20, 8e6), S(10, 33e6), S(0, 6e6));

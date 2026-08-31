@@ -68,8 +68,17 @@ public class BandwidthHogsService
     /// <summary>The WAN must move at least this share of a row's step to corroborate it; smaller coincident wiggle is chance.</summary>
     private const double CoMoveMatchRatio = 0.5;
 
-    /// <summary>Significant steps needed before the fraction is evidence rather than a coin flip.</summary>
-    private const int CoMoveMinSteps = 3;
+    /// <summary>Significant steps needed before the fraction is evidence rather than a coin flip.
+    /// Two, so one speed test - a matched rise AND fall - counts; each match already demands
+    /// direction, half the magnitude, and alignment, so a pair is not chance.</summary>
+    private const int CoMoveMinSteps = 2;
+
+    /// <summary>
+    /// How long exclusion holds past a matched edge while the level does: a burst is mostly
+    /// plateau, and the plateau is what climbs the p90. Bounded so one chance match on a steady
+    /// device cannot hollow out its history and hand it a zero baseline.
+    /// </summary>
+    private static readonly TimeSpan CoMoveBurstHold = TimeSpan.FromMinutes(5);
 
     private static readonly TimeSpan FirstSeenCacheFor = TimeSpan.FromMinutes(5);
     private (DateTime At, Dictionary<string, DateTime> Map)? _firstSeen;
@@ -807,6 +816,21 @@ public class BandwidthHogsService
                 hits.Add(row[i].At);
             }
         }
+        // A matched step excludes its endpoints, but a burst is mostly plateau and the plateau is
+        // what climbs the p90. Exclusion holds while the level does, for CoMoveBurstHold past the
+        // last matched edge, so one chance match cannot hollow out a steady device's history.
+        var body = new HashSet<DateTime>();
+        var edge = DateTime.MinValue;
+        for (var i = 1; i < row.Count; i++)
+        {
+            if (hits.Contains(row[i - 1].At)) edge = row[i - 1].At > edge ? row[i - 1].At : edge;
+            else if (!body.Contains(row[i - 1].At)) continue;
+            if (row[i].At - edge > CoMoveBurstHold) continue;
+            if (Math.Abs(rate(row[i]) - rate(row[i - 1])) >= CoMoveMinStepBps) continue;
+            if (rate(row[i]) < CoMoveMinStepBps) continue;
+            body.Add(row[i].At);
+        }
+        hits.UnionWith(body);
         return (steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null, hits);
     }
 
