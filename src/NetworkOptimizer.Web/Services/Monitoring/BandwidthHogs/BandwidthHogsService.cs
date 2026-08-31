@@ -839,7 +839,7 @@ public class BandwidthHogsService
         var hits = new HashSet<DateTime>();
         // Only the burst SIDE of a matched step joins the set: the low endpoint is the local
         // level, and letting it in once lifted a device's local flow right after its test ended.
-        var edges = new List<(DateTime At, double Level, double Credit)>();
+        var edges = new List<(DateTime At, double Level, double Credit, bool Rise)>();
         // Both histories are time-ordered, so the nearest WAN sample only ever advances: an hour
         // of history costs one walk, not a scan per step.
         var hint = 0;
@@ -873,20 +873,25 @@ public class BandwidthHogsService
                 matched += best;
                 var high = dRow > 0 ? i : i - 1;
                 hits.Add(row[high].At);
-                edges.Add((row[high].At, rate(row[high]), best));
+                edges.Add((row[high].At, rate(row[high]), best, dRow > 0));
             }
         }
         // A burst is mostly plateau, and the plateau is what climbs the baseline. Exclusion holds
-        // for samples still AT a matched edge's level, bounded by CoMoveBurstHold past the edge,
-        // so it can never walk down onto the local level the burst returned to.
+        // for samples still AT a matched rise's level, bounded by CoMoveBurstHold past the edge -
+        // and a matched FALL closes the burst outright: the WAN stepping down with the row is the
+        // statement that it ended, so no credit lingers to skim the next burst's leading edge.
         var currentCredit = 0d;
         if (edges.Count > 0)
         {
             var ei = 0;
-            (DateTime At, double Level, double Credit)? anchor = null;
+            (DateTime At, double Level, double Credit, bool Rise)? anchor = null;
             for (var i = 0; i < row.Count; i++)
             {
-                while (ei < edges.Count && edges[ei].At <= row[i].At) anchor = edges[ei++];
+                while (ei < edges.Count && edges[ei].At <= row[i].At)
+                {
+                    var e = edges[ei++];
+                    anchor = e.Rise ? e : null;
+                }
                 if (anchor is not { } a) continue;
                 if (row[i].At - a.At > CoMoveBurstHold) continue;
                 if (Math.Abs(rate(row[i]) - a.Level) >= CoMoveMinStepBps) continue;

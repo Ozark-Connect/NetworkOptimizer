@@ -173,6 +173,20 @@ public class BandwidthHogsCoMovementTests
     }
 
     [Fact]
+    public void A_matched_fall_closes_the_burst()
+    {
+        // A small test rides a wobbling band, so the rise anchors barely above it and the
+        // wobble's top sits inside the level tolerance. The matched fall ends the burst anyway:
+        // no post-fall sample joins the set and no credit lingers to skim the next WAN burst.
+        var row = H(S(50, 30e6), S(40, 38e6), S(30, 38e6), S(20, 31e6), S(10, 36e6), S(0, 36e6));
+        var wan = H(S(50, 0), S(40, 6e6), S(30, 6e6), S(20, 0), S(10, 0), S(0, 0));
+        var evidence = BandwidthHogsService.CorroboratedWan(row, wan);
+        evidence.CurrentDown.Should().Be(0);
+        evidence.MatchedDown.Should().NotContain(Now.AddSeconds(-10));
+        evidence.MatchedDown.Should().NotContain(Now);
+    }
+
+    [Fact]
     public void A_flat_wan_line_matches_no_samples()
     {
         var row = H(S(40, 5e6), S(30, 30e6), S(20, 8e6), S(10, 33e6), S(0, 6e6));
