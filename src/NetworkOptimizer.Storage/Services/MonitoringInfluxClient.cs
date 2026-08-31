@@ -745,8 +745,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     /// <summary>
     /// One client's raw measured WAN windows over a short span, as rates (WANs summed per
-    /// window). Feeds the Client Performance live chart's WAN overlay history; the span is
-    /// minutes, and client_mac is a tag, so this is a single-series prune.
+    /// window). The coverage markers merge in as zero-byte rows at the same batch timestamps,
+    /// so an idle-but-covered stretch reads as zero-rate windows rather than a gap - only a
+    /// true coverage lapse leaves a hole. Feeds the Client Performance live chart's WAN
+    /// overlay history; the span is minutes, and client_mac is a tag, so this is a
+    /// single-series prune.
     /// </summary>
     public async Task<IReadOnlyList<ClientWanRateSample>> QueryClientWanRateWindowsAsync(
         string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
@@ -755,7 +758,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var mac = NormalizeMac(clientMac);
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and (r.client_mac == ""{mac}"" or r.client_mac == ""{ClientWanCoverageMarker}""))
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.window_seconds and r.window_seconds > 0)
