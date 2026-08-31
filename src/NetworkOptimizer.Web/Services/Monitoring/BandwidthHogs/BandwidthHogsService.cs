@@ -43,6 +43,10 @@ public class BandwidthHogsService
     /// <summary>How long a persisted baseline may stand in for a live one after a restart.</summary>
     private static readonly TimeSpan RowBaselineSeedLife = TimeSpan.FromHours(24);
 
+    /// <summary>A rate must stand this long before it can join the local habit: a burst still in
+    /// flight must not baseline itself while it is being attributed.</summary>
+    public static readonly TimeSpan BaselineRecentGuard = TimeSpan.FromMinutes(3);
+
     /// <summary>A live console rate older than this says nothing about now.</summary>
     private static readonly TimeSpan ConsoleNowFreshness = TimeSpan.FromSeconds(90);
 
@@ -234,7 +238,7 @@ public class BandwidthHogsService
             // a device hitting the WAN on repeat cannot teach the baseline its own burst rate.
             var localDown = (evidence?.FracDown != null ? samples.Where(s => !evidence.MatchedDown.Contains(s.At)) : samples).ToList();
             var localUp = (evidence?.FracUp != null ? samples.Where(s => !evidence.MatchedUp.Contains(s.At)) : samples).ToList();
-            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? Percentile90(localDown.Select(s => s.Down)) : (double?)null;
+            var floor = samples.Any(s => now - s.At >= BaselineMinSpan) ? HabitTopBps(localDown.Select(s => (s.At, s.Down)), now) : (double?)null;
             var histories = macs.Select(liveStats.ConsoleRateHistory).ToList();
             var ceiling = ConsoleWanCeiling(histories, now, BaselineMinSpan);
             if (floor != null && ceiling is { } c)
@@ -617,15 +621,14 @@ public class BandwidthHogsService
     }
 
     /// <summary>
-    /// A row's baseline local rate in one direction: the level its measured rate held across the
-    /// history, less the most the console's WAN figure explained of it. The level is the 90th
-    /// percentile, not the minimum: a camera feed wobbles across a wide band (13-37 Mbps
-    /// observed), and a min-based baseline left the wobble above it as 10-22 Mbps of standing
-    /// phantom candidacy. p90 sits at the top of the band while one burst sample among many
-    /// cannot drag it up the way a max would. A bursty client's p90 is still ~its idle level, and
-    /// anything above the baseline is a WAN candidate as usual. Zero until the measured history
-    /// spans <paramref name="minSpan"/>: a flow we have not watched is a WAN candidate, never
-    /// quietly ruled local.
+    /// A row's baseline local rate in one direction: the top of the band its measured rate held
+    /// across the history (see <see cref="HabitTopBps"/>), less the most the console's WAN figure
+    /// explained of it. The top, not a percentile: a p90 floor left the band's own upper decile
+    /// as standing phantom candidacy (a 13-37 Mbps camera feed poking 2-4 Mbps into the WAN
+    /// split), and WAN bursts no longer pollute the input - co-movement excludes them upstream,
+    /// and the recent guard keeps a burst in flight from baselining itself. Zero until the
+    /// history spans <paramref name="minSpan"/>: a flow we have not watched is a WAN candidate,
+    /// never quietly ruled local.
     /// </summary>
     public static double BaselineLocalBps(
         IReadOnlyList<(DateTime At, double Bps)> measured,
@@ -633,7 +636,22 @@ public class BandwidthHogsService
         DateTime now, TimeSpan minSpan)
     {
         if (measured.Count == 0 || !measured.Any(s => now - s.At >= minSpan)) return 0;
-        return Math.Max(0, Percentile90(measured.Select(s => s.Bps)) - consoleCeilingBps);
+        return Math.Max(0, HabitTopBps(measured, now) - consoleCeilingBps);
+    }
+
+    /// <summary>
+    /// The top of the local band: the highest rate that has stood for at least
+    /// <see cref="BaselineRecentGuard"/>. WAN-corroborated samples are excluded before this is
+    /// called, so what remains is local by election - and the guard keeps a burst still in
+    /// flight from baselining itself while it is being attributed.
+    /// </summary>
+    public static double HabitTopBps(IEnumerable<(DateTime At, double Bps)> measured, DateTime now)
+    {
+        double top = 0;
+        foreach (var (at, bps) in measured)
+            if (now - at >= BaselineRecentGuard && bps > top)
+                top = bps;
+        return top;
     }
 
     /// <summary>Lower-interpolation p90: sorted[floor(0.9 * (n-1))], so small sample sets pick a

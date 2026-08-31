@@ -24,10 +24,10 @@ public class BandwidthHogsBaselineTests
     public void A_constant_local_flow_the_console_never_saw_is_the_baseline()
     {
         // NVR: camera feeds wobble 27-33 Mbps, console WAN figure a few Kbps. The baseline is the
-        // p90 of the band, so the wobble sits under it instead of reading as growth.
+        // top of the band that has stood past the recent guard, so in-band wobble sits under it.
         var measured = new[] { Ago(14, 30e6), Ago(10, 27e6), Ago(5, 33e6), Ago(0, 29e6) };
         var ceiling = Ceiling(Both(14, 3e3), Both(7, 5e3), Both(0, 2e3));
-        BandwidthHogsService.BaselineLocalBps(measured, ceiling, Now, MinSpan).Should().BeApproximately(30e6 - 5e3, 1);
+        BandwidthHogsService.BaselineLocalBps(measured, ceiling, Now, MinSpan).Should().BeApproximately(33e6 - 5e3, 1);
     }
 
     [Fact]
