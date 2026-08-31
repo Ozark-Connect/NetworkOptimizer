@@ -361,6 +361,11 @@
     private GatewayAgentConntrackStatus? _agentStatus;
     private DateTime _agentStatusAt = DateTime.MinValue;
     private static readonly TimeSpan AgentStatusRefreshEvery = TimeSpan.FromMinutes(1);
+    // While the answer is transitional - never asked, or an enrolled agent is still
+    // reconnecting (a server restart's normal first minute) - re-ask fast, so the banner
+    // appears the moment the agent's hello settles it instead of a stale blank holding for
+    // a minute and reading as "needs a page refresh".
+    private static readonly TimeSpan AgentStatusRefreshWhileSettling = TimeSpan.FromSeconds(5);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -371,11 +376,12 @@
         ArmTimer();
     }
 
-    /// <summary>The gateway-agent notice state, refreshed a minute at a time off the card's own
-    /// refresh - it self-clears on the first capable hello, so it has to be re-asked.</summary>
+    /// <summary>The gateway-agent notice state, re-asked off the card's own refresh - it
+    /// self-clears on the first capable hello, so it can never be asked just once.</summary>
     private async Task RefreshAgentStatusAsync()
     {
-        if (DateTime.UtcNow - _agentStatusAt < AgentStatusRefreshEvery) return;
+        var settling = _agentStatus is null or { State: GatewayAgentConntrackState.AwaitingAgent };
+        if (DateTime.UtcNow - _agentStatusAt < (settling ? AgentStatusRefreshWhileSettling : AgentStatusRefreshEvery)) return;
         _agentStatusAt = DateTime.UtcNow;
         try
         {
