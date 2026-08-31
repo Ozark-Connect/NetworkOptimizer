@@ -4979,7 +4979,8 @@
         var wanRates = GetWanRates();
         <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
                            WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
-                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()" />
+                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()"
+                           MultiWan="_multiWanUiVisible" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>

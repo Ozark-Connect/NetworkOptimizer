@@ -95,7 +95,7 @@
                         </span>
                         <div class="banner-text">
                             <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
-                            <span style="color: var(--text-secondary);">Newer Agent builds measure per-device WAN usage right at the Gateway, upgrading these figures from estimates to accurate per-WAN measurements for all clients.</span>
+                            <span style="color: var(--text-secondary);">Newer Agent builds measure per-device WAN usage right at the Gateway, upgrading these figures from estimates to accurate @(MultiWan ? "per-WAN " : "")measurements for all clients.</span>
                         </div>
                         <SiteAdminOnly>
                             <div class="banner-actions">
@@ -120,7 +120,7 @@
                             </span>
                             <div class="banner-text">
                                 <strong style="color: var(--info-color);">Measure per-device WAN at the source</strong>
-                                <span style="color: var(--text-secondary);">Install the On-Site Agent on your UniFi Gateway and these WAN figures become accurate per-WAN measurements for all clients.</span>
+                                <span style="color: var(--text-secondary);">Install the On-Site Agent on your UniFi Gateway and these WAN figures become accurate @(MultiWan ? "per-WAN " : "")measurements for all clients.</span>
                             </div>
                             <div class="banner-actions">
                                 <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Set It Up</a>
@@ -266,6 +266,10 @@
 
     /// <summary>Live-cache history keys for the selected WAN interfaces, for co-movement corroboration.</summary>
     [Parameter] public IReadOnlyCollection<string> WanHistoryKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>Whether the page's own multi-WAN detection lit its multi-WAN UI; the banners say
+    /// "per-WAN" only where a second WAN exists for the phrase to mean anything.</summary>
+    [Parameter] public bool MultiWan { get; set; }
 
     private enum Mode { Throughput, Data }
     private enum View { Wan, LanPlusWan }
