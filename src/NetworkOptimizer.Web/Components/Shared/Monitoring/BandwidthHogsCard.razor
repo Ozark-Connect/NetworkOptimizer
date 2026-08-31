@@ -134,7 +134,7 @@
         @{ var rows = TopRows(); }
         @if (_result == null && !_error)
         {
-            <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+            <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
         }
         else if (rows.Count == 0)
         {
@@ -467,12 +467,19 @@
     {
         if (_view == view) return;
         _view = view;
-        await PersistViewAsync();
         // A WAN-only data answer has no LAN figures; the first look at LAN + WAN reads them.
+        // Nulled BEFORE any await: the first re-render happens at the persist below, and a
+        // WAN-only answer viewed as LAN + WAN is all zero-byte rows - which drew the empty
+        // state for a beat instead of the spinner.
         if (_mode == Mode.Data && view == View.LanPlusWan && _result?.IncludesLan != true)
         {
             _result = null;
+            await PersistViewAsync();
             await RefreshAsync();
+        }
+        else
+        {
+            await PersistViewAsync();
         }
     }
 
