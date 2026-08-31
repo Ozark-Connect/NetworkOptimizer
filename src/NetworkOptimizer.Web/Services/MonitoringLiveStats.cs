@@ -755,8 +755,13 @@ public class MonitoringLiveStats
     // always warm - no page needs to be open, and no new polling: the data flows anyway.
     private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _rowRates = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>How much measured-rate history is kept per row, matching the console history.</summary>
-    public static readonly TimeSpan RowRateHistoryFor = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// How much measured-rate history is kept per row. Deliberately wide: the Bandwidth Hogs
+    /// baseline learns a device's background habit from it, and co-movement spans it so a WAN
+    /// burst from half an hour ago stays excluded from that habit. The console history stays at
+    /// 15 minutes on purpose - a recent ceiling against a wide floor errs toward not attributing.
+    /// </summary>
+    public static readonly TimeSpan RowRateHistoryFor = TimeSpan.FromMinutes(60);
 
     /// <summary>Sources write faster than a baseline needs; samples closer than this are dropped.</summary>
     private static readonly TimeSpan RowRateSampleSpacing = TimeSpan.FromSeconds(10);

@@ -790,14 +790,18 @@ public class BandwidthHogsService
         double moved = 0, matched = 0;
         var steps = 0;
         var hits = new HashSet<DateTime>();
+        // Both histories are time-ordered, so the nearest WAN sample only ever advances: an hour
+        // of history costs one walk, not a scan per step.
+        var hint = 0;
         for (var i = 1; i < row.Count; i++)
         {
             var gap = row[i].At - row[i - 1].At;
             if (gap <= TimeSpan.Zero || gap > CoMoveMaxStep) continue;
             var dRow = rate(row[i]) - rate(row[i - 1]);
             if (Math.Abs(dRow) < CoMoveMinStepBps) continue;
-            var ja = NearestIndex(wan, row[i - 1].At);
-            var jb = NearestIndex(wan, row[i].At);
+            var ja = NearestFrom(wan, row[i - 1].At, hint);
+            var jb = NearestFrom(wan, row[i].At, ja);
+            hint = ja;
             if (ja < 0 || jb < 0 || ja >= jb) continue;
             if ((wan[ja].At - row[i - 1].At).Duration() > CoMoveAlignTolerance) continue;
             if ((wan[jb].At - row[i].At).Duration() > CoMoveAlignTolerance) continue;
@@ -824,14 +828,13 @@ public class BandwidthHogsService
         return (steps >= CoMoveMinSteps ? Math.Clamp(matched / moved, 0, 1) : null, hits);
     }
 
-    private static int NearestIndex(
-        IReadOnlyList<(DateTime At, double Down, double Up)> samples, DateTime t)
+    private static int NearestFrom(
+        IReadOnlyList<(DateTime At, double Down, double Up)> samples, DateTime t, int from)
     {
-        var best = -1;
-        for (var i = 0; i < samples.Count; i++)
-            if (best < 0 || (samples[i].At - t).Duration() < (samples[best].At - t).Duration())
-                best = i;
-        return best;
+        if (samples.Count == 0) return -1;
+        var j = Math.Clamp(from, 0, samples.Count - 1);
+        while (j + 1 < samples.Count && (samples[j + 1].At - t).Duration() <= (samples[j].At - t).Duration()) j++;
+        return j;
     }
 
     private static (DateTime At, double Down, double Up)? Nearest(

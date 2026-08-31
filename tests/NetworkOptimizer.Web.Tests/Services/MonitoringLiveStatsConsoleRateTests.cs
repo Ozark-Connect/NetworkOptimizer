@@ -88,7 +88,7 @@ public class MonitoringLiveStatsConsoleRateTests
     public void Port_rate_writes_feed_the_row_history_with_pruning_and_decimation()
     {
         var stats = Stats();
-        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 10, 1, T0.AddMinutes(-20));
+        stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 10, 1, T0.AddMinutes(-70)); // beyond RowRateHistoryFor, pruned
         stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 20, 2, T0.AddMinutes(-10));
         stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 99, 9, T0.AddMinutes(-10).AddSeconds(5)); // inside the spacing, dropped
         stats.RecordPortRate("AA:BB:CC:DD:EE:01", "eth1", 30, 3, T0);
