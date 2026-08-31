@@ -21477,6 +21477,15 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-bottom: 1rem;
 }
 
+/* Holds the collapsed five-row list's footprint while an answer loads, spinner centered,
+   so a view or window switch doesn't collapse the card and jump the page. */
+.hogs-loading {
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .hogs-show-more {
     margin-top: 0.5rem;
 }
