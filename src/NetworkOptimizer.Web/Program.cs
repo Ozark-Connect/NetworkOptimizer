@@ -273,7 +273,7 @@ builder.Services.AddSingleton<AgentEnrollmentService>();
 builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequiredService<AgentEnrollmentService>());
 // Detects agents running on the site's UniFi gateway itself (monitoring-only
 // installs) so speed-test surfaces can gate accordingly.
-builder.Services.AddSingleton<AgentOnGatewayDetector>();
+builder.Services.AddSiteScopedRegistry<AgentOnGatewayDetector>();
 
 // Licensing: singleton state machine, activation and phone-home loop. All
 // licensing data is instance-wide registry data in the main database.

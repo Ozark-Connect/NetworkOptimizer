@@ -29,9 +29,33 @@ namespace NetworkOptimizer.Web.Services;
 /// speed-test-capable gateway installs arrive, that gating should move to a
 /// per-agent capability flag - this detector only answers "is it on the
 /// gateway", not "what can it do".
+///
+/// Since #1108 the hello can carry the installer-written on_gateway flag, and a
+/// reported flag is the authoritative tier: it answers without any console round
+/// trip. EVERYTHING below it - correlation, caches, persisted verdicts - is the
+/// fallback for agents that did not say, and ages out with them; the
+/// address-based questions (MatchGatewayAddressAsync, IsIpOnGatewayAsync) stay
+/// correlation-based forever, because they need the matched address, which no
+/// flag can provide.
 /// </summary>
-public class AgentOnGatewayDetector
+public class AgentOnGatewayDetector : ISiteScopedRegistry
 {
+    /// <summary>
+    /// Site removal sweep: drops every cached answer keyed by the slug so a site re-created
+    /// under the same name cannot inherit the removed site's verdicts or gateway addresses.
+    /// Nothing here owns a disposable, so there is no teardown callback.
+    /// </summary>
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _cache.TryRemove(slug, out _);
+        _gatewayIps.TryRemove(slug, out _);
+        _gatewayHostIps.TryRemove(slug, out _);
+        foreach (var key in _agentCache.Keys.Where(k => k.Slug == slug).ToList())
+            _agentCache.TryRemove(key, out _);
+        foreach (var key in _reported.Keys.Where(k => k.Slug == slug).ToList())
+            _reported.TryRemove(key, out _);
+        return null;
+    }
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RefreshTimeout = TimeSpan.FromSeconds(10);
 
@@ -41,11 +65,6 @@ public class AgentOnGatewayDetector
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
-    // The agent address the last detection compared against the gateway's. Kept so callers that
-    // need it - anything asking "is this target the box the agent runs on" - can have it from here
-    // rather than asking the enrollment service again, which is gated and unusable from background
-    // work without a system scope.
-    private readonly ConcurrentDictionary<string, string> _agentIp = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
     // Per-agent verdicts and their in-flight refreshes, for the per-agent overload. Separate from
     // the site-level pair above rather than replacing it: the two answer different questions and
@@ -286,14 +305,6 @@ public class AgentOnGatewayDetector
         }));
 
     /// <summary>
-    /// The address the site's agent reported at the last detection, or null if none has completed.
-    /// Only meaningful alongside <see cref="IsAgentOnGatewayAsync"/> saying true, where it is the
-    /// gateway's own address - which is to say, the one target that agent must not probe.
-    /// </summary>
-    public string? LastKnownAgentIp(string siteSlug) =>
-        _agentIp.TryGetValue(siteSlug, out var ip) ? ip : null;
-
-    /// <summary>
     /// Whether a specific address is one of the site's gateway addresses - the per-connection
     /// counterpart to <see cref="IsAgentOnGatewayAsync"/>, for the questions that are about ONE
     /// agent rather than about the site. A site with several agents has one gateway, but only one
@@ -423,7 +434,6 @@ public class AgentOnGatewayDetector
 
         var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
         _cache[siteSlug] = (onGateway, DateTime.UtcNow);
-        _agentIp[siteSlug] = agentIp!;
         await PersistAsync(siteSlug, SystemSettingKeys.AgentOnGateway, onGateway);
     }
 

@@ -928,6 +928,11 @@ public class MonitoringLiveStats
     public void Prune(TimeSpan maxAge)
     {
         var cutoff = DateTime.UtcNow - maxAge;
+        // Conntrack rates are age-gated on read (ConntrackFreshness), so pruning is purely a
+        // memory tidy for clients that left the network.
+        foreach (var kvp in _clientWanRates)
+            if (kvp.Value.At < cutoff)
+                _clientWanRates.TryRemove(kvp.Key, out _);
         // SFP polls on the slow tier (~5min). If the SFP cutoff matches the
         // poll interval, every Prune tick between polls races the SFP entry
         // off the cache and the UI flashes blank ("-") for a few seconds
