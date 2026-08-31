@@ -292,23 +292,22 @@ public class BandwidthHogsService
                 : Array.Empty<(DateTime, double, double)>();
             var evidence = wanHistory != null && rowHist.Count > 0 ? CorroboratedWan(rowHist, wanHistory) : null;
             var baseline = BaselineLocal(m.HistoryKey, macs, rowHist, evidence);
-            // The console's lagging figures are a standing sanity cap on every row, not just the
-            // cold-start guard: a skewed learned baseline (a zero seeded off a young history)
-            // otherwise hands a local flow the pool with nothing to answer to. The co-movement
-            // lift below may exceed the cap, so a matched burst attributes ahead of the lag.
+            // The console's per-client rates are WAN-only, so they are a standing sanity cap on
+            // every known row: an idle-on-WAN device caps at ~zero no matter what a skewed or
+            // seeded baseline says. The traffic report stays out of this arm - its 15-minute
+            // memory would hold the cap open long after a burst ended - and the co-movement lift
+            // below may exceed the cap, so a matched burst attributes ahead of the console's lag.
             var console = ConsoleNow(macs);
-            var capDown = UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down);
-            var capUp = UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up);
             double effDown, effUp;
             if (baseline.Known)
             {
-                effDown = Math.Min(Math.Max(0, m.Down - baseline.Down), capDown);
-                effUp = Math.Min(Math.Max(0, m.Up - baseline.Up), capUp);
+                effDown = Math.Min(Math.Max(0, m.Down - baseline.Down), 2 * (console?.Down ?? 0));
+                effUp = Math.Min(Math.Max(0, m.Up - baseline.Up), 2 * (console?.Up ?? 0));
             }
             else
             {
-                effDown = Math.Min(m.Down, capDown);
-                effUp = Math.Min(m.Up, capUp);
+                effDown = Math.Min(m.Down, UnarmedWanCapBps(bytes.Down, DpiRecentWindow, console?.Down));
+                effUp = Math.Min(m.Up, UnarmedWanCapBps(bytes.Up, DpiRecentWindow, console?.Up));
             }
             // The WAN line's own co-movement can only raise the candidate - but it is evidence
             // about the moments that matched, not a standing property: the lift applies only while
