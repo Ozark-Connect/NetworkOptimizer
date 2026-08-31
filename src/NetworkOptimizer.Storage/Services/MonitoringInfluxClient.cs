@@ -740,6 +740,42 @@ public class MonitoringInfluxClient : IAsyncDisposable
     /// <summary>One conntrack bucket: measured WAN bytes toward and from the client.</summary>
     public sealed record ClientWanPoint(DateTime Time, long DownBytes, long UpBytes);
 
+    /// <summary>One raw conntrack window as a rate: the window's bytes over its own length.</summary>
+    public sealed record ClientWanRateSample(DateTime Time, double DownBps, double UpBps);
+
+    /// <summary>
+    /// One client's raw measured WAN windows over a short span, as rates (WANs summed per
+    /// window). Feeds the Client Performance live chart's WAN overlay history; the span is
+    /// minutes, and client_mac is a tag, so this is a single-series prune.
+    /// </summary>
+    public async Task<IReadOnlyList<ClientWanRateSample>> QueryClientWanRateWindowsAsync(
+        string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientWanRateSample>();
+        var mac = NormalizeMac(clientMac);
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.down_bytes and exists r.window_seconds and r.window_seconds > 0)
+  |> group(columns: [""_time""])
+  |> reduce(fn: (r, accumulator) => ({{down: accumulator.down + r.down_bytes, up: accumulator.up + r.up_bytes, win: r.window_seconds}}), identity: {{down: 0, up: 0, win: 0}})
+  |> group()
+  |> sort(columns: [""_time""])";
+        var samples = new List<ClientWanRateSample>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = record.GetTimeInDateTime();
+            var window = AsDoubleOrNull(record.GetValueByKey("win")) ?? 0;
+            if (time == null || window <= 0) continue;
+            samples.Add(new ClientWanRateSample(ToUtc(time.Value),
+                (AsDoubleOrNull(record.GetValueByKey("down")) ?? 0) * 8 / window,
+                (AsDoubleOrNull(record.GetValueByKey("up")) ?? 0) * 8 / window));
+        }
+        return samples;
+    }
+
     /// <summary>One client's measured WAN total over a window.</summary>
     public sealed record ClientWanTotal(string ClientMac, long DownBytes, long UpBytes);
 

@@ -38,7 +38,11 @@ public class WiredPortStats
 }
 
 /// <summary>One throughput reading, as download and upload from the client's point of view.</summary>
-public record ThroughputSample(DateTime Time, double? DownloadBps, double? UploadBps);
+/// <summary>WanDownloadBps/WanUploadBps: the conntrack-measured WAN share of the rate, carried
+/// only while the gateway feed covers the site - null means "not measured", never "zero".</summary>
+public record ThroughputSample(
+    DateTime Time, double? DownloadBps, double? UploadBps,
+    double? WanDownloadBps = null, double? WanUploadBps = null);
 
 /// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
 public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);

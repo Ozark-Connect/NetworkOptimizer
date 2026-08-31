@@ -1,6 +1,11 @@
 // Client live throughput chart: a five-minute sliding window of one client's From Device and To
 // Device rates, in the WAN live chart's shape. A renderer only - the Client Performance page owns
 // the client and already polls it, so history and every live sample arrive by push.
+//
+// When the gateway conntrack feed covers the site, a dashed pair in the same colors overlays the
+// measured WAN share of each rate, filled darker so it reads as the inner component of the
+// LAN + WAN total. The WAN series carry their own buffer: their samples land on their own
+// timestamps, and folding them into the totals' points would punch null gaps into those lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip } from './chart-tooltip.js?v=15';
@@ -9,6 +14,9 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
 const SCROLL_MS = 250;
+// How long the WAN edge may stand in at the live edge; past it coverage has lapsed and the
+// dashed lines end rather than flat-lining a stale measurement.
+const WAN_EDGE_MAX_MS = 10000;
 // The device's frame: Download is what it receives, Upload what it sends.
 const COLOR_DOWN = downloadColor();
 const COLOR_UP = uploadColor();
@@ -25,12 +33,15 @@ function dbg(what, detail) {
 let chart = null;
 let scrollTimer = null;
 let buffer = [];
+let wanBuffer = [];
 let elId = null;
 let mountGen = 0;
 let lastSampleTime = 0;
+let lastWanSampleTime = 0;
 // The newest reading as it stands, ahead of the folded points: the line's right end follows it,
 // so the chart moves with the identity row instead of a fold behind it.
 let liveEdge = null;
+let wanEdge = null;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
@@ -56,6 +67,7 @@ function tooltipShowing() {
 }
 
 function buildOpts() {
+    const bpsFormatter = { formatter: v => formatBps(v) };
     return {
         chart: {
             type: 'area',
@@ -66,15 +78,23 @@ function buildOpts() {
             parentHeightOffset: 0,
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
         },
+        // The WAN pair renders after the totals so its darker fill sits inside them.
         series: [
-            { name: 'Download', type: 'area', data: [] },
-            { name: 'Upload',   type: 'area', data: [] },
+            { name: 'Download',     type: 'area', data: [] },
+            { name: 'Upload',       type: 'area', data: [] },
+            { name: 'WAN Download', type: 'area', data: [] },
+            { name: 'WAN Upload',   type: 'area', data: [] },
         ],
-        colors: [COLOR_DOWN, COLOR_UP],
-        stroke: { curve: 'smooth', width: 2 },
+        colors: [COLOR_DOWN, COLOR_UP, COLOR_DOWN, COLOR_UP],
+        stroke: { curve: 'smooth', width: [2, 2, 2, 2], dashArray: [0, 0, 5, 5] },
         fill: {
             type: 'gradient',
-            gradient: { shadeIntensity: 0.4, opacityFrom: 0.5, opacityTo: 0.08, stops: [0, 95] },
+            gradient: {
+                shadeIntensity: 0.4,
+                opacityFrom: [0.5, 0.5, 0.8, 0.8],
+                opacityTo: [0.08, 0.08, 0.3, 0.3],
+                stops: [0, 95],
+            },
         },
         markers: { size: 0 },
         dataLabels: { enabled: false },
@@ -119,7 +139,7 @@ function buildOpts() {
             shared: true,
             x: { formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             custom: (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) }),
-            y: [{ formatter: v => formatBps(v) }, { formatter: v => formatBps(v) }],
+            y: [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter],
         },
         noData: { text: 'Waiting for a reading...', style: { color: '#64748b', fontSize: '13px' } },
     };
@@ -158,11 +178,19 @@ function buildTimeTicks(minMs, maxMs) {
 }
 
 function toPoint(p) {
-    return { time: new Date(p.time).getTime(), down: p.downloadBps ?? null, up: p.uploadBps ?? null };
+    return {
+        time: new Date(p.time).getTime(),
+        down: p.downloadBps ?? null,
+        up: p.uploadBps ?? null,
+        wanDown: p.wanDownloadBps ?? null,
+        wanUp: p.wanUploadBps ?? null,
+    };
 }
 
+function hasWan(p) { return p.wanDown != null || p.wanUp != null; }
+
 function updateChart() {
-    if (!chart || buffer.length === 0) return;
+    if (!chart || (buffer.length === 0 && wanBuffer.length === 0)) return;
     if (tooltipShowing()) return;
     const now = Date.now();
     const pts = [...buffer];
@@ -171,23 +199,35 @@ function updateChart() {
     // and its end is what the device is doing now, not the last fold.
     const edge = liveEdge && (!last || liveEdge.time > last.time) ? liveEdge : last;
     if (edge && (!last || now - last.time > 1000)) pts.push({ time: now, down: edge.down, up: edge.up });
+    const wanPts = [...wanBuffer];
+    const wanLast = wanPts[wanPts.length - 1];
+    // The WAN edge only stands in while fresh: coverage lapsing ends the dashed lines instead
+    // of flat-lining a stale measurement.
+    const wEdge = wanEdge && (!wanLast || wanEdge.time > wanLast.time) ? wanEdge : wanLast;
+    if (wEdge && now - wEdge.time <= WAN_EDGE_MAX_MS && (!wanLast || now - wanLast.time > 1000))
+        wanPts.push({ time: now, wanDown: wEdge.wanDown, wanUp: wEdge.wanUp });
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
         annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
     }, false, false, false);
     chart.updateSeries([
-        { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.down })) },
-        { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.up })) },
+        { name: 'Download',     data: pts.map(p => ({ x: p.time, y: p.down })) },
+        { name: 'Upload',       data: pts.map(p => ({ x: p.time, y: p.up })) },
+        { name: 'WAN Download', data: wanPts.map(p => ({ x: p.time, y: p.wanDown })) },
+        { name: 'WAN Upload',   data: wanPts.map(p => ({ x: p.time, y: p.wanUp })) },
     ], false);
 }
 
 function trim() {
     const cutoff = Date.now() - HISTORY_MINUTES * 60000;
     buffer = buffer.filter(p => p.time >= cutoff);
+    wanBuffer = wanBuffer.filter(p => p.time >= cutoff);
     for (const p of buffer) if (p.time > lastSampleTime) lastSampleTime = p.time;
+    for (const p of wanBuffer) if (p.time > lastWanSampleTime) lastWanSampleTime = p.time;
 }
 
-/** Mounts into a container with the window's history: `{ points: [{time, downloadBps, uploadBps}] }`.
+/** Mounts into a container with the window's history:
+ *  `{ points: [{time, downloadBps, uploadBps}], wanPoints: [{time, wanDownloadBps, wanUploadBps}] }`.
  *  False when the container is not in the DOM, so the caller can try again on its next render. */
 export async function mount(containerId, opts) {
     dispose();
@@ -196,8 +236,11 @@ export async function mount(containerId, opts) {
     const el = document.getElementById(containerId);
     if (!el) return false;
     buffer = (opts?.points || []).map(toPoint).sort((a, b) => a.time - b.time);
+    wanBuffer = (opts?.wanPoints || []).map(toPoint).filter(hasWan).sort((a, b) => a.time - b.time);
     lastSampleTime = 0;
+    lastWanSampleTime = 0;
     liveEdge = null;
+    wanEdge = null;
     trim();
     mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
     mouseLeaveHandler = () => { lastMouse = null; };
@@ -217,6 +260,7 @@ export function setLive(sample) {
     const p = toPoint(sample);
     if (liveEdge && !(p.time > liveEdge.time)) return;
     liveEdge = p;
+    if (hasWan(p)) wanEdge = p;
     updateChart();
 }
 
@@ -224,22 +268,29 @@ export function setLive(sample) {
 export function push(sample) {
     if (!chart) return;
     const p = toPoint(sample);
-    dbg('push', { at: new Date(p.time).toLocaleTimeString(), down: p.down, up: p.up, accepted: p.time > lastSampleTime });
-    if (!(p.time > lastSampleTime)) return;
-    buffer.push(p);
+    dbg('push', { at: new Date(p.time).toLocaleTimeString(), down: p.down, up: p.up, wanDown: p.wanDown, accepted: p.time > lastSampleTime });
+    if (p.time > lastSampleTime) {
+        buffer.push(p);
+    }
+    if (hasWan(p) && p.time > lastWanSampleTime) {
+        wanBuffer.push(p);
+    }
     trim();
     updateChart();
 }
 
 /** Re-pulled history merged under the live tail, so a gap that filled after the buffer scrolled past
  *  it appears; the newest live samples stay ahead of what the store has caught up to. */
-export function setHistory(points) {
+export function setHistory(points, wanPoints) {
     if (!chart) return;
     const hist = (points || []).map(toPoint).sort((a, b) => a.time - b.time);
     const newest = hist.length ? hist[hist.length - 1].time : 0;
-    dbg('history', { points: hist.length, newest: newest ? new Date(newest).toLocaleTimeString() : null,
+    dbg('history', { points: hist.length, wanPoints: (wanPoints || []).length, newest: newest ? new Date(newest).toLocaleTimeString() : null,
         liveTailKept: buffer.filter(p => p.time > newest).length, last3: hist.slice(-3) });
     buffer = hist.concat(buffer.filter(p => p.time > newest));
+    const wanHist = (wanPoints || []).map(toPoint).filter(hasWan).sort((a, b) => a.time - b.time);
+    const wanNewest = wanHist.length ? wanHist[wanHist.length - 1].time : 0;
+    wanBuffer = wanHist.concat(wanBuffer.filter(p => p.time > wanNewest));
     trim();
     updateChart();
 }
@@ -254,6 +305,9 @@ export function dispose() {
     lastMouse = null;
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
+    wanBuffer = [];
     lastSampleTime = 0;
+    lastWanSampleTime = 0;
     liveEdge = null;
+    wanEdge = null;
 }

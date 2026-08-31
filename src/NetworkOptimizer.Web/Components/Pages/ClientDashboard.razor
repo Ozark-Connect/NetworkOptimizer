@@ -29,6 +29,7 @@
 @inject ILogger<ClientDashboard> Logger
 @inject NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService ApAgentRoam
 @inject MonitoringReadinessService Readiness
+@inject MonitoringLiveStatsRegistry LiveStatsRegistry
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -1203,6 +1204,10 @@
     private double _liveChartAccDown, _liveChartAccUp;
     private int _liveChartAccN;
     private DateTime _liveChartAccStart;
+    // WAN overlay fold, counted apart: coverage can come and go inside one fold window, and a
+    // covered average must not be diluted by the samples that had no measurement.
+    private double _liveChartAccWanDown, _liveChartAccWanUp;
+    private int _liveChartAccWanN;
     private bool ShowLiveChart => _activeTab == "speed" && _client is { IsVpn: false, IsOffline: false };
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
@@ -2064,14 +2069,14 @@
         _liveChartAccN = 0;
         try
         {
-            var points = await LoadLiveHistoryAsync();
+            var (points, wanPoints) = await LoadLiveHistoryWithWanAsync();
             await JS.InvokeVoidAsync("eval",
-                "window.__mountClientLiveChart = async function(elId, points) {" +
+                "window.__mountClientLiveChart = async function(elId, points, wanPoints) {" +
                 $"  const m = await import('{VersionedJs("/js/client-live-chart.js")}');" +
-                "  window.__clientLiveChart = m; return await m.mount(elId, { points }); }");
+                "  window.__clientLiveChart = m; return await m.mount(elId, { points, wanPoints }); }");
             // False when the div is not in the DOM yet (a render still on the skeleton); the next
             // render tries again.
-            if (await JS.InvokeAsync<bool>("__mountClientLiveChart", "client-live-chart", points))
+            if (await JS.InvokeAsync<bool>("__mountClientLiveChart", "client-live-chart", points, wanPoints))
                 _liveChartReady = true;
             else
                 _liveChartMounted = false;
@@ -2083,12 +2088,17 @@
         }
     }
 
-    private async Task<IReadOnlyList<ThroughputSample>> LoadLiveHistoryAsync()
+    private async Task<(IReadOnlyList<ThroughputSample> Points, IReadOnlyList<ThroughputSample> WanPoints)> LoadLiveHistoryWithWanAsync()
     {
         _liveChartHistoryAt = DateTime.UtcNow;
-        if (_client == null) return Array.Empty<ThroughputSample>();
+        if (_client == null) return (Array.Empty<ThroughputSample>(), Array.Empty<ThroughputSample>());
         var to = DateTime.UtcNow;
-        return await DashboardService.GetThroughputHistoryAsync(_client, to.AddMinutes(-5), to);
+        var points = await DashboardService.GetThroughputHistoryAsync(_client, to.AddMinutes(-5), to);
+        // The WAN overlay's history: the measured windows at their own timestamps, a separate
+        // stream so the totals' series never gain null-y gaps at the WAN samples' instants.
+        var wan = await DashboardService.GetWanRateWindowsAsync(_client, to.AddMinutes(-5), to);
+        var wanPoints = wan.Select(w => new ThroughputSample(w.Time, null, null, w.DownBps, w.UpBps)).ToList();
+        return (points, wanPoints);
     }
 
     /// <summary>
@@ -2107,9 +2117,19 @@
         if (at is not { } t || t == _liveChartPushedAt) return;
         var gap = _liveChartPushedAt is { } prev ? t - prev : TimeSpan.MaxValue;
         _liveChartPushedAt = t;
+        // The WAN overlay's live value: measured only. Covered with no cache entry is measured
+        // idle (zero); no coverage is null, and the dashed pair simply isn't drawn.
+        double? wanDown = null, wanUp = null;
+        var liveStats = LiveStatsRegistry.GetFor(SiteContext.Slug);
+        if (liveStats.HasConntrackCoverage())
+        {
+            var wanRate = liveStats.GetClientWanRate(_client.Mac, liveStats.ConntrackFreshness);
+            wanDown = wanRate?.DownBps ?? 0;
+            wanUp = wanRate?.UpBps ?? 0;
+        }
         // The reading itself goes to the live edge at once; the fold below only decides the
         // stored-cadence point behind it.
-        try { await JS.InvokeVoidAsync("__clientLiveChart.setLive", new ThroughputSample(t, down, up)); }
+        try { await JS.InvokeVoidAsync("__clientLiveChart.setLive", new ThroughputSample(t, down, up, wanDown, wanUp)); }
         catch (Exception ex) { Logger.LogDebug(ex, "Live throughput edge update failed"); }
         if (!_client.IsWired && gap < LiveChartWindow)
         {
@@ -2117,17 +2137,30 @@
             _liveChartAccDown += down ?? 0;
             _liveChartAccUp += up ?? 0;
             _liveChartAccN++;
+            if (wanDown != null)
+            {
+                _liveChartAccWanDown += wanDown.Value;
+                _liveChartAccWanUp += wanUp!.Value;
+                _liveChartAccWanN++;
+            }
             if (t - _liveChartAccStart < LiveChartWindow) return;
             down = _liveChartAccDown / _liveChartAccN;
             up = _liveChartAccUp / _liveChartAccN;
+            wanDown = _liveChartAccWanN > 0 ? _liveChartAccWanDown / _liveChartAccWanN : null;
+            wanUp = _liveChartAccWanN > 0 ? _liveChartAccWanUp / _liveChartAccWanN : null;
             _liveChartAccN = 0;
             _liveChartAccDown = _liveChartAccUp = 0;
+            _liveChartAccWanN = 0;
+            _liveChartAccWanDown = _liveChartAccWanUp = 0;
         }
         try
         {
-            await JS.InvokeVoidAsync("__clientLiveChart.push", new ThroughputSample(t, down, up));
+            await JS.InvokeVoidAsync("__clientLiveChart.push", new ThroughputSample(t, down, up, wanDown, wanUp));
             if (DateTime.UtcNow - _liveChartHistoryAt > TimeSpan.FromSeconds(60))
-                await JS.InvokeVoidAsync("__clientLiveChart.setHistory", await LoadLiveHistoryAsync());
+            {
+                var (histPoints, histWan) = await LoadLiveHistoryWithWanAsync();
+                await JS.InvokeVoidAsync("__clientLiveChart.setHistory", histPoints, histWan);
+            }
         }
         catch (Exception ex)
         {

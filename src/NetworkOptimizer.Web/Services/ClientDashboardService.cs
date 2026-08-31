@@ -1431,6 +1431,28 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// The client's conntrack-measured WAN rate windows over a short span, for the live chart's
+    /// WAN overlay history. Empty when the gateway feed has not covered the span.
+    /// </summary>
+    public async Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>> GetWanRateWindowsAsync(
+        ClientIdentity client, DateTime from, DateTime to)
+    {
+        if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>();
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            return await influx.QueryClientWanRateWindowsAsync(client.Mac, from, to);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN rate windows unavailable for {Mac}", client.Mac);
+            return Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>();
+        }
+    }
+
     /// <summary>How far back usage is read when the page asks for everything.</summary>
     private static readonly TimeSpan MaxUsageWindow = TimeSpan.FromDays(30);
 
