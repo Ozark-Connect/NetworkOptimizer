@@ -85,21 +85,48 @@
         {
             @if (status.State == GatewayAgentConntrackState.GatewayAgentNeedsUpdate)
             {
-                <div class="alert-info hogs-agent-notice">
-                    <strong>Update the Monitoring Agent on your gateway</strong> - newer agent builds measure
-                    per-device WAN usage right at the gateway, upgrading these figures from estimates to
-                    measurements across all WAN stats.
+                <div class="connection-banner pwa-banner hogs-agent-notice">
+                    <div class="banner-content">
+                        <span class="banner-icon" style="background: var(--info-color); color: white;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                                <polyline points="21 3 21 9 15 9" />
+                            </svg>
+                        </span>
+                        <div class="banner-text">
+                            <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
+                            <span style="color: var(--text-secondary);">Newer Agent builds measure per-device WAN usage right at the Gateway, upgrading these figures from estimates to measurements across all WAN stats.</span>
+                        </div>
+                        <SiteAdminOnly>
+                            <div class="banner-actions">
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Upgrade Agent</a>
+                            </div>
+                        </SiteAdminOnly>
+                    </div>
                 </div>
             }
             else if (status.State == GatewayAgentConntrackState.NoGatewayAgent && !status.SuggestionDismissed)
             {
                 <SiteAdminOnly>
-                    <div class="alert-info hogs-agent-notice">
-                        <span>
-                            <strong>Measure per-device WAN at the source</strong> - install the Monitoring Agent on your
-                            UniFi gateway and these WAN figures become measurements instead of estimates.
-                        </span>
-                        <button type="button" class="btn btn-secondary btn-sm" @onclick="DismissAgentSuggestionAsync">Dismiss</button>
+                    <div class="connection-banner pwa-banner hogs-agent-notice">
+                        <div class="banner-content">
+                            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                                    <line x1="6" y1="18" x2="6.01" y2="18" />
+                                    <line x1="10" y1="18" x2="10.01" y2="18" />
+                                    <path d="M12 14V6a2 2 0 0 1 2-2h6" />
+                                </svg>
+                            </span>
+                            <div class="banner-text">
+                                <strong style="color: var(--info-color);">Measure per-device WAN at the source</strong>
+                                <span style="color: var(--text-secondary);">Install the On-Site Agent on your UniFi Gateway and these WAN figures become measurements instead of estimates.</span>
+                            </div>
+                            <div class="banner-actions">
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Set It Up</a>
+                                <button class="btn-pwa-dismiss" @onclick="DismissAgentSuggestionAsync">Dismiss</button>
+                            </div>
+                        </div>
                     </div>
                 </SiteAdminOnly>
             }
@@ -322,7 +349,7 @@
     private string ShareTooltip => (_mode, _view) switch
     {
         (Mode.Throughput, View.Wan) => _result?.WanMeasured == true
-            ? "Share of the WAN rate, measured on the gateway"
+            ? "Share of the WAN rate, measured on the Gateway"
             : _result?.WanEstimated == true
                 ? "Share of the WAN rate, estimated from load and traffic patterns"
                 : "Share of the WAN rate; the clients' traffic matched the WAN load",
