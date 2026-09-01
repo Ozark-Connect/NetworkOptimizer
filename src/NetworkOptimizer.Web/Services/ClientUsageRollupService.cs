@@ -89,6 +89,24 @@ public class ClientUsageRollupService : BackgroundService
     private bool _wanSeeded;
     private DateTime _wanNext;
 
+    // Earliest hour a late client_wan batch landed in (spool replay after a tunnel outage) -
+    // hours the cursor already passed hold new points until this is consumed. long.MaxValue =
+    // nothing pending.
+    private long _wanRewindToTicks = long.MaxValue;
+
+    /// <summary>
+    /// Notes a client_wan batch stamped in a past hour, so the WAN rollup rewinds and re-rolls
+    /// from that hour on its next pass. Safe by shape: re-rolls overwrite, and the rollup is a
+    /// pure sum, so rolling again with the replayed points present cannot double-count.
+    /// </summary>
+    public void NoteLateClientWanBatch(DateTime batchUtc)
+    {
+        var hour = HourStart(batchUtc).Ticks;
+        long seen;
+        while (hour < (seen = Interlocked.Read(ref _wanRewindToTicks))
+               && Interlocked.CompareExchange(ref _wanRewindToTicks, hour, seen) != seen) { }
+    }
+
     /// <summary>
     /// Rolls the next few pending hours: forward to the last complete hour first, then backward to
     /// the horizon for a site whose earlier backfill stopped short. True when more remain.
@@ -153,6 +171,13 @@ public class ClientUsageRollupService : BackgroundService
             }
             if (_wanNext < horizon) _wanNext = horizon;
             _wanSeeded = true;
+        }
+        // A spool replay landed points behind the cursor: rewind and re-roll forward over them.
+        var rewind = Interlocked.Exchange(ref _wanRewindToTicks, long.MaxValue);
+        if (rewind != long.MaxValue)
+        {
+            var rewindTo = new DateTime(Math.Max(rewind, horizon.Ticks), DateTimeKind.Utc);
+            if (rewindTo < _wanNext) _wanNext = rewindTo;
         }
         var wan = 0;
         for (; _wanNext <= lastComplete && hours < MaxHoursPerPass; _wanNext = _wanNext.AddHours(1))

@@ -32,6 +32,7 @@ public class AgentProbeResultSink
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly Monitoring.IspHealth.IspHealthRegistry _ispHealthRegistry;
+    private readonly ClientUsageRollupRegistry _usageRollupRegistry;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
     // Counter delta cache for agent-relayed interface samples. Key =
@@ -117,8 +118,10 @@ public class AgentProbeResultSink
         IAgentEnrollmentService enrollment,
         AgentTunnelRegistry tunnelRegistry,
         Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
+        ClientUsageRollupRegistry usageRollupRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
+        _usageRollupRegistry = usageRollupRegistry;
         _ispHealthRegistry = ispHealthRegistry;
         _tunnelRegistry = tunnelRegistry;
         _siteDbFactory = siteDbFactory;
@@ -1856,6 +1859,12 @@ public class AgentProbeResultSink
         // The coverage heartbeat: written for every aggregated batch, clients or none.
         await influx.WriteClientWanUsageAsync(MonitoringInfluxClient.ClientWanCoverageMarker, null,
             0, 0, batch.WindowSeconds, 0, timestamp);
+        // A batch stamped in a past hour is a spool replay (or extreme lag) landing behind the
+        // WAN rollup cursor; tell the rollup so the hour re-rolls instead of losing the bytes
+        // to the rolled/raw split in long-window reads.
+        var nowTicks = DateTime.UtcNow.Ticks;
+        if (timestamp.Ticks < nowTicks - nowTicks % TimeSpan.TicksPerHour)
+            _usageRollupRegistry.NoteLateClientWanBatch(connection.SiteSlug, timestamp);
     }
 
     /// <summary>

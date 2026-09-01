@@ -35,6 +35,12 @@ public class ClientUsageRollupRegistry : BackgroundService, ISiteScopedRegistry
     private ClientUsageRollupService GetFor(string slug) =>
         _instances.GetOrAdd(slug, s => ActivatorUtilities.CreateInstance<ClientUsageRollupService>(_serviceProvider, s));
 
+    /// <summary>Routes a late client_wan batch (spool replay into an already-rolled hour) to the
+    /// site's rollup instance. An instance not yet started still takes the note and acts on it
+    /// when its loop runs.</summary>
+    public void NoteLateClientWanBatch(string slug, DateTime batchUtc) =>
+        GetFor(slug).NoteLateClientWanBatch(batchUtc);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await StartInstanceAsync(SiteManagementService.DefaultSiteSlug, stoppingToken);
