@@ -123,7 +123,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     }
                 }
 
-                snapshot.MeshUplinkIsMlo = isMlo;
+                // The child's own uplink.is_mlo counts too: UniFi does not set it today, but a
+                // firmware that starts reporting the child side is expected to reuse its standard
+                // MLO station shape, and the flag must not depend on the parent's table alone.
+                snapshot.MeshUplinkIsMlo = isMlo ||
+                    (devicesByMac.TryGetValue(snapshot.Mac, out var selfDevice) && selfDevice.UplinkIsMlo);
                 // Child's perspective flips direction: the parent transmitting is the child
                 // receiving. The child measures its own STA link, so its signal outranks the
                 // parent's for that link; the other links are only reported by the parent.
@@ -146,7 +150,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     TxRateMbps = parentTxRateMbps ?? snapshot.MeshUplinkRxRateMbps, // child RX = parent TX
                     RxRateMbps = parentRxRateMbps ?? snapshot.MeshUplinkTxRateMbps, // child TX = parent RX
                     UplinkBand = snapshot.MeshUplinkBand,
-                    IsMlo = isMlo,
+                    IsMlo = snapshot.MeshUplinkIsMlo,
                     Links = parentLinks
                 });
             }

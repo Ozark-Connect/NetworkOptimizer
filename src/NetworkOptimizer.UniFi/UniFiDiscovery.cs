@@ -103,6 +103,7 @@ public class UniFiDiscovery
                 UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
                 UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
                 UplinkType = d.Uplink?.Type,
+                UplinkIsMlo = d.Uplink?.IsMlo == true,
                 // Active uplink interface name. For a wireless mesh child this is the
                 // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
                 // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
@@ -948,6 +949,14 @@ public class DiscoveredDevice
     /// <summary>RX rate in Kbps for wireless uplinks</summary>
     public long UplinkRxRateKbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
+
+    /// <summary>
+    /// Whether the device's own uplink block flags MLO (uplink.is_mlo). UniFi does not set this
+    /// for mesh children today - the per-link truth lives on the parent - but a firmware that
+    /// starts reporting the child side is expected to reuse its standard MLO station shape,
+    /// and this flag is the cheapest half of it.
+    /// </summary>
+    public bool UplinkIsMlo { get; set; }
     /// <summary>
     /// Active uplink interface name (uplink.name). For a wireless mesh child this is the
     /// wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways it's the
