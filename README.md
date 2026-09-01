@@ -19,7 +19,7 @@ Genuinely, thank you so much to everybody for taking the time to use Network Opt
 
 ## Current Preview Release
 
-For those brave among us - looking at you eager EA testers - I've got a Preview release channel with a bunch of new features baking right now. It's completely stable, don't worry, and brings some really cool AP Telemetry features w/ truly real-time signal levels and roaming feedback when walk testing (and a feature to poke a client to roam to the nearest AP), real-time bandwidth usage stats per client, rolls up a lot of data/application info from UniFi Network so you don't have to go over there to see those details for client devices, and a whole bunch of enhancements and fixes. Check it out here: [v2.8.0-preview releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases).
+For those brave among us - looking at you eager EA testers - I've got a Preview release channel with a bunch of new features baking right now. It's completely stable, don't worry, and brings some really cool AP Telemetry features w/ truly real-time signal levels and roaming feedback when walk testing (and a feature to poke a client to roam to the nearest AP), real-time bandwidth usage stats per client, rolls up a lot of data/application info from UniFi Network so you don't have to go over there to see those details for client devices, and a whole bunch of enhancements and fixes. Oh, and it even adds support for the brand new Mesh MLO STR feature in UniFi Network! Check it out here: [v2.8.0-preview releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases).
 
 This will probably hit the GA release channel at the end of the week as v2.8.0, but the more people I can get to test it, the quicker I can ship :)
 
