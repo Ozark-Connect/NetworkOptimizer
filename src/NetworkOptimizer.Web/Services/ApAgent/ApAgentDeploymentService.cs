@@ -226,6 +226,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 Host = ap.DisplayIpAddress,
                 DeviceOnline = IsOnline(ap),
                 Enabled = record?.Enabled ?? true,
+                DeployInProgress = _retry.IsWorkInFlight(mac),
                 State = assessment?.State ?? ApAgentState.Unknown,
                 RecommendedAction = assessment?.Action ?? ApAgentAction.None,
                 Detail = assessment?.Detail,
@@ -290,7 +291,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         // of a slow deploy would open a second SSH session and a second transfer to the same AP.
         using var claim = _retry.TryBeginWork(mac);
         if (claim == null)
-            return ApAgentOperationResult.Fail("A deployment is already running for this access point.");
+            return ApAgentOperationResult.InProgress();
 
         await _deployGate.WaitAsync(ct);
         try
@@ -312,7 +313,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var mac = NormalizeMac(ap.Mac);
         using var claim = _retry.TryBeginWork(mac);
         if (claim == null)
-            return ApAgentOperationResult.Fail("A deployment is already running for this access point.");
+            return ApAgentOperationResult.InProgress();
 
         var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
         if (!status.Reachable)
@@ -342,7 +343,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var mac = NormalizeMac(ap.Mac);
         using var claim = _retry.TryBeginWork(mac);
         if (claim == null)
-            return ApAgentOperationResult.Fail("A deployment is already running for this access point.");
+            return ApAgentOperationResult.InProgress();
 
         var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
         var result = await _siteSsh.RunCommandAsync(

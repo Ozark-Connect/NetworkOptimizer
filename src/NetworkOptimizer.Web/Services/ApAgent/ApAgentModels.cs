@@ -189,11 +189,21 @@ public sealed class ApAgentSshStatus
 /// <param name="State">The AP's state after the operation.</param>
 public sealed record ApAgentOperationResult(bool Success, string? Error = null, ApAgentState State = ApAgentState.Unknown)
 {
+    /// <summary>
+    /// True when the only failure is that work is already running for this AP. Benign: the UI shows
+    /// that work's progress rather than an error.
+    /// </summary>
+    public bool AlreadyInProgress { get; init; }
+
     /// <summary>A successful operation, with the state it left the AP in.</summary>
     public static ApAgentOperationResult Ok(ApAgentState state = ApAgentState.Healthy) => new(true, null, state);
 
     /// <summary>A failed operation, with the reason and the state it left the AP in.</summary>
     public static ApAgentOperationResult Fail(string error, ApAgentState state = ApAgentState.Unknown) => new(false, error, state);
+
+    /// <summary>The in-flight guard refused the operation because one is already running.</summary>
+    public static ApAgentOperationResult InProgress() =>
+        new(false, "A deployment is already running for this access point.") { AlreadyInProgress = true };
 }
 
 /// <summary>One access point's row in the AP Telemetry fleet table.</summary>
@@ -216,6 +226,9 @@ public sealed class ApAgentFleetEntry
 
     /// <summary>False when the operator has opted this AP out.</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>Whether the server is deploying to (or otherwise working on) this AP right now.</summary>
+    public bool DeployInProgress { get; set; }
 
     /// <summary>The AP's last observed agent state.</summary>
     public ApAgentState State { get; set; } = ApAgentState.Unknown;
