@@ -258,6 +258,16 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
             if (parsed is { } poll)
             {
                 failingSince = null;
+
+                // A shorter log than already streamed means the run's files were reset out
+                // from under us - a fast gateway reboot, most likely. Its exit can never
+                // arrive, so fail now instead of sitting out the overall cap.
+                if (poll.Log.Length < seen)
+                {
+                    run.Complete(GatewayAgentInstallStatus.Failed, null,
+                        "Lost contact with the run on the gateway - the output below is what was captured.");
+                    return;
+                }
                 if (poll.Log.Length > seen)
                 {
                     run.Append(poll.Log[seen..]);
@@ -265,6 +275,15 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
                 }
                 if (poll.ExitCode is int code)
                 {
+                    // Exit 0 with an empty transcript is curl failing to fetch the script:
+                    // -fsSL without -S prints nothing, and bash -s on an empty stdin exits 0.
+                    // A real run always prints its steps, so this is never a success.
+                    if (code == 0 && string.IsNullOrWhiteSpace(run.Transcript))
+                    {
+                        run.Complete(GatewayAgentInstallStatus.Failed, 0,
+                            "The run produced no output - the gateway may not have been able to download the install script. Check its internet access.");
+                        return;
+                    }
                     run.Complete(
                         code == 0 ? GatewayAgentInstallStatus.Succeeded : GatewayAgentInstallStatus.Failed,
                         code, null);
