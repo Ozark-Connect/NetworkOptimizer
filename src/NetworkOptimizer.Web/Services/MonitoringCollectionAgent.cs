@@ -675,8 +675,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     rxKbps = Math.Max(rxKbps, meshClaim.TxRateKbps);
                 }
             }
+            // A radio code MapBand doesn't know (a UDB Pro's 60 GHz, say) must not skip the
+            // write: "unknown" keeps the PHY scrubbable, and the reader normalizes it to null
+            // rather than fabricating a band.
             var band = MapBand(bandCode);
-            if ((txKbps <= 0 && rxKbps <= 0) || string.IsNullOrEmpty(parentMac) || string.IsNullOrEmpty(band)) continue;
+            if (string.IsNullOrEmpty(band)) band = "unknown";
+            if ((txKbps <= 0 && rxKbps <= 0) || string.IsNullOrEmpty(parentMac)) continue;
 
             _ = _influx.WriteWifiClientThroughputAsync(
                 apMac: parentMac,
