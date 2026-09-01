@@ -27,6 +27,12 @@ public sealed class ConntrackAccountant
     // us): evicted unbilled - an undercount, never an inflation, which is this feed's doctrine.
     private const int RetainUnseenPasses = 5;
 
+    // Startup grace: seeds planted in the first passes are never billable, and a never-seen
+    // destroy bills nothing. Seq-file misses are common enough that "first seen on pass 2" is
+    // routinely an old flow pass 1 missed, whose whole history would otherwise bill as a seed -
+    // the 164 GB inflation returning through the destroy path on every agent restart.
+    private const int GracePasses = 5;
+
     private sealed class Entry
     {
         public long Orig, Reply;
@@ -36,6 +42,11 @@ public sealed class ConntrackAccountant
         // snapshot (their seed is pre-coverage history, which DPI-sourced hours already hold).
         public bool SeedBillable;
         public int LastSeenPass;
+        // Prior flows on this tuple whose destroy events are still in flight: a backward-counter
+        // re-seed means the old flow died without its destroy being processed first, so the next
+        // destroy(s) for this key are the old flow's and must bill nothing - billed against the
+        // new entry's baselines they would re-bill what the old flow's deltas already carried.
+        public int PendingPriorDestroys;
     }
 
     private readonly Dictionary<string, Entry> _flows = new();
@@ -72,6 +83,7 @@ public sealed class ConntrackAccountant
                     entry.SeedOrig = flow.OrigBytes;
                     entry.SeedReply = flow.ReplyBytes;
                     entry.SeedBillable = true;
+                    entry.PendingPriorDestroys++;
                     continue;
                 }
                 var dOrig = flow.OrigBytes - entry.Orig;
@@ -97,7 +109,10 @@ public sealed class ConntrackAccountant
                     Reply = flow.ReplyBytes,
                     SeedOrig = flow.OrigBytes,
                     SeedReply = flow.ReplyBytes,
-                    SeedBillable = seededBefore,
+                    // Not just "after pass 1": within the startup grace a first sighting is as
+                    // likely an old flow the earlier passes missed as a new one, and a missed
+                    // old flow's seed is its whole history (see GracePasses).
+                    SeedBillable = _pass > GracePasses,
                     LastSeenPass = _pass,
                 };
             }
@@ -123,7 +138,8 @@ public sealed class ConntrackAccountant
     /// deltas already billed, plus its retained seed where billable. A tuple never seen at all
     /// (born and dead between passes) bills its full final counters - the event is
     /// authoritative for exactly one connection's lifetime and cannot fire twice, so none of
-    /// the seq-file-miss ambiguity that forbids full-billing in <see cref="Account"/> applies.
+    /// the seq-file-miss ambiguity that forbids full-billing in <see cref="Account"/> applies -
+    /// but only past the startup grace (see <see cref="GracePasses"/>).
     /// Null when there is nothing to bill or the flow is not accountable WAN traffic.
     /// </summary>
     public ClientWanDelta? AccountDestroy(ConntrackFlow flow, ConntrackHostView view)
@@ -134,6 +150,14 @@ public sealed class ConntrackAccountant
         long reconOrig, reconReply;
         if (_flows.TryGetValue(flow.Key, out var entry))
         {
+            // A backward-counter re-seed left prior flows' destroys in flight; this event is
+            // one of theirs, and its bytes are already in the sampled deltas. Bill nothing and
+            // keep tracking the current flow - baselines across lives don't compare.
+            if (entry.PendingPriorDestroys > 0)
+            {
+                entry.PendingPriorDestroys--;
+                return null;
+            }
             // Final counters below the tracked baseline: this event is not for the flow the
             // entry tracks (the tuple was reused). Skip and keep the entry - undercount doctrine.
             if (flow.OrigBytes < entry.Orig || flow.ReplyBytes < entry.Reply) return null;
@@ -143,6 +167,10 @@ public sealed class ConntrackAccountant
         }
         else
         {
+            // Never-seen only earns full billing past the startup grace: in the first passes
+            // "never seen" is usually a flow alive before this run started (an early seq-file
+            // miss, or death in the restart gap) whose history the previous run already billed.
+            if (_pass <= GracePasses) return null;
             reconOrig = flow.OrigBytes;
             reconReply = flow.ReplyBytes;
         }

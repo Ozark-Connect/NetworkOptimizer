@@ -309,12 +309,19 @@ public class ConntrackDestroyReconcileTests
         EventFlow(1, 2).Key.Should().Be(ProcFlow(1, 2).Key);
     }
 
+    /// <summary>Runs enough passes on an unrelated flow to leave the startup grace behind.</summary>
+    private static void RunOutStartupGrace(ConntrackAccountant accountant, ConntrackHostView view)
+    {
+        for (var i = 0; i < 6; i++)
+            accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+    }
+
     [Fact]
     public void DestroyBillsTailPlusSeedForAFlowFirstSeenMidRun()
     {
         var accountant = new ConntrackAccountant();
         var view = GatewayView();
-        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);          // pass 1: unrelated
+        RunOutStartupGrace(accountant, view);
         accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1000, 50_000) }, view); // first sight: seed
         accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1500, 80_000) }, view); // billed 500/30k
 
@@ -324,6 +331,49 @@ public class ConntrackDestroyReconcileTests
         r.ReconDownBytes.Should().Be(100_000 - 80_000 + 50_000);
         r.DownBytes.Should().Be(0); // recon rides its own fields, never the live rate
         r.Mac.Should().Be("aa:bb:cc:dd:ee:01");
+    }
+
+    [Fact]
+    public void SeedPlantedDuringStartupGraceIsNeverBilled()
+    {
+        // An old flow missed by the first pass and first seen on the second looks exactly like a
+        // new flow, but its seed is its whole pre-coverage history. Within the grace the seed is
+        // not billable, so its eventual destroy bills only the tail past the sampled deltas.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(5_000_000, 50_000_000) }, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(5_000_100, 50_000_200) }, view);
+
+        var r = accountant.AccountDestroy(EventFlow(5_000_150, 50_000_500), view);
+        r.Should().NotBeNull();
+        r!.ReconUpBytes.Should().Be(50);
+        r.ReconDownBytes.Should().Be(300);
+    }
+
+    [Fact]
+    public void DestroyAfterTupleReuseSkipsThePriorFlowsEvent()
+    {
+        // The old flow died and its tuple was reused before its destroy event was drained: the
+        // backward-counter re-seed marks the event pending, and when it lands it bills nothing -
+        // billed against the new entry it would re-bill the old flow's already-sampled bytes.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        RunOutStartupGrace(accountant, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(1_000, 1_000) }, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(900_000, 2_000_000) }, view); // billed to here
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(100, 200) }, view);           // reuse: re-seed
+
+        // The OLD flow's destroy, final counters far past the new entry's baselines.
+        accountant.AccountDestroy(EventFlow(1_000_000, 2_500_000), view).Should().BeNull();
+
+        // The new flow keeps its own accounting: deltas from its seed, destroy bills its life.
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9), ProcFlow(600, 900) }, view)
+            .Should().ContainSingle().Subject.UpBytes.Should().Be(500);
+        var r = accountant.AccountDestroy(EventFlow(800, 1_200), view);
+        r.Should().NotBeNull();
+        r!.ReconUpBytes.Should().Be(800 - 600 + 100);   // tail + the new flow's own seed
+        r.ReconDownBytes.Should().Be(1_200 - 900 + 200);
     }
 
     [Fact]
@@ -350,13 +400,25 @@ public class ConntrackDestroyReconcileTests
         // ambiguity that forbids it in Account.
         var accountant = new ConntrackAccountant();
         var view = GatewayView();
-        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
-        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        RunOutStartupGrace(accountant, view);
 
         var r = accountant.AccountDestroy(EventFlow(700, 40_000, sport: 2000), view);
         r.Should().NotBeNull();
         r!.ReconUpBytes.Should().Be(700);
         r.ReconDownBytes.Should().Be(40_000);
+    }
+
+    [Fact]
+    public void NeverSeenDestroyDuringStartupGraceBillsNothing()
+    {
+        // Early on, "never seen" is usually a flow alive before this run started (an early
+        // seq-file miss, or death in the restart gap) whose history the previous run billed.
+        var accountant = new ConntrackAccountant();
+        var view = GatewayView();
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+        accountant.Account(new[] { ProcFlow(0, 0, sport: 9) }, view);
+
+        accountant.AccountDestroy(EventFlow(700, 40_000, sport: 2000), view).Should().BeNull();
     }
 
     [Fact]
