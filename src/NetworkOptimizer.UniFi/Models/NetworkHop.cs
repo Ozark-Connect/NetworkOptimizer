@@ -144,6 +144,9 @@ public class MeshBackhaulLink
 
     public int? Channel { get; set; }
 
+    /// <summary>Channel width in MHz, from the parent's radio for this band</summary>
+    public int? WidthMhz { get; set; }
+
     public int? SignalDbm { get; set; }
 
     /// <summary>Link rate in Mbps, child toward parent</summary>

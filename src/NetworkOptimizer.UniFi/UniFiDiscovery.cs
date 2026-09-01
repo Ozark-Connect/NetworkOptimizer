@@ -158,7 +158,7 @@ public class UniFiDiscovery
     public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
     {
         var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
-        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable, d.RadioTableStats, d.RadioTable)));
     }
 
     /// <summary>Raw-device overload for callers that hold <see cref="UniFiDeviceResponse"/>
@@ -166,13 +166,13 @@ public class UniFiDiscovery
     public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<UniFiDeviceResponse> devices)
     {
         var all = devices as IList<UniFiDeviceResponse> ?? devices.ToList();
-        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable, d.RadioTableStats, d.RadioTable)));
     }
 
     private static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(
-        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> devices)
+        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable, List<RadioTableStats>? RadioStats, List<RadioTableEntry>? RadioTable)> devices)
     {
-        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> ?? devices.ToList();
+        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable, List<RadioTableStats>? RadioStats, List<RadioTableEntry>? RadioTable)> ?? devices.ToList();
         var known = new HashSet<string>(all.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()));
         var parentByChild = new Dictionary<string, MeshParentClaim>(StringComparer.OrdinalIgnoreCase);
 
@@ -197,7 +197,10 @@ public class UniFiDiscovery
                 var mloMembers = members.Where(l => l.IsMlo == true).ToList();
                 members = mloMembers.Count > 0 ? mloMembers : [members[^1]];
                 var links = members.Select(l => new MeshLinkClaim(
-                    l.Radio, l.Channel, l.Signal, l.TxRate, l.RxRate)).ToList();
+                    l.Radio, l.Channel, l.Signal, l.TxRate, l.RxRate)
+                {
+                    WidthMhz = ResolveRadioWidth(parent.RadioStats, parent.RadioTable, l.Radio),
+                }).ToList();
                 parentByChild[group.Key] = new MeshParentClaim(
                     parent.Mac.ToLowerInvariant(),
                     links.Sum(l => l.TxRateKbps),
@@ -217,7 +220,23 @@ public class UniFiDiscovery
     /// <see cref="MeshParentClaim"/>'s convention: Tx is parent to child (the child's downstream).
     /// Signal is the PARENT's reading of the link; the child's end is not reported anywhere.
     /// </summary>
-    public readonly record struct MeshLinkClaim(string? Radio, int? Channel, int? Signal, long TxRateKbps, long RxRateKbps);
+    public readonly record struct MeshLinkClaim(string? Radio, int? Channel, int? Signal, long TxRateKbps, long RxRateKbps)
+    {
+        /// <summary>Channel width in MHz, read off the parent's radio for the link's band -
+        /// the downlink entries themselves report chwidth 0.</summary>
+        public int? WidthMhz { get; init; }
+    }
+
+    /// <summary>The parent radio's width for a link's band: the operating width (stats bw)
+    /// when reported, else the configured width (radio_table ht).</summary>
+    private static int? ResolveRadioWidth(List<RadioTableStats>? stats, List<RadioTableEntry>? table, string? radio)
+    {
+        if (string.IsNullOrEmpty(radio)) return null;
+        var bw = stats?.FirstOrDefault(s => string.Equals(s.Radio, radio, StringComparison.OrdinalIgnoreCase))?.Bw;
+        if (bw is > 0) return bw;
+        var ht = table?.FirstOrDefault(t => string.Equals(t.Radio, radio, StringComparison.OrdinalIgnoreCase))?.ChannelWidth;
+        return ht is > 0 ? ht : null;
+    }
 
     /// <summary>
     /// A parent's account of one mesh child. Rates are the PARENT's perspective and are therefore

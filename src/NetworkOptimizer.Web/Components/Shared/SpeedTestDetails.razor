@@ -1229,9 +1229,14 @@
                 if (!string.IsNullOrEmpty(link.Band))
                     linkParts.Add($"<span class='wifi-band-badge wifi-band-{link.Band}'>{FormatRadioBand(link.Band)}</span>");
                 if (link.Channel.HasValue)
-                    linkParts.Add($"Ch {link.Channel.Value}");
+                {
+                    var chInfo = $"Ch {link.Channel.Value}";
+                    if (link.WidthMhz.HasValue)
+                        chInfo += $" <span class='text-muted'>{link.WidthMhz.Value} MHz</span>";
+                    linkParts.Add(chInfo);
+                }
                 if (link.SignalDbm.HasValue)
-                    linkParts.Add($"{link.SignalDbm.Value} dBm");
+                    linkParts.Add($"<span class='wifi-tooltip-signal-value'>{link.SignalDbm.Value} dBm</span>");
                 // Same frame mapping as the aggregate row: child TX carries data away from the
                 // device, child RX carries data toward it.
                 if (DeviceFrame)

@@ -1565,6 +1565,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         {
             Band = l.Radio,
             Channel = l.Channel,
+            WidthMhz = l.WidthMhz,
             SignalDbm = l.Signal,
             TxRateMbps = l.RxRateKbps > 0 ? (int)(l.RxRateKbps / 1000) : null,
             RxRateMbps = l.TxRateKbps > 0 ? (int)(l.TxRateKbps / 1000) : null,
