@@ -241,7 +241,9 @@ function reshapeWanSeries(wanPts, pts, wanKey, totKey) {
         for (let k = 0; k < times.length; k++) {
             // The segment's first point duplicates the previous segment's end; keep that one.
             if (k === 0 && out.length && out[out.length - 1].x >= times[0]) continue;
-            out.push({ x: times[k], y: tot[k] * scale });
+            // No totals under this window: nothing to conserve against, so draw the measured
+            // rate flat (as the lone-sample branch does) rather than scaling real WAN to zero.
+            out.push({ x: times[k], y: avgTot > 0 ? tot[k] * scale : avgWan });
         }
     }
     return out;
