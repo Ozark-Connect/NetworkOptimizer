@@ -274,6 +274,11 @@ builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequire
 // Detects agents running on the site's UniFi gateway itself (monitoring-only
 // installs) so speed-test surfaces can gate accordingly.
 builder.Services.AddSiteScopedRegistry<AgentOnGatewayDetector>();
+// "Run It for Me": executes the gateway agent install/upgrade one-liner over the site's
+// gateway SSH. Run state lives in the singleton state holder so a run outlives the circuit
+// that started it; the gated service stays scoped for audit-detail enrichment.
+builder.Services.AddSingleton<GatewayAgentInstallState>();
+builder.Services.AddMutatingService<IGatewayAgentInstallService, GatewayAgentInstallService>();
 
 // Licensing: singleton state machine, activation and phone-home loop. All
 // licensing data is instance-wide registry data in the main database.
