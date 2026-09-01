@@ -54,6 +54,10 @@
         directly:
     </p>
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
+    @if (!string.IsNullOrWhiteSpace(SiteSlug))
+    {
+        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@Token" />
+    }
     @if (LanSpeedTest)
     {
         <p class="form-hint">
@@ -80,6 +84,14 @@
     /// <summary>Whether the agent should also host the LAN speed test server at the site.</summary>
     [Parameter]
     public bool LanSpeedTest { get; set; }
+
+    /// <summary>
+    /// The site the agent is being installed for. Enables "Run It for Me" under the gateway
+    /// one-liner when that site's gateway SSH is configured and dialable; without it the
+    /// commands are copy-paste only.
+    /// </summary>
+    [Parameter]
+    public string? SiteSlug { get; set; }
 
     /// <summary>The agent-facing HTTPS base URL, derived from REVERSE_PROXIED_HOST_NAME.</summary>
     private string? ServerUrl => AgentServerUrl.Url;
@@ -125,15 +137,7 @@
         return sb.ToString();
     }
 
-    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
-    // host a speed-test server), and no sudo (UniFi gateways SSH in as root).
-    private string GatewayOneLiner()
-    {
-        var sb = new StringBuilder();
-        // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE.
-        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh | bash -s -- \\\n");
-        sb.Append($"  --server \"{ServerValue}\" \\\n");
-        sb.Append($"  --token \"{Token}\"");
-        return sb.ToString();
-    }
+    // The shared builder also feeds the "Run It for Me" SSH run, so the displayed
+    // command and the executed one cannot drift.
+    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, Token);
 }

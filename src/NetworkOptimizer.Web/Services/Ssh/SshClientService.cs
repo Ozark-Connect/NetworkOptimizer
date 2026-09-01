@@ -125,6 +125,132 @@ public class SshClientService
     }
 
     /// <summary>
+    /// Execute a command over SSH, streaming stdout and stderr to <paramref name="onOutput"/>
+    /// as they arrive (drained every 200 ms). For long-running commands whose progress the UI
+    /// shows live (the gateway agent installer). The callback may fire on any thread. The
+    /// returned result carries the exit code but no output - it already went to the callback.
+    /// Cancellation (user cancel or the caller's overall timeout) kills the channel and
+    /// surfaces as <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public async Task<SshCommandResult> ExecuteCommandStreamingAsync(
+        SshConnectionInfo connection,
+        string command,
+        Action<string> onOutput,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var client = CreateSshClient(connection);
+
+        try
+        {
+            await Task.Run(() => client.Connect(), cancellationToken);
+
+            using var cmd = client.CreateCommand(command);
+            cmd.CommandTimeout = timeout;
+
+            var exec = cmd.ExecuteAsync(cancellationToken);
+            var stdout = new StreamTextDrainer(() => cmd.OutputStream, onOutput);
+            var stderr = new StreamTextDrainer(() => cmd.ExtendedOutputStream, onOutput);
+
+            while (!exec.IsCompleted)
+            {
+                // The delay is deliberately not cancellable: exec observes the token, and the
+                // loop must reach the final drain below so what arrived before a cancel is kept.
+                await Task.Delay(200, CancellationToken.None);
+                stdout.Drain();
+                stderr.Drain();
+            }
+            stdout.Drain();
+            stderr.Drain();
+
+            await exec;
+
+            _logger.LogDebug("SSH streaming command to {Host}: '{Command}' -> exit {ExitCode}",
+                connection.Host, TruncateForLog(command), cmd.ExitStatus);
+
+            return new SshCommandResult
+            {
+                Success = cmd.ExitStatus == 0,
+                ExitCode = cmd.ExitStatus ?? -1,
+                Error = cmd.Error ?? ""
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (SshAuthenticationException ex)
+        {
+            _logger.LogError("SSH authentication failed for {Host}: {Error}", connection.Host, ex.Message);
+            return new SshCommandResult { Success = false, ExitCode = -1, Error = $"Authentication failed: {ex.Message}" };
+        }
+        catch (SshConnectionException ex)
+        {
+            var explained = ExplainConnectionFailure(connection, ex.Message);
+            _logger.LogError("SSH connection failed for {Host}: {Error}", connection.Host, explained);
+            return new SshCommandResult { Success = false, ExitCode = -1, Error = $"Connection failed: {explained}" };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SSH error executing streaming command on {Host}", connection.Host);
+            return new SshCommandResult { Success = false, ExitCode = -1, Error = ex.Message };
+        }
+        finally
+        {
+            if (client.IsConnected)
+            {
+                client.Disconnect();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drains whatever bytes a command output stream has buffered, without ever blocking on it,
+    /// and hands them on as decoded text. The stream is resolved per drain because SSH.NET only
+    /// materializes a command's streams once execution starts.
+    /// </summary>
+    private sealed class StreamTextDrainer
+    {
+        private readonly Func<Stream?> _stream;
+        private readonly Action<string> _onOutput;
+        private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+        private readonly byte[] _buffer = new byte[8192];
+        private readonly char[] _chars = new char[8200];
+
+        public StreamTextDrainer(Func<Stream?> stream, Action<string> onOutput)
+        {
+            _stream = stream;
+            _onOutput = onOutput;
+        }
+
+        public void Drain()
+        {
+            while (true)
+            {
+                Stream? stream;
+                int available;
+                try
+                {
+                    stream = _stream();
+                    if (stream == null) return;
+                    available = (int)Math.Min(stream.Length, _buffer.Length);
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+                if (available <= 0) return;
+
+                var read = stream.Read(_buffer, 0, available);
+                if (read <= 0) return;
+
+                var charCount = _decoder.GetChars(_buffer, 0, read, _chars, 0);
+                if (charCount > 0) _onOutput(new string(_chars, 0, charCount));
+            }
+        }
+    }
+
+    /// <summary>
     /// Test SSH connection to the host.
     /// </summary>
     /// <param name="connection">SSH connection information</param>

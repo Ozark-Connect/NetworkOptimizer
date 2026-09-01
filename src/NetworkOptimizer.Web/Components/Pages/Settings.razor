@@ -3665,6 +3665,7 @@
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
                                                                             <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
+                                                                            <GatewayAgentRunPanel SiteSlug="@site.Slug" IsUpgrade="true" />
                                                                         }
                                                                         else
                                                                         {
@@ -3722,7 +3723,7 @@
                                                                     <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                                                                     - lets the site's clients run speed tests against the agent.</span>
                                                             </label>
-                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" />
+                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
                                                     </div>
 
@@ -4677,11 +4678,9 @@
     private string ProxmoxUpgradeCommand() =>
         $"pct exec <CT_ID> -- bash -c '{NativeUpgradeCommand().Replace("sudo ", "")}'";
 
-    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
-    // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
-    private string GatewayUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh"
-        + $" | bash -s -- --server \"{AgentServerBase()}\"";
+    // Monitoring-only gateway installer, via the shared builder that also feeds the
+    // "Run It for Me" SSH run, so the displayed command and the executed one cannot drift.
+    private string GatewayUpgradeCommand() => GatewayAgentCommands.Upgrade(AgentServerUrl.Url);
 
     // Placeholder shows what a blank override resolves to - the online agent's
     // detected LAN IP on the agent's https port (same pick as

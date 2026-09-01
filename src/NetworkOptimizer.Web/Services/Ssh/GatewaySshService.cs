@@ -342,6 +342,34 @@ public class GatewaySshService : IGatewaySshService
     }
 
     /// <inheritdoc />
+    public async Task<SshCommandResult> RunCommandStreamingAsync(
+        string command,
+        Action<string> onOutput,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+            return StreamingPreconditionFailure("Gateway SSH access is disabled");
+
+        if (string.IsNullOrEmpty(settings.Host))
+            return StreamingPreconditionFailure("Gateway host not configured");
+
+        if (!settings.HasCredentials)
+            return StreamingPreconditionFailure("SSH credentials not configured");
+
+        if (await IsAwaitingAgentAsync())
+            return StreamingPreconditionFailure(AwaitingAgentMessage);
+
+        var connection = await CreateConnectionInfoAsync(settings);
+        return await _sshClient.ExecuteCommandStreamingAsync(connection, command, onOutput, timeout, cancellationToken);
+    }
+
+    private static SshCommandResult StreamingPreconditionFailure(string message) =>
+        new() { Success = false, ExitCode = -1, Error = message };
+
+    /// <inheritdoc />
     public async Task<SshConnectionInfo?> GetConnectionInfoAsync()
     {
         var settings = await GetSettingsAsync();

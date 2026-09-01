@@ -1,0 +1,243 @@
+@using NetworkOptimizer.Web.Services
+@implements IDisposable
+@inject IGatewayAgentInstallService GatewayInstall
+
+@* "Run It for Me" under a gateway agent one-liner: executes that exact command on the
+   site's gateway over SSH (detached on the gateway, output polled back) and streams the
+   output here. The button exists only once the availability gate resolves (gateway SSH
+   configured, dial succeeds) - it never renders disabled. Run state is server-side and
+   per site, so navigating away leaves the run finishing and coming back shows the
+   transcript. *@
+
+@if (_run != null)
+{
+    <div class="gw-run-panel">
+        <div class="gw-run-status">
+            @if (_run.Status == GatewayAgentInstallStatus.Running)
+            {
+                <span class="spinner spinner-sm"></span>
+                <span>Running on the gateway. The download step can look idle for a bit.</span>
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelAsync">Cancel</button>
+            }
+            else if (_run.Status == GatewayAgentInstallStatus.Succeeded)
+            {
+                <span class="gw-run-ok">&#x2713;</span>
+                <span>@(_run.IsUpgrade
+                    ? "Finished - the agent restarted on the new binary."
+                    : "Finished - the agent is installed and should come Online within a minute or two.")</span>
+            }
+            else if (_run.Status == GatewayAgentInstallStatus.Canceled)
+            {
+                <span>Canceled. Safe to run again - the installer picks up cleanly and keeps the agent's enrollment.</span>
+            }
+            else
+            {
+                <span class="gw-run-fail">&#x2715;</span>
+                @* Error first: a failure can carry both a message and an exit code (the
+                   no-output guard), and the message is the one that says what to do. *@
+                <span>@(_run.Error
+                    ?? (_run.ExitCode is int code
+                        ? $"The {(_run.IsUpgrade ? "upgrade" : "install")} failed (exit code {code}). See the output below."
+                        : "The run failed."))</span>
+            }
+        </div>
+        <CopyableCommand Text="@_run.Transcript" Tooltip="Copy the output" />
+    </div>
+}
+
+@if (_available && ShowRunButton)
+{
+    <div class="gw-run-action">
+        <button type="button" class="btn btn-primary btn-sm" @onclick="Start">
+            @(_run == null ? "Run It for Me" : "Run It Again")
+        </button>
+        <span class="gw-run-hint">Runs this command on the gateway over SSH and shows the output here.</span>
+    </div>
+}
+
+@if (_message != null)
+{
+    <div class="alert alert-warning">@_message</div>
+}
+
+<style>
+    .gw-run-action {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 0.5rem 0;
+    }
+
+    .gw-run-hint {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    .gw-run-panel {
+        margin-top: 0.5rem;
+    }
+
+    .gw-run-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .gw-run-ok {
+        color: var(--success-color);
+    }
+
+    .gw-run-fail {
+        color: var(--danger-color);
+    }
+
+    .gw-run-panel .code-copy-block pre {
+        max-height: 320px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+</style>
+
+@code {
+    /// <summary>The site whose gateway the command runs on.</summary>
+    [Parameter, EditorRequired]
+    public string SiteSlug { get; set; } = "";
+
+    /// <summary>True under the upgrade one-liner (no token), false under the install one.</summary>
+    [Parameter]
+    public bool IsUpgrade { get; set; }
+
+    /// <summary>The enrollment token embedded in the displayed install command.</summary>
+    [Parameter]
+    public string? EnrollmentToken { get; set; }
+
+    private bool _available;
+    private bool _startedHere;
+    private GatewayAgentInstallRun? _run;
+
+    // A success that just happened here needs no second click, so the button stays gone until
+    // the panel is next opened; failure and cancel keep the retry path, and a finished run
+    // found on open (started elsewhere or earlier) still offers one.
+    private bool ShowRunButton =>
+        _run == null
+        || (_run.Status != GatewayAgentInstallStatus.Running
+            && !(_run.Status == GatewayAgentInstallStatus.Succeeded && _startedHere));
+    private GatewayAgentInstallRun? _subscribed;
+    private string? _message;
+    private int _renderPending;
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(SiteSlug))
+            return;
+
+        // A run from earlier in the process (finished, or still going after a navigation)
+        // renders immediately; the button waits for the availability gate to resolve so it
+        // never flashes in and disables.
+        _run = await GatewayInstall.GetRunAsync(SiteSlug);
+        if (_run != null)
+            Subscribe(_run);
+        _available = await GatewayInstall.IsAvailableAsync(SiteSlug);
+    }
+
+    private void Start()
+    {
+        _message = null;
+        var prior = _run;
+        var task = IsUpgrade
+            ? GatewayInstall.RunUpgradeAsync(SiteSlug, OnRunStarted)
+            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", OnRunStarted);
+        _ = ObserveAsync(task, prior);
+    }
+
+    private void OnRunStarted(GatewayAgentInstallRun run)
+    {
+        _run = run;
+        _startedHere = true;
+        Subscribe(run);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ObserveAsync(Task runTask, GatewayAgentInstallRun? prior)
+    {
+        try
+        {
+            await runTask;
+        }
+        catch (Exception ex)
+        {
+            // Show the error only when no new run got going (a refusal or a denial) - a run
+            // that started carries its own failure state in the panel instead. Compared by
+            // identity: a finished earlier run may still be on display when a start is refused.
+            if (ReferenceEquals(_run, prior))
+                _message = ex.Message;
+        }
+        if (_disposed)
+            return;
+        // InvalidOperationException also covers ObjectDisposedException from a torn-down circuit.
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (InvalidOperationException) { }
+    }
+
+    // Caught rather than thrown into the event pipeline: an unhandled exception here (a
+    // denial, a dropped circuit) would take the whole circuit down mid-run.
+    private async Task CancelAsync()
+    {
+        try
+        {
+            await GatewayInstall.CancelRunAsync(SiteSlug);
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    private void Subscribe(GatewayAgentInstallRun run)
+    {
+        if (_subscribed == run)
+            return;
+        if (_subscribed != null)
+            _subscribed.Updated -= OnRunUpdated;
+        _subscribed = run;
+        run.Updated += OnRunUpdated;
+    }
+
+    private void OnRunUpdated()
+    {
+        if (Interlocked.Exchange(ref _renderPending, 1) == 1)
+            return;
+        _ = ThrottledRenderAsync();
+    }
+
+    // ~200 ms batches: streamed chunks arrive several times a second and each would
+    // otherwise be a full circuit render.
+    private async Task ThrottledRenderAsync()
+    {
+        await Task.Delay(200);
+        Interlocked.Exchange(ref _renderPending, 0);
+        if (_disposed)
+            return;
+        // InvalidOperationException also covers ObjectDisposedException from a torn-down circuit.
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (InvalidOperationException) { }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        if (_subscribed != null)
+            _subscribed.Updated -= OnRunUpdated;
+    }
+}

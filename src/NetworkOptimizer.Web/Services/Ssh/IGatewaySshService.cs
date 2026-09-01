@@ -63,6 +63,23 @@ public interface IGatewaySshService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Run an SSH command on the gateway, streaming its stdout/stderr to
+    /// <paramref name="onOutput"/> as it arrives. For long-running commands whose progress
+    /// the UI shows live (the gateway agent installer). The result carries the exit code but
+    /// no output; a precondition failure (SSH disabled, unconfigured, agent tunnel down)
+    /// comes back as a failed result whose Error says why.
+    /// </summary>
+    /// <param name="command">Command to execute</param>
+    /// <param name="onOutput">Receives output chunks; may be called on any thread</param>
+    /// <param name="timeout">Overall command timeout</param>
+    /// <param name="cancellationToken">Cancels the run (kills the channel)</param>
+    Task<SshCommandResult> RunCommandStreamingAsync(
+        string command,
+        Action<string> onOutput,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ready-to-use connection info for direct SSH.NET operations (SFTP uploads),
     /// with decrypted credentials and any agent-tunnel routing applied.
     /// Null when gateway SSH is disabled or not configured.
