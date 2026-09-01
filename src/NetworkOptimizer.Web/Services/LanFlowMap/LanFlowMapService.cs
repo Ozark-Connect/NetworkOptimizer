@@ -735,6 +735,21 @@ public class LanFlowMapService
                 RxRateKbps = described.RxRateKbps,
             };
         }
+        // Points whose MAC is an infrastructure node are the fast tier's mesh backhaul PHY
+        // readings, recorded per mesh child under its base MAC. They feed the DEVICE node's
+        // scrub stats below and must not read as clients (presence, measured sets, or
+        // rebuilt historic-only leaves).
+        var deviceNodeMacs = snapshot.Nodes
+            .Where(n => n.Id.StartsWith("dev-", StringComparison.Ordinal) && !string.IsNullOrEmpty(n.Mac))
+            .Select(n => NormalizeMac(n.Mac))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var meshDevRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in wifiClientRates.Keys.Where(deviceNodeMacs.Contains).ToList())
+        {
+            meshDevRates[mac] = wifiClientRates[mac];
+            wifiClientRates.Remove(mac);
+        }
+
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
         {
@@ -748,7 +763,7 @@ public class LanFlowMapService
         // outside it write no telemetry, so their absence proves nothing and playback leaves them be.
         foreach (var p in cached.WifiClients)
         {
-            if (!string.IsNullOrEmpty(p.ClientMac))
+            if (!string.IsNullOrEmpty(p.ClientMac) && !deviceNodeMacs.Contains(NormalizeMac(p.ClientMac)))
                 update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
         }
         foreach (var p in cached.WiredClients)
@@ -793,6 +808,19 @@ public class LanFlowMapService
                 PhyTxKbps = p.TxRateKbps,
                 PhyRxKbps = p.RxRateKbps,
                 ApNodeId = apNodeId,
+            };
+        }
+
+        // Mesh backhaul PHY at the scrub instant, keyed by the device node so the maps'
+        // Link speed rows follow the playhead like a client's connection stats do.
+        foreach (var (mac, p) in meshDevRates)
+        {
+            update.ClientStats["dev-" + NormalizeMac(mac)] = new NodeClientStats
+            {
+                Band = NormalizeBand(p.Band),
+                SignalDbm = p.SignalDbm,
+                PhyTxKbps = p.TxRateKbps,
+                PhyRxKbps = p.RxRateKbps,
             };
         }
 

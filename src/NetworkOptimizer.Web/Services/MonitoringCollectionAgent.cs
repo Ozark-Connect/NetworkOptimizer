@@ -644,6 +644,51 @@ public class MonitoringCollectionAgent : BackgroundService
         // resolver can re-derive them (the live path above is in-memory only, and a UDB has no
         // SNMP interface series). Shared verbatim with the agent-relayed path.
         BridgeInterfaceRecorder.Record(_fabric, devices, _influx, aggNow);
+
+        // Persist each mesh child's backhaul PHY as a wifi_client point keyed by its base MAC,
+        // so playback can scrub the maps' Link speed the way it scrubs a client's connection.
+        // The historic resolver routes these to the DEVICE node - a mesh AP is not a client.
+        var meshPhyClaims = UniFiDiscovery.BuildMeshParentByChild(devices);
+        foreach (var dev in devices)
+        {
+            if (string.IsNullOrEmpty(dev.Mac)) continue;
+            if (!string.Equals(dev.Uplink?.Type, "wireless", StringComparison.OrdinalIgnoreCase)) continue;
+
+            long txKbps = dev.Uplink?.TxRate ?? 0;
+            long rxKbps = dev.Uplink?.RxRate ?? 0;
+            var parentMac = dev.Uplink?.UplinkMac;
+            var bandCode = dev.Uplink?.RadioBand;
+            if (meshPhyClaims.TryGetValue(dev.Mac, out var meshClaim) && !string.IsNullOrEmpty(meshClaim.ParentMac))
+            {
+                if (meshClaim.Contradicts(dev.Uplink?.UplinkMac))
+                {
+                    // The child's own uplink block is stale; the parent's claim is the link.
+                    // Claim rates are the parent's perspective, so they map inverted.
+                    parentMac = meshClaim.ParentMac;
+                    txKbps = meshClaim.RxRateKbps;
+                    rxKbps = meshClaim.TxRateKbps;
+                    bandCode ??= meshClaim.Links.Count > 0 ? meshClaim.Links[0].Radio : null;
+                }
+                else if (meshClaim.IsMlo)
+                {
+                    txKbps = Math.Max(txKbps, meshClaim.RxRateKbps);
+                    rxKbps = Math.Max(rxKbps, meshClaim.TxRateKbps);
+                }
+            }
+            var band = MapBand(bandCode);
+            if ((txKbps <= 0 && rxKbps <= 0) || string.IsNullOrEmpty(parentMac) || string.IsNullOrEmpty(band)) continue;
+
+            _ = _influx.WriteWifiClientThroughputAsync(
+                apMac: parentMac,
+                band: band,
+                clientMac: dev.Mac,
+                txThroughputBps: null,
+                rxThroughputBps: null,
+                signalDbm: dev.Uplink?.Signal,
+                timestamp: aggNow,
+                txRateKbps: txKbps > 0 ? txKbps : null,
+                rxRateKbps: rxKbps > 0 ? rxKbps : null);
+        }
     }
 
     /// <summary>
