@@ -1599,11 +1599,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 string.Equals(l.Band, device.UplinkRadioBand, StringComparison.OrdinalIgnoreCase));
             if (ownLink != null) ownLink.SignalDbm = device.UplinkSignalDbm;
         }
+        // Never lower a rate already on the hop: a load-time snapshot may have caught a link
+        // negotiated higher than the parent's table shows.
         var txKbps = FilterIdleRate(claim.RxRateKbps);
         var rxKbps = FilterIdleRate(claim.TxRateKbps);
-        if (txKbps > 0) hop.WirelessTxRateMbps = (int)(txKbps / 1000);
-        if (rxKbps > 0) hop.WirelessRxRateMbps = (int)(rxKbps / 1000);
-        return txKbps > 0 ? (int)(txKbps / 1000) : null;
+        if (txKbps > 0) hop.WirelessTxRateMbps = Math.Max(hop.WirelessTxRateMbps ?? 0, (int)(txKbps / 1000));
+        if (rxKbps > 0) hop.WirelessRxRateMbps = Math.Max(hop.WirelessRxRateMbps ?? 0, (int)(rxKbps / 1000));
+        return txKbps > 0 ? hop.WirelessTxRateMbps : null;
     }
 
     /// <summary>
@@ -1966,6 +1968,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 deviceHop.WirelessTxRateMbps = currentTxKbps > 0 ? (int)(currentTxKbps / 1000) : null;
                 deviceHop.WirelessRxRateMbps = currentRxKbps > 0 ? (int)(currentRxKbps / 1000) : null;
+
+                var mloAggregate = ApplySelfReportedMloOverlay(deviceHop, targetDevice, meshParents);
+                if (mloAggregate.HasValue)
+                {
+                    deviceHop.IngressSpeedMbps = mloAggregate.Value;
+                    deviceHop.EgressSpeedMbps = mloAggregate.Value;
+                }
 
                 _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, TxRate={Tx}Mbps, RxRate={Rx}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
                     targetDevice.Name, targetDevice.UplinkType,
@@ -2356,6 +2365,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         }
                         hop.WirelessTxRateMbps = hopTxKbps > 0 ? (int)(hopTxKbps / 1000) : null;
                         hop.WirelessRxRateMbps = hopRxKbps > 0 ? (int)(hopRxKbps / 1000) : null;
+                        var hopMloAggregate = ApplySelfReportedMloOverlay(hop, device, meshParents);
+                        if (hopMloAggregate.HasValue)
+                        {
+                            hop.EgressSpeedMbps = hopMloAggregate.Value;
+                        }
                     }
                     else
                     {
