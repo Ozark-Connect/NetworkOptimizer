@@ -3616,7 +3616,13 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
-                                                                    @if (!string.IsNullOrWhiteSpace(agent.LanIp))
+                                                                    @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
+                                                                       address - so where it lives is said in words rather than shown as an address. *@
+                                                                    @if (AgentOnGateway(agent.Id))
+                                                                    {
+                                                                        <span class="text-muted">Gateway</span>
+                                                                    }
+                                                                    else if (!string.IsNullOrWhiteSpace(agent.LanIp))
                                                                     {
                                                                         <code>@agent.LanIp</code>
                                                                     }
@@ -3643,8 +3649,7 @@
                                                                                     Agent needs update
                                                                                 </span>
                                                                                 <button class="btn btn-sm btn-secondary"
-                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)"
-                                                                                        data-tooltip="Show the upgrade one-liner">
+                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)">
                                                                                     @(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")
                                                                                 </button>
                                                                             }
