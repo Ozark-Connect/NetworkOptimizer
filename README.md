@@ -17,6 +17,10 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## Current Preview Release
+
+For those brave among us - looking at you eager EA testers - I've got a Preview release channel with a bunch of new features baking right now. It's completely stable, don't worry, and brings some really cool AP Telemetry features and a lot of enhancements and fixes. Check it out here: (https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v2.8.0-preview5).
+
 ## Coming Soon: Hosted Network Optimizer
 
 For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is coming soon: $15/month for up to 3 sites, with a 14 day free trial and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
