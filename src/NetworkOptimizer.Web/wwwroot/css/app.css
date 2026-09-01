@@ -9535,6 +9535,7 @@ a.path-hop.hop-clickable:hover {
 
 .ap-mesh-info .ap-stat-label {
     text-transform: none;
+    margin-top: 0.2rem;
 }
 
 .lock-icon {
