@@ -3,10 +3,11 @@
 @inject IGatewayAgentInstallService GatewayInstall
 
 @* "Run It for Me" under a gateway agent one-liner: executes that exact command on the
-   site's gateway over SSH and streams the output here. The button exists only once the
-   availability gate resolves (gateway SSH configured, directly dialable) - it never
-   renders disabled. Run state is server-side and per site, so navigating away leaves the
-   run finishing and coming back shows the transcript. *@
+   site's gateway over SSH (detached on the gateway, output polled back) and streams the
+   output here. The button exists only once the availability gate resolves (gateway SSH
+   configured, dial succeeds) - it never renders disabled. Run state is server-side and
+   per site, so navigating away leaves the run finishing and coming back shows the
+   transcript. *@
 
 @if (_run != null)
 {

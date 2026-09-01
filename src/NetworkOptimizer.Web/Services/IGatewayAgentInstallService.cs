@@ -5,7 +5,9 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// "Run It for Me": executes the displayed on-gateway agent install/upgrade one-liner on a
-/// site's gateway over the existing gateway SSH plumbing, streaming the output live.
+/// site's gateway over the existing gateway SSH plumbing. The command runs detached on the
+/// gateway and its output is polled back, so the agent restart at the end of the installer
+/// cannot kill the run - which is what makes agent-tunnel-routed sites workable.
 ///
 /// Slug-parameterized rather than site-scoped: the Multi-Site settings panel starts runs for
 /// the site row being acted on, not the site in context, so authorization must follow the
@@ -18,9 +20,9 @@ public interface IGatewayAgentInstallService
 {
     /// <summary>
     /// Whether the run button should exist for this site: agent-facing server URL configured,
-    /// gateway SSH configured, the gateway directly dialable (agent-tunnel-routed sites are
-    /// excluded - relayed SSH would ride the tunnel of the very agent being replaced), and a
-    /// test dial succeeding. Cached briefly; the button renders only after this resolves.
+    /// gateway SSH configured, and a test dial succeeding (through the site's agent tunnel
+    /// when it is routed that way). Cached briefly; the button renders only after this
+    /// resolves.
     /// </summary>
     [RequireSiteRole(SiteRole.SiteViewer)]
     Task<bool> IsAvailableAsync([SiteSlug] string siteSlug);
@@ -49,8 +51,9 @@ public interface IGatewayAgentInstallService
     Task RunUpgradeAsync([SiteSlug] string siteSlug, Action<GatewayAgentInstallRun>? onStarted = null);
 
     /// <summary>
-    /// Cancels the site's running install, if any, by killing the SSH channel. Safe: the
-    /// installer is idempotent, so running it again heals a canceled install.
+    /// Cancels the site's running install, if any, by killing the detached process on the
+    /// gateway. Safe: the installer is idempotent, so running it again heals a canceled
+    /// install.
     /// </summary>
     [RequireSiteRole(SiteRole.SiteAdmin)]
     Task CancelRunAsync([SiteSlug] string siteSlug);

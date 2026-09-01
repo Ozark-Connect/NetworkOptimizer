@@ -80,45 +80,33 @@ public class GatewayAgentInstallGateTests
     [Fact]
     public void IsCandidate_AllConditionsMet_True()
     {
-        GatewayAgentInstallService.IsCandidate(
-            serverUrlConfigured: true, routedViaAgent: false, ConfiguredSettings())
+        GatewayAgentInstallService.IsCandidate(serverUrlConfigured: true, ConfiguredSettings())
             .Should().BeTrue();
     }
 
     [Fact]
     public void IsCandidate_NoServerUrl_False()
     {
-        GatewayAgentInstallService.IsCandidate(
-            serverUrlConfigured: false, routedViaAgent: false, ConfiguredSettings())
-            .Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsCandidate_RoutedViaAgent_False()
-    {
-        // Tunnel-relayed SSH is out of v1: the run would ride the tunnel of the very agent
-        // the installer restarts.
-        GatewayAgentInstallService.IsCandidate(
-            serverUrlConfigured: true, routedViaAgent: true, ConfiguredSettings())
+        GatewayAgentInstallService.IsCandidate(serverUrlConfigured: false, ConfiguredSettings())
             .Should().BeFalse();
     }
 
     [Fact]
     public void IsCandidate_SshNotConfigured_False()
     {
-        GatewayAgentInstallService.IsCandidate(true, false, null).Should().BeFalse();
+        GatewayAgentInstallService.IsCandidate(true, null).Should().BeFalse();
 
         var disabled = ConfiguredSettings();
         disabled.Enabled = false;
-        GatewayAgentInstallService.IsCandidate(true, false, disabled).Should().BeFalse();
+        GatewayAgentInstallService.IsCandidate(true, disabled).Should().BeFalse();
 
         var noHost = ConfiguredSettings();
         noHost.Host = null;
-        GatewayAgentInstallService.IsCandidate(true, false, noHost).Should().BeFalse();
+        GatewayAgentInstallService.IsCandidate(true, noHost).Should().BeFalse();
 
         var noCredentials = ConfiguredSettings();
         noCredentials.Password = null;
-        GatewayAgentInstallService.IsCandidate(true, false, noCredentials).Should().BeFalse();
+        GatewayAgentInstallService.IsCandidate(true, noCredentials).Should().BeFalse();
     }
 
     [Fact]
@@ -128,7 +116,80 @@ public class GatewayAgentInstallGateTests
         settings.Password = null;
         settings.HasStoredKey = true;
 
-        GatewayAgentInstallService.IsCandidate(true, false, settings).Should().BeTrue();
+        GatewayAgentInstallService.IsCandidate(true, settings).Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildDetachedStart_EmbedsThePayloadVerbatim()
+    {
+        var command = GatewayAgentCommands.Install("https://optimizer.example.com", "noa_abc123");
+
+        var start = GatewayAgentInstallService.BuildDetachedStart(command);
+
+        // The whole point of the detach wrapper: the displayed command runs unchanged inside it.
+        start.Should().Contain(command);
+        start.Should().Contain("nohup bash -c");
+        start.Should().Contain("/tmp/netopt-gateway-run.exit");
+        start.Should().Contain("/tmp/netopt-gateway-run.pid");
+    }
+
+    [Fact]
+    public void BuildDetachedStart_EscapesSingleQuotesForTheWrapper()
+    {
+        var start = GatewayAgentInstallService.BuildDetachedStart("echo 'hi'");
+
+        start.Should().Contain("echo '\\''hi'\\''");
+    }
+
+    [Fact]
+    public void ParsePollOutput_StillRunning_ReturnsLogWithoutExit()
+    {
+        var reply = "__NETOPT_LOG__\n==> Downloading agent binary\n\n__NETOPT_EXIT__:\n";
+
+        var parsed = GatewayAgentInstallService.ParsePollOutput(reply);
+
+        parsed.Should().NotBeNull();
+        parsed!.Value.Log.Should().Be("==> Downloading agent binary\n");
+        parsed.Value.ExitCode.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParsePollOutput_Finished_ReturnsExitCode()
+    {
+        var reply = "__NETOPT_LOG__\nDone\n\n__NETOPT_EXIT__:0\n";
+
+        var parsed = GatewayAgentInstallService.ParsePollOutput(reply);
+
+        parsed!.Value.Log.Should().Be("Done\n");
+        parsed.Value.ExitCode.Should().Be(0);
+    }
+
+    [Fact]
+    public void ParsePollOutput_BannerAheadOfMarker_IsIgnored()
+    {
+        var reply = "Welcome to UniFi OS\n__NETOPT_LOG__\nline\n\n__NETOPT_EXIT__:1\n";
+
+        var parsed = GatewayAgentInstallService.ParsePollOutput(reply);
+
+        parsed!.Value.Log.Should().Be("line\n");
+        parsed.Value.ExitCode.Should().Be(1);
+    }
+
+    [Fact]
+    public void ParsePollOutput_NoMarkers_ReturnsNull()
+    {
+        GatewayAgentInstallService.ParsePollOutput("Connection failed: banner").Should().BeNull();
+        GatewayAgentInstallService.ParsePollOutput("").Should().BeNull();
+    }
+
+    [Fact]
+    public void ParsePollOutput_EmptyLogAtRunStart_IsRunning()
+    {
+        var parsed = GatewayAgentInstallService.ParsePollOutput("__NETOPT_LOG__\n\n__NETOPT_EXIT__:\n");
+
+        parsed.Should().NotBeNull();
+        parsed!.Value.Log.Should().Be("");
+        parsed.Value.ExitCode.Should().BeNull();
     }
 
     [Fact]
