@@ -3448,6 +3448,8 @@ union(tables: [means, chan])
     /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
     /// 3: the sample after a 32-bit read is dropped by the hc_counters flip, not by a speed cap.
     /// 4: Wi-Fi counters zero negative deltas instead of skipping them, so a roam-back counts.
+    /// The port fall-detection rework deliberately shipped without a bump: re-rolling every
+    /// site's history was not worth the load for LAN-only undercounts.
     /// </summary>
     public const int RollupVersion = 4;
 
@@ -3479,13 +3481,13 @@ union(tables: [means, chan])
     // counter as traffic, so zero readings are left out before differencing.
     private const string PortCounterSamples = @"exists r.bytes_in and exists r.bytes_out and r.bytes_in > 0 and r.bytes_out > 0";
 
-    // A walk can also hand back the 32-bit counter for one sample on a port whose 64-bit one is
-    // far past 2^32: the drop is discarded and the return counts a multiple of 2^32 as traffic. A
-    // delta at or above 2^32 bytes in one poll interval is always that recovery and never real
-    // traffic - a 10 GbE port at wire speed for 5 s moves 6.25 GB, while the 32-bit recovery is
-    // at least 4 GiB (4.29 GB) and every instance seen has been exactly 2^32 (42,949,672,960).
-    private const string PortDeltaPlausible =
-        @"|> filter(fn: (r) => r.bytes_in < 4294967296 and r.bytes_out < 4294967296)";
+    // A port counter only falls on an artifact (stray 32-bit read, reset, stale re-read), never on
+    // traffic - so fallen samples are removed before differencing and the delta across them is real.
+    // Never cap deltas by magnitude instead: real deltas past 2^32 exist (11.7 GB/poll measured).
+    private const string PortDropCounterFalls = @"|> duplicate(column: ""bytes_in"", as: ""fall_in"")
+  |> duplicate(column: ""bytes_out"", as: ""fall_out"")
+  |> difference(columns: [""fall_in"", ""fall_out""], keepFirst: true)
+  |> filter(fn: (r) => not (exists r.fall_in and (r.fall_in < 0 or r.fall_out < 0)))";
 
     /// <summary>
     /// A wireless client's bytes per bucket from its own cumulative counters: tx_bytes is what the
@@ -3547,12 +3549,12 @@ union(tables: [means, chan])
   |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
+  {PortDropCounterFalls}
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
   |> elapsed(unit: 1s)
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
-  {PortDeltaPlausible}
   |> truncateTimeColumn(unit: {ToFluxDuration(bucket)})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.bytes_out, from: accumulator.from + r.bytes_in}}), identity: {{to: 0, from: 0}})
@@ -3677,12 +3679,12 @@ union(tables: [means, chan])
   |> filter(fn: (r) => {PortCounterSamples})
   |> group(columns: [""device_mac"", ""if_name"", ""port_id"", ""direction""])
   |> sort(columns: [""_time""])
+  {PortDropCounterFalls}
   |> difference(nonNegative: true, columns: [""bytes_in"", ""bytes_out""], keepFirst: true)
   |> elapsed(unit: 1s)
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds} and r._time >= {ToFluxInstant(hourStart)})
   |> fill(column: ""bytes_in"", value: 0)
   |> fill(column: ""bytes_out"", value: 0)
-  {PortDeltaPlausible}
   |> reduce(fn: (r, accumulator) => ({{in_: accumulator.in_ + r.bytes_in, out: accumulator.out + r.bytes_out}}), identity: {{in_: 0, out: 0}})
   |> group()";
         var written = 0;
@@ -3869,19 +3871,20 @@ union(tables: [means, chan])
         // Per-field, no pivot: this is the one query that reads EVERY interface's samples, and
         // pivoting millions of raw rows to pair the two fields doubled its cost. The guards work
         // per field, which also recovers one-directional flows the paired both-nonzero guard
-        // silently dropped (WOL ports, AP sub-interfaces). The delta guard stays the 2^32
-        // constant: a rate-based ceiling was tried and let a real 32-bit recovery through on a
-        // gigabit port (4.29 GB over 2.3 s reads as 15 Gbps, plausible only against per-link
-        // speed, which this stream does not carry).
+        // silently dropped (WOL ports, AP sub-interfaces). Stray guard: same fall detection as
+        // PortDropCounterFalls (a delta cap ate real multi-gig deltas; a rate ceiling passed a
+        // real 32-bit recovery on a gigabit port).
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> filter(fn: (r) => r._value > 0)
+  |> duplicate(column: ""_value"", as: ""fall"")
+  |> difference(columns: [""fall""], keepFirst: true)
+  |> filter(fn: (r) => not (exists r.fall and r.fall < 0))
   |> difference(nonNegative: true)
   |> elapsed(unit: 1s)
   |> filter(fn: (r) => r.elapsed <= {HandoverGapSeconds})
-  |> filter(fn: (r) => r._value < 4294967296)
   |> group(columns: [""device_mac"", ""if_name"", ""_field""])
   |> sum()
   |> group()
