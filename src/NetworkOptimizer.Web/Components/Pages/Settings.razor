@@ -3616,6 +3616,10 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
+                                                                    @if (!string.IsNullOrWhiteSpace(agent.LanIp))
+                                                                    {
+                                                                        <code>@agent.LanIp</code>
+                                                                    }
                                                                     @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
                                                                     {
                                                                         <span class="status-badge status-active"
@@ -3636,13 +3640,12 @@
                                                                             @if (AgentVersionOutdated(agent))
                                                                             {
                                                                                 <span class="status-warning" data-tooltip="A newer agent release (v@(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">
-                                                                                    Update agent
+                                                                                    Agent needs update
                                                                                 </span>
                                                                                 <button class="btn btn-sm btn-secondary"
                                                                                         @onclick="() => ToggleUpgradeCommand(agent.Id)"
                                                                                         data-tooltip="Show the upgrade one-liner">
-                                                                                    <span class="btn-label-full">@(_upgradeCommandAgentId == agent.Id ? "Hide command" : "Upgrade command")</span>
-                                                                                    <span class="btn-label-compact">@(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")</span>
+                                                                                    @(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")
                                                                                 </button>
                                                                             }
                                                                         }
