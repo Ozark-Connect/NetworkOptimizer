@@ -1609,6 +1609,7 @@ public class DownlinkTableEntry
 
     /// <summary>Whether this entry is one link of an MLO (Wi-Fi 7 multi-link) mesh backhaul</summary>
     [JsonPropertyName("is_mlo")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
     public bool? IsMlo { get; set; }
 
     /// <summary>Signal strength as seen by the parent AP (dBm)</summary>
