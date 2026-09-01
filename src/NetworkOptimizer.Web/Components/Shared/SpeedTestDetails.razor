@@ -1154,10 +1154,10 @@
             // Signal line
             if (Result.WifiSignalDbm.HasValue)
             {
-                var sigParts = new List<string> { $"{Result.WifiSignalDbm.Value} dBm" };
+                var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{Result.WifiSignalDbm.Value} dBm</span>" };
                 if (Result.WifiNoiseDbm.HasValue)
                     sigParts.Add($"SNR {Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value} dB");
-                lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+                lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" ", sigParts)}</div>");
             }
 
             var clientTooltip = lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
@@ -1175,7 +1175,7 @@
             var pathOnlyLines = new List<string>();
             if (!string.IsNullOrEmpty(clientBand))
                 pathOnlyLines.Add($"<div class='wifi-tooltip-link'><span class='wifi-band-badge wifi-band-{clientBand}'>{FormatRadioBand(clientBand)}</span></div>");
-            pathOnlyLines.Add($"<div class='wifi-tooltip-link-signal'>{ClientSignalDbm.Value} dBm</div>");
+            pathOnlyLines.Add($"<div class='wifi-tooltip-link-signal'><span class='wifi-tooltip-signal-value'>{ClientSignalDbm.Value} dBm</span></div>");
             var tooltip = string.Join("", pathOnlyLines);
             if (isBottleneck)
                 tooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
@@ -1267,10 +1267,10 @@
             // Signal line
             if (meshHop.WirelessSignalDbm.HasValue)
             {
-                var sigParts = new List<string> { $"{meshHop.WirelessSignalDbm.Value} dBm" };
+                var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{meshHop.WirelessSignalDbm.Value} dBm</span>" };
                 if (meshHop.WirelessNoiseDbm.HasValue)
                     sigParts.Add($"SNR {meshHop.WirelessSignalDbm.Value - meshHop.WirelessNoiseDbm.Value} dB");
-                lines2.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+                lines2.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" ", sigParts)}</div>");
             }
         }
 
@@ -1348,10 +1348,10 @@
                 // Signal for this link
                 if (link.signal.HasValue)
                 {
-                    var sigParts = new List<string> { $"{link.signal.Value} dBm" };
+                    var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{link.signal.Value} dBm</span>" };
                     if (link.signal.HasValue && link.noise.HasValue)
                         sigParts.Add($"SNR {link.signal.Value - link.noise.Value} dB");
-                    lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+                    lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" ", sigParts)}</div>");
                 }
             }
 

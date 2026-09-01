@@ -6478,6 +6478,11 @@ tr:hover .snmp-row-chevron {
     padding-left: 0.25rem;
 }
 
+/* The dBm reading is the payload of a signal line; only the SNR/channel context stays muted */
+.wifi-tooltip-signal-value {
+    color: var(--text-secondary);
+}
+
 .wifi-tooltip-ch {
     color: var(--text-secondary);
 }
