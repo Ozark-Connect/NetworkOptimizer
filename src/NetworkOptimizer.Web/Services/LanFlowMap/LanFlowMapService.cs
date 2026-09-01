@@ -1611,6 +1611,7 @@ public class LanFlowMapService
                 {
                     if (claim.TxRateKbps > 0) link.CapacityDownBps = claim.TxRateKbps * 1_000L;
                     if (claim.RxRateKbps > 0) link.CapacityUpBps = claim.RxRateKbps * 1_000L;
+                    link.IsMloMesh = claim.IsMlo;
                 }
                 else
                 {
@@ -1619,11 +1620,15 @@ public class LanFlowMapService
                     // The child's own uplink names only its STA link; an MLO pair's capacity is
                     // the parent-summed aggregate. Never lower what the child reported. (claim
                     // holds the agreeing parent claim here - a contradicting one took the
-                    // fromDownlinkTable branch above.)
+                    // fromDownlinkTable branch above.) CapacityBps drives the pipes' saturation
+                    // ramp, so it takes the aggregate too or MLO throughput reads oversaturated.
                     if (claim.IsMlo)
                     {
+                        link.IsMloMesh = true;
                         if (claim.TxRateKbps > 0) link.CapacityDownBps = Math.Max(link.CapacityDownBps ?? 0, claim.TxRateKbps * 1_000L);
                         if (claim.RxRateKbps > 0) link.CapacityUpBps = Math.Max(link.CapacityUpBps ?? 0, claim.RxRateKbps * 1_000L);
+                        var aggPeak = Math.Max(claim.TxRateKbps, claim.RxRateKbps) * 1_000L;
+                        if (aggPeak > 0) link.CapacityBps = Math.Max(link.CapacityBps ?? 0, aggPeak);
                     }
                 }
             }

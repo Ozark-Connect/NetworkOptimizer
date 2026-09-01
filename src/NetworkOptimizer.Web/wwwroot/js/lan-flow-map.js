@@ -3361,13 +3361,14 @@ export class LanFlowMap {
             // Directional capacities always win over the symmetric PHY figure -
             // a symmetric ISP plan must still show the plan, not the port speed.
             const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
+            const capLabel = link.isMloMesh ? 'Link speed (MLO)' : 'Link speed';
             let capTip = null;
             if (capDown > 0 && capUp > 0) {
-                capTip = `Link speed: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+                capTip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
             } else if (capDown > 0 || capUp > 0) {
-                capTip = `Link speed: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+                capTip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
             } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
-                capTip = `Link speed: ${formatCapacity(link.capacityBps)}`;
+                capTip = `${capLabel}: ${formatCapacity(link.capacityBps)}`;
             }
             if (capTip) {
                 el.setAttribute('data-tooltip', capTip);
