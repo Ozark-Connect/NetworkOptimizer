@@ -273,6 +273,7 @@ public sealed class ConntrackRunner
         }
         if (_destroyListener is { HasExited: false }) return;
         if (DateTime.UtcNow - _listenerStartedAt < ListenerRestartBackoff) return;
+        if (_destroyListener != null) StopDestroyListener();
         var tool = ConntrackToolPaths.FirstOrDefault(File.Exists);
         if (tool == null) return;
 
@@ -377,8 +378,12 @@ public sealed class ConntrackRunner
             foreach (var line in File.ReadLines("/proc/net/arp").Skip(1))
             {
                 var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                // IP address, HW type, Flags, HW address, Mask, Device. Flags 0x2 = complete.
-                if (parts.Length < 4 || parts[2] != "0x2") continue;
+                // IP address, HW type, Flags, HW address, Mask, Device. ATF_COM (0x2) is a bit,
+                // not the whole flags value: a permanent entry reads 0x6 and is just as complete.
+                if (parts.Length < 4) continue;
+                if (!parts[2].StartsWith("0x")
+                    || !int.TryParse(parts[2].AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var flags)
+                    || (flags & 0x2) == 0) continue;
                 if (IPAddress.TryParse(parts[0], out var ip))
                     view.AddNeighbor(ip, parts[3]);
             }
