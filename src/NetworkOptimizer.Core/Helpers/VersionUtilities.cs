@@ -63,6 +63,21 @@ public static class VersionUtilities
         return plus >= 0 ? version[..plus] : version;
     }
 
+    /// <summary>
+    /// The bare X.Y.Z: prerelease identifiers and build metadata stripped
+    /// ("2.8.0-preview5+abc" -> "2.8.0"). For user-facing copy where the gate
+    /// version is a prerelease tag but the binaries a user fetches carry the
+    /// release name. Null/blank passes through.
+    /// </summary>
+    public static string? CoreVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return version;
+        var v = StripBuildMetadata(version)!;
+        var dash = v.IndexOf('-');
+        return dash >= 0 ? v[..dash] : v;
+    }
+
     private static (Version? Core, string[] Prerelease) Split(string version)
     {
         var v = version.Trim().TrimStart('v', 'V');

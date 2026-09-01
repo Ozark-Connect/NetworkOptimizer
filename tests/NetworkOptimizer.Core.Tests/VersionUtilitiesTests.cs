@@ -57,4 +57,17 @@ public class VersionUtilitiesTests
     {
         VersionUtilities.StripBuildMetadata(version).Should().Be(expected);
     }
+
+    [Theory]
+    [InlineData("2.8.0-preview5", "2.8.0")]
+    [InlineData("2.8.0-preview5.3+abc123", "2.8.0")]
+    [InlineData("2.0.1+ed2714ca", "2.0.1")]
+    [InlineData("2.0.1", "2.0.1")]
+    [InlineData("", "")]
+    [InlineData(null, null)]
+    public void CoreVersion_StripsPrereleaseAndMetadata(string? version, string? expected)
+    {
+        VersionUtilities.CoreVersion(version).Should().Be(expected);
+    }
 }
+
