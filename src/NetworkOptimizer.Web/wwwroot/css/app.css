@@ -6467,6 +6467,10 @@ tr:hover .snmp-row-chevron {
     gap: 0.4rem;
 }
 
+.wifi-tooltip-mlo-link + .wifi-tooltip-mlo-link {
+    margin-top: 0.35rem;
+}
+
 .wifi-tooltip-link-signal {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -9425,8 +9429,8 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.25rem;
 }
 
-.ap-stats-mesh .ap-stat {
-    justify-content: flex-end;
+.ap-stats-mesh {
+    gap: 1rem;
 }
 
 .ap-stat {
@@ -9485,22 +9489,29 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
-/* MLO mesh backhaul: one row per link, so the big single-link signal is scaled down */
+/* MLO mesh backhaul: link rows share a 3-column grid (badge / signal / rates) so the
+   columns align across rows; each row div flattens into it via display: contents. */
+.mesh-mlo-links {
+    display: grid;
+    grid-template-columns: auto auto auto;
+    column-gap: 0.5rem;
+    row-gap: 0.3rem;
+    align-items: baseline;
+    justify-content: start;
+}
+
 .mesh-mlo-link {
-    justify-content: flex-end;
+    display: contents;
 }
 
-.mesh-mlo-link + .mesh-mlo-link {
-    margin-top: 0.3rem;
-}
-
-.mesh-mlo-link .band-badge {
+.mesh-mlo-links .band-badge {
     min-width: 54px;
     text-align: center;
 }
 
 .mesh-mlo-signal {
     font-size: 0.875rem;
+    white-space: nowrap;
 }
 
 .mesh-rate {

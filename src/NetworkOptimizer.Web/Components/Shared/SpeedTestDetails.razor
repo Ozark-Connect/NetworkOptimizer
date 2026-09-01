@@ -1248,7 +1248,7 @@
                     if (link.RxRateMbps.HasValue)
                         linkParts.Add($"<span class='wifi-speed-tx'>TX {link.RxRateMbps.Value}</span>");
                 }
-                lines2.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+                lines2.Add($"<div class='wifi-tooltip-link wifi-tooltip-mlo-link'>{string.Join(" ", linkParts)}</div>");
             }
         }
         else
