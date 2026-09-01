@@ -1206,7 +1206,7 @@ class LanFlowMap2D {
             const upKbps=isMeshUplink?pTx:pRx;
             const dl=downKbps?`↓${formatSpeed(Math.round(downKbps/1000))}`:'';
             const ul=upKbps?`↑${formatSpeed(Math.round(upKbps/1000))}`:'';
-            rows.push(['Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
+            rows.push([d.isMloMesh?'Link speed (MLO)':'Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
         }
         if(any){
             // APs: uplink throughput flipped to the to-gateway (fabric) direction.

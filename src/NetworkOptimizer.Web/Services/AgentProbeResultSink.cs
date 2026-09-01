@@ -1253,7 +1253,11 @@ public class AgentProbeResultSink
                          && sample.IfDescr.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                          && !sample.IfDescr.Contains('.'))
                 {
-                    meshUplink[NormalizeMac(sample.DeviceMac)] = (calc.RateInBps.Value, calc.RateOutBps.Value);
+                    // Summed, not assigned: an MLO backhaul has one vwiresta slave per link,
+                    // mirroring the fast tier's accumulation.
+                    var meshKey = NormalizeMac(sample.DeviceMac);
+                    var meshCur = meshUplink.TryGetValue(meshKey, out var mPrev) ? mPrev : (0.0, 0.0);
+                    meshUplink[meshKey] = (meshCur.Item1 + calc.RateInBps.Value, meshCur.Item2 + calc.RateOutBps.Value);
                 }
             }
 

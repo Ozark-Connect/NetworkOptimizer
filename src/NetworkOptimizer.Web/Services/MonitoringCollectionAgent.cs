@@ -552,8 +552,11 @@ public class MonitoringCollectionAgent : BackgroundService
                                 && iface.Description.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                                 && !iface.Description.Contains('.'))
                             {
-                                apMeshUplinkInBps = rateIn.Value;
-                                apMeshUplinkOutBps = rateOut.Value;
+                                // An MLO backhaul runs one vwiresta slave per link under the mld
+                                // master; the backhaul total is their sum. A classic backhaul has
+                                // one, so the sum is the old single read for it.
+                                apMeshUplinkInBps = (apMeshUplinkInBps ?? 0) + rateIn.Value;
+                                apMeshUplinkOutBps = (apMeshUplinkOutBps ?? 0) + rateOut.Value;
                             }
                         }
                     }

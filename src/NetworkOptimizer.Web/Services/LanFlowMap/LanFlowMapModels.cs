@@ -113,6 +113,11 @@ public class LanNode
         : null;
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+
+    /// <summary>Mesh AP whose backhaul is an MLO pairing; the Phy rates above are the
+    /// aggregate across links. Drives the "(MLO)" tag on the map tooltips.</summary>
+    public bool IsMloMesh { get; set; }
+
     public string? Ssid { get; set; }
 
     /// <summary>VLAN for client filtering ("Main", "IoT", "Guest", ...).</summary>

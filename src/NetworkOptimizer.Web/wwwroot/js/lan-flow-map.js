@@ -3948,7 +3948,7 @@ export class LanFlowMap {
             const upKbps = isMeshUplink ? pTx : pRx;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
-            rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
+            rows.push([node.isMloMesh ? 'Link speed (MLO)' : 'Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
         }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {
