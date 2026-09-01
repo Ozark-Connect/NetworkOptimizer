@@ -20,9 +20,14 @@ public static class AppVersionInfo
     /// release procedure; releases without agent-relevant changes leave it alone.
     /// Never set it past that release - the Multi-Site agent list shows an
     /// "Update agent" callout for enrolled agents reporting an older version
-    /// than this, and over-bumping nags agents into pointless upgrades.
+    /// than this, and over-bumping nags agents into pointless upgrades. A
+    /// prerelease tag counts as a release here: the 2.8 agent changes first
+    /// ship in v2.8.0-preview5, and IsOlderThan ranks a release above its own
+    /// prereleases, so "2.8.0" would nag every preview5 agent running
+    /// byte-identical code. This stays "2.8.0-preview5" through 2.8.0 stable
+    /// unless agent-relevant code changes again.
     /// </summary>
-    public const string LatestAgentVersion = "2.8.0";
+    public const string LatestAgentVersion = "2.8.0-preview5";
 
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }
