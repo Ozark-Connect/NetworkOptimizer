@@ -17292,7 +17292,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;
@@ -17311,6 +17311,11 @@ tr.stats-row-filtered {
     gap: 0.75rem;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+}
+
+/* Labels stay on one line ("Link speed (MLO)"); values may still wrap. */
+.lan-flow-map-tooltip-row span:first-child {
+    white-space: nowrap;
 }
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
@@ -17448,7 +17453,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;

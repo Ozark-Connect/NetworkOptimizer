@@ -1230,7 +1230,7 @@ class LanFlowMap2D {
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
             +(ovTip?`<div style="margin-bottom:3px">${esc(String(ovTip))}</div>`:'')
-            +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('')
+            +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted};white-space:nowrap">${k}</span><span>${esc(String(v))}</span></div>`).join('')
             +(hint?`<div style="color:${C.textMuted};margin-top:4px">${hint}</div>`:'');
         this._tooltip.style.opacity='1';
         this._tooltip.style.visibility='visible';
