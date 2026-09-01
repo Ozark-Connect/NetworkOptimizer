@@ -9429,8 +9429,23 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.25rem;
 }
 
-.ap-stats-mesh {
-    gap: 1rem;
+.ap-stats-mesh .ap-stat {
+    justify-content: flex-end;
+}
+
+/* MLO mesh cards only: the multi-row link block reads top-down, so the client stat
+   aligns top like non-mesh cards, the row tightens to make width for the grid, and
+   the mesh block hugs the right edge as one unit (the grid keeps columns aligned). */
+.ap-stats-mlo {
+    gap: 1.25rem;
+}
+
+.ap-stats-mlo .ap-stat {
+    justify-content: flex-start;
+}
+
+.ap-stats-mlo .ap-mesh-info {
+    align-items: flex-end;
 }
 
 .ap-stat {

@@ -615,7 +615,7 @@
                                         <span class="ap-status-text">@ap.Status.Label</span>
                                     </div>
                                 </div>
-                                <div class="ap-stats @(ap.IsMeshChild || ap.MeshChildren.Count > 0 ? "ap-stats-mesh" : "")">
+                                <div class="ap-stats @(ap.IsMeshChild ? "ap-stats-mesh" : "") @(ap.MeshUplinkIsMlo || ap.MeshChildren.Any(c => c.IsMlo) ? "ap-stats-mlo" : "")">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
