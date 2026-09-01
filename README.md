@@ -118,10 +118,6 @@ For the full changelog, see the [v1.17.0 release notes](https://github.com/Ozark
 
 ![2D LAN Topology Flow Map](docs/images/monitoring-2d-map.png)
 
-## New: API Key auth to console
-
-Connect to your UniFi Console using an API key instead of username and password. Generated in UniFi Network under Integrations -> Create New API Key. The key is encrypted at rest and never exposed in logs or the UI. Useful for sites where you don't necessarily want to create a Local Admin, or when you're using UniFi Fabrics which no longer lets you create Local Admin users.
-
 ## New: WAN Steering
 
 UniFi makes you choose between WAN Failover and Load Balancing, and its Policy-Based Routes can only match by destination IP or domain - not port or protocol. WAN Steering removes both limitations. Keep your primary WAN for responsive, latency-sensitive traffic by default, and selectively load balance bulk traffic - Steam downloads, OS updates, Xbox downloads - across your secondary connections so they're not just sitting idle waiting for a failover event.
