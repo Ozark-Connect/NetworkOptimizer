@@ -113,6 +113,11 @@ public class LanNode
         : null;
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+
+    /// <summary>Mesh AP whose backhaul is an MLO pairing; the Phy rates above are the
+    /// aggregate across links. Drives the "(MLO)" tag on the map tooltips.</summary>
+    public bool IsMloMesh { get; set; }
+
     public string? Ssid { get; set; }
 
     /// <summary>VLAN for client filtering ("Main", "IoT", "Guest", ...).</summary>
@@ -184,6 +189,10 @@ public class LanLink
 
     /// <summary>Upstream (toward the gateway/ISP) capacity in bps for asymmetric links.</summary>
     public long? CapacityUpBps { get; set; }
+
+    /// <summary>Mesh backhaul that is an MLO pairing; the capacities above are the aggregate
+    /// across links. Drives the "(MLO)" tag on the 3D map's link hover.</summary>
+    public bool IsMloMesh { get; set; }
 
     /// <summary>Wireless band ("2.4"/"5"/"6") for wifi-client and mesh links.</summary>
     public string? Band { get; set; }

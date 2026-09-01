@@ -6467,11 +6467,20 @@ tr:hover .snmp-row-chevron {
     gap: 0.4rem;
 }
 
+.wifi-tooltip-mlo-link + .wifi-tooltip-mlo-link {
+    margin-top: 0.35rem;
+}
+
 .wifi-tooltip-link-signal {
     font-size: 0.75rem;
     color: var(--text-muted);
     margin-bottom: 0.3rem;
     padding-left: 0.25rem;
+}
+
+/* The dBm reading is the payload of a signal line; only the SNR/channel context stays muted */
+.wifi-tooltip-signal-value {
+    color: var(--text-secondary);
 }
 
 .wifi-tooltip-ch {
@@ -9342,6 +9351,8 @@ a.path-hop.hop-clickable:hover {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
 }
 
 .ap-card.ap-offline {
@@ -9429,6 +9440,21 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
+/* MLO mesh cards only: the multi-row link block reads top-down, so the client stat
+   aligns top like non-mesh cards, the row tightens to make width for the grid, and
+   the mesh block hugs the right edge as one unit (the grid keeps columns aligned). */
+.ap-stats-mlo {
+    gap: 1.25rem;
+}
+
+.ap-stats-mlo .ap-stat {
+    justify-content: flex-start;
+}
+
+.ap-stats-mlo .ap-mesh-info {
+    align-items: flex-end;
+}
+
 .ap-stat {
     display: flex;
     flex-direction: column;
@@ -9485,12 +9511,38 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+/* MLO mesh backhaul: link rows share a 3-column grid (badge / signal / rates) so the
+   columns align across rows; each row div flattens into it via display: contents. */
+.mesh-mlo-links {
+    display: grid;
+    grid-template-columns: auto auto auto;
+    column-gap: 0.5rem;
+    row-gap: 0.3rem;
+    align-items: baseline;
+    justify-content: start;
+}
+
+.mesh-mlo-link {
+    display: contents;
+}
+
+.mesh-mlo-links .band-badge {
+    min-width: 54px;
+    text-align: center;
+}
+
+.mesh-mlo-signal {
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
 .mesh-rate {
     white-space: nowrap;
 }
 
 .ap-mesh-info .ap-stat-label {
     text-transform: none;
+    margin-top: 0.2rem;
 }
 
 .lock-icon {
@@ -9508,8 +9560,11 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    padding-top: 0.75rem;
+    padding-top: 0.4rem;
     border-top: 1px solid var(--border-color);
+    /* Sink to the card bottom so radio lists align across a row when a taller
+       MLO mesh card stretches its siblings. */
+    margin-top: auto;
 }
 
 .ap-radio {
@@ -17237,7 +17292,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;
@@ -17256,6 +17311,11 @@ tr.stats-row-filtered {
     gap: 0.75rem;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+}
+
+/* Labels stay on one line ("Link speed (MLO)"); values may still wrap. */
+.lan-flow-map-tooltip-row span:first-child {
+    white-space: nowrap;
 }
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
@@ -17393,7 +17453,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;

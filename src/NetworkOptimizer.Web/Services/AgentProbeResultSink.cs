@@ -1253,7 +1253,11 @@ public class AgentProbeResultSink
                          && sample.IfDescr.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                          && !sample.IfDescr.Contains('.'))
                 {
-                    meshUplink[NormalizeMac(sample.DeviceMac)] = (calc.RateInBps.Value, calc.RateOutBps.Value);
+                    // Summed, not assigned: an MLO backhaul has one vwiresta slave per link,
+                    // mirroring the fast tier's accumulation.
+                    var meshKey = NormalizeMac(sample.DeviceMac);
+                    var meshCur = meshUplink.TryGetValue(meshKey, out var mPrev) ? mPrev : (0.0, 0.0);
+                    meshUplink[meshKey] = (meshCur.Item1 + calc.RateInBps.Value, meshCur.Item2 + calc.RateOutBps.Value);
                 }
             }
 
@@ -1350,6 +1354,9 @@ public class AgentProbeResultSink
             // resolver - identical to the directly-monitored fast tier (in-memory-only live path,
             // and a UDB has no SNMP interface series to re-derive from during playback).
             BridgeInterfaceRecorder.Record(fabric, console.Devices, influx, aggNow);
+            // Mesh backhaul PHY, identical to the fast tier, so agent-relayed sites scrub the
+            // maps' Link speed the same as directly-monitored ones.
+            MeshBackhaulPhyRecorder.Record(console.Devices, influx, aggNow);
             // A switch the agent's SNMP has not read within the hand-over gap has its port_table
             // counters recorded instead, as the directly-monitored fast tier does for the switches
             // it skips. The agent never streams a switch that does not answer, so unheard is the

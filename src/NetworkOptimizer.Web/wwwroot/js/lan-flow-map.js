@@ -1651,7 +1651,20 @@ export class LanFlowMap {
 
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el, kind }] of this._linkLabels) {
+        for (const [linkId, { el, kind, link }] of this._linkLabels) {
+            // The negotiated-speed hover follows the tick for a mesh backhaul, as the node
+            // tooltips do: the scrubbed PHY for the child node wins over the snapshot
+            // capacities. The app's tooltip sweep rebinds when the attribute changes.
+            if (kind === LINK_KIND.MeshBackhaul && link) {
+                const mcs = this._currentClientStats?.[link.toNodeId];
+                const capDown = mcs?.phyRxKbps > 0 ? mcs.phyRxKbps * 1000 : link.capacityDownBps;
+                const capUp = mcs?.phyTxKbps > 0 ? mcs.phyTxKbps * 1000 : link.capacityUpBps;
+                const capLabel = link.isMloMesh ? 'Link speed (MLO)' : 'Link speed';
+                let tip = null;
+                if (capDown > 0 && capUp > 0) tip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+                else if (capDown > 0 || capUp > 0) tip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+                if (tip) el.setAttribute('data-tooltip', tip);
+            }
             const r = this._currentRates?.[linkId];
             const down = r?.downstreamBps || 0;
             const up = r?.upstreamBps || 0;
@@ -3361,13 +3374,14 @@ export class LanFlowMap {
             // Directional capacities always win over the symmetric PHY figure -
             // a symmetric ISP plan must still show the plan, not the port speed.
             const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
+            const capLabel = link.isMloMesh ? 'Link speed (MLO)' : 'Link speed';
             let capTip = null;
             if (capDown > 0 && capUp > 0) {
-                capTip = `Link speed: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+                capTip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
             } else if (capDown > 0 || capUp > 0) {
-                capTip = `Link speed: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+                capTip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
             } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
-                capTip = `Link speed: ${formatCapacity(link.capacityBps)}`;
+                capTip = `${capLabel}: ${formatCapacity(link.capacityBps)}`;
             }
             if (capTip) {
                 el.setAttribute('data-tooltip', capTip);
@@ -3381,7 +3395,7 @@ export class LanFlowMap {
                 this.canvas.dispatchEvent(new WheelEvent('wheel', e));
             }, { passive: false });
             this._labelsLayer.appendChild(el);
-            this._linkLabels.set(link.id, { el, kind: link.kind });
+            this._linkLabels.set(link.id, { el, kind: link.kind, link });
         }
 
         // Device labels: infrastructure devices (gateway, switch, AP) get DOM labels.
@@ -3948,7 +3962,7 @@ export class LanFlowMap {
             const upKbps = isMeshUplink ? pTx : pRx;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
-            rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
+            rows.push([node.isMloMesh ? 'Link speed (MLO)' : 'Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
         }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {

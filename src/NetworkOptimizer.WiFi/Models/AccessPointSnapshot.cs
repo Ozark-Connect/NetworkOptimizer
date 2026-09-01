@@ -88,6 +88,50 @@ public class AccessPointSnapshot
     /// <summary>Name of the mesh parent AP (resolved from MAC, if mesh child)</summary>
     public string? MeshParentName { get; set; }
 
+    /// <summary>Whether the mesh uplink is an MLO (Wi-Fi 7 multi-link) backhaul</summary>
+    public bool MeshUplinkIsMlo { get; set; }
+
+    /// <summary>
+    /// Every band/channel the mesh uplink occupies: the self-reported STA link plus any
+    /// parent-derived MLO links. A classic backhaul yields one entry; non-mesh APs none.
+    /// </summary>
+    public IEnumerable<(RadioBand Band, int? Channel)> MeshUplinkBandChannels
+    {
+        get
+        {
+            if (MeshUplinkBand.HasValue)
+                yield return (MeshUplinkBand.Value, MeshUplinkChannel);
+            foreach (var link in MeshUplinkLinks)
+            {
+                if (link.Band.HasValue && link.Band != MeshUplinkBand)
+                    yield return (link.Band.Value, link.Channel);
+            }
+        }
+    }
+
+    /// <summary>Whether the mesh uplink occupies the given band (any link, on MLO).</summary>
+    public bool MeshUplinkUsesBand(RadioBand band) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band);
+
+    /// <summary>Whether the mesh uplink occupies the given band and channel (any link, on MLO).</summary>
+    public bool MeshUplinkUsesChannel(RadioBand band, int channel) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band && x.Channel == channel);
+
+    /// <summary>
+    /// Whether a mesh backhaul this AP participates in - as child or as parent - occupies the
+    /// given band. The parent side reads its children's links; the child side its own uplink.
+    /// </summary>
+    public bool MeshBackhaulUsesBand(RadioBand band) =>
+        MeshUplinkUsesBand(band) ||
+        MeshChildren.Any(c => c.UplinkBand == band || c.Links.Any(l => l.Band == band));
+
+    /// <summary>
+    /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). The child's
+    /// own uplink block describes at most one link, so on MLO these are read from the parent's
+    /// downlink_table; empty when the parent reports nothing.
+    /// </summary>
+    public List<MeshLinkInfo> MeshUplinkLinks { get; set; } = new();
+
     /// <summary>Mesh children connected to this AP (if mesh parent)</summary>
     public List<MeshChildInfo> MeshChildren { get; set; } = new();
 
@@ -109,6 +153,26 @@ public class MeshChildInfo
     public int? TxRateMbps { get; set; }
     public int? RxRateMbps { get; set; }
     public RadioBand? UplinkBand { get; set; }
+
+    /// <summary>Whether the backhaul to this child is an MLO (Wi-Fi 7 multi-link) pairing</summary>
+    public bool IsMlo { get; set; }
+
+    /// <summary>Per-link detail, parent's perspective (TX toward the child). Empty when the
+    /// parent's downlink_table reported nothing and the values above came from the child.</summary>
+    public List<MeshLinkInfo> Links { get; set; } = new();
+}
+
+/// <summary>
+/// One radio link of a mesh backhaul. TX/RX direction follows the owning collection's
+/// perspective; signal is always the parent's reading (the only end reported).
+/// </summary>
+public class MeshLinkInfo
+{
+    public RadioBand? Band { get; set; }
+    public int? Channel { get; set; }
+    public int? SignalDbm { get; set; }
+    public int? TxRateMbps { get; set; }
+    public int? RxRateMbps { get; set; }
 }
 
 /// <summary>

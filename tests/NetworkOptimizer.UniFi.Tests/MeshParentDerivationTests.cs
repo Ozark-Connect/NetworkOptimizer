@@ -112,4 +112,89 @@ public class MeshParentDerivationTests
 
         claim.Contradicts(reported).Should().Be(expected);
     }
+
+    // --- MLO: an MLO backhaul is one downlink entry PER LINK, all sharing the child's base MAC ---
+
+    private static DownlinkTableEntry MloLink(string radio, long txRate, long rxRate, int? signal = null) => new()
+    {
+        Mac = $"vwire-{radio}",
+        SerialNo = ChildMac,
+        MldMac = ChildMac,
+        IsMlo = true,
+        Radio = radio,
+        Signal = signal,
+        TxRate = txRate,
+        RxRate = rxRate,
+    };
+
+    [Fact]
+    public void BuildMeshParentByChild_MloLinks_AggregateIntoOneClaim()
+    {
+        // STR runs the links concurrently, so the pair's capacity is the sum, and each link
+        // is kept for per-band display.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable = [MloLink("6e", 2_594_200, 2_161_800, -62), MloLink("na", 2_161_800, 1_201_000, -50)];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.ParentMac.Should().Be(ParentMac);
+        claim.IsMlo.Should().BeTrue();
+        claim.TxRateKbps.Should().Be(2_594_200 + 2_161_800);
+        claim.RxRateKbps.Should().Be(2_161_800 + 1_201_000);
+        claim.Links.Should().HaveCount(2);
+        claim.Links.Select(l => l.Radio).Should().BeEquivalentTo(["6e", "na"]);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_MloEntriesOutrankAnUnflaggedRowForTheSameChild()
+    {
+        // A firmware that keeps a legacy combined row next to the per-link entries must not be
+        // double-counted: only is_mlo-flagged entries are ever aggregated.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable =
+        [
+            new DownlinkTableEntry { Mac = "vwire-combined", SerialNo = ChildMac, TxRate = 4_756_000, RxRate = 3_362_800 },
+            MloLink("6e", 2_594_200, 2_161_800),
+            MloLink("na", 2_161_800, 1_201_000),
+        ];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.TxRateKbps.Should().Be(2_594_200 + 2_161_800);
+        claim.Links.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_DuplicateUnflaggedEntries_KeepLastEntryWins()
+    {
+        // Pre-MLO behavior, preserved exactly: duplicate non-MLO listings are never summed.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable =
+        [
+            new DownlinkTableEntry { Mac = "vwire-stale", SerialNo = ChildMac, TxRate = 866_000, RxRate = 585_000 },
+            new DownlinkTableEntry { Mac = "vwire-fresh", SerialNo = ChildMac, TxRate = 1_201_000, RxRate = 866_000 },
+        ];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.IsMlo.Should().BeFalse();
+        claim.TxRateKbps.Should().Be(1_201_000);
+        claim.RxRateKbps.Should().Be(866_000);
+        claim.Links.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_FallsBackToMldMacWhenSerialNoIsAbsent()
+    {
+        var parent = Device(ParentMac);
+        parent.DownlinkTable = [new DownlinkTableEntry { Mac = "vwire-bssid", MldMac = ChildMac, IsMlo = true, TxRate = 866_000 }];
+
+        UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)]).Should().ContainKey(ChildMac);
+    }
+
+    [Fact]
+    public void MeshParentClaim_DefaultInstance_HasEmptyLinksNotNull()
+    {
+        default(UniFiDiscovery.MeshParentClaim).Links.Should().NotBeNull().And.BeEmpty();
+    }
 }

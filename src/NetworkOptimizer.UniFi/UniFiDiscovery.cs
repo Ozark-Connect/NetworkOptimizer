@@ -103,6 +103,7 @@ public class UniFiDiscovery
                 UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
                 UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
                 UplinkType = d.Uplink?.Type,
+                UplinkIsMlo = d.Uplink?.IsMlo == true,
                 // Active uplink interface name. For a wireless mesh child this is the
                 // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
                 // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
@@ -158,7 +159,7 @@ public class UniFiDiscovery
     public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<DiscoveredDevice> devices)
     {
         var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
-        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable, d.RadioTableStats, d.RadioTable)));
     }
 
     /// <summary>Raw-device overload for callers that hold <see cref="UniFiDeviceResponse"/>
@@ -166,30 +167,76 @@ public class UniFiDiscovery
     public static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(IEnumerable<UniFiDeviceResponse> devices)
     {
         var all = devices as IList<UniFiDeviceResponse> ?? devices.ToList();
-        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable)));
+        return BuildMeshParentByChild(all.Select(d => (d.Mac, d.DownlinkTable, d.RadioTableStats, d.RadioTable)));
     }
 
     private static Dictionary<string, MeshParentClaim> BuildMeshParentByChild(
-        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> devices)
+        IEnumerable<(string Mac, List<DownlinkTableEntry>? DownlinkTable, List<RadioTableStats>? RadioStats, List<RadioTableEntry>? RadioTable)> devices)
     {
-        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable)> ?? devices.ToList();
+        var all = devices as IList<(string Mac, List<DownlinkTableEntry>? DownlinkTable, List<RadioTableStats>? RadioStats, List<RadioTableEntry>? RadioTable)> ?? devices.ToList();
         var known = new HashSet<string>(all.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()));
         var parentByChild = new Dictionary<string, MeshParentClaim>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var parent in all)
         {
             if (string.IsNullOrEmpty(parent.Mac)) continue;
-            foreach (var link in parent.DownlinkTable ?? [])
+            // serialno (mld_mac on MLO links) is the child's base MAC; mac is its vwire BSSID,
+            // which matches nothing. An MLO backhaul is one entry PER LINK sharing that base MAC,
+            // so group first: the claim's rates are the sum over links (STR runs them
+            // concurrently), and each link is kept for per-band display.
+            foreach (var group in (parent.DownlinkTable ?? [])
+                .Select(l => (Key: (l.SerialNo ?? l.MldMac)?.ToLowerInvariant(), Link: l))
+                .Where(x => !string.IsNullOrEmpty(x.Key))
+                .GroupBy(x => x.Key!))
             {
-                // serialno is the child's base MAC; mac is its vwire BSSID, which matches nothing.
-                if (string.IsNullOrEmpty(link.SerialNo)) continue;
-                var childMac = link.SerialNo.ToLowerInvariant();
-                if (known.Contains(childMac))
-                    parentByChild[childMac] = new MeshParentClaim(parent.Mac.ToLowerInvariant(), link.TxRate, link.RxRate);
+                if (!known.Contains(group.Key)) continue;
+                // Aggregate ONLY is_mlo-flagged entries: a future firmware that also keeps a
+                // legacy combined row for the same child must not be double-counted, and a
+                // duplicate non-MLO listing keeps the pre-grouping last-entry-wins behavior
+                // rather than summing capacity that does not exist.
+                var members = group.Select(x => x.Link).ToList();
+                var mloMembers = members.Where(l => l.IsMlo == true).ToList();
+                members = mloMembers.Count > 0 ? mloMembers : [members[^1]];
+                var links = members.Select(l => new MeshLinkClaim(
+                    l.Radio, l.Channel, l.Signal, l.TxRate, l.RxRate)
+                {
+                    WidthMhz = ResolveRadioWidth(parent.RadioStats, parent.RadioTable, l.Radio),
+                }).ToList();
+                parentByChild[group.Key] = new MeshParentClaim(
+                    parent.Mac.ToLowerInvariant(),
+                    links.Sum(l => l.TxRateKbps),
+                    links.Sum(l => l.RxRateKbps))
+                {
+                    IsMlo = mloMembers.Count > 0,
+                    Links = links,
+                };
             }
         }
 
         return parentByChild;
+    }
+
+    /// <summary>
+    /// One link of a mesh backhaul as the parent reports it in its downlink_table. Rates follow
+    /// <see cref="MeshParentClaim"/>'s convention: Tx is parent to child (the child's downstream).
+    /// Signal is the PARENT's reading of the link; the child's end is not reported anywhere.
+    /// </summary>
+    public readonly record struct MeshLinkClaim(string? Radio, int? Channel, int? Signal, long TxRateKbps, long RxRateKbps)
+    {
+        /// <summary>Channel width in MHz, read off the parent's radio for the link's band -
+        /// the downlink entries themselves report chwidth 0.</summary>
+        public int? WidthMhz { get; init; }
+    }
+
+    /// <summary>The parent radio's width for a link's band: the operating width (stats bw)
+    /// when reported, else the configured width (radio_table ht).</summary>
+    private static int? ResolveRadioWidth(List<RadioTableStats>? stats, List<RadioTableEntry>? table, string? radio)
+    {
+        if (string.IsNullOrEmpty(radio)) return null;
+        var bw = stats?.FirstOrDefault(s => string.Equals(s.Radio, radio, StringComparison.OrdinalIgnoreCase))?.Bw;
+        if (bw is > 0) return bw;
+        var ht = table?.FirstOrDefault(t => string.Equals(t.Radio, radio, StringComparison.OrdinalIgnoreCase))?.ChannelWidth;
+        return ht is > 0 ? ht : null;
     }
 
     /// <summary>
@@ -199,10 +246,18 @@ public class UniFiDiscovery
     /// round the child's fields are read reports the link backwards.
     /// </summary>
     /// <param name="ParentMac">The parent's MAC, lower case.</param>
-    /// <param name="TxRateKbps">Parent to child, i.e. downstream.</param>
-    /// <param name="RxRateKbps">Child to parent, i.e. upstream.</param>
+    /// <param name="TxRateKbps">Parent to child, i.e. downstream. Summed over links on MLO.</param>
+    /// <param name="RxRateKbps">Child to parent, i.e. upstream. Summed over links on MLO.</param>
     public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps)
     {
+        /// <summary>Whether the backhaul is an MLO (Wi-Fi 7 multi-link) pairing.</summary>
+        public bool IsMlo { get; init; }
+
+        /// <summary>Per-link detail, one entry per radio link. A classic backhaul has one.
+        /// Never null, including on a default-constructed claim.</summary>
+        public IReadOnlyList<MeshLinkClaim> Links { get => _links ?? []; init => _links = value; }
+        private readonly IReadOnlyList<MeshLinkClaim>? _links;
+
         /// <summary>
         /// True when the child's own uplink field does NOT name this parent - empty, or a
         /// different device. Only then may a consumer absorb the claim; an agreeing child's own
@@ -894,6 +949,14 @@ public class DiscoveredDevice
     /// <summary>RX rate in Kbps for wireless uplinks</summary>
     public long UplinkRxRateKbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
+
+    /// <summary>
+    /// Whether the device's own uplink block flags MLO (uplink.is_mlo). UniFi does not set this
+    /// for mesh children today - the per-link truth lives on the parent - but a firmware that
+    /// starts reporting the child side is expected to reuse its standard MLO station shape,
+    /// and this flag is the cheapest half of it.
+    /// </summary>
+    public bool UplinkIsMlo { get; set; }
     /// <summary>
     /// Active uplink interface name (uplink.name). For a wireless mesh child this is the
     /// wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways it's the

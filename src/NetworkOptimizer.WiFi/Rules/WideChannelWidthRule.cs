@@ -54,9 +54,13 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                     hasWeakSignal = weakPct >= WeakClientPctThreshold;
                 }
 
-                // 6 GHz 320 MHz: always flag (unconditional - better performance + co-channel separation)
+                // 6 GHz 320 MHz: always flag (unconditional - better performance + co-channel
+                // separation) - EXCEPT when the band carries a mesh backhaul: 320 MHz there is
+                // paying for backhaul capacity, and "Apply to All APs" would narrow both ends.
                 if (radio.Band == RadioBand.Band6GHz && currentWidth >= 320)
                 {
+                    if (ap.MeshBackhaulUsesBand(RadioBand.Band6GHz))
+                        continue;
                     yield return hasWeakSignal
                         ? BuildWeakSignalIssue(ap.Name, bandName, currentWidth, 160, weakClients, totalClients, weakPct)
                         : BuildInfoIssue(ap.Name, bandName, currentWidth, 160);

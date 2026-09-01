@@ -82,24 +82,65 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             {
                 snapshot.MeshParentName = parent.Name;
 
-                // Try to get the parent's view from its downlink_table
+                // Try to get the parent's view from its downlink_table. It is the fuller account:
+                // one entry PER LINK, so on an MLO backhaul it holds links the child's own uplink
+                // block never mentions (the child names only its STA link).
                 int? parentSignal = null;
                 int? parentTxRateMbps = null;
                 int? parentRxRateMbps = null;
+                var isMlo = false;
+                var parentLinks = new List<MeshLinkInfo>();
                 if (devicesByMac.TryGetValue(snapshot.MeshParentMac, out var parentDevice) &&
                     parentDevice.DownlinkTable != null)
                 {
-                    var childMacLower = snapshot.Mac.ToLowerInvariant();
-                    var downlink = parentDevice.DownlinkTable.FirstOrDefault(d =>
-                        string.Equals(d.SerialNo, childMacLower, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(d.SerialNo, snapshot.Mac, StringComparison.OrdinalIgnoreCase));
-                    if (downlink != null)
+                    var matches = parentDevice.DownlinkTable
+                        .Where(d => string.Equals(d.SerialNo ?? d.MldMac, snapshot.Mac, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    // Aggregate ONLY is_mlo-flagged entries; a non-MLO child keeps the original
+                    // single-entry read so nothing about existing mesh pairs changes.
+                    var mloEntries = matches.Where(e => e.IsMlo == true).ToList();
+                    isMlo = mloEntries.Count > 0;
+                    var entries = isMlo ? mloEntries : matches.Take(1).ToList();
+                    if (isMlo)
                     {
-                        parentSignal = downlink.Signal;
-                        parentTxRateMbps = downlink.TxRate > 0 ? (int)(downlink.TxRate / 1000) : null;
-                        parentRxRateMbps = downlink.RxRate > 0 ? (int)(downlink.RxRate / 1000) : null;
+                        parentLinks = mloEntries.Select(e => new MeshLinkInfo
+                        {
+                            Band = RadioBandExtensions.FromUniFiCode(e.Radio),
+                            Channel = e.Channel,
+                            SignalDbm = e.Signal,
+                            TxRateMbps = e.TxRate > 0 ? (int)(e.TxRate / 1000) : null,
+                            RxRateMbps = e.RxRate > 0 ? (int)(e.RxRate / 1000) : null,
+                        }).ToList();
+                    }
+                    if (entries.Count > 0)
+                    {
+                        // STR MLO runs its links concurrently, so the pair's capacity is the sum.
+                        parentSignal = entries.Max(e => e.Signal);
+                        var txSum = entries.Sum(e => e.TxRate);
+                        var rxSum = entries.Sum(e => e.RxRate);
+                        parentTxRateMbps = txSum > 0 ? (int)(txSum / 1000) : null;
+                        parentRxRateMbps = rxSum > 0 ? (int)(rxSum / 1000) : null;
                     }
                 }
+
+                // The child's own uplink.is_mlo counts too: UniFi does not set it today, but a
+                // firmware that starts reporting the child side is expected to reuse its standard
+                // MLO station shape, and the flag must not depend on the parent's table alone.
+                snapshot.MeshUplinkIsMlo = isMlo ||
+                    (devicesByMac.TryGetValue(snapshot.Mac, out var selfDevice) && selfDevice.UplinkIsMlo);
+                // Child's perspective flips direction: the parent transmitting is the child
+                // receiving. The child measures its own STA link, so its signal outranks the
+                // parent's for that link; the other links are only reported by the parent.
+                snapshot.MeshUplinkLinks = parentLinks.Select(l => new MeshLinkInfo
+                {
+                    Band = l.Band,
+                    Channel = l.Channel,
+                    SignalDbm = l.Band.HasValue && l.Band == snapshot.MeshUplinkBand && snapshot.MeshUplinkSignalDbm.HasValue
+                        ? snapshot.MeshUplinkSignalDbm
+                        : l.SignalDbm,
+                    TxRateMbps = l.RxRateMbps,
+                    RxRateMbps = l.TxRateMbps,
+                }).ToList();
 
                 parent.MeshChildren.Add(new MeshChildInfo
                 {
@@ -108,7 +149,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     SignalDbm = parentSignal ?? snapshot.MeshUplinkSignalDbm,
                     TxRateMbps = parentTxRateMbps ?? snapshot.MeshUplinkRxRateMbps, // child RX = parent TX
                     RxRateMbps = parentRxRateMbps ?? snapshot.MeshUplinkTxRateMbps, // child TX = parent RX
-                    UplinkBand = snapshot.MeshUplinkBand
+                    UplinkBand = snapshot.MeshUplinkBand,
+                    IsMlo = snapshot.MeshUplinkIsMlo,
+                    Links = parentLinks
                 });
             }
         }

@@ -552,8 +552,11 @@ public class MonitoringCollectionAgent : BackgroundService
                                 && iface.Description.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                                 && !iface.Description.Contains('.'))
                             {
-                                apMeshUplinkInBps = rateIn.Value;
-                                apMeshUplinkOutBps = rateOut.Value;
+                                // An MLO backhaul runs one vwiresta slave per link under the mld
+                                // master; the backhaul total is their sum. A classic backhaul has
+                                // one, so the sum is the old single read for it.
+                                apMeshUplinkInBps = (apMeshUplinkInBps ?? 0) + rateIn.Value;
+                                apMeshUplinkOutBps = (apMeshUplinkOutBps ?? 0) + rateOut.Value;
                             }
                         }
                     }
@@ -641,6 +644,10 @@ public class MonitoringCollectionAgent : BackgroundService
         // resolver can re-derive them (the live path above is in-memory only, and a UDB has no
         // SNMP interface series). Shared verbatim with the agent-relayed path.
         BridgeInterfaceRecorder.Record(_fabric, devices, _influx, aggNow);
+
+        // Persist each mesh child's backhaul PHY so playback can scrub the maps' Link speed.
+        // Shared verbatim with the agent-relayed path.
+        MeshBackhaulPhyRecorder.Record(devices, _influx, aggNow);
     }
 
     /// <summary>
@@ -1550,7 +1557,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// the InfluxDB tag value to keep the wifi_client measurement's cardinality on
     /// 3 distinct values per AP.
     /// </summary>
-    private static string MapBand(string? radio) => radio switch
+    internal static string MapBand(string? radio) => radio switch
     {
         "ng" => "2.4ghz",
         "na" => "5ghz",

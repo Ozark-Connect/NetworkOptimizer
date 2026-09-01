@@ -735,6 +735,21 @@ public class LanFlowMapService
                 RxRateKbps = described.RxRateKbps,
             };
         }
+        // Points whose MAC is an infrastructure node are the fast tier's mesh backhaul PHY
+        // readings, recorded per mesh child under its base MAC. They feed the DEVICE node's
+        // scrub stats below and must not read as clients (presence, measured sets, or
+        // rebuilt historic-only leaves).
+        var deviceNodeMacs = snapshot.Nodes
+            .Where(n => n.Id.StartsWith("dev-", StringComparison.Ordinal) && !string.IsNullOrEmpty(n.Mac))
+            .Select(n => NormalizeMac(n.Mac))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var meshDevRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in wifiClientRates.Keys.Where(deviceNodeMacs.Contains).ToList())
+        {
+            meshDevRates[mac] = wifiClientRates[mac];
+            wifiClientRates.Remove(mac);
+        }
+
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
         {
@@ -748,7 +763,7 @@ public class LanFlowMapService
         // outside it write no telemetry, so their absence proves nothing and playback leaves them be.
         foreach (var p in cached.WifiClients)
         {
-            if (!string.IsNullOrEmpty(p.ClientMac))
+            if (!string.IsNullOrEmpty(p.ClientMac) && !deviceNodeMacs.Contains(NormalizeMac(p.ClientMac)))
                 update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
         }
         foreach (var p in cached.WiredClients)
@@ -793,6 +808,19 @@ public class LanFlowMapService
                 PhyTxKbps = p.TxRateKbps,
                 PhyRxKbps = p.RxRateKbps,
                 ApNodeId = apNodeId,
+            };
+        }
+
+        // Mesh backhaul PHY at the scrub instant, keyed by the device node so the maps'
+        // Link speed rows follow the playhead like a client's connection stats do.
+        foreach (var (mac, p) in meshDevRates)
+        {
+            update.ClientStats["dev-" + NormalizeMac(mac)] = new NodeClientStats
+            {
+                Band = NormalizeBand(p.Band),
+                SignalDbm = p.SignalDbm,
+                PhyTxKbps = p.TxRateKbps,
+                PhyRxKbps = p.RxRateKbps,
             };
         }
 
@@ -860,11 +888,29 @@ public class LanFlowMapService
                         {
                             if (link.Kind == LanLinkKind.MeshBackhaul)
                             {
-                                resolved = cPts
+                                // One vwiresta series per MLO link; the backhaul is their sum at
+                                // the scrub instant (nearest point per series). A classic backhaul
+                                // has one series, so this is the old single read for it.
+                                var meshPts = cPts
                                     .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                                         && !p.IfName.Contains('.'))
-                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                    .FirstOrDefault();
+                                    .GroupBy(p => p.IfName, StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).First())
+                                    .ToList();
+                                if (meshPts.Count == 1)
+                                {
+                                    resolved = meshPts[0];
+                                }
+                                else if (meshPts.Count > 1)
+                                {
+                                    resolved = new MonitoringInfluxClient.InterfaceRatePoint
+                                    {
+                                        Time = meshPts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).First().Time,
+                                        IfName = "vwiresta",
+                                        RateInBps = meshPts.Sum(p => p.RateInBps ?? 0),
+                                        RateOutBps = meshPts.Sum(p => p.RateOutBps ?? 0),
+                                    };
+                                }
                                 // UDB single-port bridge: no vwiresta interface. Its downlink
                                 // port_table rate is persisted under a synthetic "bridge-downlink"
                                 // series (BridgeInterfaceRecorder), stored in the same rateIn =
@@ -1479,6 +1525,11 @@ public class LanFlowMapService
         LanFlowMapSnapshot snapshot,
         Dictionary<(string mac, int port), InterfaceNameMap> nameMaps)
     {
+        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
+        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
+        // Built before the node pass because MLO node rates read it too.
+        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
         // First pass: emit nodes for every device.
         foreach (var d in topology.Devices)
         {
@@ -1501,6 +1552,16 @@ public class LanFlowMapService
                 node.PhyTxKbps = d.UplinkTxRateKbps > 0 ? d.UplinkTxRateKbps : null;
                 node.PhyRxKbps = d.UplinkRxRateKbps > 0 ? d.UplinkRxRateKbps : null;
                 node.Band = NormalizeBand(d.UplinkRadioBand);
+                // The child's own uplink names only its STA link; on an MLO backhaul the pair's
+                // rate is the parent-summed aggregate (claim rates are the parent's perspective,
+                // so they map inverted). Never lower what the child already reported.
+                if (meshParentByChild.TryGetValue(mac, out var mloClaim)
+                    && mloClaim.IsMlo && !mloClaim.Contradicts(d.UplinkMac))
+                {
+                    node.IsMloMesh = true;
+                    if (mloClaim.RxRateKbps > 0) node.PhyTxKbps = Math.Max(node.PhyTxKbps ?? 0, mloClaim.RxRateKbps);
+                    if (mloClaim.TxRateKbps > 0) node.PhyRxKbps = Math.Max(node.PhyRxKbps ?? 0, mloClaim.TxRateKbps);
+                }
             }
             snapshot.Nodes.Add(node);
         }
@@ -1512,10 +1573,6 @@ public class LanFlowMapService
         // Second pass: uplink edges. Build them as (child -> parent), so on the wire the
         // FromNodeId is the leaf side and the data flowing toward it (DownstreamBps) is
         // gateway -> device per spec 5.7.1.
-        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
-        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
-        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
-
         // An uplink is only useful if it names a device that is actually on the map. UniFi has been
         // seen reporting a stale one after a reboot - present, so nothing looked wrong, but naming
         // something no node exists for. The edge then hangs off nothing and the client drops it,
@@ -1582,11 +1639,25 @@ public class LanFlowMapService
                 {
                     if (claim.TxRateKbps > 0) link.CapacityDownBps = claim.TxRateKbps * 1_000L;
                     if (claim.RxRateKbps > 0) link.CapacityUpBps = claim.RxRateKbps * 1_000L;
+                    link.IsMloMesh = claim.IsMlo;
                 }
                 else
                 {
                     if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
                     if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                    // The child's own uplink names only its STA link; an MLO pair's capacity is
+                    // the parent-summed aggregate. Never lower what the child reported. (claim
+                    // holds the agreeing parent claim here - a contradicting one took the
+                    // fromDownlinkTable branch above.) CapacityBps drives the pipes' saturation
+                    // ramp, so it takes the aggregate too or MLO throughput reads oversaturated.
+                    if (claim.IsMlo)
+                    {
+                        link.IsMloMesh = true;
+                        if (claim.TxRateKbps > 0) link.CapacityDownBps = Math.Max(link.CapacityDownBps ?? 0, claim.TxRateKbps * 1_000L);
+                        if (claim.RxRateKbps > 0) link.CapacityUpBps = Math.Max(link.CapacityUpBps ?? 0, claim.RxRateKbps * 1_000L);
+                        var aggPeak = Math.Max(claim.TxRateKbps, claim.RxRateKbps) * 1_000L;
+                        if (aggPeak > 0) link.CapacityBps = Math.Max(link.CapacityBps ?? 0, aggPeak);
+                    }
                 }
             }
 
