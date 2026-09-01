@@ -6,8 +6,10 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests.ApAgent;
 
 /// <summary>
-/// The transfer seam. SFTP, SCP, and cat-over-exec were all measured working on a real AP with the
-/// OpenSSH CLI, but not with SSH.NET, so the method has to be swappable without touching callers.
+/// The transfer chain. The status probe measures which transfer binaries an AP's firmware ships,
+/// the selector orders the chain from that, and cat-over-exec is always the floor: a present binary
+/// is still not proof SSH.NET can drive dropbear's implementation of it, so the chain is attempted
+/// in order rather than trusted.
 /// </summary>
 public class ApAgentTransferSelectorTests
 {
@@ -26,33 +28,33 @@ public class ApAgentTransferSelectorTests
         new StubTransfer("exec"),
     ]);
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void NothingConfigured_uses_sftp(string? configured)
-    {
-        Selector().Resolve(configured).Name.Should().Be("sftp");
-    }
+    private static ApAgentSshStatus Status(bool sftp, bool scp)
+        => new() { SftpAvailable = sftp, ScpAvailable = scp };
 
     [Theory]
-    [InlineData("scp", "scp")]
-    [InlineData("exec", "exec")]
-    [InlineData("SCP", "scp")]
-    [InlineData(" exec ", "exec")]
-    public void AConfiguredMethod_wins(string configured, string expected)
+    [InlineData(true, true, new[] { "sftp", "scp", "exec" })]
+    [InlineData(true, false, new[] { "sftp", "exec" })]
+    [InlineData(false, true, new[] { "scp", "exec" })]
+    [InlineData(false, false, new[] { "exec" })]
+    public void TheChain_is_ordered_from_what_the_probe_found(bool sftp, bool scp, string[] expected)
     {
-        Selector().Resolve(configured).Name.Should().Be(expected);
+        Selector().Resolve(Status(sftp, scp)).Select(t => t.Name).Should().Equal(expected);
     }
 
     [Fact]
-    public void AnUnknownMethod_falls_back_rather_than_failing_a_deploy()
+    public void Exec_is_always_last_and_always_present()
     {
-        Selector().Resolve("rsync").Name.Should().Be("sftp");
+        foreach (var sftp in new[] { false, true })
+        foreach (var scp in new[] { false, true })
+        {
+            var chain = Selector().Resolve(Status(sftp, scp));
+            chain.Should().NotBeEmpty();
+            chain[^1].Name.Should().Be("exec");
+        }
     }
 
     [Fact]
-    public void EveryShippedTransfer_is_reachable_by_name()
+    public void EveryShippedTransfer_appears_in_the_chain_for_some_combination()
     {
         var shipped = new IApAgentBinaryTransfer[]
         {
@@ -62,7 +64,15 @@ public class ApAgentTransferSelectorTests
         };
         var selector = new ApAgentTransferSelector(shipped);
 
+        var reachable = new HashSet<IApAgentBinaryTransfer>();
+        foreach (var sftp in new[] { false, true })
+        foreach (var scp in new[] { false, true })
+        {
+            foreach (var transfer in selector.Resolve(Status(sftp, scp)))
+                reachable.Add(transfer);
+        }
+
         foreach (var transfer in shipped)
-            selector.Resolve(transfer.Name).Should().BeSameAs(transfer);
+            reachable.Should().Contain(transfer);
     }
 }

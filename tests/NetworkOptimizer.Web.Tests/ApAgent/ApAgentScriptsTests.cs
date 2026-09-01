@@ -31,6 +31,10 @@ public class ApAgentScriptsTests
         1
         ---MD5---
         3366043c8f699cf4aabbccddeeff0011
+        ---SFTP---
+        present
+        ---SCP---
+        present
         """;
 
     [Theory]
@@ -70,6 +74,8 @@ public class ApAgentScriptsTests
         status.Version.Should().Be("2.7.1");
         status.DeployedBinaryVersion.Should().Be(1);
         status.BinaryMd5.Should().Be("3366043c8f699cf4aabbccddeeff0011");
+        status.SftpAvailable.Should().BeTrue();
+        status.ScpAvailable.Should().BeTrue();
     }
 
     [Fact]
@@ -91,6 +97,10 @@ public class ApAgentScriptsTests
             ---VERSION---
             ---BINARY_VERSION---
             ---MD5---
+            ---SFTP---
+            absent
+            ---SCP---
+            absent
             """;
 
         var status = ApAgentScripts.ParseStatus(output, success: true);
@@ -101,6 +111,17 @@ public class ApAgentScriptsTests
         status.DeployedBinaryVersion.Should().BeNull();
         status.BinaryMd5.Should().BeNull();
         status.SupportedArchitecture.Should().BeTrue();
+        status.SftpAvailable.Should().BeFalse();
+        status.ScpAvailable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AProbeMissingTheCapabilitySections_reads_both_transfers_as_absent()
+    {
+        var status = ApAgentScripts.ParseStatus("---ARCH---\narmv7l", success: true);
+
+        status.SftpAvailable.Should().BeFalse();
+        status.ScpAvailable.Should().BeFalse();
     }
 
     [Fact]
@@ -119,8 +140,19 @@ public class ApAgentScriptsTests
     {
         var command = ApAgentScripts.StatusProbeCommand();
 
-        foreach (var section in new[] { "ARCH", "MODEL", "FIRMWARE", "PROCD", "BINARY", "WRAPPER", "PROCESS", "VERSION", "BINARY_VERSION", "MD5" })
+        foreach (var section in new[] { "ARCH", "MODEL", "FIRMWARE", "PROCD", "BINARY", "WRAPPER", "PROCESS", "VERSION", "BINARY_VERSION", "MD5", "SFTP", "SCP" })
             command.Should().Contain($"---{section}---");
+    }
+
+    [Fact]
+    public void TheCapabilityProbes_pin_the_braceless_shell_form_measured_on_busybox_ash()
+    {
+        // At equal precedence "a || b && c || d" parses as ((a || b) && c) || d, which is what we
+        // want. Do not "tidy" this with -o (POSIX-obsolescent) or braces.
+        var command = ApAgentScripts.StatusProbeCommand();
+
+        command.Should().Contain("test -f /usr/lib/sftp-server || test -f /usr/libexec/sftp-server && echo present || echo absent");
+        command.Should().Contain("test -x /usr/sbin/scp || test -x /usr/bin/scp && echo present || echo absent");
     }
 
     [Fact]

@@ -32,6 +32,9 @@ public enum ApAgentState
 
     /// <summary>Reached, but the answer was not one the server can act on.</summary>
     Unhealthy,
+
+    /// <summary>Every transfer method failed to copy the binary onto the AP. Set by the deploy path, never the classifier.</summary>
+    TransferFailed,
 }
 
 /// <summary>What the server should do about an <see cref="ApAgentState"/>.</summary>
@@ -170,6 +173,12 @@ public sealed class ApAgentSshStatus
     /// <summary>MD5 of the deployed binary, used to skip a transfer that would change nothing.</summary>
     public string? BinaryMd5 { get; set; }
 
+    /// <summary>Whether the firmware ships dropbear's sftp-server binary, which serves the SFTP subsystem.</summary>
+    public bool SftpAvailable { get; set; }
+
+    /// <summary>Whether the firmware ships an scp binary.</summary>
+    public bool ScpAvailable { get; set; }
+
     /// <summary>Why the probe failed, when it did.</summary>
     public string? Error { get; set; }
 }
@@ -180,11 +189,21 @@ public sealed class ApAgentSshStatus
 /// <param name="State">The AP's state after the operation.</param>
 public sealed record ApAgentOperationResult(bool Success, string? Error = null, ApAgentState State = ApAgentState.Unknown)
 {
+    /// <summary>
+    /// True when the only failure is that work is already running for this AP. Benign: the UI shows
+    /// that work's progress rather than an error.
+    /// </summary>
+    public bool AlreadyInProgress { get; init; }
+
     /// <summary>A successful operation, with the state it left the AP in.</summary>
     public static ApAgentOperationResult Ok(ApAgentState state = ApAgentState.Healthy) => new(true, null, state);
 
     /// <summary>A failed operation, with the reason and the state it left the AP in.</summary>
     public static ApAgentOperationResult Fail(string error, ApAgentState state = ApAgentState.Unknown) => new(false, error, state);
+
+    /// <summary>The in-flight guard refused the operation because one is already running.</summary>
+    public static ApAgentOperationResult InProgress() =>
+        new(false, "A deployment is already running for this access point.") { AlreadyInProgress = true };
 }
 
 /// <summary>One access point's row in the AP Telemetry fleet table.</summary>
@@ -208,6 +227,9 @@ public sealed class ApAgentFleetEntry
     /// <summary>False when the operator has opted this AP out.</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Whether the server is deploying to (or otherwise working on) this AP right now.</summary>
+    public bool DeployInProgress { get; set; }
+
     /// <summary>The AP's last observed agent state.</summary>
     public ApAgentState State { get; set; } = ApAgentState.Unknown;
 
@@ -219,6 +241,12 @@ public sealed class ApAgentFleetEntry
 
     /// <summary>Machine architecture last read over SSH.</summary>
     public string? Architecture { get; set; }
+
+    /// <summary>Firmware string last read over SSH. In-memory only, so it can be absent after a restart.</summary>
+    public string? Firmware { get; set; }
+
+    /// <summary>How the binary last crossed the wire, when that was not the default SFTP path.</summary>
+    public string? TransferNote { get; set; }
 
     /// <summary>Agent release version last seen running.</summary>
     public string? DeployedVersion { get; set; }

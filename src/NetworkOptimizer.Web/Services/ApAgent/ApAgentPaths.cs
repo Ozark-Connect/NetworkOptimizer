@@ -29,6 +29,22 @@ public static class ApAgentPaths
     /// <summary>Presence of this file is how the server knows procd is available to supervise with.</summary>
     public const string ProcdIncludePath = "/lib/functions/procd.sh";
 
+    /// <summary>
+    /// Where dropbear's sftp-server binary lives. It is a separate optional binary that only some
+    /// firmware ships, and dropbear serves the SFTP subsystem by exec'ing it - so its presence is
+    /// the same fact the SFTP transfer depends on.
+    /// </summary>
+    public const string SftpServerPath = "/usr/lib/sftp-server";
+
+    /// <summary>Alternate sftp-server location on firmware that puts it under libexec.</summary>
+    public const string SftpServerAltPath = "/usr/libexec/sftp-server";
+
+    /// <summary>Where scp lives. It comes free with dropbear as a multi-call symlink.</summary>
+    public const string ScpPath = "/usr/sbin/scp";
+
+    /// <summary>Alternate scp location.</summary>
+    public const string ScpAltPath = "/usr/bin/scp";
+
     /// <summary>Listener port. Must match <c>defaultPort</c> in src/apagent/config.go.</summary>
     public const int AgentPort = 8899;
 

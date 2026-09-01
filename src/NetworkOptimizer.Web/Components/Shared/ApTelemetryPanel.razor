@@ -2,6 +2,7 @@
    sites-table pattern, the firmware-wipe alert above it, and the per-AP capability report expanding
    inline through the same collapse machinery the Sites table uses. *@
 
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.ApAgent
 @using NetworkOptimizer.Web.Services.Ssh
 @implements IDisposable
@@ -27,12 +28,11 @@
     </div>
     <div class="card-body">
         <p class="section-description">
-            The AP Agent is a small service Network Optimizer installs on each UniFi access point over
-            SSH. It reads what the UniFi Console does not expose: per-client retries, TCP stalls, and
-            airtime, plus roam timing and radio health. That sharpens channel recommendations, catches
-            a wedged radio before clients give up on the band, and lets Client Performance provide
-            truly real-time signal and roaming data. Any AP without it falls back to UniFi Console
-            data, so nothing breaks when one is missing.
+            A small service Network Optimizer installs on each access point over SSH to read what the
+            UniFi Console doesn't expose: per-client retries, TCP stalls, airtime, roam timing, and
+            radio health. That sharpens channel recommendations, catches a wedged radio before clients
+            give up on the band, and makes Client Performance truly real-time. Any AP without it falls
+            back to UniFi Console data.
         </p>
 
         @if (!_loaded)
@@ -143,7 +143,7 @@
                             @foreach (var entry in _fleet)
                             {
                                 var mac = entry.DeviceMac;
-                                var busy = _busyMacs.Contains(mac);
+                                var busy = _busyMacs.Contains(mac) || entry.DeployInProgress;
                                 var view = StatusView(entry);
                                 <tr class="@RowClass(entry)"
                                     @onclick="@(() => IsRowOpen(mac) ? CollapsePanelsAsync() : Task.CompletedTask)">
@@ -269,11 +269,19 @@
                                                             {
                                                                 <span class="ap-agent-note">The capability report did not load; the AP Agent may be mid-restart. Check Status to try again.</span>
                                                             }
+                                                            else if (entry.State == ApAgentState.TransferFailed && !string.IsNullOrEmpty(entry.Detail))
+                                                            {
+                                                                <span class="ap-agent-note">@TransferFailureLead(entry)</span>
+                                                                @foreach (var line in TransferFailureLines(entry))
+                                                                {
+                                                                    <span class="ap-agent-note">@line</span>
+                                                                }
+                                                            }
                                                             else if (!string.IsNullOrEmpty(entry.Detail))
                                                             {
                                                                 <span class="ap-agent-note">@entry.Detail</span>
                                                             }
-                                                            @if (!string.IsNullOrEmpty(entry.LastError) && entry.LastError != entry.Detail)
+                                                            @if (!string.IsNullOrEmpty(entry.LastError) && entry.LastError != entry.Detail && entry.State != ApAgentState.TransferFailed)
                                                             {
                                                                 <span class="ap-agent-note">Last error: @entry.LastError</span>
                                                             }
@@ -307,6 +315,10 @@
                                                                     </div>
                                                                 }
                                                             </div>
+                                                        }
+                                                        @if (!string.IsNullOrEmpty(entry.TransferNote))
+                                                        {
+                                                            <span class="ap-agent-note">@entry.TransferNote</span>
                                                         }
                                                         <div class="ap-agent-cap-footer">
                                                             <label class="checkbox-toggle" @onclick:stopPropagation="true">
@@ -466,6 +478,23 @@
 
     private static string Ago(DateTime utc) => TimeFormatHelper.FormatRelativeTime(utc);
 
+    /// <summary>
+    /// The transfer-failure lead line. The model and firmware are rendered from the fleet entry at
+    /// display time rather than baked into the persisted error, so a replaced device never shows a
+    /// stale model name.
+    /// </summary>
+    private static string TransferFailureLead(ApAgentFleetEntry e)
+    {
+        var firmware = FirmwareVersionFormat.ShortOrNull(e.Firmware);
+        return firmware == null
+            ? "Could not copy the AP Agent to this access point."
+            : $"Could not copy the AP Agent to this access point. {e.Model} on firmware {firmware}.";
+    }
+
+    /// <summary>The per-method lines of the transfer-failure detail, after its lead sentence.</summary>
+    private static IEnumerable<string> TransferFailureLines(ApAgentFleetEntry e)
+        => (e.Detail ?? "").Split('\n').Skip(1);
+
     protected override async Task OnParametersSetAsync()
     {
         if (Active && !_loaded && !_loading)
@@ -520,6 +549,39 @@
         {
             Logger.LogDebug(ex, "AP Agent fleet refresh failed");
         }
+        QueueFastRefresh();
+    }
+
+    private bool _fastRefreshQueued;
+
+    /// <summary>
+    /// Re-polls the fleet on a short cadence while the server has work in flight, so server-driven
+    /// deploys show live progress without waiting for the 30 s timer. One refresh is queued at a
+    /// time and the chain stops on the first poll that finds nothing in flight.
+    /// </summary>
+    private void QueueFastRefresh(bool force = false)
+    {
+        if (_fastRefreshQueued || (!force && !_fleet.Any(e => e.DeployInProgress))) return;
+        _fastRefreshQueued = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3000);
+                await InvokeAsync(async () =>
+                {
+                    _fastRefreshQueued = false;
+                    if (!Active || !_deviceSshConfigured) return;
+                    await RefreshFleetAsync();
+                    StateHasChanged();
+                });
+            }
+            catch
+            {
+                // A disposed circuit ends the chain; the 30 s timer covers anything left.
+                _fastRefreshQueued = false;
+            }
+        });
     }
 
     private void ShowMessage(string text, string cssClass)
@@ -539,9 +601,9 @@
     private static bool IsDeployable(ApAgentFleetEntry e) =>
         e.DeviceOnline && e.State is ApAgentState.Unknown or ApAgentState.NotListening;
 
-    /// <summary>Rows Deploy to All Eligible picks up. Filtered and offline APs are deliberately not eligible.</summary>
+    /// <summary>Rows Deploy to All Eligible picks up. Filtered, offline, and mid-deploy APs are deliberately not eligible.</summary>
     private bool IsEligible(ApAgentFleetEntry e) =>
-        e.Enabled && IsDeployable(e) && !_busyMacs.Contains(e.DeviceMac);
+        e.Enabled && IsDeployable(e) && !_busyMacs.Contains(e.DeviceMac) && !e.DeployInProgress;
 
     private int EligibleCount => _fleet.Count(IsEligible);
     private int RunningCount => _fleet.Count(IsRunning);
@@ -599,7 +661,9 @@
 
     private (string Dot, string Label, string? Note) StatusView(ApAgentFleetEntry e)
     {
-        if (_busyMacs.Contains(e.DeviceMac))
+        // DeployInProgress covers server-driven deploys (the pass after enabling the site,
+        // supervision redeploys), so those show as Deploying without the user pressing anything.
+        if (_busyMacs.Contains(e.DeviceMac) || e.DeployInProgress)
             return ("", "Deploying", _rowProgress.TryGetValue(e.DeviceMac, out var p) ? p : null);
 
         if (e.State != ApAgentState.Unsupported && !e.Enabled)
@@ -609,7 +673,8 @@
         {
             ApAgentState.Healthy => ("online", "Running", null),
             ApAgentState.OutOfDate => ("online", "Running", null),
-            ApAgentState.Unsupported => ("offline", "Unsupported model", e.Detail),
+            ApAgentState.Unsupported => ("offline", "Unsupported hardware", e.Detail),
+            ApAgentState.TransferFailed => ("error", "Transfer failed", null),
             ApAgentState.ApOffline => ("offline", "AP offline", "Deployment waits for the access point to come back."),
             ApAgentState.Wedged => ("error", "Stalled", "Answering, but its probes stopped; it is restarted in place automatically."),
             ApAgentState.Unauthorized => ("error", "Token mismatch", "The AP Agent rejected this server's token; the token is re-pushed automatically."),
@@ -698,6 +763,13 @@
         try
         {
             await ApAgents.SetSiteEnabledAsync(_siteEnabled);
+            // Enabling kicks a server-side deploy pass; force one fast poll so its Deploying rows
+            // appear right away, and the chain keeps refreshing while work is in flight.
+            if (_siteEnabled)
+            {
+                await RefreshFleetAsync();
+                QueueFastRefresh(force: true);
+            }
         }
         catch (Exception ex)
         {
@@ -744,7 +816,9 @@
                     StateHasChanged();
                 }));
             var result = await ApAgents.DeployAsync(mac, progress);
-            if (!result.Success)
+            // An in-flight refusal is benign - the server is already deploying to this AP, and the
+            // refresh below renders that work's own Deploying row instead of an error.
+            if (!result.Success && !result.AlreadyInProgress)
                 ShowMessage($"Deploying to {entry.DeviceName} failed: {result.Error}", "danger");
         }
         catch (Exception ex)
