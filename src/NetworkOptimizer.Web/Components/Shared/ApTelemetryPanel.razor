@@ -28,12 +28,11 @@
     </div>
     <div class="card-body">
         <p class="section-description">
-            The AP Agent is a small service Network Optimizer installs on each UniFi access point over
-            SSH. It reads what the UniFi Console does not expose: per-client retries, TCP stalls, and
-            airtime, plus roam timing and radio health. That sharpens channel recommendations, catches
-            a wedged radio before clients give up on the band, and lets Client Performance provide
-            truly real-time signal and roaming data. Any AP without it falls back to UniFi Console
-            data, so nothing breaks when one is missing.
+            A small service Network Optimizer installs on each access point over SSH to read what the
+            UniFi Console doesn't expose: per-client retries, TCP stalls, airtime, roam timing, and
+            radio health. That sharpens channel recommendations, catches a wedged radio before clients
+            give up on the band, and makes Client Performance truly real-time. Any AP without it falls
+            back to UniFi Console data.
         </p>
 
         @if (!_loaded)
