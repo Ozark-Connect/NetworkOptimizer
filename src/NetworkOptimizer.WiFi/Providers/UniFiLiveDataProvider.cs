@@ -125,12 +125,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
                 snapshot.MeshUplinkIsMlo = isMlo;
                 // Child's perspective flips direction: the parent transmitting is the child
-                // receiving. Signal stays the parent's reading - the only end reported per link.
+                // receiving. The child measures its own STA link, so its signal outranks the
+                // parent's for that link; the other links are only reported by the parent.
                 snapshot.MeshUplinkLinks = parentLinks.Select(l => new MeshLinkInfo
                 {
                     Band = l.Band,
                     Channel = l.Channel,
-                    SignalDbm = l.SignalDbm,
+                    SignalDbm = l.Band.HasValue && l.Band == snapshot.MeshUplinkBand && snapshot.MeshUplinkSignalDbm.HasValue
+                        ? snapshot.MeshUplinkSignalDbm
+                        : l.SignalDbm,
                     TxRateMbps = l.RxRateMbps,
                     RxRateMbps = l.TxRateMbps,
                 }).ToList();

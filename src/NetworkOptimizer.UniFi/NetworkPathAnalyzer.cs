@@ -1591,6 +1591,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         ApplyMloBackhaulDetail(hop, claim);
+        // The child measures its own STA link, so its signal outranks the parent's for
+        // that link; the other links are only reported by the parent.
+        if (hop.MeshMloLinks != null && device.UplinkSignalDbm.HasValue)
+        {
+            var ownLink = hop.MeshMloLinks.FirstOrDefault(l =>
+                string.Equals(l.Band, device.UplinkRadioBand, StringComparison.OrdinalIgnoreCase));
+            if (ownLink != null) ownLink.SignalDbm = device.UplinkSignalDbm;
+        }
         var txKbps = FilterIdleRate(claim.RxRateKbps);
         var rxKbps = FilterIdleRate(claim.TxRateKbps);
         if (txKbps > 0) hop.WirelessTxRateMbps = (int)(txKbps / 1000);

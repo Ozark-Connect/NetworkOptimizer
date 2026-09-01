@@ -9490,6 +9490,10 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
+.mesh-mlo-link + .mesh-mlo-link {
+    margin-top: 0.3rem;
+}
+
 .mesh-mlo-link .band-badge {
     min-width: 54px;
     text-align: center;
