@@ -881,6 +881,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     var rxKbps = FilterIdleRate(targetDevice.UplinkRxRateKbps);
                     deviceHop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
                     deviceHop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
+                    var mloAggregate = ApplySelfReportedMloOverlay(deviceHop, targetDevice, meshParents);
+                    if (mloAggregate.HasValue)
+                    {
+                        deviceHop.IngressSpeedMbps = mloAggregate.Value;
+                        deviceHop.EgressSpeedMbps = mloAggregate.Value;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
@@ -982,6 +988,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         var uplinkRx = FilterIdleRate(device.UplinkRxRateKbps);
                         hop.WirelessTxRateMbps = uplinkTx > 0 ? (int)(uplinkTx / 1000) : null;
                         hop.WirelessRxRateMbps = uplinkRx > 0 ? (int)(uplinkRx / 1000) : null;
+                        var mloAggregate = ApplySelfReportedMloOverlay(hop, device, meshParents);
+                        if (mloAggregate.HasValue)
+                        {
+                            hop.EgressSpeedMbps = mloAggregate.Value;
+                        }
                     }
                     else
                     {
@@ -1538,6 +1549,53 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         hop.EgressSpeedMbps = txKbps > 0 ? (int)(txKbps / 1000) : 0;
         hop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
         hop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
+        ApplyMloBackhaulDetail(hop, claim);
+    }
+
+    /// <summary>
+    /// Attaches the per-link MLO breakdown of a mesh backhaul to a hop, child's perspective
+    /// (the parent transmitting is the child receiving). Rates on the hop itself are the
+    /// caller's concern; this only records the flag and the links for display.
+    /// </summary>
+    private static void ApplyMloBackhaulDetail(NetworkHop hop, UniFiDiscovery.MeshParentClaim claim)
+    {
+        if (!claim.IsMlo || claim.Links.Count == 0) return;
+        hop.IsMloMeshBackhaul = true;
+        hop.MeshMloLinks = claim.Links.Select(l => new MeshBackhaulLink
+        {
+            Band = l.Radio,
+            Channel = l.Channel,
+            SignalDbm = l.Signal,
+            TxRateMbps = l.RxRateKbps > 0 ? (int)(l.RxRateKbps / 1000) : null,
+            RxRateMbps = l.TxRateKbps > 0 ? (int)(l.TxRateKbps / 1000) : null,
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Overlays the aggregate MLO capacity on a mesh hop the child described itself. The child's
+    /// uplink block names only its STA link, so its rates under-report an MLO backhaul; when the
+    /// parent's claim agrees on who the parent is and is MLO, the parent's per-link sum replaces
+    /// them. Returns the aggregate child-toward-parent Mbps (the hop's egress), or null when the
+    /// overlay does not apply.
+    /// </summary>
+    private static int? ApplySelfReportedMloOverlay(
+        NetworkHop hop,
+        DiscoveredDevice device,
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents)
+    {
+        if (!meshParents.TryGetValue(device.Mac, out var claim)
+            || claim.Contradicts(device.UplinkMac)
+            || !claim.IsMlo || claim.Links.Count == 0)
+        {
+            return null;
+        }
+
+        ApplyMloBackhaulDetail(hop, claim);
+        var txKbps = FilterIdleRate(claim.RxRateKbps);
+        var rxKbps = FilterIdleRate(claim.TxRateKbps);
+        if (txKbps > 0) hop.WirelessTxRateMbps = (int)(txKbps / 1000);
+        if (rxKbps > 0) hop.WirelessRxRateMbps = (int)(rxKbps / 1000);
+        return txKbps > 0 ? (int)(txKbps / 1000) : null;
     }
 
     /// <summary>

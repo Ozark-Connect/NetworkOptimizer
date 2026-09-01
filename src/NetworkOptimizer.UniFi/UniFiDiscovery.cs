@@ -179,18 +179,45 @@ public class UniFiDiscovery
         foreach (var parent in all)
         {
             if (string.IsNullOrEmpty(parent.Mac)) continue;
-            foreach (var link in parent.DownlinkTable ?? [])
+            // serialno (mld_mac on MLO links) is the child's base MAC; mac is its vwire BSSID,
+            // which matches nothing. An MLO backhaul is one entry PER LINK sharing that base MAC,
+            // so group first: the claim's rates are the sum over links (STR runs them
+            // concurrently), and each link is kept for per-band display.
+            foreach (var group in (parent.DownlinkTable ?? [])
+                .Select(l => (Key: (l.SerialNo ?? l.MldMac)?.ToLowerInvariant(), Link: l))
+                .Where(x => !string.IsNullOrEmpty(x.Key))
+                .GroupBy(x => x.Key!))
             {
-                // serialno is the child's base MAC; mac is its vwire BSSID, which matches nothing.
-                if (string.IsNullOrEmpty(link.SerialNo)) continue;
-                var childMac = link.SerialNo.ToLowerInvariant();
-                if (known.Contains(childMac))
-                    parentByChild[childMac] = new MeshParentClaim(parent.Mac.ToLowerInvariant(), link.TxRate, link.RxRate);
+                if (!known.Contains(group.Key)) continue;
+                // Aggregate ONLY is_mlo-flagged entries: a future firmware that also keeps a
+                // legacy combined row for the same child must not be double-counted, and a
+                // duplicate non-MLO listing keeps the pre-grouping last-entry-wins behavior
+                // rather than summing capacity that does not exist.
+                var members = group.Select(x => x.Link).ToList();
+                var mloMembers = members.Where(l => l.IsMlo == true).ToList();
+                members = mloMembers.Count > 0 ? mloMembers : [members[^1]];
+                var links = members.Select(l => new MeshLinkClaim(
+                    l.Radio, l.Channel, l.Signal, l.TxRate, l.RxRate)).ToList();
+                parentByChild[group.Key] = new MeshParentClaim(
+                    parent.Mac.ToLowerInvariant(),
+                    links.Sum(l => l.TxRateKbps),
+                    links.Sum(l => l.RxRateKbps))
+                {
+                    IsMlo = mloMembers.Count > 0,
+                    Links = links,
+                };
             }
         }
 
         return parentByChild;
     }
+
+    /// <summary>
+    /// One link of a mesh backhaul as the parent reports it in its downlink_table. Rates follow
+    /// <see cref="MeshParentClaim"/>'s convention: Tx is parent to child (the child's downstream).
+    /// Signal is the PARENT's reading of the link; the child's end is not reported anywhere.
+    /// </summary>
+    public readonly record struct MeshLinkClaim(string? Radio, int? Channel, int? Signal, long TxRateKbps, long RxRateKbps);
 
     /// <summary>
     /// A parent's account of one mesh child. Rates are the PARENT's perspective and are therefore
@@ -199,10 +226,18 @@ public class UniFiDiscovery
     /// round the child's fields are read reports the link backwards.
     /// </summary>
     /// <param name="ParentMac">The parent's MAC, lower case.</param>
-    /// <param name="TxRateKbps">Parent to child, i.e. downstream.</param>
-    /// <param name="RxRateKbps">Child to parent, i.e. upstream.</param>
+    /// <param name="TxRateKbps">Parent to child, i.e. downstream. Summed over links on MLO.</param>
+    /// <param name="RxRateKbps">Child to parent, i.e. upstream. Summed over links on MLO.</param>
     public readonly record struct MeshParentClaim(string ParentMac, long TxRateKbps, long RxRateKbps)
     {
+        /// <summary>Whether the backhaul is an MLO (Wi-Fi 7 multi-link) pairing.</summary>
+        public bool IsMlo { get; init; }
+
+        /// <summary>Per-link detail, one entry per radio link. A classic backhaul has one.
+        /// Never null, including on a default-constructed claim.</summary>
+        public IReadOnlyList<MeshLinkClaim> Links { get => _links ?? []; init => _links = value; }
+        private readonly IReadOnlyList<MeshLinkClaim>? _links;
+
         /// <summary>
         /// True when the child's own uplink field does NOT name this parent - empty, or a
         /// different device. Only then may a consumer absorb the claim; an agreeing child's own

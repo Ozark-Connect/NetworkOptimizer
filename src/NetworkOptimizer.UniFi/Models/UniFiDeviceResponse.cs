@@ -1600,6 +1600,17 @@ public class DownlinkTableEntry
     [JsonPropertyName("serialno")]
     public string? SerialNo { get; set; }
 
+    /// <summary>
+    /// MLD (multi-link device) MAC of the mesh child, i.e. its base MAC. On an MLO mesh
+    /// backhaul the parent lists one entry PER LINK, all sharing this value.
+    /// </summary>
+    [JsonPropertyName("mld_mac")]
+    public string? MldMac { get; set; }
+
+    /// <summary>Whether this entry is one link of an MLO (Wi-Fi 7 multi-link) mesh backhaul</summary>
+    [JsonPropertyName("is_mlo")]
+    public bool? IsMlo { get; set; }
+
     /// <summary>Signal strength as seen by the parent AP (dBm)</summary>
     [JsonPropertyName("signal")]
     [JsonConverter(typeof(FlexibleIntConverter))]

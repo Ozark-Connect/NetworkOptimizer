@@ -1187,9 +1187,12 @@
 
         // For mesh/bridge wireless - use same styled format
         var meshHop = hop.IsWirelessEgress ? hop : nextHop;
+        var isMloMesh = meshHop.IsMloMeshBackhaul && meshHop.MeshMloLinks is { Count: > 0 };
         var lines2 = new List<string>();
 
-        lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
+        lines2.Add(isMloMesh
+            ? "<div class='wifi-tooltip-header'>Wireless Mesh (MLO)</div>"
+            : "<div class='wifi-tooltip-header'>Wireless Mesh</div>");
 
         // RX/TX speeds from parent AP's perspective (RX = FromDevice, TX = ToDevice)
         // Mesh hop stores child's perspective, so flip: child TX → parent RX, child RX → parent TX
@@ -1216,24 +1219,59 @@
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
-        // Link info with band badge
-        if (!string.IsNullOrEmpty(band) || meshHop.WirelessChannel.HasValue)
+        if (isMloMesh)
         {
-            var linkParts = new List<string>();
-            if (!string.IsNullOrEmpty(band))
-                linkParts.Add($"<span class='wifi-band-badge wifi-band-{band}'>{FormatRadioBand(band)}</span>");
-            if (meshHop.WirelessChannel.HasValue)
-                linkParts.Add($"Ch {meshHop.WirelessChannel.Value}");
-            lines2.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+            // The aggregate row above is the pair's capacity; break out each link. The single
+            // band/channel/signal fields describe only the STA link, so per-link rows replace them.
+            foreach (var link in meshHop.MeshMloLinks!.OrderByDescending(l => BandSortOrder(l.Band)))
+            {
+                var linkParts = new List<string>();
+                if (!string.IsNullOrEmpty(link.Band))
+                    linkParts.Add($"<span class='wifi-band-badge wifi-band-{link.Band}'>{FormatRadioBand(link.Band)}</span>");
+                if (link.Channel.HasValue)
+                    linkParts.Add($"Ch {link.Channel.Value}");
+                if (link.SignalDbm.HasValue)
+                    linkParts.Add($"{link.SignalDbm.Value} dBm");
+                // Same frame mapping as the aggregate row: child TX carries data away from the
+                // device, child RX carries data toward it.
+                if (DeviceFrame)
+                {
+                    if (link.RxRateMbps.HasValue)
+                        linkParts.Add($"<span class='wifi-speed-rx'>TX {link.RxRateMbps.Value}</span>");
+                    if (link.TxRateMbps.HasValue)
+                        linkParts.Add($"<span class='wifi-speed-tx'>RX {link.TxRateMbps.Value}</span>");
+                }
+                else
+                {
+                    if (link.TxRateMbps.HasValue)
+                        linkParts.Add($"<span class='wifi-speed-rx'>RX {link.TxRateMbps.Value}</span>");
+                    if (link.RxRateMbps.HasValue)
+                        linkParts.Add($"<span class='wifi-speed-tx'>TX {link.RxRateMbps.Value}</span>");
+                }
+                lines2.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+            }
         }
-
-        // Signal line
-        if (meshHop.WirelessSignalDbm.HasValue)
+        else
         {
-            var sigParts = new List<string> { $"{meshHop.WirelessSignalDbm.Value} dBm" };
-            if (meshHop.WirelessNoiseDbm.HasValue)
-                sigParts.Add($"SNR {meshHop.WirelessSignalDbm.Value - meshHop.WirelessNoiseDbm.Value} dB");
-            lines2.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+            // Link info with band badge
+            if (!string.IsNullOrEmpty(band) || meshHop.WirelessChannel.HasValue)
+            {
+                var linkParts = new List<string>();
+                if (!string.IsNullOrEmpty(band))
+                    linkParts.Add($"<span class='wifi-band-badge wifi-band-{band}'>{FormatRadioBand(band)}</span>");
+                if (meshHop.WirelessChannel.HasValue)
+                    linkParts.Add($"Ch {meshHop.WirelessChannel.Value}");
+                lines2.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+            }
+
+            // Signal line
+            if (meshHop.WirelessSignalDbm.HasValue)
+            {
+                var sigParts = new List<string> { $"{meshHop.WirelessSignalDbm.Value} dBm" };
+                if (meshHop.WirelessNoiseDbm.HasValue)
+                    sigParts.Add($"SNR {meshHop.WirelessSignalDbm.Value - meshHop.WirelessNoiseDbm.Value} dB");
+                lines2.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+            }
         }
 
         var meshTooltip = lines2.Count > 1 ? string.Join("", lines2) : "Wireless mesh";
@@ -1337,6 +1375,15 @@
     );
 
     private string FormatRadioBand(string? radio) => RadioFormatHelper.FormatBand(radio);
+
+    /// <summary>Sorts MLO backhaul links highest band first (6 GHz, 5 GHz, 2.4 GHz).</summary>
+    private static int BandSortOrder(string? band) => band switch
+    {
+        "6e" => 3,
+        "na" => 2,
+        "ng" => 1,
+        _ => 0
+    };
 
     private string FormatRadioProto(string? proto, string? radio = null) =>
         RadioFormatHelper.FormatProtocolSuffix(proto, radio);

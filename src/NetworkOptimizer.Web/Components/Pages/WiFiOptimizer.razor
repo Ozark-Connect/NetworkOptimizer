@@ -643,7 +643,33 @@
                                                     }
                                                 </button>
                                             </SiteOperatorOnly>
-                                            @if (ap.MeshUplinkSignalDbm.HasValue)
+                                            @if (ap.MeshUplinkIsMlo && ap.MeshUplinkLinks.Count > 0)
+                                            {
+                                                @* UniFi reports the MLO links only from the parent's end; these rows are
+                                                   built from the parent's downlink_table with direction flipped to the
+                                                   child's perspective. *@
+                                                @foreach (var link in ap.MeshUplinkLinks.OrderByDescending(l => l.Band))
+                                                {
+                                                    <div class="mesh-signal mesh-mlo-link">
+                                                        <span class="band-badge @GetBandCssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
+                                                        @if (link.SignalDbm.HasValue)
+                                                        {
+                                                            <span class="mesh-signal-value mesh-mlo-signal"><span class="@SignalClassification.GetSignalClass(link.SignalDbm.Value, link.Band ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(link.SignalDbm.Value, link.Band ?? RadioBand.Band5GHz)">@link.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                        }
+                                                        <span class="mesh-rates">
+                                                            @if (link.TxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-tx">TX @link.TxRateMbps</span>
+                                                            }
+                                                            @if (link.RxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @link.RxRateMbps</span>
+                                                            }
+                                                        </span>
+                                                    </div>
+                                                }
+                                            }
+                                            else if (ap.MeshUplinkSignalDbm.HasValue)
                                             {
                                                 <div class="mesh-signal">
                                                     <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
@@ -662,7 +688,7 @@
                                                     }
                                                 </div>
                                             }
-                                            <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                            <span class="ap-stat-label"><strong>Mesh Uplink@(ap.MeshUplinkIsMlo ? " (MLO)" : "")</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
                                         </div>
                                     }
                                     @if (ap.MeshChildren.Count > 0)
@@ -670,26 +696,52 @@
                                         @foreach (var child in ap.MeshChildren)
                                         {
                                             <div class="ap-mesh-info">
-                                                <div class="mesh-signal">
-                                                    @if (child.SignalDbm.HasValue)
+                                                @if (child.IsMlo && child.Links.Count > 0)
+                                                {
+                                                    @foreach (var link in child.Links.OrderByDescending(l => l.Band))
                                                     {
-                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
-                                                    }
-                                                    @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
-                                                    {
-                                                        <span class="mesh-rates">
-                                                            @if (child.TxRateMbps.HasValue)
+                                                        <div class="mesh-signal mesh-mlo-link">
+                                                            <span class="band-badge @GetBandCssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
+                                                            @if (link.SignalDbm.HasValue)
                                                             {
-                                                                <span class="mesh-rate wifi-speed-tx">TX @child.TxRateMbps</span>
+                                                                <span class="mesh-signal-value mesh-mlo-signal"><span class="@SignalClassification.GetSignalClass(link.SignalDbm.Value, link.Band ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(link.SignalDbm.Value, link.Band ?? RadioBand.Band5GHz)">@link.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                             }
-                                                            @if (child.RxRateMbps.HasValue)
-                                                            {
-                                                                <span class="mesh-rate wifi-speed-rx">RX @child.RxRateMbps</span>
-                                                            }
-                                                        </span>
+                                                            <span class="mesh-rates">
+                                                                @if (link.TxRateMbps.HasValue)
+                                                                {
+                                                                    <span class="mesh-rate wifi-speed-tx">TX @link.TxRateMbps</span>
+                                                                }
+                                                                @if (link.RxRateMbps.HasValue)
+                                                                {
+                                                                    <span class="mesh-rate wifi-speed-rx">RX @link.RxRateMbps</span>
+                                                                }
+                                                            </span>
+                                                        </div>
                                                     }
-                                                </div>
-                                                <span class="ap-stat-label"><strong>Mesh Child:</strong> @child.Name</span>
+                                                }
+                                                else
+                                                {
+                                                    <div class="mesh-signal">
+                                                        @if (child.SignalDbm.HasValue)
+                                                        {
+                                                            <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)" style="color: @SignalClassification.GetSignalColor(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                        }
+                                                        @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
+                                                        {
+                                                            <span class="mesh-rates">
+                                                                @if (child.TxRateMbps.HasValue)
+                                                                {
+                                                                    <span class="mesh-rate wifi-speed-tx">TX @child.TxRateMbps</span>
+                                                                }
+                                                                @if (child.RxRateMbps.HasValue)
+                                                                {
+                                                                    <span class="mesh-rate wifi-speed-rx">RX @child.RxRateMbps</span>
+                                                                }
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                }
+                                                <span class="ap-stat-label"><strong>Mesh Child@(child.IsMlo ? " (MLO)" : ""):</strong> @child.Name</span>
                                             </div>
                                         }
                                     }

@@ -9485,6 +9485,20 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+/* MLO mesh backhaul: one row per link, so the big single-link signal is scaled down */
+.mesh-mlo-link {
+    justify-content: flex-end;
+}
+
+.mesh-mlo-link .band-badge {
+    min-width: 54px;
+    text-align: center;
+}
+
+.mesh-mlo-signal {
+    font-size: 0.875rem;
+}
+
 .mesh-rate {
     white-space: nowrap;
 }

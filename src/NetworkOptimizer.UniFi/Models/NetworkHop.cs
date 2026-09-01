@@ -98,6 +98,19 @@ public class NetworkHop
     /// <summary>RX rate in Mbps for wireless link (from uplink to device)</summary>
     public int? WirelessRxRateMbps { get; set; }
 
+    /// <summary>
+    /// Whether the wireless mesh backhaul at this hop is an MLO (Wi-Fi 7 multi-link) pairing.
+    /// The Wireless*RateMbps fields then carry the AGGREGATE across links (STR runs them
+    /// concurrently), and <see cref="MeshMloLinks"/> carries the per-link breakdown.
+    /// </summary>
+    public bool IsMloMeshBackhaul { get; set; }
+
+    /// <summary>
+    /// Per-link detail of an MLO mesh backhaul, child AP's perspective (TX toward the parent).
+    /// Read from the parent's downlink_table - the only end UniFi reports per link.
+    /// </summary>
+    public List<MeshBackhaulLink>? MeshMloLinks { get; set; }
+
     /// <summary>Whether the ingress port is part of a Link Aggregation Group</summary>
     public bool IsLagIngress { get; set; }
 
@@ -118,6 +131,26 @@ public class NetworkHop
 
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// One radio link of an MLO mesh backhaul on a <see cref="NetworkHop"/>, child AP's perspective
+/// (TX toward the parent). Signal is the parent's reading - the only end reported per link.
+/// </summary>
+public class MeshBackhaulLink
+{
+    /// <summary>Radio band (ng=2.4GHz, na=5GHz, 6e=6GHz), matching Wireless*Band conventions</summary>
+    public string? Band { get; set; }
+
+    public int? Channel { get; set; }
+
+    public int? SignalDbm { get; set; }
+
+    /// <summary>Link rate in Mbps, child toward parent</summary>
+    public int? TxRateMbps { get; set; }
+
+    /// <summary>Link rate in Mbps, parent toward child</summary>
+    public int? RxRateMbps { get; set; }
 }
 
 /// <summary>
