@@ -3557,9 +3557,10 @@
                     // A page mounted while the console was down - an agent site's normal state
                     // right after a restart - loaded no WAN options, and the scope bar, the
                     // tiles' ?wan= links, and Bandwidth Hogs' expected-speed capacity all wait
-                    // on them. Reload only when they are missing: a reconnect blip must not
-                    // reset a chosen WAN scope.
-                    if (LiveWan.Options.Count == 0)
+                    // on them. Reload only while they are missing or unsettled (context fallback
+                    // can fill the secondaries while the console-only primary is still absent):
+                    // a reconnect blip on a settled scope must not reset a chosen WAN.
+                    if (LiveWan.Options.Count == 0 || !LiveWan.Loaded)
                         await LoadTargetsAsync();
                     await RunDetection();
                     StateHasChanged();

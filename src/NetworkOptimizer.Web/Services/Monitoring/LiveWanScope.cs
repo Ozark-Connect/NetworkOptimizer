@@ -108,6 +108,13 @@ public sealed class LiveWanScope
     /// </summary>
     public bool HasChoice => Options.Count > 1;
 
+    /// <summary>
+    /// True once a load saw the console name a WAN and the option list is settled. False means
+    /// the list may be running on context fallback alone (missing the console-only primary), and
+    /// the page's periodic refresh should call <see cref="LoadAsync"/> again.
+    /// </summary>
+    public bool Loaded => _loaded;
+
     private string StorageKey => _siteContext.ScopeStorageKey("liveWanScope");
 
     /// <summary>
