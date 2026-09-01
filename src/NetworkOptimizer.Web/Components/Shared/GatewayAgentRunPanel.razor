@@ -15,7 +15,7 @@
             @if (_run.Status == GatewayAgentInstallStatus.Running)
             {
                 <span class="spinner spinner-sm"></span>
-                <span>Running on the gateway. The agent download can look idle for a few minutes.</span>
+                <span>Running on the gateway. The download step can look idle for a bit.</span>
                 <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelAsync">Cancel</button>
             }
             else if (_run.Status == GatewayAgentInstallStatus.Succeeded)
@@ -27,13 +27,13 @@
             }
             else if (_run.Status == GatewayAgentInstallStatus.Canceled)
             {
-                <span>Canceled. Running it again is safe - the installer is idempotent and keeps the agent's enrollment.</span>
+                <span>Canceled. Safe to run again - the installer picks up cleanly and keeps the agent's enrollment.</span>
             }
             else
             {
                 <span class="gw-run-fail">&#x2715;</span>
                 <span>@(_run.ExitCode is int code
-                    ? $"The command exited with code {code} - the output below has the details."
+                    ? $"The {(_run.IsUpgrade ? "upgrade" : "install")} failed (exit code {code}). See the output below."
                     : _run.Error ?? "The run failed.")</span>
             }
         </div>
@@ -41,7 +41,7 @@
     </div>
 }
 
-@if (_available && _run?.Status != GatewayAgentInstallStatus.Running)
+@if (_available && ShowRunButton)
 {
     <div class="gw-run-action">
         <button type="button" class="btn btn-primary btn-sm" @onclick="Start">
@@ -112,7 +112,16 @@
     public string? EnrollmentToken { get; set; }
 
     private bool _available;
+    private bool _startedHere;
     private GatewayAgentInstallRun? _run;
+
+    // A success that just happened here needs no second click, so the button stays gone until
+    // the panel is next opened; failure and cancel keep the retry path, and a finished run
+    // found on open (started elsewhere or earlier) still offers one.
+    private bool ShowRunButton =>
+        _run == null
+        || (_run.Status != GatewayAgentInstallStatus.Running
+            && !(_run.Status == GatewayAgentInstallStatus.Succeeded && _startedHere));
     private GatewayAgentInstallRun? _subscribed;
     private string? _message;
     private int _renderPending;
@@ -144,6 +153,7 @@
     private void OnRunStarted(GatewayAgentInstallRun run)
     {
         _run = run;
+        _startedHere = true;
         Subscribe(run);
         _ = InvokeAsync(StateHasChanged);
     }
