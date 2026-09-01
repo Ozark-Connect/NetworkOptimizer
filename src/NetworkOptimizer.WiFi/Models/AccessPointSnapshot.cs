@@ -118,6 +118,14 @@ public class AccessPointSnapshot
         MeshUplinkBandChannels.Any(x => x.Band == band && x.Channel == channel);
 
     /// <summary>
+    /// Whether a mesh backhaul this AP participates in - as child or as parent - occupies the
+    /// given band. The parent side reads its children's links; the child side its own uplink.
+    /// </summary>
+    public bool MeshBackhaulUsesBand(RadioBand band) =>
+        MeshUplinkUsesBand(band) ||
+        MeshChildren.Any(c => c.UplinkBand == band || c.Links.Any(l => l.Band == band));
+
+    /// <summary>
     /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). The child's
     /// own uplink block describes at most one link, so on MLO these are read from the parent's
     /// downlink_table; empty when the parent reports nothing.
