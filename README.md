@@ -19,7 +19,9 @@ Genuinely, thank you so much to everybody for taking the time to use Network Opt
 
 ## Current Preview Release
 
-For those brave among us - looking at you eager EA testers - I've got a Preview release channel with a bunch of new features baking right now. It's completely stable, don't worry, and brings some really cool AP Telemetry features and a lot of enhancements and fixes. Check it out here: [v2.8.0-preview5](https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v2.8.0-preview5).
+For those brave among us - looking at you eager EA testers - I've got a Preview release channel with a bunch of new features baking right now. It's completely stable, don't worry, and brings some really cool AP Telemetry features and a lot of enhancements and fixes. Check it out here: [v2.8.0-preview releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases).
+
+This will probably hit the GA release channel at the end of the week as v2.8.0, but the more people I can get to test it, the quicker I can ship :)
 
 ## Coming Soon: Hosted Network Optimizer
 
