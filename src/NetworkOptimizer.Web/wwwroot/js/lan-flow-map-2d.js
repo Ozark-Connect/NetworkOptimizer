@@ -1911,7 +1911,12 @@ class LanFlowMap2D {
         // seconds around the client Client Performance sent the viewer here from.
         if(this._focus){
             const now=performance.now();
-            const n=this._treeMap.get(this._focus.id);
+            let n=this._treeMap.get(this._focus.id);
+            // A VirtualHub member is never laid out or drawn (the hub subsumes its children),
+            // so its TN sits at the constructor's (0,0) and the ring would land in empty
+            // space. The hub is the member's on-screen representative.
+            const hub=n&&n.d.parentId?this._treeMap.get(n.d.parentId):null;
+            if(hub&&hub.d.kind===NK.VirtualHub)n=hub;
             // The clock starts when the node first exists, not at mount: the snapshot and the
             // layout arrive well after the page does. A node that never shows gives up.
             if(this._focus.until==null&&n&&n.x!=null&&this._isNodeVisible(n))this._focus.until=now+FOCUS_MS;

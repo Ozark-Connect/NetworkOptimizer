@@ -1715,6 +1715,7 @@ export class LanFlowMap {
             this.controls.target.set(cx, cy, cz);
         }
         this._flyInStartCam = this.camera.position.clone();
+        this._flyInStartLookAt = new THREE.Vector3(0, 0, 0);
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
         // entry point (also required for WebXR). We accumulate elapsed time
@@ -1755,7 +1756,7 @@ export class LanFlowMap {
                 const eased = 1 - Math.pow(1 - t, 3);
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
                 if (this._flyInTargetLookAt) {
-                    this.controls.target.lerpVectors(new THREE.Vector3(0, 0, 0), this._flyInTargetLookAt, eased);
+                    this.controls.target.lerpVectors(this._flyInStartLookAt ?? new THREE.Vector3(0, 0, 0), this._flyInTargetLookAt, eased);
                 }
                 this.camera.lookAt(this.controls.target);
             } else if (this._repositionMode && this._repositionGroup) {
@@ -1910,15 +1911,44 @@ export class LanFlowMap {
         }
     }
 
+    // Glide the camera to a node along its current viewing direction, reusing the mount
+    // fly-in's lerp (start/target/until). The orbit target ends on the node, so the viewer
+    // is left orbiting what they came to see.
+    _flyToGroup(group) {
+        const p = group.position;
+        const dir = this.camera.position.clone().sub(p);
+        if (dir.lengthSq() < 1) dir.set(1, 0.7, 1);
+        dir.normalize();
+        const dist = 30 * (this._deviceScale || 1);
+        this._flyInStartCam = this.camera.position.clone();
+        this._flyInStartLookAt = this.controls.target.clone();
+        this._flyInTargetCam = p.clone().add(dir.multiplyScalar(dist)).add(new THREE.Vector3(0, dist * 0.25, 0));
+        this._flyInTargetLookAt = p.clone();
+        this._flyInUntil = performance.now() + 1300;
+    }
+
     // Arrival focus: the focused client's core and halo take the download blue and breathe
     // bright for FOCUS_MS, then go back to exactly what they were. The bloom pass turns the
     // raised emissive into the glow.
     _pulseFocus(nowMs) {
         if (!this._focusClientId) return;
-        const group = this._nodeMeshes.get(this._focusClientId);
+        let group = this._nodeMeshes.get(this._focusClientId);
+        // A VirtualHub member can be missing or hidden while the hub stands in for it on
+        // screen; glow the hub, or the arrival focus breathes on nothing.
+        if (!group || !group.visible) {
+            const node = (this._snapshot?.nodes ?? []).find(n => n.id === this._focusClientId);
+            const parent = node?.parentId ? this._nodeMeshes.get(node.parentId) : null;
+            if (parent?.userData?.node?.kind === NODE_KIND.VirtualHub) group = parent;
+        }
         const { core, halo, baseEmissive } = group?.userData ?? {};
         if (!this._focusUntil) {
-            if (core) this._focusUntil = nowMs + FOCUS_MS;
+            if (core) {
+                this._focusUntil = nowMs + FOCUS_MS;
+                // Fly the camera to the focused node, riding the mount fly-in's own animation
+                // slot - re-aiming it also settles "the initial zoom-in wins": whichever fly
+                // starts later owns the remaining 1.3s.
+                this._flyToGroup(group);
+            }
             else if (nowMs >= this._focusGiveUp) this._focusClientId = null;
             if (!this._focusUntil) return;
         }

@@ -52,7 +52,10 @@ INSTALL_DIR="/data/netopt-agent"
 SERVICE_NAME="netopt-agent"
 INSECURE=false
 UNINSTALL=false
-RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
+# PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: fetch the newest v2.8.0-preview*
+# binaries; releases/latest would hand back the pre-conntrack stable agent.
+PREVIEW_TAG="$(curl -fsSL 'https://api.github.com/repos/Ozark-Connect/NetworkOptimizer/releases?per_page=20' 2>/dev/null | sed -n 's/.*"tag_name": *"\(v2\.8\.0-preview[0-9]*\)".*/\1/p' | head -n1)" || PREVIEW_TAG=""
+RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${PREVIEW_TAG:-v2.8.0-preview4}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -184,6 +187,16 @@ step "Configuring the agent"
 # wipes the persisted key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
+    # Upgrades keep the enrolled config by design, so the on-gateway key has to be ADDED to
+    # an existing agent.json rather than assumed present (#1108) - without this, every
+    # gateway agent installed before the flag existed would stay on the server's
+    # IP-correlation fallback forever. This installer only ever runs on a gateway, so the
+    # answer is unconditionally true.
+    if ! grep -q '"onGateway"' "$CONFIG"; then
+        sed -i '0,/{/s/{/{\n  "onGateway": true,/' "$CONFIG"
+        grep -q '"onGateway"' "$CONFIG" || warn "could not add onGateway to ${CONFIG} - add \"onGateway\": true by hand"
+        ok "Marked the install on-gateway in agent.json"
+    fi
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install."
     {
@@ -191,6 +204,7 @@ else
         echo "  \"serverUrl\": \"${SERVER%/}\","
         echo "  \"tunnelUrl\": \"${SERVER%/}\","
         echo "  \"enrollmentToken\": \"${TOKEN}\","
+        echo "  \"onGateway\": true,"
         printf '  "ignoreSslErrors": %s\n' "$INSECURE"
         echo "}"
     } > "$CONFIG"
@@ -234,5 +248,5 @@ step "Done"
 ok "Agent installed and running (monitoring-only)"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
 note "Logs:   journalctl -u ${SERVICE_NAME} -f"
-note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh) --uninstall"
+note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh) --uninstall"
 printf '\n'

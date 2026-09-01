@@ -2922,6 +2922,9 @@
             if (!confirmed) return;
         }
         var enteringPerformance = tab == "performance" && _activeTab != "performance";
+        // Leaving Live View ends a link's claim on the WAN tiles: coming back re-reads the
+        // stored selection, matching the Network Performance filter's leave-and-return behavior.
+        if (_activeTab == "live" && tab != "live") LiveWan.ForgetVisitClaim();
         _activeTab = tab;
         ResetThresholdSavedFlags();
         if (enteringPerformance) await AdoptSharedWanFocusAsync();
@@ -3551,6 +3554,13 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    // A page mounted while the console was down - an agent site's normal state
+                    // right after a restart - loaded no WAN options, and the scope bar, the
+                    // tiles' ?wan= links, and Bandwidth Hogs' expected-speed capacity all wait
+                    // on them. Reload only when they are missing: a reconnect blip must not
+                    // reset a chosen WAN scope.
+                    if (LiveWan.Options.Count == 0)
+                        await LoadTargetsAsync();
                     await RunDetection();
                     StateHasChanged();
                 });
@@ -4979,7 +4989,8 @@
         var wanRates = GetWanRates();
         <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
                            WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
-                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()" />
+                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()"
+                           MultiWan="_multiWanUiVisible" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>

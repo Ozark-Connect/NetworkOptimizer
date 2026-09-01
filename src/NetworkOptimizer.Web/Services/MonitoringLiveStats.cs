@@ -750,6 +750,75 @@ public class MonitoringLiveStats
         return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
     }
 
+    // ---- Gateway conntrack: measured per-client WAN rates ----
+    // THE per-client WAN cache everything else has been approximating: the on-gateway agent's
+    // conntrack window deltas, recorded as rates by the tunnel sink. Source of truth from the
+    // first batch - no arming period, no baseline dependency.
+
+    /// <summary>A client's conntrack-measured WAN rate, computed from a window's byte deltas.</summary>
+    public readonly record struct ClientWanRate(double DownBps, double UpBps, DateTime At);
+
+    /// <summary>Floor for <see cref="ConntrackFreshness"/>; the live value scales with the
+    /// agent's actual cadence so a stretched sampler shows honest (lumpier) measured data
+    /// instead of the coverage flapping to the estimated split between its batches.</summary>
+    private static readonly TimeSpan ConntrackFreshnessFloor = TimeSpan.FromSeconds(20);
+
+    private volatile int _lastConntrackWindowSeconds;
+
+    /// <summary>
+    /// How old a conntrack rate may be and still cover a row: three of the agent's own reported
+    /// windows, floored at 20s. Past it the row falls back to the estimated split rather than
+    /// showing a stale measurement as current.
+    /// </summary>
+    public TimeSpan ConntrackFreshness
+    {
+        get
+        {
+            var window = _lastConntrackWindowSeconds;
+            return window > 0 && TimeSpan.FromSeconds(window * 3) > ConntrackFreshnessFloor
+                ? TimeSpan.FromSeconds(window * 3)
+                : ConntrackFreshnessFloor;
+        }
+    }
+
+    /// <summary>The synthetic identity for WAN bytes conntrack saw but could not attribute
+    /// (endpoints with no neighbor entry - VPN road warriors, rotated IPv6 privacy addresses).</summary>
+    public const string ConntrackUnattributed = "unattributed";
+
+    private readonly ConcurrentDictionary<string, ClientWanRate> _clientWanRates = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _lastConntrackBatchAt = DateTime.MinValue;
+
+    /// <summary>Records a client's measured WAN rate from a conntrack window (all WANs summed).</summary>
+    public void RecordClientWanRate(string clientMac, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return;
+        _clientWanRates[Normalize(clientMac)] = new ClientWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        _lastConntrackBatchAt = at;
+    }
+
+    /// <summary>Stamps a conntrack batch (an empty one included: an idle WAN is still coverage),
+    /// remembering the window it covered so the freshness gate tracks the agent's real cadence.</summary>
+    public void NoteConntrackBatch(DateTime at, int windowSeconds = 0)
+    {
+        _lastConntrackBatchAt = at;
+        if (windowSeconds > 0) _lastConntrackWindowSeconds = windowSeconds;
+    }
+
+    /// <summary>A client's measured WAN rate, or null when none newer than <paramref name="maxAge"/>.
+    /// A covered site's idle client has no entry (or a stale one): coverage says its WAN is zero,
+    /// which is why callers pair this with <see cref="HasConntrackCoverage"/>.</summary>
+    public ClientWanRate? GetClientWanRate(string clientMac, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _clientWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
+    }
+
+    /// <summary>Whether the gateway agent's conntrack feed is currently flowing for this site.</summary>
+    public bool HasConntrackCoverage() => DateTime.UtcNow - _lastConntrackBatchAt <= ConntrackFreshness;
+
+    /// <summary>When the conntrack feed last reported, or null if it never has.</summary>
+    public DateTime? LastConntrackBatchAt => _lastConntrackBatchAt == DateTime.MinValue ? null : _lastConntrackBatchAt;
+
     // Recent measured rates per Bandwidth Hogs row, appended where the sources land (Wi-Fi client
     // throughput, SNMP/port-table port rates, the wired-client fallback) so the baselines are
     // always warm - no page needs to be open, and no new polling: the data flows anyway.
@@ -880,6 +949,11 @@ public class MonitoringLiveStats
     public void Prune(TimeSpan maxAge)
     {
         var cutoff = DateTime.UtcNow - maxAge;
+        // Conntrack rates are age-gated on read (ConntrackFreshness), so pruning is purely a
+        // memory tidy for clients that left the network.
+        foreach (var kvp in _clientWanRates)
+            if (kvp.Value.At < cutoff)
+                _clientWanRates.TryRemove(kvp.Key, out _);
         // SFP polls on the slow tier (~5min). If the SFP cutoff matches the
         // poll interval, every Prune tick between polls races the SFP entry
         // off the cache and the UI flashes blank ("-") for a few seconds

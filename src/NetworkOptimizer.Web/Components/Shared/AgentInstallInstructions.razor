@@ -116,7 +116,8 @@
     private string NativeOneLiner()
     {
         var sb = new StringBuilder();
-        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
+        // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: release/2.8 script fetches preview binaries.
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)
@@ -129,7 +130,8 @@
     private string GatewayOneLiner()
     {
         var sb = new StringBuilder();
-        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \\\n");
+        // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE.
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh | bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
         sb.Append($"  --token \"{Token}\"");
         return sb.ToString();

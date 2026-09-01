@@ -82,6 +82,13 @@ public class ClientUsageRollupService : BackgroundService
     private DateTime _next;   // earliest hour not yet rolled going forward
     private DateTime _oldest; // earliest hour rolled; the backward pass reaches below it
 
+    // client_wan (gateway conntrack) rolls on its OWN cursors and version: bumping the wifi/port
+    // rollup arithmetic must never re-roll conntrack data or vice versa. Forward-only - the feed
+    // starts at the agent's first report, so there is no pre-existing history to backfill, and a
+    // cold seed starts at the earliest covered hour rather than grinding empty ones.
+    private bool _wanSeeded;
+    private DateTime _wanNext;
+
     /// <summary>
     /// Rolls the next few pending hours: forward to the last complete hour first, then backward to
     /// the horizon for a site whose earlier backfill stopped short. True when more remain.
@@ -132,12 +139,37 @@ public class ClientUsageRollupService : BackgroundService
         for (; _oldest.AddHours(-1) >= horizon && hours < MaxHoursPerPass; _oldest = _oldest.AddHours(-1))
             await RollAsync(_oldest.AddHours(-1));
 
+        if (!_wanSeeded)
+        {
+            var lastWan = await _influx.QueryLastClientWanRollupHourAsync(ct);
+            if (lastWan.HasValue)
+            {
+                _wanNext = lastWan.Value.AddHours(1);
+            }
+            else
+            {
+                var coverage = await _influx.QueryClientWanCoverageHoursAsync(horizon, lastComplete.AddHours(1), ct);
+                _wanNext = coverage.Count > 0 ? coverage.Keys.Min() : lastComplete.AddHours(1);
+            }
+            if (_wanNext < horizon) _wanNext = horizon;
+            _wanSeeded = true;
+        }
+        var wan = 0;
+        for (; _wanNext <= lastComplete && hours < MaxHoursPerPass; _wanNext = _wanNext.AddHours(1))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (hours > 0) await Task.Delay(PauseBetweenHours, ct);
+            wan += await _influx.RollupClientWanUsageHourAsync(_wanNext, ct);
+            hours++;
+        }
+
         var ahead = _next <= lastComplete ? (int)(lastComplete - _next).TotalHours + 1 : 0;
         var behind = _oldest > horizon ? (int)(_oldest - horizon).TotalHours : 0;
+        var wanAhead = _wanNext <= lastComplete ? (int)(lastComplete - _wanNext).TotalHours + 1 : 0;
         if (hours > 0)
-            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), rolled {From:u} to {To:u}, {Wifi} wireless and {Ports} port points, {Remaining} hour(s) to go",
-                _siteSlug, hours, _oldest, _next.AddHours(-1), wifi, ports, ahead + behind);
-        return ahead + behind > 0;
+            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), rolled {From:u} to {To:u}, {Wifi} wireless, {Ports} port, and {Wan} WAN points, {Remaining} hour(s) to go",
+                _siteSlug, hours, _oldest, _next.AddHours(-1), wifi, ports, wan, ahead + behind + wanAhead);
+        return ahead + behind + wanAhead > 0;
     }
 
     private static DateTime HourStart(DateTime utc) =>

@@ -107,6 +107,13 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             .Where(ip => !string.IsNullOrWhiteSpace(ip))
             .Select(ip => ip.Trim())
             .ToList();
+        // HasOnGateway is the load-bearing check: absent (an older agent, or a pre-flag
+        // agent.json under a new binary) must stay null so the IP-correlation path answers.
+        connection.OnGateway = hello.HasOnGateway ? hello.OnGateway : null;
+        connection.Capabilities = hello.Capabilities
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .ToList();
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
 
         // The pump and refresh loops must stop when the read loop ends for any
@@ -206,6 +213,23 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpOidResult:
                         _snmpQuery.OnResult(message.SnmpOidResult);
+                        break;
+                    case AgentMessage.PayloadOneofCase.ConntrackSamples:
+                        // Same site-gone fencing as the probe/SNMP batches. Live batches carry
+                        // sequence 0 and get no ack; the ~30s aggregates ride the
+                        // store-and-forward buffer and are acked once persisted.
+                        try
+                        {
+                            await _probeResultSink.RecordConntrackBatchAsync(connection, message.ConntrackSamples, ct);
+                        }
+                        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteCantOpen)
+                        {
+                            _logger.LogWarning("Site {Slug} has no database any more; closing this agent's tunnel", siteSlug);
+                            connection.Drop();
+                            break;
+                        }
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);

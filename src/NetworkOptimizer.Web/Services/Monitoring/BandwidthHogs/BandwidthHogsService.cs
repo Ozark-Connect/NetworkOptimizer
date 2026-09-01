@@ -226,14 +226,39 @@ public class BandwidthHogsService
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
         // Live only; at the playhead the split runs on DPI weights alone. Per-row source
         // hierarchy, best evidence first:
-        //   1. (Future) the gateway agent's conntrack-measured WAN: exact from its first report,
-        //      a covered row bypasses everything below - see gateway-conntrack-spec.md.
+        //   1. The gateway agent's conntrack-measured WAN: exact from its first report. A
+        //      covered site bypasses everything below entirely - exclusion, baselines,
+        //      co-movement, console corroboration - and no cache entry on a covered site means
+        //      measured IDLE, not unknown. See gateway-conntrack-spec.md.
         //   2. A baseline armed from the live histories, or the persisted one a restart reloaded:
         //      the baseline comes off the rate and the rest is the WAN candidate.
         //   3. Nothing learned: attribute only what the console's own signals corroborate, which
         //      survive OUR restarts because they are console-side.
         var liveStats = at == null ? _liveStats.GetFor(_site.Slug) : null;
         var now = DateTime.UtcNow;
+        // At the playhead, tier 1 replays the stored aggregates: the window that covered the
+        // instant answers with the measured rates, so live and playback tell one story. Null
+        // means the feed was not covering that moment - pre-agent history, or an agent outage -
+        // and the estimated split answers exactly as it always has.
+        IReadOnlyDictionary<string, (double Down, double Up)>? playbackRates = null;
+        if (at is { } playheadAt)
+        {
+            try
+            {
+                var measuredAt = await _influx.QueryClientWanRatesAtAsync(playheadAt, ct);
+                if (measuredAt != null)
+                    playbackRates = measuredAt.ToDictionary(
+                        r => r.ClientMac, r => (r.DownBps, r.UpBps), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Bandwidth Hogs: measured WAN unavailable at the playhead; splitting from DPI");
+            }
+        }
+        var conntrackCovered = playbackRates != null
+            || (liveStats != null && liveStats.HasConntrackCoverage());
+        var wanDown = new double[measured.Count];
+        var wanUp = new double[measured.Count];
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
             ? WanRateHistory(wanHistoryKeys.Select(liveStats.RowRateHistory).ToList())
             : null;
@@ -274,6 +299,35 @@ public class BandwidthHogsService
         for (var i = 0; i < measured.Count; i++)
         {
             var m = measured[i];
+            if (conntrackCovered)
+            {
+                // Tier 1: the row's WAN is measured at the gateway. Summed across the row's
+                // interfaces (a hub row carries every MAC behind its port).
+                double measuredDown = 0, measuredUp = 0;
+                var rowMacs = m.Node.Kind == LanNodeKind.VirtualHub
+                    ? (membersByHub.TryGetValue(m.Node.Id, out var hubMembers)
+                        ? hubMembers.Select(member => member.Mac!) : Enumerable.Empty<string>())
+                    : new[] { m.Node.Mac! };
+                foreach (var mac in rowMacs)
+                {
+                    if (playbackRates != null)
+                    {
+                        if (playbackRates.TryGetValue(NormalizeMac(mac), out var r))
+                        {
+                            measuredDown += r.Down;
+                            measuredUp += r.Up;
+                        }
+                    }
+                    else if (liveStats!.GetClientWanRate(mac, liveStats.ConntrackFreshness) is { } r2)
+                    {
+                        measuredDown += r2.DownBps;
+                        measuredUp += r2.UpBps;
+                    }
+                }
+                wanDown[i] = measuredDown;
+                wanUp[i] = measuredUp;
+                continue;
+            }
             (double Down, double Up) bytes = default;
             var macs = new List<string>();
             bool excluded;
@@ -350,8 +404,6 @@ public class BandwidthHogsService
         }
         var splitDown = wanDownBps is { } wd ? WanShareReconciler.Allocate(wd, loadsDown) : new WanShareReconciler.Split(new double[included.Count], false);
         var splitUp = wanUpBps is { } wu ? WanShareReconciler.Allocate(wu, loadsUp) : new WanShareReconciler.Split(new double[included.Count], false);
-        var wanDown = new double[measured.Count];
-        var wanUp = new double[measured.Count];
         for (var j = 0; j < included.Count; j++)
         {
             wanDown[included[j]] = splitDown.WanBps[j];
@@ -390,7 +442,10 @@ public class BandwidthHogsService
             WanCapacityDownBps = capDownTotal,
             WanCapacityUpBps = capUpTotal,
             WanEstimated = splitDown.Estimated || splitUp.Estimated,
-            WarmupSecondsRemaining = liveStats == null
+            WanMeasured = conntrackCovered,
+            // The warmup notice cautions about the estimated split's arming baselines, which a
+            // covered site is not running - measured data needs no arming period.
+            WarmupSecondsRemaining = liveStats == null || conntrackCovered
                 ? 0
                 : (int)Math.Max(0, Math.Ceiling((liveStats.StartedAt + BaselineMinSpan - now).TotalSeconds)),
             At = at,
@@ -430,30 +485,60 @@ public class BandwidthHogsService
         var rows = new Dictionary<string, HogRow>(StringComparer.OrdinalIgnoreCase);
         HogRow RowFor(string mac) => rows.TryGetValue(mac, out var r) ? r : rows[mac] = SeedRow(mac, nodeByMac, nodeById, snapshot);
 
-        // WAN, per UniFi Network.
-        try
+        // WAN: the gateway agent's measured client_wan for the stretch its coverage reaches back
+        // over (contiguous from now), UniFi Network's DPI report for the history before it. One
+        // source per stretch, never summed over the same hours; pre-agent history is DPI forever.
+        var wanBoundary = await ConntrackCoverageBoundaryAsync(from, to, ct);
+        if (wanBoundary > from)
         {
-            var traffic = await _dashboard.GetSiteTrafficAsync(from, to, ct);
-            foreach (var c in traffic?.ClientUsageByApp ?? new())
+            try
             {
-                var mac = NormalizeMac(c.Client?.Mac);
-                if (mac.Length == 0) continue;
-                long down = 0, up = 0;
-                foreach (var u in c.UsageByApp) { down += u.BytesReceived; up += u.BytesTransmitted; }
-                if (down == 0 && up == 0) continue;
-                var row = RowFor(mac);
-                rows[mac] = row with
+                var traffic = await _dashboard.GetSiteTrafficAsync(from, wanBoundary, ct);
+                foreach (var c in traffic?.ClientUsageByApp ?? new())
                 {
-                    Name = row.Name ?? FirstNonEmpty(c.Client?.Name, c.Client?.Hostname),
-                    IsWired = nodeByMac.ContainsKey(mac) ? row.IsWired : c.Client?.IsWired ?? row.IsWired,
-                    WanDownBytes = down,
-                    WanUpBytes = up,
-                };
+                    var mac = NormalizeMac(c.Client?.Mac);
+                    if (mac.Length == 0) continue;
+                    long down = 0, up = 0;
+                    foreach (var u in c.UsageByApp) { down += u.BytesReceived; up += u.BytesTransmitted; }
+                    if (down == 0 && up == 0) continue;
+                    var row = RowFor(mac);
+                    rows[mac] = row with
+                    {
+                        Name = row.Name ?? FirstNonEmpty(c.Client?.Name, c.Client?.Hostname),
+                        IsWired = nodeByMac.ContainsKey(mac) ? row.IsWired : c.Client?.IsWired ?? row.IsWired,
+                        WanDownBytes = down,
+                        WanUpBytes = up,
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Bandwidth Hogs: WAN usage unavailable");
             }
         }
-        catch (Exception ex)
+        if (wanBoundary < to)
         {
-            _logger.LogDebug(ex, "Bandwidth Hogs: WAN usage unavailable");
+            try
+            {
+                foreach (var t in await _influx.QueryAllClientWanUsageAsync(wanBoundary, to, ct))
+                {
+                    // The coverage heartbeat is bookkeeping, and the unattributed remainder has
+                    // no client to be a row for.
+                    if (t.ClientMac == MonitoringInfluxClient.ClientWanCoverageMarker
+                        || t.ClientMac == MonitoringInfluxClient.ClientWanUnattributed) continue;
+                    if (t.DownBytes == 0 && t.UpBytes == 0) continue;
+                    var row = RowFor(t.ClientMac);
+                    rows[t.ClientMac] = row with
+                    {
+                        WanDownBytes = row.WanDownBytes + t.DownBytes,
+                        WanUpBytes = row.WanUpBytes + t.UpBytes,
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Bandwidth Hogs: measured WAN usage unavailable");
+            }
         }
 
         // A MAC nothing can identify is not a client of ours - UniFi's traffic report can list
@@ -577,6 +662,44 @@ public class BandwidthHogsService
         }
 
         return CacheDataResult(cacheKey, new HogsResult { Rows = Resolved(), From = from, To = to, IncludesLan = true });
+    }
+
+    /// <summary>
+    /// Where a totals window splits between DPI history and conntrack coverage: the start of the
+    /// newest contiguous covered run of hours ending at <paramref name="to"/>, clamped to the
+    /// window. <paramref name="to"/> back means "not covered now" (all DPI); <paramref name="from"/>
+    /// means the whole window is covered (all measured).
+    /// </summary>
+    private async Task<DateTime> ConntrackCoverageBoundaryAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        try
+        {
+            var coverage = await _influx.QueryClientWanCoverageHoursAsync(from, to, ct);
+            return coverage.Count == 0 ? to : CoverageBoundary(coverage, from, to);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Bandwidth Hogs: conntrack coverage unavailable; WAN usage stays DPI");
+            return to;
+        }
+    }
+
+    /// <summary>Walks hours newest-first while each meets the coverage bar (70% of the hour, or
+    /// of what has elapsed of the current one), and returns where the covered run begins.</summary>
+    public static DateTime CoverageBoundary(IReadOnlyDictionary<DateTime, long> coverageHours, DateTime from, DateTime to)
+    {
+        static DateTime HourOf(DateTime t) => new(t.Ticks - t.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
+        var boundary = to;
+        for (var hour = HourOf(to); hour >= HourOf(from); hour = hour.AddHours(-1))
+        {
+            var expected = Math.Min(3600, (to - hour).TotalSeconds);
+            if (expected <= 0) continue;
+            if (coverageHours.TryGetValue(hour, out var s) && s >= ClientDashboardService.ConntrackBucketCoverageFraction * expected)
+                boundary = hour;
+            else
+                break;
+        }
+        return boundary < from ? from : boundary;
     }
 
     private static HogRow SeedRow(string mac, Dictionary<string, LanNode> nodeByMac, Dictionary<string, LanNode> nodeById, LanFlowMapSnapshot? snapshot)

@@ -165,6 +165,24 @@ public sealed class AgentTunnelConnection
     public IReadOnlyList<string> LocalIps { get; internal set; } = Array.Empty<string>();
 
     /// <summary>
+    /// Whether this agent runs on the site's gateway, as its installer recorded and its hello
+    /// reported. NULL is an agent (or an agent.json) predating the flag, and the ONLY value that
+    /// sends the server to the IP-correlation detector - true and false are both authoritative
+    /// (#1108). Never collapse null to false: that would misclassify every pre-flag gateway
+    /// install on its first upgraded hello.
+    /// </summary>
+    public bool? OnGateway { get; internal set; }
+
+    /// <summary>Feature capabilities from the hello (e.g. "conntrack-accounting"). Empty from older agents.</summary>
+    public IReadOnlyList<string> Capabilities { get; internal set; } = Array.Empty<string>();
+
+    /// <summary>The conntrack accounting capability string, shared by agent and server.</summary>
+    public const string ConntrackCapability = "conntrack-accounting";
+
+    public bool HasCapability(string capability) =>
+        Capabilities.Contains(capability, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Addresses to recognise this agent's host by: everything it reported, or the single address
     /// it chose when it reported nothing. Never empty of meaning - a caller can compare all of
     /// these without caring which agent version answered.

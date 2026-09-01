@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs
 @inject BandwidthHogsService Hogs
+@inject IConntrackStatusService ConntrackStatus
 @inject SiteContextService SiteContext
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject ILogger<BandwidthHogsCard> Logger
@@ -80,10 +81,60 @@
                 Warming up - device WAN rates may read low or inaccurately for the next @_result.WarmupSecondsRemaining seconds.
             </div>
         }
+        @if (HistoricAt == null && _view == View.Wan && _agentStatus is { } status)
+        {
+            @if (status.State == GatewayAgentConntrackState.GatewayAgentNeedsUpdate)
+            {
+                <div class="connection-banner pwa-banner hogs-agent-notice">
+                    <div class="banner-content">
+                        <span class="banner-icon" style="background: var(--info-color); color: white;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                                <polyline points="21 3 21 9 15 9" />
+                            </svg>
+                        </span>
+                        <div class="banner-text">
+                            <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
+                            <span style="color: var(--text-secondary);">Newer Agent builds measure per-device WAN usage right at the Gateway, upgrading these figures from estimates to accurate @(MultiWan ? "per-WAN " : "")measurements for all clients.</span>
+                        </div>
+                        <SiteAdminOnly>
+                            <div class="banner-actions">
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Upgrade Agent</a>
+                            </div>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (status.State == GatewayAgentConntrackState.NoGatewayAgent && !status.SuggestionDismissed)
+            {
+                <SiteAdminOnly>
+                    <div class="connection-banner pwa-banner hogs-agent-notice">
+                        <div class="banner-content">
+                            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                                    <line x1="6" y1="18" x2="6.01" y2="18" />
+                                    <line x1="10" y1="18" x2="10.01" y2="18" />
+                                    <path d="M12 14V6a2 2 0 0 1 2-2h6" />
+                                </svg>
+                            </span>
+                            <div class="banner-text">
+                                <strong style="color: var(--info-color);">Measure per-device WAN at the source</strong>
+                                <span style="color: var(--text-secondary);">Install the On-Site Agent on your UniFi Gateway and these WAN figures become accurate @(MultiWan ? "per-WAN " : "")measurements for all clients instead of an approximation.</span>
+                            </div>
+                            <div class="banner-actions">
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Set It Up</a>
+                                <button class="btn-pwa-dismiss" @onclick="DismissAgentSuggestionAsync">Dismiss</button>
+                            </div>
+                        </div>
+                    </div>
+                </SiteAdminOnly>
+            }
+        }
         @{ var rows = TopRows(); }
         @if (_result == null && !_error)
         {
-            <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+            <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
         }
         else if (rows.Count == 0)
         {
@@ -216,6 +267,10 @@
     /// <summary>Live-cache history keys for the selected WAN interfaces, for co-movement corroboration.</summary>
     [Parameter] public IReadOnlyCollection<string> WanHistoryKeys { get; set; } = Array.Empty<string>();
 
+    /// <summary>Whether the page's own multi-WAN detection lit its multi-WAN UI; the banners say
+    /// "per-WAN" only where a second WAN exists for the phrase to mean anything.</summary>
+    [Parameter] public bool MultiWan { get; set; }
+
     private enum Mode { Throughput, Data }
     private enum View { Wan, LanPlusWan }
 
@@ -297,13 +352,24 @@
 
     private string ShareTooltip => (_mode, _view) switch
     {
-        (Mode.Throughput, View.Wan) => _result?.WanEstimated == true
-            ? "Share of the WAN rate, estimated from load and traffic patterns"
-            : "Share of the WAN rate; the clients' traffic matched the WAN load",
+        (Mode.Throughput, View.Wan) => _result?.WanMeasured == true
+            ? "Share of the WAN rate, measured on the Gateway"
+            : _result?.WanEstimated == true
+                ? "Share of the WAN rate, estimated from load and traffic patterns"
+                : "Share of the WAN rate; the clients' traffic matched the WAN load",
         (Mode.Throughput, _) => "Share of everything the listed clients are moving",
         (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
         _ => "Share of everything through the clients' ports and radios",
     };
+
+    private GatewayAgentConntrackStatus? _agentStatus;
+    private DateTime _agentStatusAt = DateTime.MinValue;
+    private static readonly TimeSpan AgentStatusRefreshEvery = TimeSpan.FromMinutes(1);
+    // While the answer is transitional - never asked, or an enrolled agent is still
+    // reconnecting (a server restart's normal first minute) - re-ask fast, so the banner
+    // appears the moment the agent's hello settles it instead of a stale blank holding for
+    // a minute and reading as "needs a page refresh".
+    private static readonly TimeSpan AgentStatusRefreshWhileSettling = TimeSpan.FromSeconds(5);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -312,6 +378,36 @@
         _ready = true;
         await RefreshAsync();
         ArmTimer();
+    }
+
+    /// <summary>The gateway-agent notice state, re-asked off the card's own refresh - it
+    /// self-clears on the first capable hello, so it can never be asked just once.</summary>
+    private async Task RefreshAgentStatusAsync()
+    {
+        var settling = _agentStatus is null or { State: GatewayAgentConntrackState.AwaitingAgent };
+        if (DateTime.UtcNow - _agentStatusAt < (settling ? AgentStatusRefreshWhileSettling : AgentStatusRefreshEvery)) return;
+        _agentStatusAt = DateTime.UtcNow;
+        try
+        {
+            _agentStatus = await ConntrackStatus.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: agent status unavailable");
+        }
+    }
+
+    private async Task DismissAgentSuggestionAsync()
+    {
+        try
+        {
+            await ConntrackStatus.DismissGatewayAgentSuggestionAsync();
+            _agentStatus = _agentStatus is { } s ? s with { SuggestionDismissed = true } : null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: could not dismiss the agent suggestion");
+        }
     }
 
     protected override void OnParametersSet()
@@ -375,12 +471,19 @@
     {
         if (_view == view) return;
         _view = view;
-        await PersistViewAsync();
         // A WAN-only data answer has no LAN figures; the first look at LAN + WAN reads them.
+        // Nulled BEFORE any await: the first re-render happens at the persist below, and a
+        // WAN-only answer viewed as LAN + WAN is all zero-byte rows - which drew the empty
+        // state for a beat instead of the spinner.
         if (_mode == Mode.Data && view == View.LanPlusWan && _result?.IncludesLan != true)
         {
             _result = null;
+            await PersistViewAsync();
             await RefreshAsync();
+        }
+        else
+        {
+            await PersistViewAsync();
         }
     }
 
@@ -413,7 +516,8 @@
         _timer?.Dispose();
         // Data follows the Data tab's cadence: a day or less every minute, the long windows every
         // five (those are the site-wide scans). The WAN half is cached five minutes either way.
-        var period = _mode == Mode.Throughput ? TimeSpan.FromSeconds(3)
+        // Live throughput ticks at the conntrack sample cadence; the answer is in-memory lookups.
+        var period = _mode == Mode.Throughput ? TimeSpan.FromSeconds(2)
             : _hours <= 24 ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
         _timer = new System.Threading.Timer(_ =>
         {
@@ -447,6 +551,7 @@
                 ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys)
                 : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
             _result = result;
+            await RefreshAgentStatusAsync();
             _error = false;
             StampQualified(at);
         }

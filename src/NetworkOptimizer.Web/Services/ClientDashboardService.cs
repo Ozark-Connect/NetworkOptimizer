@@ -1431,6 +1431,28 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// The client's conntrack-measured WAN rate windows over a short span, for the live chart's
+    /// WAN overlay history. Empty when the gateway feed has not covered the span.
+    /// </summary>
+    public async Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>> GetWanRateWindowsAsync(
+        ClientIdentity client, DateTime from, DateTime to)
+    {
+        if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>();
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            return await influx.QueryClientWanRateWindowsAsync(client.Mac, from, to);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN rate windows unavailable for {Mac}", client.Mac);
+            return Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanRateSample>();
+        }
+    }
+
     /// <summary>How far back usage is read when the page asks for everything.</summary>
     private static readonly TimeSpan MaxUsageWindow = TimeSpan.FromDays(30);
 
@@ -1495,6 +1517,27 @@ public class ClientDashboardService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "WAN usage unavailable for {Mac}", client.Mac);
+        }
+
+        // Where the gateway agent's conntrack feed covers, the measured client_wan series
+        // replaces the DPI report's bucket - picked per bucket, never blended, and pre-agent
+        // history stays DPI forever (conntrack cannot be backfilled). Runs before the LAN read
+        // so the daily edge alignment below sees the final WAN list.
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            var coverage = await influx.QueryClientWanCoverageHoursAsync(from, to);
+            if (coverage.Count > 0)
+            {
+                var measured = await influx.QueryClientWanUsageAsync(client.Mac, from, to, bucket);
+                usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Measured WAN usage unavailable for {Mac}", client.Mac);
         }
 
         try
@@ -1695,6 +1738,85 @@ public class ClientDashboardService
     /// 12:30), while our LAN buckets are stamped with their start, so each is filed by its start
     /// to line the two charts up. A bucket's bytes are its rate times its length.
     /// </summary>
+    /// <summary>How much of a bucket the conntrack feed must have covered before its measurement
+    /// replaces the DPI report's figure for that bucket. Same coverage-rule shape as the usage
+    /// rollup's FirstHour check: partial coverage is worse than none, so a mostly-dark bucket
+    /// keeps the DPI answer.</summary>
+    public const double ConntrackBucketCoverageFraction = 0.7;
+
+    /// <summary>
+    /// Picks ONE WAN source per bucket: the conntrack-measured figure where the feed covered the
+    /// bucket - a covered bucket with nothing measured is measured-idle, shown as zero, never
+    /// backfilled from DPI - and the DPI report's everywhere else. The two are never summed
+    /// inside a bucket. Bucket edges are UTC-truncated on both sides, so the lists align.
+    /// </summary>
+    internal static List<UsageBucket> InterleaveWanBuckets(
+        IReadOnlyList<UsageBucket> dpi,
+        IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint> measured,
+        IReadOnlyDictionary<DateTime, long> coverageHours,
+        TimeSpan bucket,
+        DateTime to)
+    {
+        var ticks = bucket.Ticks;
+        DateTime BucketOf(DateTime t) => new(t.Ticks - t.Ticks % ticks, DateTimeKind.Utc);
+
+        bool Covered(DateTime bucketStart)
+        {
+            // A sub-hour bucket is judged by whether its CONTAINING HOUR is covered for the part
+            // of it that has elapsed. Scaling the hour's seconds by bucket/hour instead assumed
+            // the coverage spread across the whole hour, which read every recent bucket of an
+            // in-progress hour as uncovered for its first ~40 minutes - and handed the chart's
+            // tail to the DPI report's 15-minute lag.
+            if (bucket < TimeSpan.FromHours(1))
+            {
+                var hour = new DateTime(bucketStart.Ticks - bucketStart.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
+                var hourExpected = Math.Min(3600, Math.Max(0, (to - hour).TotalSeconds));
+                return hourExpected > 0
+                    && coverageHours.GetValueOrDefault(hour) >= ConntrackBucketCoverageFraction * hourExpected;
+            }
+            long seconds = 0;
+            var end = bucketStart + bucket;
+            for (var h = bucketStart; h < end; h = h.AddHours(1))
+                seconds += coverageHours.GetValueOrDefault(h);
+            var expected = Math.Min(bucket.TotalSeconds, Math.Max(0, (to - bucketStart).TotalSeconds));
+            return expected > 0 && seconds >= ConntrackBucketCoverageFraction * expected;
+        }
+
+        var measuredByBucket = new Dictionary<DateTime, (long Down, long Up)>();
+        foreach (var p in measured)
+        {
+            var b = BucketOf(p.Time);
+            var sum = measuredByBucket.TryGetValue(b, out var m) ? m : (0L, 0L);
+            measuredByBucket[b] = (sum.Item1 + p.DownBytes, sum.Item2 + p.UpBytes);
+        }
+
+        var times = new SortedSet<DateTime>(measuredByBucket.Keys);
+        foreach (var b in dpi) times.Add(BucketOf(b.Time));
+        var dpiByBucket = dpi.GroupBy(b => BucketOf(b.Time))
+            .ToDictionary(g => g.Key, g => (Down: g.Sum(x => x.DownloadBytes), Up: g.Sum(x => x.UploadBytes)));
+
+        var result = new List<UsageBucket>(times.Count);
+        foreach (var t in times)
+        {
+            if (Covered(t))
+            {
+                var m = measuredByBucket.TryGetValue(t, out var v) ? v : (0L, 0L);
+                result.Add(new UsageBucket(t, m.Item1, m.Item2));
+            }
+            else if (dpiByBucket.TryGetValue(t, out var d))
+            {
+                result.Add(new UsageBucket(t, d.Down, d.Up));
+            }
+            else if (measuredByBucket.TryGetValue(t, out var m))
+            {
+                // An uncovered bucket with measured bytes anyway (the feed ran for part of it,
+                // under the coverage bar): the measurement is real traffic and DPI has nothing.
+                result.Add(new UsageBucket(t, m.Down, m.Up));
+            }
+        }
+        return result;
+    }
+
     public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
     {
         var ticks = bucket.Ticks;

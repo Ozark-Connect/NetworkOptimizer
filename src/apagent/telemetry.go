@@ -697,6 +697,13 @@ func betterActive(a, b ClientLink) bool {
 	if a.Negotiated != b.Negotiated {
 		return !a.Negotiated
 	}
+	// Idle before byte totals. A client that hops VAPs leaves its old station entry behind for
+	// ~30 s carrying the whole session's byte count, so cumulative bytes elect the dead link and
+	// flip back as the live one catches up - seen as the band flapping every poll. The link heard
+	// from most recently is the one the client is on.
+	if a.IdleSeconds != b.IdleSeconds {
+		return a.IdleSeconds < b.IdleSeconds
+	}
 	if at, bt := a.TxBytes+a.RxBytes, b.TxBytes+b.RxBytes; at != bt {
 		return at > bt
 	}
