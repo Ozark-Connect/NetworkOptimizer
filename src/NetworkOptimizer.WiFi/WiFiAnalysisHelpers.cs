@@ -75,8 +75,7 @@ public static class WiFiAnalysisHelpers
         {
             if (ap.IsMeshChild &&
                 !string.IsNullOrEmpty(ap.MeshParentMac) &&
-                ap.MeshUplinkBand == band &&
-                ap.MeshUplinkChannel == channel)
+                ap.MeshUplinkUsesChannel(band, channel))
             {
                 meshPairs.Add((ap.Mac.ToLowerInvariant(), ap.MeshParentMac.ToLowerInvariant()));
             }

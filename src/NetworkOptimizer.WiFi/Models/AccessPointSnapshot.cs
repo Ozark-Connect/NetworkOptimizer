@@ -92,6 +92,32 @@ public class AccessPointSnapshot
     public bool MeshUplinkIsMlo { get; set; }
 
     /// <summary>
+    /// Every band/channel the mesh uplink occupies: the self-reported STA link plus any
+    /// parent-derived MLO links. A classic backhaul yields one entry; non-mesh APs none.
+    /// </summary>
+    public IEnumerable<(RadioBand Band, int? Channel)> MeshUplinkBandChannels
+    {
+        get
+        {
+            if (MeshUplinkBand.HasValue)
+                yield return (MeshUplinkBand.Value, MeshUplinkChannel);
+            foreach (var link in MeshUplinkLinks)
+            {
+                if (link.Band.HasValue && link.Band != MeshUplinkBand)
+                    yield return (link.Band.Value, link.Channel);
+            }
+        }
+    }
+
+    /// <summary>Whether the mesh uplink occupies the given band (any link, on MLO).</summary>
+    public bool MeshUplinkUsesBand(RadioBand band) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band);
+
+    /// <summary>Whether the mesh uplink occupies the given band and channel (any link, on MLO).</summary>
+    public bool MeshUplinkUsesChannel(RadioBand band, int channel) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band && x.Channel == channel);
+
+    /// <summary>
     /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). The child's
     /// own uplink block describes at most one link, so on MLO these are read from the parent's
     /// downlink_table; empty when the parent reports nothing.

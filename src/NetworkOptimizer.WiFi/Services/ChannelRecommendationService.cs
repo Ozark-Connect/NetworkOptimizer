@@ -2703,12 +2703,9 @@ public class ChannelRecommendationService
         {
             if (!ap.IsMeshChild || string.IsNullOrEmpty(ap.MeshParentMac))
                 continue;
-            // TODO(MLO): MeshUplinkBand is a single RadioBand. No AP-to-AP MLO STR backhaul
-            // hardware exists yet (today's MLO STR is client/bridge only), but when it ships a
-            // backhaul can span multiple bands at once (e.g. 5 + 6 GHz). Make this a set and emit
-            // one constraint per participating band once UniFi exposes per-link bands. The
-            // reconciliation logic keys off MeshGroupLeader and needs no change - only this.
-            if (ap.MeshUplinkBand != band)
+            // An MLO STR backhaul spans several bands at once (per-link bands derived from the
+            // parent's downlink_table), so each participating band emits its own constraint.
+            if (!ap.MeshUplinkUsesBand(band))
                 continue;
 
             if (macToIndex.TryGetValue(ap.Mac, out var childIdx) &&

@@ -569,7 +569,7 @@
                                 <div class="ap-col ap-name-col">
                                     <span class="ap-name">
                                         <DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name
-                                        @if (ap.IsMeshChild && ap.MeshUplinkBand == _selectedBand)
+                                        @if (ap.IsMeshChild && ap.MeshUplinkUsesBand(_selectedBand))
                                         {
                                             <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
                                         }
@@ -900,8 +900,7 @@
         return apsOnChannel.Any(ap =>
             ap.IsMeshChild &&
             !string.IsNullOrEmpty(ap.MeshParentMac) &&
-            ap.MeshUplinkBand == band &&
-            ap.MeshUplinkChannel == channel.Value &&
+            ap.MeshUplinkUsesChannel(band, channel.Value) &&
             apsOnChannel.Any(parent => parent.Mac.Equals(ap.MeshParentMac, StringComparison.OrdinalIgnoreCase)));
     }
 
