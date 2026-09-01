@@ -1804,7 +1804,7 @@ public class AgentProbeResultSink
     /// <summary>
     /// Records a conntrack batch from a gateway agent. Live batches (every sample window) only
     /// refresh the site's live per-client WAN cache - the measured figures Bandwidth Hogs and
-    /// Client Performance read. Aggregated (~30s) batches ride the store-and-forward buffer and
+    /// Client Performance read. Aggregated (~6s) batches ride the store-and-forward buffer and
     /// land in the client_wan time series, WAN-tagged via the WanProfiles interface map, plus
     /// one coverage heartbeat point per batch so totals readers can tell measured-idle from
     /// not-covered. An empty batch is a valid statement: the feed is alive and nothing moved.

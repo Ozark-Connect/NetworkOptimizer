@@ -216,7 +216,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.ConntrackSamples:
                         // Same site-gone fencing as the probe/SNMP batches. Live batches carry
-                        // sequence 0 and get no ack; the ~30s aggregates ride the
+                        // sequence 0 and get no ack; the ~6s aggregates ride the
                         // store-and-forward buffer and are acked once persisted.
                         try
                         {

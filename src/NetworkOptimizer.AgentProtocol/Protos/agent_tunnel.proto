@@ -29,7 +29,8 @@ message AgentMessage {
     ConntrackSampleBatch conntrack_samples = 13;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
-  // probe_results / snmp_results frames only; 0 on control frames and on older
+  // probe_results / snmp_results / aggregated conntrack_samples frames only
+  // (live conntrack batches stay 0); 0 on control frames and on older
   // agents. The agent keeps the batch buffered until the server echoes this
   // number in a ResultAck (persisted), then trims it. Without this, a
   // black-holed tunnel - where TCP still "accepts" writes into a dead socket and
@@ -82,7 +83,7 @@ message ConntrackSampleBatch {
   // the server never differences anything and a rollup is a pure sum.
   int32 window_seconds = 2;
   repeated ConntrackClientSample clients = 3;
-  // True on the ~30s aggregated batches that ride the store-and-forward buffer
+  // True on the ~6s aggregated batches that ride the store-and-forward buffer
   // into the time series (acked, replayed after an outage, an undercount never an
   // inflation). False on the per-window live batches, which only refresh the live
   // cache and are superseded by the next window - a lost one costs nothing.
@@ -101,10 +102,10 @@ message ConntrackClientSample {
   int64 wan_up_bytes = 4;    // from the client over the window, WAN flows only
   int32 flows = 5;
   // Raw egress interface of the WAN side (e.g. "eth4", "ppp0"), from the reply
-  // tuple''s NAT address. The agent never learns UniFi WAN keys; the server maps
+  // tuple's NAT address. The agent never learns UniFi WAN keys; the server maps
   // interface -> key via WanProfiles. Empty = unknown, read as the default WAN.
   string wan_ifname = 6;
-  // Destroy-event reconcile bytes (aggregated batches only): a dying flow''s final
+  // Destroy-event reconcile bytes (aggregated batches only): a dying flow's final
   // counters minus what the sampled deltas already billed, plus its retained seed.
   // Byte-exact totals for flows the 2s sampling under-billed (head of a brand-new
   // flow, tail of an abrupt close, flows born and dead between passes). Kept apart

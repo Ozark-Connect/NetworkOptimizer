@@ -978,7 +978,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     public sealed record ClientWanRateAt(string ClientMac, double DownBps, double UpBps);
 
     /// <summary>
-    /// Every client's measured WAN rate at one instant, from the raw 30s aggregates: for each
+    /// Every client's measured WAN rate at one instant, from the raw ~6s aggregates: for each
     /// client, the point whose window covers <paramref name="at"/> (stamped at window END, so the
     /// candidate range reaches one window past the instant). Null when the coverage heartbeat has
     /// no window covering the instant - the feed was not running then, and the caller falls back
@@ -988,7 +988,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         DateTime at, CancellationToken ct = default)
     {
         if (!IsConfigured) return null;
-        // Windows are ~30s but a stretched cadence can run longer; 90s of slack bounds the scan.
+        // Windows are ~6s but a stretched cadence can run longer; 90s of slack bounds the scan.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(at.AddSeconds(-90))}, stop: {ToFluxInstant(at.AddSeconds(90))})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
