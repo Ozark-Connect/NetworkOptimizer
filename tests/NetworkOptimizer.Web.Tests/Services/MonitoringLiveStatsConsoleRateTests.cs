@@ -18,7 +18,9 @@ public class MonitoringLiveStatsConsoleRateTests
         NullLogger<MonitoringLiveStats>.Instance,
         Mock.Of<IDbContextFactory<NetworkOptimizerDbContext>>());
 
-    private static readonly DateTime T0 = new(2026, 8, 30, 18, 0, 0, DateTimeKind.Utc);
+    // Anchored to now, not a literal date: GetConsoleWanRate ages entries against wall-clock
+    // UtcNow, so a fixed anchor turns into a time bomb the day it falls out of the max age.
+    private static readonly DateTime T0 = DateTime.UtcNow.AddMinutes(-5);
 
     [Fact]
     public void A_single_zero_reading_is_held_and_a_second_is_accepted()
