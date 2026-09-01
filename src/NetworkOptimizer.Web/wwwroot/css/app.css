@@ -9351,6 +9351,8 @@ a.path-hop.hop-clickable:hover {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
 }
 
 .ap-card.ap-offline {
@@ -9560,6 +9562,9 @@ a.path-hop.hop-clickable:hover {
     gap: 0.5rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-color);
+    /* Sink to the card bottom so radio lists align across a row when a taller
+       MLO mesh card stretches its siblings. */
+    margin-top: auto;
 }
 
 .ap-radio {
