@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
@@ -55,6 +56,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
     private readonly ApAgentRetryPolicy _retry = new();
     private readonly Dictionary<string, ApAgentAssessment> _lastAssessment = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How the binary last crossed the wire per AP, when not over SFTP. In-memory like the assessments.</summary>
+    private readonly Dictionary<string, string> _transferNotes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Firmware last probed per AP, rendered into the transfer-failure detail at display time.</summary>
+    private readonly Dictionary<string, string> _lastFirmware = new(StringComparer.OrdinalIgnoreCase);
     private DeviceRebootTracker? _rebootTracker;
     private bool _disposed;
 
@@ -206,6 +213,10 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             records.TryGetValue(mac, out var record);
             ApAgentAssessment? assessment;
             lock (_lastAssessment) _lastAssessment.TryGetValue(mac, out assessment);
+            string? transferNote;
+            lock (_transferNotes) _transferNotes.TryGetValue(mac, out transferNote);
+            string? firmware;
+            lock (_lastFirmware) _lastFirmware.TryGetValue(mac, out firmware);
 
             fleet.Add(new ApAgentFleetEntry
             {
@@ -219,6 +230,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 RecommendedAction = assessment?.Action ?? ApAgentAction.None,
                 Detail = assessment?.Detail,
                 Architecture = record?.Architecture,
+                Firmware = firmware,
+                TransferNote = transferNote,
                 DeployedVersion = record?.DeployedVersion,
                 DeployedBinaryVersion = record?.DeployedBinaryVersion,
                 LastDeployedAt = record?.LastDeployedAt,
@@ -348,6 +361,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         _retry.Forget(mac);
         lock (_lastAssessment) _lastAssessment.Remove(mac);
+        lock (_transferNotes) _transferNotes.Remove(mac);
         _directory.Invalidate(_siteSlug);
 
         _logger.LogInformation("AP Agent removed from {Host} on site {Site}", ap.DisplayIpAddress, _siteSlug);
@@ -544,6 +558,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         await UpdateRecordAsync(mac, r => r.Architecture = status.Machine, ct);
 
+        if (!string.IsNullOrEmpty(status.Firmware))
+            lock (_lastFirmware) _lastFirmware[mac] = status.Firmware;
+
         if (!status.SupportedArchitecture)
         {
             var reason = ApAgentScripts.UnsupportedReason(status.Machine);
@@ -574,9 +591,11 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!binaryIsCurrent)
         {
             progress?.Report("Transferring the agent...");
-            var transferred = await TransferBinaryAsync(ap.DisplayIpAddress, localPath, ct);
+            var transferred = await TransferBinaryAsync(mac, ap.DisplayIpAddress, localPath, localMd5, status, ct);
             if (!transferred.Success)
             {
+                if (transferred.State == ApAgentState.TransferFailed)
+                    lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.TransferFailed, ApAgentAction.None, transferred.Error!);
                 await RecordFailureAsync(mac, transferred.Error, ct);
                 return transferred;
             }
@@ -620,7 +639,14 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         return ApAgentOperationResult.Ok();
     }
 
-    private async Task<ApAgentOperationResult> TransferBinaryAsync(string host, string localPath, CancellationToken ct)
+    /// <summary>
+    /// Pushes the binary over the probed transfer chain, attempting each method in order until one
+    /// both uploads and verifies. The md5 comparison is the only integrity check in the path:
+    /// without it a truncated binary surfaces as "The agent did not start" and burns a retry cycle
+    /// before the next pass's md5 catches it.
+    /// </summary>
+    private async Task<ApAgentOperationResult> TransferBinaryAsync(
+        string mac, string host, string localPath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
     {
         var connection = await BuildConnectionAsync(host);
         if (connection == null)
@@ -630,21 +656,101 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!mkdir.success)
             return ApAgentOperationResult.Fail($"Could not create the install directory: {mkdir.output}");
 
-        var transfer = await ResolveTransferAsync();
-        try
+        var failures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var transfer in _transferSelector.Resolve(status))
         {
-            await transfer.UploadAsync(connection, localPath, ApAgentPaths.RemoteBinaryPath, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "AP Agent transfer to {Host} failed over {Method}", host, transfer.Name);
-            return ApAgentOperationResult.Fail($"Transferring the agent over {transfer.Name} failed: {ex.Message}");
+            string? error = null;
+            try
+            {
+                await transfer.UploadAsync(connection, localPath, ApAgentPaths.RemoteBinaryPath, ct);
+
+                var check = await _siteSsh.RunCommandAsync(host,
+                    $"md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
+                if (!check.success || !string.Equals(check.output.Trim(), localMd5, StringComparison.OrdinalIgnoreCase))
+                    error = "The copied file did not match the original (md5 mismatch).";
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+
+            if (error != null)
+            {
+                failures[transfer.Name] = error;
+                _logger.LogDebug("AP Agent transfer to {Host} over {Method} failed: {Error}", host, transfer.Name, error);
+                continue;
+            }
+
+            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {ApAgentPaths.RemoteBinaryPath}", null, SshTimeout, ct);
+            if (!chmod.success)
+                return ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
+
+            // Information rather than Debug on a non-default method, so an AP sitting on a slower
+            // path is visible in the log rather than silently slow.
+            if (transfer.Name != ApAgentTransferSelector.SftpMethod)
+                _logger.LogInformation("AP Agent transferred to {Host} over {Method} on site {Site}", host, transfer.Name, _siteSlug);
+
+            var note = TransferNoteFor(transfer.Name, status);
+            lock (_transferNotes)
+            {
+                if (note == null) _transferNotes.Remove(mac);
+                else _transferNotes[mac] = note;
+            }
+
+            return ApAgentOperationResult.Ok();
         }
 
-        var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {ApAgentPaths.RemoteBinaryPath}", null, SshTimeout, ct);
-        return chmod.success
-            ? ApAgentOperationResult.Ok()
-            : ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
+        var detail = string.Join("\n",
+            "Could not copy the AP Agent to this access point.",
+            "- SFTP: " + (failures.TryGetValue(ApAgentTransferSelector.SftpMethod, out var sftpError) ? sftpError : "not available on this firmware"),
+            "- SCP: " + (failures.TryGetValue(ApAgentTransferSelector.ScpMethod, out var scpError) ? scpError : "not available on this firmware"),
+            "- Direct copy: " + failures[ApAgentTransferSelector.ExecMethod]);
+        _logger.LogWarning("AP Agent transfer to {Host} on site {Site} failed over every method: {Detail}", host, _siteSlug, detail);
+        return ApAgentOperationResult.Fail(detail, ApAgentState.TransferFailed);
+    }
+
+    /// <summary>
+    /// The detail-panel note for a deploy that did not go over SFTP. Curated copy - do not reword.
+    /// "doesn't support" is only true of a method whose binary was genuinely absent; one that was
+    /// present and failed anyway was refused.
+    /// </summary>
+    private static string? TransferNoteFor(string method, ApAgentSshStatus status)
+    {
+        if (method == ApAgentTransferSelector.SftpMethod) return null;
+
+        bool unsupported;
+        string note;
+        if (method == ApAgentTransferSelector.ScpMethod)
+        {
+            unsupported = !status.SftpAvailable;
+            note = unsupported
+                ? "Copied over SCP: this firmware doesn't support SFTP."
+                : "Copied over SCP: SFTP was refused.";
+        }
+        else
+        {
+            unsupported = !status.SftpAvailable && !status.ScpAvailable;
+            note = unsupported
+                ? "Copied directly: this firmware doesn't support SFTP or SCP."
+                : "Copied directly: SFTP and SCP were refused.";
+        }
+
+        // Arch-gated ARM plus pre-8 firmware is a U6-class AP without needing a model list; the
+        // model is never a decision input here.
+        if (unsupported && FirmwareMajorBelow8(status.Firmware))
+            note += " U6 gets SFTP on the 8.8.5+ shared U7 stack firmware.";
+        return note;
+    }
+
+    private static bool FirmwareMajorBelow8(string? firmware)
+    {
+        var shortForm = FirmwareVersionFormat.ShortOrNull(firmware);
+        if (shortForm == null) return false;
+        return int.TryParse(shortForm.Split('.')[0], out var major) && major < 8;
     }
 
     private async Task<ApAgentOperationResult> WriteSupportFilesAsync(string host, string token, bool procdAvailable, CancellationToken ct)
@@ -707,14 +813,6 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         (connection.Host, connection.Port) = await _tunnelRouting.RouteAsync(_siteSlug, connection.Host, connection.Port);
         return connection;
-    }
-
-    private async Task<IApAgentBinaryTransfer> ResolveTransferAsync()
-    {
-        using var scope = CreateSiteScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        var setting = await db.SystemSettings.FindAsync(ApAgentTransferSelector.TransferMethodSettingKey);
-        return _transferSelector.Resolve(setting?.Value);
     }
 
     /// <summary>

@@ -2,6 +2,7 @@
    sites-table pattern, the firmware-wipe alert above it, and the per-AP capability report expanding
    inline through the same collapse machinery the Sites table uses. *@
 
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.ApAgent
 @using NetworkOptimizer.Web.Services.Ssh
 @implements IDisposable
@@ -269,11 +270,19 @@
                                                             {
                                                                 <span class="ap-agent-note">The capability report did not load; the AP Agent may be mid-restart. Check Status to try again.</span>
                                                             }
+                                                            else if (entry.State == ApAgentState.TransferFailed && !string.IsNullOrEmpty(entry.Detail))
+                                                            {
+                                                                <span class="ap-agent-note">@TransferFailureLead(entry)</span>
+                                                                @foreach (var line in TransferFailureLines(entry))
+                                                                {
+                                                                    <span class="ap-agent-note">@line</span>
+                                                                }
+                                                            }
                                                             else if (!string.IsNullOrEmpty(entry.Detail))
                                                             {
                                                                 <span class="ap-agent-note">@entry.Detail</span>
                                                             }
-                                                            @if (!string.IsNullOrEmpty(entry.LastError) && entry.LastError != entry.Detail)
+                                                            @if (!string.IsNullOrEmpty(entry.LastError) && entry.LastError != entry.Detail && entry.State != ApAgentState.TransferFailed)
                                                             {
                                                                 <span class="ap-agent-note">Last error: @entry.LastError</span>
                                                             }
@@ -307,6 +316,10 @@
                                                                     </div>
                                                                 }
                                                             </div>
+                                                        }
+                                                        @if (!string.IsNullOrEmpty(entry.TransferNote))
+                                                        {
+                                                            <span class="ap-agent-note">@entry.TransferNote</span>
                                                         }
                                                         <div class="ap-agent-cap-footer">
                                                             <label class="checkbox-toggle" @onclick:stopPropagation="true">
@@ -466,6 +479,23 @@
 
     private static string Ago(DateTime utc) => TimeFormatHelper.FormatRelativeTime(utc);
 
+    /// <summary>
+    /// The transfer-failure lead line. The model and firmware are rendered from the fleet entry at
+    /// display time rather than baked into the persisted error, so a replaced device never shows a
+    /// stale model name.
+    /// </summary>
+    private static string TransferFailureLead(ApAgentFleetEntry e)
+    {
+        var firmware = FirmwareVersionFormat.ShortOrNull(e.Firmware);
+        return firmware == null
+            ? "Could not copy the AP Agent to this access point."
+            : $"Could not copy the AP Agent to this access point. {e.Model} on firmware {firmware}.";
+    }
+
+    /// <summary>The per-method lines of the transfer-failure detail, after its lead sentence.</summary>
+    private static IEnumerable<string> TransferFailureLines(ApAgentFleetEntry e)
+        => (e.Detail ?? "").Split('\n').Skip(1);
+
     protected override async Task OnParametersSetAsync()
     {
         if (Active && !_loaded && !_loading)
@@ -609,7 +639,8 @@
         {
             ApAgentState.Healthy => ("online", "Running", null),
             ApAgentState.OutOfDate => ("online", "Running", null),
-            ApAgentState.Unsupported => ("offline", "Unsupported model", e.Detail),
+            ApAgentState.Unsupported => ("offline", "Unsupported hardware", e.Detail),
+            ApAgentState.TransferFailed => ("error", "Transfer failed", null),
             ApAgentState.ApOffline => ("offline", "AP offline", "Deployment waits for the access point to come back."),
             ApAgentState.Wedged => ("error", "Stalled", "Answering, but its probes stopped; it is restarted in place automatically."),
             ApAgentState.Unauthorized => ("error", "Token mismatch", "The AP Agent rejected this server's token; the token is re-pushed automatically."),

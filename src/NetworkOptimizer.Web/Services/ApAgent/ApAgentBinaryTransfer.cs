@@ -5,15 +5,16 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <summary>
 /// How the agent binary crosses the wire to an access point.
 ///
-/// This is a seam rather than a call because the method is not settled. SFTP, SCP, and streaming
-/// into <c>cat</c> were all measured working on a real AP (dropbear v2025.89), but with the OpenSSH
-/// CLI - not with SSH.NET, which is what actually runs here. SFTP is the default; if SSH.NET trips
-/// on dropbear, SCP is the drop-in and cat-over-exec is the floor, and swapping is a setting rather
-/// than a code change at every call site.
+/// Capability varies by firmware - dropbear's scp comes free as a multi-call symlink while
+/// sftp-server is a separate optional binary - so the status probe tests for each and
+/// <see cref="ApAgentTransferSelector"/> orders the chain from what the AP actually has, ending at
+/// cat-over-exec, which needs nothing but a shell. A present binary is still not proof SSH.NET can
+/// drive dropbear's implementation of it (all three were measured working with the OpenSSH CLI,
+/// not SSH.NET), so a failed attempt falls through to the next method rather than failing the deploy.
 /// </summary>
 public interface IApAgentBinaryTransfer
 {
-    /// <summary>Setting value that selects this implementation.</summary>
+    /// <summary>Method name, matched when ordering the chain and named in logs.</summary>
     string Name { get; }
 
     /// <summary>Uploads a local file to the AP.</summary>
@@ -54,24 +55,34 @@ public sealed class ExecApAgentBinaryTransfer(SshClientService sshClient) : IApA
 }
 
 /// <summary>
-/// Picks the transfer implementation. The default is SFTP; a site sets
-/// <see cref="TransferMethodSettingKey"/> to "scp" or "exec" to swap it without a code change.
+/// Orders the transfer chain from what the status probe measured on the access point: SFTP when
+/// the firmware ships sftp-server, then SCP when it ships scp, and cat-over-exec always last.
+/// Resolution is per-AP from the probe rather than a stored preference, which is what lets a
+/// mixed fleet put each AP on the fastest path its firmware supports.
 /// </summary>
 public sealed class ApAgentTransferSelector(IEnumerable<IApAgentBinaryTransfer> transfers)
 {
-    /// <summary>Per-site setting key naming the transfer method.</summary>
-    public const string TransferMethodSettingKey = "ap_agent.transfer";
+    /// <summary>The SFTP transfer, the fast default when the firmware supports it.</summary>
+    public const string SftpMethod = "sftp";
 
-    /// <summary>The method used when nothing has been configured.</summary>
-    public const string DefaultMethod = "sftp";
+    /// <summary>The SCP transfer.</summary>
+    public const string ScpMethod = "scp";
+
+    /// <summary>The cat-over-exec transfer, the floor that needs nothing but a shell.</summary>
+    public const string ExecMethod = "exec";
 
     private readonly IReadOnlyList<IApAgentBinaryTransfer> _transfers = transfers.ToList();
 
-    /// <summary>The transfer for a configured method name, falling back to the default.</summary>
-    public IApAgentBinaryTransfer Resolve(string? method)
+    /// <summary>The transfers to attempt in order for what the probe found, always ending in exec.</summary>
+    public IReadOnlyList<IApAgentBinaryTransfer> Resolve(ApAgentSshStatus status)
     {
-        var wanted = string.IsNullOrWhiteSpace(method) ? DefaultMethod : method.Trim();
-        return _transfers.FirstOrDefault(t => string.Equals(t.Name, wanted, StringComparison.OrdinalIgnoreCase))
-            ?? _transfers.First(t => t.Name == DefaultMethod);
+        var chain = new List<IApAgentBinaryTransfer>(3);
+        if (status.SftpAvailable) chain.Add(ByName(SftpMethod));
+        if (status.ScpAvailable) chain.Add(ByName(ScpMethod));
+        chain.Add(ByName(ExecMethod));
+        return chain;
     }
+
+    private IApAgentBinaryTransfer ByName(string name)
+        => _transfers.First(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
 }

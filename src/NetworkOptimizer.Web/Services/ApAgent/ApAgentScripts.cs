@@ -47,7 +47,12 @@ public static class ApAgentScripts
             $"echo '---PROCESS---'; pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1 && echo running || echo stopped; " +
             $"echo '---VERSION---'; {ApAgentPaths.RemoteWrapperPath} -version 2>/dev/null; " +
             $"echo '---BINARY_VERSION---'; {ApAgentPaths.RemoteWrapperPath} -binary-version 2>/dev/null; " +
-            $"echo '---MD5---'; md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1";
+            $"echo '---MD5---'; md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1; " +
+            // Braceless on purpose: at equal precedence "a || b && c || d" parses as ((a || b) && c) || d
+            // on busybox ash, which is what we want. POSIX marks -o obsolescent, and braces would have
+            // to be written {{ }} inside this interpolated string.
+            $"echo '---SFTP---'; test -f {ApAgentPaths.SftpServerPath} || test -f {ApAgentPaths.SftpServerAltPath} && echo present || echo absent; " +
+            $"echo '---SCP---'; test -x {ApAgentPaths.ScpPath} || test -x {ApAgentPaths.ScpAltPath} && echo present || echo absent";
     }
 
     /// <summary>Reads the status probe's delimited output.</summary>
@@ -74,6 +79,8 @@ public static class ApAgentScripts
         status.IsRunning = Section(sections, "PROCESS") == "running";
         status.Version = Section(sections, "VERSION");
         status.BinaryMd5 = Section(sections, "MD5");
+        status.SftpAvailable = Section(sections, "SFTP") == "present";
+        status.ScpAvailable = Section(sections, "SCP") == "present";
 
         if (int.TryParse(Section(sections, "BINARY_VERSION"), out var binaryVersion))
             status.DeployedBinaryVersion = binaryVersion;

@@ -32,6 +32,9 @@ public enum ApAgentState
 
     /// <summary>Reached, but the answer was not one the server can act on.</summary>
     Unhealthy,
+
+    /// <summary>Every transfer method failed to copy the binary onto the AP. Set by the deploy path, never the classifier.</summary>
+    TransferFailed,
 }
 
 /// <summary>What the server should do about an <see cref="ApAgentState"/>.</summary>
@@ -170,6 +173,12 @@ public sealed class ApAgentSshStatus
     /// <summary>MD5 of the deployed binary, used to skip a transfer that would change nothing.</summary>
     public string? BinaryMd5 { get; set; }
 
+    /// <summary>Whether the firmware ships dropbear's sftp-server binary, which serves the SFTP subsystem.</summary>
+    public bool SftpAvailable { get; set; }
+
+    /// <summary>Whether the firmware ships an scp binary.</summary>
+    public bool ScpAvailable { get; set; }
+
     /// <summary>Why the probe failed, when it did.</summary>
     public string? Error { get; set; }
 }
@@ -219,6 +228,12 @@ public sealed class ApAgentFleetEntry
 
     /// <summary>Machine architecture last read over SSH.</summary>
     public string? Architecture { get; set; }
+
+    /// <summary>Firmware string last read over SSH. In-memory only, so it can be absent after a restart.</summary>
+    public string? Firmware { get; set; }
+
+    /// <summary>How the binary last crossed the wire, when that was not the default SFTP path.</summary>
+    public string? TransferNote { get; set; }
 
     /// <summary>Agent release version last seen running.</summary>
     public string? DeployedVersion { get; set; }
