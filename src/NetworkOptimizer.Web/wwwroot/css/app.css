@@ -12673,6 +12673,8 @@ a.path-hop.hop-clickable:hover {
 
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
+    /* Used twice on Channels: the four summary stats (2x2) and the per-band plan summary of two
+       or three cards. An odd last card takes the full row rather than sitting half-width alone. */
     .channel-stats-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -12681,6 +12683,10 @@ a.path-hop.hop-clickable:hover {
 
     .channel-stat-card {
         min-width: unset;
+    }
+
+    .channel-stat-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 
     .band-tabs {
