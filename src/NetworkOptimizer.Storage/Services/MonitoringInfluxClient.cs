@@ -1961,6 +1961,7 @@ from(bucket: ""{_bucket}"")
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
+        var portIds = new Dictionary<(string ifName, long ticks), string?>();
 
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -1972,6 +1973,7 @@ from(bucket: ""{_bucket}"")
 
             var key = (ifName, time.Ticks);
             times[key] = time;
+            portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
             else if (field == "rate_out_bps") rateOut[key] = value.Value;
         }
@@ -1983,6 +1985,9 @@ from(bucket: ""{_bucket}"")
             {
                 Time = time,
                 IfName = key.ifName,
+                // Carried like the aggregated variant does. Callers resolve a port by
+                // either name, and dropping it here silently cost them the stable one.
+                PortId = portIds.TryGetValue(key, out var pid) ? pid : null,
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
             });
