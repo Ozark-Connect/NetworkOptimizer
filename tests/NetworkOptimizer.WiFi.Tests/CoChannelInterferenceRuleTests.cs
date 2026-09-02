@@ -20,16 +20,25 @@ public class CoChannelInterferenceRuleTests
         _rule = new CoChannelInterferenceRule(_propagationService);
     }
 
-    private static AccessPointSnapshot CreateAp(string mac, string name, RadioBand band, int channel, int txPower = 20) => new()
+    private static AccessPointSnapshot CreateAp(
+        string mac, string name, RadioBand band, int channel, int txPower = 20,
+        int? width = null, int? center = null,
+        string? meshParentMac = null) => new()
     {
         Mac = mac,
         Name = name,
+        IsMeshChild = meshParentMac != null,
+        MeshParentMac = meshParentMac,
+        MeshUplinkBand = meshParentMac != null ? band : null,
+        MeshUplinkChannel = meshParentMac != null ? channel : null,
         Radios = new()
         {
             new RadioSnapshot
             {
                 Band = band,
                 Channel = channel,
+                ChannelWidth = width,
+                CenterChannel = center,
                 TxPower = txPower,
                 AntennaGain = 3
             }
@@ -256,5 +265,79 @@ public class CoChannelInterferenceRuleTests
         var issues = _rule.EvaluateAll(ctx).ToList();
 
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SamePrimary_KeepsTheOriginalCopyAndChannel()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Kitchen", RadioBand.Band5GHz, 36, width: 80),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-TinyHome", RadioBand.Band5GHz, 36, width: 80)
+        };
+
+        var issues = _rule.EvaluateAll(CreateContext(aps)).ToList();
+
+        issues.Should().HaveCount(1);
+        issues[0].Title.Should().Be("Co-Channel Interference on 5 GHz Channel 36");
+        issues[0].Description.Should().Be("2 APs (AP-Kitchen, AP-TinyHome) are using the same channel.");
+        issues[0].AffectedChannels.Should().BeEquivalentTo(new[] { 36 });
+    }
+
+    // The measured main-site layout, 2026-09-01: 320 MHz radios on primaries 69 (block 33-93),
+    // 5 (block 1-61, a mesh pair), and 165 (block 129-189). Kitchen shares 33-61 with the pair
+    // and nothing with Tiny Home. Grouping by primary saw none of it.
+    [Fact]
+    public void OverlappingBlocks_FlagTheKitchenWithTheYardPair_NotWithTinyHome()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Kitchen", RadioBand.Band6GHz, 69, width: 320, center: 63),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-FrontYard", RadioBand.Band6GHz, 5, width: 320, center: 31),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-BackYard", RadioBand.Band6GHz, 5, width: 320, center: 31,
+                meshParentMac: "aa:bb:cc:dd:ee:02"),
+            CreateAp("aa:bb:cc:dd:ee:04", "AP-TinyHome", RadioBand.Band6GHz, 165, width: 320, center: 159)
+        };
+
+        var issues = _rule.EvaluateAll(CreateContext(aps)).ToList();
+
+        issues.Should().HaveCount(1);
+        var issue = issues[0];
+        issue.Title.Should().Be("Co-Channel Interference on 6 GHz Channels 5 and 69");
+        issue.Description.Should().Contain("AP-Kitchen on channel 69 at 320 MHz (33-93)");
+        issue.Description.Should().Contain("AP-FrontYard on channel 5 at 320 MHz (1-61)");
+        issue.Description.Should().Contain("AP-BackYard on channel 5 at 320 MHz (1-61)");
+        issue.Description.Should().Contain("They share channels 33-61.");
+        issue.Description.Should().NotContain("AP-TinyHome");
+        issue.AffectedChannels.Should().BeEquivalentTo(new[] { 5, 69 });
+    }
+
+    [Fact]
+    public void MeasuredCenter_OverridesTheGuessedBlock()
+    {
+        // Guessed, 69 sits in 33-93 and overlaps 37's 1-61. Measured in 65-125 it does not.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 69, width: 320, center: 95),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 37, width: 320, center: 31)
+        };
+
+        _rule.EvaluateAll(CreateContext(aps)).Should().BeEmpty();
+
+        aps[0].Radios[0].CenterChannel = null;
+        _rule.EvaluateAll(CreateContext(aps)).Should().HaveCount(1, "the guess puts 69 in 33-93");
+    }
+
+    [Fact]
+    public void AMeshPairAloneOnOverlappingSpectrum_NoIssue()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-FrontYard", RadioBand.Band6GHz, 5, width: 320, center: 31),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-BackYard", RadioBand.Band6GHz, 5, width: 320, center: 31,
+                meshParentMac: "aa:bb:cc:dd:ee:02")
+        };
+
+        _rule.EvaluateAll(CreateContext(aps)).Should().BeEmpty();
     }
 }

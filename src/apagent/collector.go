@@ -279,6 +279,10 @@ func (c *Collector) runSlow(ctx context.Context) {
 		counters, sources = collectRadioCounters(ctx, radios)
 	}
 	c.table.SetRadioCounters(counters, sources, now)
+
+	// The block center changes only with the channel, so it rides this tier too. One netlink
+	// dump per pass, well under the mca-dump cost.
+	c.table.SetRadioCenters(collectRadioCenters(ctx), now)
 }
 
 func (c *Collector) publishTiers() {

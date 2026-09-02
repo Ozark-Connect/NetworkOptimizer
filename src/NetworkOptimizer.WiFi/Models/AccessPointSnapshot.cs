@@ -196,6 +196,13 @@ public class RadioSnapshot
     /// <summary>Extension channel number for 40 MHz+ bonding (from radio_table_stats)</summary>
     public int? ExtChannel { get; set; }
 
+    /// <summary>
+    /// Center of the operating block as a channel number, reported by the AP Agent. At 320 MHz
+    /// the primary sits in one block of each of two overlapping channelizations and the console
+    /// never says which; this does. Null without an agent, and the span falls back to a guess.
+    /// </summary>
+    public int? CenterChannel { get; set; }
+
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }
 

@@ -27,7 +27,8 @@ public class ChannelRecommendationServiceTests
         string mac, string name, RadioBand band, int channel,
         int width = 80, int txPower = 20, bool hasDfs = false,
         bool isMeshChild = false, string? meshParentMac = null,
-        RadioBand? meshUplinkBand = null, int? meshUplinkChannel = null) => new()
+        RadioBand? meshUplinkBand = null, int? meshUplinkChannel = null,
+        int? centerChannel = null) => new()
         {
             Mac = mac,
             Name = name,
@@ -43,12 +44,59 @@ public class ChannelRecommendationServiceTests
                 Band = band,
                 Channel = channel,
                 ChannelWidth = width,
+                CenterChannel = centerChannel,
                 TxPower = txPower,
                 AntennaGain = 3,
                 HasDfs = hasDfs
             }
         }
         };
+
+    [Fact]
+    public void BuildInterferenceGraph_CarriesTheMeasuredCenter()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 69, width: 320, centerChannel: 63),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 5, width: 320)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band6GHz, null, null, null);
+
+        graph.Nodes[0].CurrentCenter.Should().Be(63);
+        graph.Nodes[1].CurrentCenter.Should().BeNull();
+    }
+
+    [Fact]
+    public void ScoreAssignment_UsesTheMeasuredBlockForTheCurrentAssignmentOnly()
+    {
+        // Guessed, primary 69 at 320 MHz sits in 33-93 and overlaps 37's 1-61. Measured in
+        // 65-125 (center 95) the two radios share nothing, so the current plan scores cleaner.
+        var guessed = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 69, width: 320),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 37, width: 320)
+        };
+        var measured = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 69, width: 320, centerChannel: 95),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 37, width: 320, centerChannel: 31)
+        };
+        var current = new[] { (69, 320), (37, 320) };
+
+        var guessedGraph = _service.BuildInterferenceGraph(guessed, RadioBand.Band6GHz, null, null, null);
+        var measuredGraph = _service.BuildInterferenceGraph(measured, RadioBand.Band6GHz, null, null, null);
+
+        var guessedScore = _service.ScoreAssignment(guessedGraph, current, RadioBand.Band6GHz);
+        var measuredScore = _service.ScoreAssignment(measuredGraph, current, RadioBand.Band6GHz);
+        measuredScore.Should().BeLessThan(guessedScore);
+
+        // A candidate has no center: moving AP-1 to 101 scores the same either way, because the
+        // measured center belongs to 69 and does not follow the radio to a channel it is not on.
+        var moved = new[] { (101, 320), (37, 320) };
+        _service.ScoreAssignment(measuredGraph, moved, RadioBand.Band6GHz)
+            .Should().Be(_service.ScoreAssignment(guessedGraph, moved, RadioBand.Band6GHz));
+    }
 
     [Fact]
     public void Optimize_LargeSite_GuardHoldsAtScaleWithoutBlockingLegitimateSpread()

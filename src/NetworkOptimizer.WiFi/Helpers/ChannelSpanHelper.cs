@@ -11,8 +11,11 @@ public static class ChannelSpanHelper
     /// <summary>
     /// Returns the (low, high) channel range for a given primary channel and width,
     /// accounting for bonding groups. Used for overlap-aware interference scoring.
+    /// With a measured <paramref name="centerChannel"/> (5 and 6 GHz) the span is the block
+    /// around that center; without one it is derived from the primary, which at 320 MHz is a
+    /// guess between two overlapping channelizations.
     /// </summary>
-    public static (int Low, int High) GetChannelSpan(RadioBand band, int primaryChannel, int width)
+    public static (int Low, int High) GetChannelSpan(RadioBand band, int primaryChannel, int width, int? centerChannel = null)
     {
         if (band == RadioBand.Band2_4GHz)
         {
@@ -24,6 +27,9 @@ public static class ChannelSpanHelper
         // 5 GHz and 6 GHz: 20 MHz spacing (4 channel numbers apart)
         if (width <= 20) return (primaryChannel, primaryChannel);
 
+        if (TrySpanFromCenter(primaryChannel, width, centerChannel, out var measured))
+            return measured;
+
         int channelCount = width / 20;
         int groupStart = band == RadioBand.Band5GHz
             ? GetBondingGroupStart5GHz(primaryChannel, width)
@@ -33,10 +39,41 @@ public static class ChannelSpanHelper
     }
 
     /// <summary>
-    /// Returns the list of individual channels spanned by a given primary channel and width.
-    /// Used for visual channel map rendering. Accounts for 2.4 GHz extension channel direction.
+    /// The block around a measured center: center +/- (width / 20 - 1) * 2 channel numbers. A
+    /// center whose block does not contain the primary is not this radio's and is ignored.
     /// </summary>
-    public static List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null)
+    private static bool TrySpanFromCenter(int primaryChannel, int width, int? centerChannel, out (int Low, int High) span)
+    {
+        span = default;
+        if (centerChannel is not { } center || width < 40) return false;
+        int half = (width / 20 - 1) * 2;
+        span = (center - half, center + half);
+        return span.Low <= primaryChannel && primaryChannel <= span.High;
+    }
+
+    /// <summary>
+    /// Converts a center frequency in MHz to the band's channel number. 5 GHz counts from 5000
+    /// MHz, 6 GHz from 5950 MHz, in 5 MHz steps. Null for 2.4 GHz (whose channels are not
+    /// evenly spaced) or a frequency off the band's grid.
+    /// </summary>
+    public static int? CenterChannelFromMhz(RadioBand band, int centerMhz)
+    {
+        int baseMhz = band switch
+        {
+            RadioBand.Band5GHz => 5000,
+            RadioBand.Band6GHz => 5950,
+            _ => 0
+        };
+        if (baseMhz == 0 || centerMhz <= baseMhz || (centerMhz - baseMhz) % 5 != 0) return null;
+        return (centerMhz - baseMhz) / 5;
+    }
+
+    /// <summary>
+    /// Returns the list of individual channels spanned by a given primary channel and width.
+    /// Used for visual channel map rendering. Accounts for 2.4 GHz extension channel direction
+    /// and, on 5 and 6 GHz, a measured block center.
+    /// </summary>
+    public static List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null, int? centerChannel = null)
     {
         var channels = new List<int>();
 
@@ -82,9 +119,7 @@ public static class ChannelSpanHelper
 
         // 5 GHz and 6 GHz: 20 MHz channel spacing (4 channel numbers apart)
         int channelCount = width / 20;
-        int groupStart = band == RadioBand.Band5GHz
-            ? GetBondingGroupStart5GHz(primaryChannel, width)
-            : GetBondingGroupStart6GHz(primaryChannel, width);
+        var (groupStart, _) = GetChannelSpan(band, primaryChannel, width, centerChannel);
 
         for (int i = 0; i < channelCount; i++)
             channels.Add(groupStart + (i * 4));
@@ -118,12 +153,14 @@ public static class ChannelSpanHelper
 
     /// <summary>
     /// Compute the channel overlap factor between two channel assignments.
-    /// Returns 0.0 (no overlap) to 1.0 (co-channel).
+    /// Returns 0.0 (no overlap) to 1.0 (co-channel). A measured block center for either side
+    /// replaces the guessed bonding group for that side.
     /// </summary>
     public static double ComputeOverlapFactor(
         RadioBand band,
         int channel1, int width1,
-        int channel2, int width2)
+        int channel2, int width2,
+        int? center1 = null, int? center2 = null)
     {
         if (band == RadioBand.Band2_4GHz)
         {
@@ -145,8 +182,8 @@ public static class ChannelSpanHelper
             return 1.0;
 
         // Check bonding group overlap
-        var span1 = GetChannelSpan(band, channel1, width1);
-        var span2 = GetChannelSpan(band, channel2, width2);
+        var span1 = GetChannelSpan(band, channel1, width1, center1);
+        var span2 = GetChannelSpan(band, channel2, width2, center2);
 
         // Identical span = full co-channel. Two wide radios in the same bonding block occupy
         // the exact same spectrum even when their control channels differ (e.g. 100/160 and
@@ -188,17 +225,15 @@ public static class ChannelSpanHelper
     }
 
     /// <summary>
-    /// Get the start channel of the bonding group for 6 GHz.
+    /// Get the start channel of the bonding group for 6 GHz. This is the guess used when no
+    /// measured center is available; see <see cref="GetChannelSpan"/>.
     /// </summary>
     public static int GetBondingGroupStart6GHz(int primaryChannel, int width)
     {
         if (width == 320)
-        {
-            var groups = new (int s, int e)[] { (1, 61), (97, 157), (161, 221) };
-            foreach (var (start, end) in groups)
-                if (primaryChannel >= start && primaryChannel <= end) return start;
-        }
-        else if (width == 160)
+            return GetBondingGroupStart6GHz320(primaryChannel);
+
+        if (width == 160)
         {
             var groups = new (int s, int e)[]
             {
@@ -219,5 +254,20 @@ public static class ChannelSpanHelper
             return 1 + (offset / 8 * 8);
         }
         return primaryChannel;
+    }
+
+    /// <summary>
+    /// 802.11be defines two overlapping 320 MHz channelizations (blocks starting at 1, 65, 129,
+    /// 193 and at 33, 97, 161), and every primary above 29 is valid in one block of each. The
+    /// guess is the lower of the two, which is the block UniFi chose in every case measured so
+    /// far (primary 69 in 33-93, 5 in 1-61, 165 in 129-189). Only a measured center is certain.
+    /// </summary>
+    private static int GetBondingGroupStart6GHz320(int primaryChannel)
+    {
+        if (primaryChannel < 1) return primaryChannel;
+        int lower = 1 + (primaryChannel - 1) / 64 * 64;
+        if (primaryChannel >= 33)
+            lower = Math.Min(lower, 33 + (primaryChannel - 33) / 64 * 64);
+        return lower;
     }
 }

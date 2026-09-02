@@ -402,7 +402,12 @@ public class WiFiOptimizerService : IWiFiScanService
             // Extract results, logging failures individually
             if (apsTask.IsCompletedSuccessfully)
             {
-                _cachedAps = WiFiAnalysisHelpers.SortByIp(apsTask.Result);
+                var aps = WiFiAnalysisHelpers.SortByIp(apsTask.Result);
+                // Radios an AP Agent covers carry their measured block center; the console never
+                // reports it. Applied here so the health rules, the channel recommender, and the
+                // Wi-Fi Optimizer tabs all read the same snapshot.
+                ApAgent.ApAgentRadioEnricher.Apply(aps, mac => _apAgentTelemetry.GetFor(_siteSlug).RadioAirtime(mac));
+                _cachedAps = aps;
             }
             else if (apsTask.IsFaulted)
             {

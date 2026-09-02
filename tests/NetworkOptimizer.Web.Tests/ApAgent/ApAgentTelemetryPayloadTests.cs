@@ -89,6 +89,7 @@ public class ApAgentTelemetryPayloadTests
           "band": "5",
           "channel": 44,
           "bw": 160,
+          "center_mhz": 5250,
           "noise_floor": -96,
           "counters": { "cu_total": 41, "cu_interf": 12, "pdev_resets": 74144, "tx_data_bytes": 9 },
           "counter_deltas": { "cu_total": 3, "cycle_cnt": 300 },
@@ -153,5 +154,15 @@ public class ApAgentTelemetryPayloadTests
         radio.Counters["pdev_resets"].Should().Be(74144);
         radio.Deltas!["cycle_cnt"].Should().Be(300);
         radio.DeltaSeconds.Should().Be(30.5);
+        radio.CenterMhz.Should().Be(5250);
+    }
+
+    [Fact]
+    public void A_radio_without_a_center_reads_as_absent_not_zero()
+    {
+        var payload = JsonSerializer.Deserialize<ApAgentRadiosPayload>(
+            RadiosJson.Replace("\"center_mhz\": 5250,", ""), Options)!;
+
+        payload.Radios[0].CenterMhz.Should().BeNull();
     }
 }

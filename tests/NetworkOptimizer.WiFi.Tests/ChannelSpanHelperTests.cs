@@ -65,15 +65,78 @@ public class ChannelSpanHelperTests
     }
 
     [Fact]
-    public void GetChannelSpan_6GHz_320MHz_RespectsUNIIBoundary()
+    public void GetChannelSpan_6GHz_320MHz_GuessesTheLowerBlock()
     {
-        // UNII-5: channels 1-61
-        var span = ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 29, 320);
-        span.Should().Be((1, 61));
+        // Every primary above 29 is valid in one block of each 320 MHz channelization. Without a
+        // measured center the guess is the lower block, which is what UniFi chose in every case
+        // measured (primary 69 in 33-93, 5 in 1-61, 165 in 129-189).
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 29, 320).Should().Be((1, 61));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 5, 320).Should().Be((1, 61));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 69, 320).Should().Be((33, 93));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 117, 320).Should().Be((65, 125));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 165, 320).Should().Be((129, 189));
+    }
 
-        // UNII-6/7: channels 97-157
-        span = ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 117, 320);
-        span.Should().Be((97, 157));
+    [Fact]
+    public void GetChannelSpan_6GHz_320MHz_NoPrimaryFallsInAGap()
+    {
+        // The old table (1-61, 97-157, 161-221) mixed the two channelizations and left 62-96
+        // uncovered, so primary 69 got a span of 69-129 that exists nowhere.
+        for (int primary = 1; primary <= 233; primary += 4)
+        {
+            var span = ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, primary, 320);
+            (span.High - span.Low).Should().Be(60, $"primary {primary} must sit in a full 320 MHz block");
+            span.Low.Should().BeLessThanOrEqualTo(primary);
+            span.High.Should().BeGreaterThanOrEqualTo(primary);
+        }
+    }
+
+    [Fact]
+    public void GetChannelSpan_WithCenter_UsesTheMeasuredBlock()
+    {
+        // The three main-site radios as iw dev reported them on 2026-09-01.
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 69, 320, centerChannel: 63).Should().Be((33, 93));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 5, 320, centerChannel: 31).Should().Be((1, 61));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 165, 320, centerChannel: 159).Should().Be((129, 189));
+
+        // A center overrides the guess where the two disagree.
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 69, 320, centerChannel: 95).Should().Be((65, 125));
+
+        // Narrower widths and 5 GHz take the same rule.
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 37, 160, centerChannel: 47).Should().Be((33, 61));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, 100, 160, centerChannel: 114).Should().Be((100, 128));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, 44, 80, centerChannel: 42).Should().Be((36, 48));
+    }
+
+    [Fact]
+    public void GetChannelSpan_WithCenter_IgnoresACenterThatDoesNotContainThePrimary()
+    {
+        // A center from another radio's block is not this radio's; fall back to the guess.
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 5, 320, centerChannel: 159).Should().Be((1, 61));
+        // 20 MHz and 2.4 GHz never take a center.
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band6GHz, 5, 20, centerChannel: 5).Should().Be((5, 5));
+        ChannelSpanHelper.GetChannelSpan(RadioBand.Band2_4GHz, 6, 40, centerChannel: 8).Should().Be((2, 10));
+    }
+
+    [Fact]
+    public void GetChannelWidthSpan_WithCenter_ListsTheMeasuredBlock()
+    {
+        var channels = ChannelSpanHelper.GetChannelWidthSpan(RadioBand.Band6GHz, 69, 320, centerChannel: 63);
+        channels.Should().HaveCount(16);
+        channels.First().Should().Be(33);
+        channels.Last().Should().Be(93);
+    }
+
+    [Fact]
+    public void CenterChannelFromMhz_ConvertsOnTheBandsGrid()
+    {
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band6GHz, 6745).Should().Be(159);
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band6GHz, 6265).Should().Be(63);
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band6GHz, 6105).Should().Be(31);
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band5GHz, 5570).Should().Be(114);
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band2_4GHz, 2462).Should().BeNull();
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band6GHz, 6747).Should().BeNull("off the 5 MHz grid");
+        ChannelSpanHelper.CenterChannelFromMhz(RadioBand.Band6GHz, 0).Should().BeNull();
     }
 
     // --- SpansOverlap ---
@@ -190,6 +253,23 @@ public class ChannelSpanHelperTests
     public void ComputeOverlapFactor_5GHz_DifferentGroups_Returns0()
     {
         ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band5GHz, 36, 80, 149, 80)
+            .Should().Be(0.0);
+    }
+
+    [Fact]
+    public void ComputeOverlapFactor_6GHz_320MHz_WithCenters_UsesTheMeasuredBlocks()
+    {
+        // Main Kitchen (69, block 33-93) and the yard pair (5, block 1-61) share 33-61: partial.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 69, 320, 5, 320, center1: 63, center2: 31)
+            .Should().Be(0.7);
+        // Main Kitchen and Tiny Home (165, block 129-189) share nothing.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 69, 320, 165, 320, center1: 63, center2: 159)
+            .Should().Be(0.0);
+        // Same measured block on different primaries is full co-channel.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 37, 320, 69, 320, center1: 63, center2: 63)
+            .Should().Be(1.0);
+        // One side measured, the other guessed: 69 in the upper block against 37's guessed 1-61.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 69, 320, 37, 320, center1: 95)
             .Should().Be(0.0);
     }
 

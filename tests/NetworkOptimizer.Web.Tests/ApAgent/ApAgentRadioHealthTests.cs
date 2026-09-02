@@ -22,6 +22,7 @@ public class ApAgentRadioHealthTests
             band,
             37,
             160,
+            null,
             -96,
             new Dictionary<string, long>
             {
