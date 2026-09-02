@@ -27,6 +27,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<OutageAcknowledgement> OutageAcknowledgements { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
     public DbSet<HogRowBaseline> HogRowBaselines { get; set; }
+    public DbSet<WiFiIssueAcknowledgment> WiFiIssueAcknowledgments { get; set; }
+    public DbSet<WiFiRadioPreference> WiFiRadioPreferences { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
@@ -298,6 +300,18 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("DismissedIssues");
             entity.HasIndex(e => e.IssueKey).IsUnique();
+        });
+
+        // Wi-Fi Optimizer acknowledgments and per-radio preferences (Keep)
+        modelBuilder.Entity<WiFiIssueAcknowledgment>(entity =>
+        {
+            entity.ToTable("WiFiIssueAcknowledgments");
+            entity.HasIndex(e => e.IssueKey).IsUnique();
+        });
+        modelBuilder.Entity<WiFiRadioPreference>(entity =>
+        {
+            entity.ToTable("WiFiRadioPreferences");
+            entity.HasIndex(e => new { e.ApMac, e.Band }).IsUnique();
         });
 
         // OutageAcknowledgement configuration ("that was me" on ISP Health outages)

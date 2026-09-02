@@ -114,16 +114,22 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 if (isDenseDeployment)
                     description += denseNote;
 
-                yield return new HealthIssue
+                var issue = new HealthIssue
                 {
                     Severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning,
                     Dimensions = { HealthDimension.ChannelHealth },
+                    Class = HealthIssueClass.Measured,
+                    Key = HealthIssueKeys.For(RuleId, band.ToUniFiCode(), HealthIssueKeys.Macs(reported.Select(r => r.Ap.Mac))),
                     Title = title,
                     Description = description,
                     Recommendation = recommendation,
                     ScoreImpact = isDenseDeployment ? -1 : -5,
                     AffectedChannels = primaries.ToHashSet()
                 };
+                // Measured overlap keeps its severity; the hint only says whose choice the channels were.
+                if (reported.All(r => r.Radio.ChannelIsFixed))
+                    RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);
+                yield return issue;
             }
         }
     }

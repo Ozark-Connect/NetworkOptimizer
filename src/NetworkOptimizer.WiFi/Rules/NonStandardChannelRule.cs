@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -35,6 +36,8 @@ public class NonStandardChannelRule : IWiFiOptimizerRule
                 Severity = HealthIssueSeverity.Info,
                 Dimensions = { HealthDimension.ChannelHealth },
                 Title = $"Non-Standard 2.4 GHz Channel {group.Key}",
+                Class = HealthIssueClass.Advisory,
+                Key = HealthIssueKeys.For(RuleId, RadioBand.Band2_4GHz.ToUniFiCode(), group.Key.ToString()),
                 Description = $"APs ({string.Join(", ", apNames)}) are using channel {group.Key}, which overlaps with adjacent channels.",
                 Recommendation = "For best performance, use only channels 1, 6, or 11 on 2.4 GHz to avoid overlap.",
                 ScoreImpact = -2

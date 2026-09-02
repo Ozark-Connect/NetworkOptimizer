@@ -55,6 +55,7 @@
                         {
                             <div class="issue-recommendation">@FormatRecommendation(firstIssue.Recommendation)</div>
                         }
+                        @RenderActions(firstIssue)
                     </div>
                 </div>
             }
@@ -113,6 +114,7 @@
                                                 }
                                             }
                                         </div>
+                                        @RenderActions(issue)
                                     </div>
                                 }
                             </div>
@@ -138,7 +140,36 @@
     [Parameter]
     public EventCallback<string> OnClientClick { get; set; }
 
+    /// <summary>Acknowledge an issue (Site Admin): hidden from the active list, still scored. Absent: no button.</summary>
+    [Parameter]
+    public EventCallback<HealthIssue> OnAcknowledge { get; set; }
+
+    /// <summary>Restore an acknowledged issue (Site Admin). Absent: no button.</summary>
+    [Parameter]
+    public EventCallback<HealthIssue> OnRestore { get; set; }
+
     private HashSet<string> _expandedGroups = new();
+
+    // Copy: verbiage.md DC-ACK / DC-RESTORE, the same words and tooltips as Security Audit.
+    private RenderFragment RenderActions(HealthIssue issue) => __builder =>
+    {
+        if (OnAcknowledge.HasDelegate && !issue.IsAcknowledged)
+        {
+            <SiteAdminOnly>
+                <div class="issue-actions">
+                    <button class="btn btn-sm btn-ghost" @onclick="() => OnAcknowledge.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Hide this issue - still scored">Acknowledge</button>
+                </div>
+            </SiteAdminOnly>
+        }
+        else if (OnRestore.HasDelegate && issue.IsAcknowledged)
+        {
+            <SiteAdminOnly>
+                <div class="issue-actions">
+                    <button class="btn btn-sm btn-ghost" @onclick="() => OnRestore.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Restore this issue">Restore</button>
+                </div>
+            </SiteAdminOnly>
+        }
+    };
 
     private IEnumerable<IGrouping<string, HealthIssue>> GetGroupedIssues()
     {
@@ -275,5 +306,9 @@
     .issue-client-link:hover {
         color: var(--accent-color);
         text-decoration: underline;
+    }
+
+    .issue-actions {
+        margin-top: 0.4rem;
     }
 </style>

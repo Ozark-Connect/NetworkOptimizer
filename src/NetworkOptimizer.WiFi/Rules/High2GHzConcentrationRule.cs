@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -32,6 +33,8 @@ public class High2GHzConcentrationRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.BandSteering },
             Title = "High 2.4 GHz Concentration",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId),
             Description = $"{pct2g:F0}% of clients are on 2.4 GHz, but {ctx.SteerableClients.Count} of them " +
                 "support higher bands. This leads to congestion and slower speeds on 2.4 GHz.",
             Recommendation = "Consider: (1) enabling band steering, (2) reducing 2.4 GHz TX power to " +

@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -35,6 +36,8 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.CapacityHeadroom, HealthDimension.ChannelHealth },
             Title = "High Radio Utilization Detected",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Names(highUtilRadios.Select(x => HealthIssueKeys.Radio(x.Ap.Mac, x.Radio.Band)))),
             Description = $"{highUtilRadios.Count} radio(s) have utilization above {UtilizationThreshold}%. " +
                 "Clients may experience slow speeds and higher latency during busy periods.",
             AffectedEntity = string.Join(", ", affectedAps),

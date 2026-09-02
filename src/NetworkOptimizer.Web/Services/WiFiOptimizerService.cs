@@ -31,6 +31,7 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
     private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
+    private readonly NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository _wifiInsights;
     /// <summary>
     /// The registry rather than a MonitoringInfluxClient directly: the client is IAsyncDisposable,
     /// and injecting it here put one into scopes this service creates and disposes synchronously,
@@ -90,6 +91,7 @@ public class WiFiOptimizerService : IWiFiScanService
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
+        NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository wifiInsights,
         MonitoringInfluxRegistry influxRegistry,
         ChannelPlanCache planCache,
         SiteContextService siteContext,
@@ -114,6 +116,7 @@ public class WiFiOptimizerService : IWiFiScanService
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
         _channelMemoryRepository = channelMemoryRepository;
+        _wifiInsights = wifiInsights;
         _influxRegistry = influxRegistry;
         _planCache = planCache;
         _logger = logger;
@@ -195,6 +198,9 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.AirtimeEfficiency },
+                    RuleId = "WIFI-MLO-001",
+                    Class = HealthIssueClass.Advisory,
+                    Key = HealthIssueKeys.For("WIFI-MLO-001"),
                     Title = "MLO enabled",
                     Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO allows Wi-Fi 7 devices to aggregate multiple bands simultaneously. Non-Wi-Fi 7 devices may see reduced throughput on 5 GHz and 6 GHz bands.",
                     Recommendation = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing slow speeds on 5 GHz or 6 GHz."
@@ -211,6 +217,9 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
+                    RuleId = "WIFI-6GHZ-DISABLED-001",
+                    Class = HealthIssueClass.Advisory,
+                    Key = HealthIssueKeys.For("WIFI-6GHZ-DISABLED-001"),
                     Title = "6 GHz disabled",
                     Description = $"You have {aps6GHzCount} access point{(aps6GHzCount > 1 ? "s" : "")} with 6 GHz radios, but no SSIDs are broadcasting on 6 GHz. Enabling 6 GHz can offload Wi-Fi 6E/7 capable devices from congested 2.4 GHz and 5 GHz bands.",
                     Recommendation = "Enable 6 GHz on your SSIDs in UniFi Network: Settings > WiFi > (SSID) > Radio Band."
@@ -222,6 +231,18 @@ public class WiFiOptimizerService : IWiFiScanService
             {
                 var context = await BuildOptimizerContextAsync(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
                 _optimizerEngine.EvaluateRules(score, context);
+            }
+
+            // Acknowledged issues stay in the list and the score; the UI decides what to hide.
+            try
+            {
+                var acknowledged = await _wifiInsights.GetAcknowledgedIssueKeysAsync();
+                foreach (var issue in score.Issues)
+                    issue.IsAcknowledged = acknowledged.Contains(issue.Key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not load Wi-Fi issue acknowledgments; showing every issue as active");
             }
 
             _cachedHealthScore = score;
@@ -1308,7 +1329,7 @@ public class WiFiOptimizerService : IWiFiScanService
     /// Get channel recommendations for a specific band.
     /// Coordinates data loading and calls the recommendation engine for all bands.
     /// </summary>
-    public Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
+    public async Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
         RecommendationOptions? options = null,
         bool forceRefresh = false)
     {
@@ -1318,25 +1339,66 @@ public class WiFiOptimizerService : IWiFiScanService
         var pinned = opts.PinnedApMacs is { Count: > 0 }
             ? string.Join("+", opts.PinnedApMacs.OrderBy(m => m, StringComparer.Ordinal))
             : "none";
-        var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}";
+        // Kept radios are a constraint on the plan, so a Keep is a different question too.
+        var kept = await GetKeptRadiosAsync();
+        var keptKey = kept.Count > 0
+            ? string.Join("+", kept.Select(k => $"{k.ApMac}/{k.Band}").OrderBy(k => k, StringComparer.Ordinal))
+            : "none";
+        var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}|kept:{keptKey}";
 
         // A run that lost a band is served but never cached: caching it would hide that band for
         // the rest of the hour behind a plan that looks complete.
         var partial = false;
-        return _planCache.GetOrBuildPlanAsync(key, forceRefresh,
+        return await _planCache.GetOrBuildPlanAsync(key, forceRefresh,
             async () =>
             {
-                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh);
+                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh, kept);
                 partial = anyBandFailed;
                 return plans;
             },
             shouldCache: p => p is { Count: > 0 } && !partial);
     }
 
+    /// <summary>Kept radios, or none when the store cannot be read: a plan is never blocked on a preference.</summary>
+    private async Task<List<(string ApMac, string Band)>> GetKeptRadiosAsync()
+    {
+        try
+        {
+            return await _wifiInsights.GetKeptRadiosAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not load kept radios; planning without them");
+            return new List<(string, string)>();
+        }
+    }
+
+    /// <summary>
+    /// The options for one band: the caller's, plus the radios kept on that band as pins. The
+    /// engine's pin is per AP MAC and per Optimize call, and Optimize runs per band, so a
+    /// per-radio Keep is a per-band pin set.
+    /// </summary>
+    private static RecommendationOptions WithKeptRadios(
+        RecommendationOptions? options, IReadOnlyList<(string ApMac, string Band)> kept, RadioBand band)
+    {
+        var source = options ?? new RecommendationOptions();
+        var bandCode = band.ToUniFiCode();
+        var pins = new HashSet<string>(source.PinnedApMacs ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var k in kept.Where(k => k.Band == bandCode))
+            pins.Add(k.ApMac);
+        return new RecommendationOptions
+        {
+            DfsPreference = source.DfsPreference,
+            OptimizeWidths = source.OptimizeWidths,
+            PinnedApMacs = pins.Count > 0 ? pins : source.PinnedApMacs
+        };
+    }
+
     private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
         BuildAllChannelRecommendationsAsync(
         RecommendationOptions? options,
-        bool forceRefresh)
+        bool forceRefresh,
+        IReadOnlyList<(string ApMac, string Band)> kept)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var results = new Dictionary<RadioBand, ChannelPlan>();
@@ -1436,13 +1498,26 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     var bandStress = historicalContext?.Stress?.GetValueOrDefault(band);
                     var bandSoak = historicalContext?.Soak.GetValueOrDefault(band);
+                    var bandOptions = WithKeptRadios(options, kept, band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
-                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak,
+                        aps, band, propCtx, scanResults, regulatoryData, bandOptions, bandStress, bandSoak,
                         clientRates?.GetValueOrDefault(band),
                         historicalContext?.Credibility.GetValueOrDefault(band));
 
                     var plan = _channelRecommendationService.Optimize(
-                        graph, band, regulatoryData, options, hasBuildingData);
+                        graph, band, regulatoryData, bandOptions, hasBuildingData);
+
+                    // What the operator said about each radio, for the card: kept, or set by hand.
+                    var keptOnBand = kept.Where(k => k.Band == band.ToUniFiCode())
+                        .Select(k => k.ApMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (var rec in plan.Recommendations)
+                    {
+                        rec.IsKept = keptOnBand.Contains(rec.ApMac);
+                        rec.IsChannelFixed = aps
+                            .FirstOrDefault(ap => ap.Mac.Equals(rec.ApMac, StringComparison.OrdinalIgnoreCase))?
+                            .Radios.Any(r => r.Band == band && r.Channel.HasValue && r.ChannelIsFixed) == true;
+                    }
+                    plan.KeptRadioCount = plan.Recommendations.Count(r => r.IsKept);
 
                     plan.ComputedAtUtc = DateTime.UtcNow;
                     results[band] = plan;

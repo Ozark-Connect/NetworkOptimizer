@@ -34,6 +34,12 @@ public class ApChannelRecommendation
     public bool IsMeshConstrained { get; set; }
     public bool IsUnplaced { get; set; }
 
+    /// <summary>The operator kept this radio on its channel, so the plan left it where it is.</summary>
+    public bool IsKept { get; set; }
+
+    /// <summary>The channel is set by hand in UniFi Network rather than by Channel AI. Labeled, never skipped.</summary>
+    public bool IsChannelFixed { get; set; }
+
     /// <summary>Whether the AP's current channel span is subject to DFS.</summary>
     public bool IsCurrentDfsChannel { get; set; }
 
@@ -105,6 +111,9 @@ public class ChannelPlan
         }
     }
     public int UnplacedApCount { get; set; }
+
+    /// <summary>Radios the operator kept where they are, so a plan that moves nothing can say why.</summary>
+    public int KeptRadioCount { get; set; }
     public bool HasScanData { get; set; }
     public bool HasNeighborNetworks { get; set; }
 

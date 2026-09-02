@@ -203,6 +203,18 @@ public class RadioSnapshot
     /// </summary>
     public int? CenterChannel { get; set; }
 
+    /// <summary>The channel is set by hand in UniFi Network (radio_table channel is a number, not "auto").</summary>
+    public bool ChannelIsFixed { get; set; }
+
+    /// <summary>The TX power mode is set by hand in UniFi Network (anything but "auto").</summary>
+    public bool TxPowerIsFixed { get; set; }
+
+    /// <summary>
+    /// This radio's width differs from the most common width on its band across the site, which
+    /// is the best available reading of a deliberate per-AP width; UniFi carries no override flag.
+    /// </summary>
+    public bool WidthIsOverride { get; set; }
+
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }
 

@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Services;
 
@@ -74,15 +75,23 @@ public class HighPowerOverlapRule : IWiFiOptimizerRule
                     if (hasUnplacedAps)
                         recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
 
-                    yield return new HealthIssue
+                    var issue = new HealthIssue
                     {
                         Severity = HealthIssueSeverity.Warning,
                         Dimensions = { HealthDimension.SignalQuality, HealthDimension.ChannelHealth },
+                        Class = HealthIssueClass.Measured,
+                        Key = HealthIssueKeys.For(RuleId, band.ToUniFiCode(), channel.ToString(),
+                            HealthIssueKeys.Macs(highPowerAps.Select(ap => ap.Mac))),
                         Title = $"High Power Overlap on {band.ToDisplayString()} Channel {channel}",
                         Description = $"{string.Join(", ", highPowerAps.Select(x => x.Name))} are all using high TX power on the same channel, which may cause co-channel interference.",
                         Recommendation = recommendation,
-                        ScoreImpact = -5
+                        ScoreImpact = -5,
+                        AffectedChannels = { channel }
                     };
+                    // Measured overlap stays a warning; the hint only says whose choice it was.
+                    if (highPowerAps.All(ap => ap.Radios.Any(r => r.Band == band && r.Channel == channel && r.ChannelIsFixed)))
+                        RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);
+                    yield return issue;
                 }
             }
         }

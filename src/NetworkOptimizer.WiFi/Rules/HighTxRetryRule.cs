@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -48,6 +49,8 @@ public class HighTxRetryRule : IWiFiOptimizerRule
             Severity = severity,
             Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.ChannelHealth },
             Title = "High TX Retry Rates",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Names(highRetryRadios.Select(x => HealthIssueKeys.Radio(x.Ap.Mac, x.Radio.Band)))),
             Description = $"{highRetryRadios.Count} radio(s) have retry rates above {RetryThreshold}% " +
                 $"across {totalClients} clients. " +
                 "Retries waste airtime and indicate interference, weak signals, or hidden node problems.",

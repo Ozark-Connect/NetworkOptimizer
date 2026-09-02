@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -43,6 +44,8 @@ public class HighApLoadRule : IWiFiOptimizerRule
                 Severity = HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.CapacityHeadroom },
                 Title = $"High Load on {ap.Name}",
+                Class = HealthIssueClass.Measured,
+                Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { ap.Mac })),
                 Description = $"This AP has {ap.TotalClients} clients, which is more than 2x the average ({avgClientsPerAp:F0}). " +
                     "Clients may experience degraded performance.",
                 AffectedEntity = ap.Name,
@@ -56,6 +59,8 @@ public class HighApLoadRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.CapacityHeadroom },
             Title = $"{overloadedAps.Count} APs with High Client Load",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(overloadedAps.Select(ap => ap.Mac))),
             Description = $"{overloadedAps.Count} access points have more than 2x the average client count ({avgClientsPerAp:F0}). " +
                 "This may indicate coverage or load balancing issues.",
             AffectedEntity = string.Join(", ", overloadedAps.Select(ap => $"{ap.Name} ({ap.TotalClients})")),

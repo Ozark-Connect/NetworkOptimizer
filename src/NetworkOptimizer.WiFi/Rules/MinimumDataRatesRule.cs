@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -31,6 +32,8 @@ public class MinimumDataRatesRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.AirtimeEfficiency },
             Title = "Consider Minimum Data Rates",
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId),
             Description = "Setting minimum data rates can prevent very slow legacy transmissions from " +
                 "consuming excessive airtime, at the cost of reduced range for legacy devices.",
             Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum Data Rate - " +

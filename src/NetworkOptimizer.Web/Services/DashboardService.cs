@@ -209,7 +209,7 @@ public class DashboardService : IDashboardService
                 data.WiFiHealthScore = healthScore.OverallScore;
                 data.WiFiHealthGrade = healthScore.Grade;
                 data.WiFiHealthIssues = healthScore.Issues
-                    .Where(i => i.ShowOnOverview)
+                    .Where(i => i.ShowOnOverview && !i.IsAcknowledged)
                     .OrderByDescending(i => i.Severity)
                     .Take(5)
                     .ToList();

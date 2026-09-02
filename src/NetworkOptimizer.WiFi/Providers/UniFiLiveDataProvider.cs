@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Providers;
@@ -176,6 +177,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             }
         }
 
+        RadioIntent.ComputeWidthOverrides(snapshots);
         return snapshots;
     }
 
@@ -1168,6 +1170,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     // (e.g. an idle radio reporting 0), which "ht" never is for an enabled radio.
                     ChannelWidth = radioStats.Bw is > 0 ? radioStats.Bw : radioConfig?.ChannelWidth,
                     ExtChannel = radioStats.ExtChannel,
+                    ChannelIsFixed = RadioIntent.IsFixedChannel(radioConfig?.Channel),
+                    TxPowerIsFixed = radioConfig?.TxPowerMode is { Length: > 0 } powerMode
+                        && !powerMode.Equals("auto", StringComparison.OrdinalIgnoreCase),
                     TxPower = radioStats.TxPower,
                     TxPowerMode = radioConfig?.TxPowerMode,
                     MinTxPower = radioConfig?.MinTxPower,

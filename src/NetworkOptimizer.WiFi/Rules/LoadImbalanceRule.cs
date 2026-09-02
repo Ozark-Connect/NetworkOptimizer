@@ -146,6 +146,8 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         Severity = HealthIssueSeverity.Info,
                         Dimensions = { HealthDimension.CapacityHeadroom },
                         Title = "Significant Load Imbalance",
+                        Class = HealthIssueClass.Measured,
+                        Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
                         Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
                             $"These APs are in separate coverage zones so some imbalance is expected, " +
                             $"but some clients on {maxAp.Name} have weak signal.",
@@ -168,6 +170,8 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.CapacityHeadroom },
             Title = "Significant Load Imbalance",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
             Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
                 $"This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
             AffectedEntity = $"{maxAp.Name} ({maxAp.TotalClients}), {minAp.Name} ({minAp.TotalClients})",

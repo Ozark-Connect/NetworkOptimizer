@@ -8,6 +8,8 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// - 6 GHz 320 MHz: always suggest 160 MHz (better client performance + AP co-channel separation)
 /// - 5 GHz >= 160 MHz with weak-signal clients: suggest narrowing to 80 MHz
 /// 6 GHz 160 MHz is not flagged (less co-channel interference than 5 GHz).
+/// A width the configuration shows was chosen (a per-AP override, or a band carrying a mesh
+/// backhaul) is reported at Info with a hint rather than as a correction.
 /// </summary>
 public class WideChannelWidthRule : IWiFiOptimizerRule
 {
@@ -61,9 +63,9 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                 {
                     if (ap.MeshBackhaulUsesBand(RadioBand.Band6GHz))
                         continue;
-                    yield return hasWeakSignal
-                        ? BuildWeakSignalIssue(ap.Name, bandName, currentWidth, 160, weakClients, totalClients, weakPct)
-                        : BuildInfoIssue(ap.Name, bandName, currentWidth, 160);
+                    yield return WithIntent(hasWeakSignal
+                        ? BuildWeakSignalIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160, weakClients, totalClients, weakPct)
+                        : BuildInfoIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160), ap, radio);
                     continue;
                 }
 
@@ -71,21 +73,38 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                 // 6 GHz 160 MHz is fine - less co-channel interference than 5 GHz
                 if (radio.Band == RadioBand.Band5GHz && currentWidth >= 160 && hasWeakSignal)
                 {
-                    yield return BuildWeakSignalIssue(ap.Name, bandName, currentWidth, 80, weakClients, totalClients, weakPct);
+                    yield return WithIntent(
+                        BuildWeakSignalIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 80, weakClients, totalClients, weakPct), ap, radio);
                 }
             }
         }
     }
 
     /// <summary>
+    /// A width that was chosen (set differently from the band's other radios, or paying for a
+    /// mesh backhaul) is a check, not a correction: Info, with the hint saying which.
+    /// </summary>
+    private static HealthIssue WithIntent(HealthIssue issue, AccessPointSnapshot ap, RadioSnapshot radio)
+    {
+        if (ap.MeshBackhaulUsesBand(radio.Band))
+            return RadioIntent.MarkDeliberate(issue, RadioIntent.WidthHint(radio.Band, meshBackhaul: true));
+        if (radio.WidthIsOverride)
+            return RadioIntent.MarkDeliberate(issue, RadioIntent.WidthHint(radio.Band, meshBackhaul: false));
+        return issue;
+    }
+
+    /// <summary>
     /// Info-level issue for unconditionally wide channels (6 GHz 320 MHz).
     /// </summary>
-    private static HealthIssue BuildInfoIssue(string apName, string bandName, int currentWidth, int suggestedWidth)
+    private HealthIssue BuildInfoIssue(string apMac, string apName, RadioBand band, int currentWidth, int suggestedWidth)
     {
+        var bandName = band.ToDisplayString();
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.ChannelHealth },
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Radio(apMac, band)),
             Title = $"{bandName} {currentWidth} MHz: {apName}",
             Description = $"{apName} is using {currentWidth} MHz on {bandName}. " +
                 $"Narrowing to {suggestedWidth} MHz can improve performance on some devices and gives better co-channel separation between APs.",
@@ -99,14 +118,17 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
     /// <summary>
     /// Warning-level issue when clients have poor signal on wide channels.
     /// </summary>
-    private static HealthIssue BuildWeakSignalIssue(
-        string apName, string bandName, int currentWidth, int suggestedWidth,
+    private HealthIssue BuildWeakSignalIssue(
+        string apMac, string apName, RadioBand band, int currentWidth, int suggestedWidth,
         int weakClients, int totalClients, double weakPct)
     {
+        var bandName = band.ToDisplayString();
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.SignalQuality, HealthDimension.ChannelHealth },
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Radio(apMac, band)),
             Title = $"Wide Channel with Weak Clients on {bandName}: {apName}",
             Description = $"{apName} is using {currentWidth} MHz on {bandName}, " +
                 $"and {weakClients} of {totalClients} clients ({weakPct:F0}%) have weak signal for their band. " +

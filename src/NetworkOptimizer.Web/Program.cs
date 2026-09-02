@@ -880,6 +880,17 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRep
 builder.Services.AddSiteScopedRegistry<ChannelMemoryRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryRegistry>());
 
+// What the operator told the Wi-Fi Optimizer: acknowledged issues and kept radios, per site.
+// The repository is ungated (the optimizer reads it while building a score or plan); the two
+// services are the UI's gates (reads Viewer, writes Site Admin).
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.WiFiInsightRepository>(
+        sp,
+        sp.GetRequiredService<SiteContextService>().Slug,
+        sp.GetRequiredService<SiteContextService>().IsDefault));
+builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
+builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
+
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();
 
