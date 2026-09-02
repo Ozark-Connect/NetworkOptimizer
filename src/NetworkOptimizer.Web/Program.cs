@@ -707,6 +707,9 @@ builder.Services.AddMutatingService<ISiteInfluxProvisioningService>(
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
     sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
+// Site-vantage hostname resolution (agent or local server), cached; anchors speed test path
+// analysis at a hostname override the way the site's clients resolve it.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SiteVantageDnsResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
 // Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
 // the current site's gateway SSH service.

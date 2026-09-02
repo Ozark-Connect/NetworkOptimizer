@@ -29,6 +29,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
     private readonly ApAgent.ApAgentTargetDirectory? _apAgents;
     private readonly Licensing.LicenseStateService? _licenseState;
+    private readonly SiteAgentCoverage? _agentCoverage;
+    private readonly Monitoring.SiteVantageDnsResolver? _dnsResolver;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
@@ -55,9 +57,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
         ApAgent.ApAgentTargetDirectory? apAgents = null,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
+        SiteAgentCoverage? agentCoverage = null,
+        Monitoring.SiteVantageDnsResolver? dnsResolver = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
+        _agentCoverage = agentCoverage;
+        _dnsResolver = dnsResolver;
         _logger = logger;
         _dbFactory = dbFactory;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -82,15 +88,24 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     /// <summary>
-    /// The local endpoint the client actually connected to, for path analysis. On a
-    /// secondary (agent) site that's the on-site agent's LAN IP - the client hit the
-    /// agent's nginx / iperf3, not this central server - so the trace runs client to
-    /// agent on the site's own topology; the central server's HOST_IP is off-network
-    /// there and traces to nothing meaningful. The default site uses HOST_IP as before.
+    /// The local endpoint the client actually connected to, for path analysis. The site's
+    /// speed test target override wins when set: it is where clients are sent, so a trace
+    /// anchored anywhere else describes a path the test never took. Otherwise the endpoint
+    /// the site advertises (<see cref="ResolveAdvertisedEndpointAsync"/>).
     /// </summary>
     private async Task<string?> ResolveServerIpAsync()
+        => await GetTargetOverrideIpAsync() ?? await ResolveAdvertisedEndpointAsync();
+
+    /// <summary>
+    /// The endpoint the site advertises to clients when no override is set: the on-site
+    /// agent's LAN IP wherever the agent covers the site (every secondary site, and the
+    /// default site once configured for it), the same rule <see cref="SiteSpeedTestTargetResolver"/>
+    /// sends clients by. The client hit the agent's nginx / iperf3 there, not this server, so
+    /// the trace runs client to agent on the site's own topology. Otherwise HOST_IP.
+    /// </summary>
+    private async Task<string?> ResolveAdvertisedEndpointAsync()
     {
-        if (!_isDefault)
+        if (!_isDefault || (_agentCoverage != null && await _agentCoverage.CoversAsync(_siteSlug)))
         {
             try
             {
@@ -115,10 +130,11 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     /// <summary>
-    /// The site's client speed test target override as an IP literal, or null when
-    /// unset or a hostname (an off-topology DNS name can't anchor a LAN trace).
-    /// Parsed the same way <see cref="SiteSpeedTestTargetResolver"/> treats the
-    /// override: full URLs yield their host, anything else is the host itself.
+    /// The site's client speed test target override as an IP, or null when unset or
+    /// unresolvable. Parsed the same way <see cref="SiteSpeedTestTargetResolver"/> treats the
+    /// override: full URLs yield their host, anything else is the host itself. A hostname is
+    /// resolved from the site's own vantage (cached), since the name is what the site's
+    /// clients see and this server's resolver may not know it.
     /// </summary>
     private async Task<string?> GetTargetOverrideIpAsync()
     {
@@ -136,7 +152,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 host = uri.Host;
             }
-            return System.Net.IPAddress.TryParse(host, out _) ? host : null;
+            if (System.Net.IPAddress.TryParse(host, out _))
+                return host;
+            return _dnsResolver != null ? await _dnsResolver.ResolveAsync(_siteSlug, host) : null;
         }
         catch (Exception ex)
         {
@@ -559,17 +577,14 @@ public class ClientSpeedTestService : IClientSpeedTestService
                     priorSnapshot,
                     forceApMac: forceApMac);
 
-                // A relayed result's LocalIp is the listener's socket address, which
+                // An iperf3 result's LocalIp is the listener's socket address, which
                 // can be off-topology (Docker bridge networking, or a multi-NIC agent
                 // box picking the wrong interface). When the server endpoint wasn't
-                // found, retry the trace anchored at where clients are actually sent:
-                // the site's target override first (the box the operator pointed
-                // clients at - the only agent-independent anchor, so it also covers
-                // the default site), then the reported endpoint (agent LAN IP /
-                // HOST_IP) the site advertises when no override is set.
+                // found, retry anchored at the site's target override (where clients are
+                // actually sent), then at the advertised endpoint (agent LAN IP / HOST_IP).
                 if (!path.IsValid && path.ErrorMessage == NetworkPath.ServerPositionNotFoundError)
                 {
-                    var candidates = new[] { await GetTargetOverrideIpAsync(), await ResolveServerIpAsync() };
+                    var candidates = new[] { await GetTargetOverrideIpAsync(), await ResolveAdvertisedEndpointAsync() };
                     foreach (var fallbackIp in candidates.Where(ip => !string.IsNullOrEmpty(ip)).Distinct())
                     {
                         if (fallbackIp == result.LocalIp)
