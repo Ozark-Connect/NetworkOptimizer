@@ -2849,6 +2849,7 @@ public class LanFlowMapService
             StringComparer.OrdinalIgnoreCase);
         foreach (var mac in deviceMacs)
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
                 ratesByDevice[mac] = await _influx.QueryInterfaceRatesRawAsync(mac, from, to, ct);
@@ -2912,6 +2913,10 @@ public class LanFlowMapService
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
 
+        // Every catch above swallows a cancelled query as a per-item miss, so a fetch a scrub cut
+        // off comes out with holes. Never return one: the caller caches it as the window, and
+        // every instant inside it then reads those links as idle until the window rolls.
+        ct.ThrowIfCancellationRequested();
         return new HistoricDataCache(
             from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
     }
