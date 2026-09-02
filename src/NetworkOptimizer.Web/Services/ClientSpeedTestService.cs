@@ -101,7 +101,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// <see cref="SiteSpeedTestHostSelector"/> sends clients to, wherever one is selected (every
     /// secondary site, and the default site once configured for its agent to cover it). The
     /// client hit that agent's nginx / iperf3, not this server, so the trace runs client to
-    /// agent on the site's own topology. Otherwise HOST_IP, which only the default site has.
+    /// agent on the site's own topology. Otherwise HOST_IP on the default site, where this
+    /// server is the host; a managed site with no host has nothing on its topology to anchor at.
     /// </summary>
     private async Task<string?> ResolveAdvertisedEndpointAsync()
     {
@@ -118,7 +119,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _logger.LogDebug(ex, "Failed to select the speed test host for site {Site} path analysis", _siteSlug);
             }
         }
-        return _configuration["HOST_IP"];
+        return _isDefault ? _configuration["HOST_IP"] : null;
     }
 
     /// <summary>

@@ -4700,7 +4700,18 @@
     private readonly Dictionary<int, SiteSpeedTestHostSelector.Selection> _speedTestHosts = new();
 
     private async Task LoadSpeedTestHostAsync(Site site)
-        => _speedTestHosts[site.Id] = await HostSelector.SelectAsync(site.Slug);
+    {
+        try
+        {
+            _speedTestHosts[site.Id] = await HostSelector.SelectAsync(site.Slug);
+        }
+        catch (Exception ex)
+        {
+            // The placeholder is a hint; the panel must still open.
+            Logger.LogDebug(ex, "Speed test host selection failed for site {Site}", site.Slug);
+            _speedTestHosts.Remove(site.Id);
+        }
+    }
 
     private string ClientSpeedTestPlaceholder(Site site)
     {

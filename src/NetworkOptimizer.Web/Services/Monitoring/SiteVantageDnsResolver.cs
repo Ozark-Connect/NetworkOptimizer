@@ -18,6 +18,9 @@ public class SiteVantageDnsResolver
 {
     private static readonly TimeSpan HitTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan MissTtl = TimeSpan.FromMinutes(1);
+    // A lookup rides inside a speed test result post; a name the vantage cannot resolve must not
+    // hold that for the OS resolver's own timeout.
+    private static readonly TimeSpan LookupTimeout = TimeSpan.FromSeconds(5);
 
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentProbeService _agentProbe;
@@ -65,7 +68,9 @@ public class SiteVantageDnsResolver
             : _local;
         try
         {
-            var result = await executor.LookupAsync(new ProbeTarget(host, ProbeMode.Icmp), ct: ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(LookupTimeout);
+            var result = await executor.LookupAsync(new ProbeTarget(host, ProbeMode.Icmp), ct: timeout.Token);
             // Kind is null when an old agent answered a lookup with a ping; that is not a DNS answer.
             if (result.Kind == null || !result.Success)
             {

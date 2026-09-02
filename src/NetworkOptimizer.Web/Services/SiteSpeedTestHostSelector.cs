@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
@@ -78,15 +80,21 @@ public class SiteSpeedTestHostSelector
 
     /// <summary>
     /// The address and port clients use for this agent. A gateway agent reports its WAN address as
-    /// its LAN IP, which no site client can use as a LAN target, so a public LAN IP gives way to
-    /// the first private address the agent's host holds.
+    /// its LAN IP, which no site client can use as a LAN target, so a LAN IP that is not RFC1918
+    /// IPv4 gives way to the first such address the agent's host holds (IPv4 only: the URL is
+    /// composed bare, and CGNAT or ULA space is no more reachable to a LAN client than the WAN).
     /// </summary>
     private static SpeedTestHost HostFor(SiteAgent agent, AgentTunnelConnection? connection)
     {
         var lanIp = agent.LanIp!;
-        if (connection != null && !NetworkUtilities.IsPrivateIpAddress(lanIp))
-            lanIp = connection.HostAddresses.FirstOrDefault(NetworkUtilities.IsPrivateIpAddress) ?? lanIp;
+        if (connection != null && !IsLanAddress(lanIp))
+            lanIp = connection.HostAddresses.FirstOrDefault(IsLanAddress) ?? lanIp;
         var port = connection is { SpeedTestPort: > 0 } ? connection.SpeedTestPort : SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
         return new SpeedTestHost(agent.Id, lanIp, port);
     }
+
+    private static bool IsLanAddress(string address) =>
+        IPAddress.TryParse(address, out var ip)
+        && ip.AddressFamily == AddressFamily.InterNetwork
+        && NetworkUtilities.IsRfc1918(ip);
 }
