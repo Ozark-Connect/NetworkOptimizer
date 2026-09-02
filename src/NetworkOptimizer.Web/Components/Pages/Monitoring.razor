@@ -2726,7 +2726,7 @@
         {
             if (_siteAgent is null) return "not set up";
             var version = _siteAgent.LastVersion is null ? ""
-                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
+                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion))}";
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
             if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
             return _siteAgent.LastSeenAt is DateTime seen

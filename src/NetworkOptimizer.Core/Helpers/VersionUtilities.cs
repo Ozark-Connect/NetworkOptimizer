@@ -64,6 +64,19 @@ public static class VersionUtilities
     }
 
     /// <summary>
+    /// Drops a leading "v" so a value rendered after the UI's own "v" prefix
+    /// cannot double up: a from-source build stamped "v2.8.0-preview6-16-gc15f291a"
+    /// would otherwise show as "vv...". Nothing else is changed. Null/blank passes
+    /// through.
+    /// </summary>
+    public static string? TrimLeadingV(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return version;
+        return version.TrimStart('v', 'V');
+    }
+
+    /// <summary>
     /// The bare X.Y.Z: prerelease identifiers and build metadata stripped
     /// ("2.8.0-preview5+abc" -> "2.8.0"). For user-facing copy where the gate
     /// version is a prerelease tag but the binaries a user fetches carry the

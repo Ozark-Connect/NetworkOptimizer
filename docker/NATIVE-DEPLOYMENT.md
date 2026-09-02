@@ -313,22 +313,29 @@ UniFi gateway over SSH. It is not produced by `dotnet publish`, so build it
 separately into the `tools/` directory next to the app. Requires [Go](https://go.dev/dl/).
 
 ```bash
+# Stamp the binaries with the version you are building, so the app can report
+# which build each one is running. The leading "v" is stripped deliberately -
+# the UI adds its own.
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+VERSION="${VERSION#v}"
+
 # Gateways are always ARM64 - build for linux/arm64 regardless of your host arch
 cd src/uwnspeedtest
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w" -o /opt/network-optimizer/tools/uwnspeedtest-linux-arm64 .
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/uwnspeedtest-linux-arm64 .
 cd ../..
 
 # Optional: WAN Steering daemon (only if you use multi-WAN steering)
 cd src/wansteer
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w" -o /opt/network-optimizer/tools/wansteer-linux-arm64 .
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/wansteer-linux-arm64 .
 cd ../..
 
 # Optional: AP Agent (only if you want on-AP Wi-Fi telemetry)
 # Access points are armv7l, not arm64, whatever your gateway or host is.
 cd src/apagent
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath     -ldflags "-s -w" -o /opt/network-optimizer/tools/apagent-linux-arm .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/apagent-linux-arm .
 cd ../..
 ```
 

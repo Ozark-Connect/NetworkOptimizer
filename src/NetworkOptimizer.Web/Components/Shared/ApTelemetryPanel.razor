@@ -171,7 +171,7 @@
                                     <td class="hide-mobile">
                                         @if (IsRunning(entry) && !string.IsNullOrEmpty(entry.DeployedVersion))
                                         {
-                                            <text>v@(entry.DeployedVersion)</text>
+                                            <text>v@(NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(entry.DeployedVersion))</text>
                                             @if (entry.State == ApAgentState.OutOfDate)
                                             {
                                                 <span class="ap-agent-note">Update available</span>
@@ -238,7 +238,7 @@
                                                         {
                                                             <div class="ap-agent-cap-title">Capability report - @entry.DeviceName</div>
                                                             <span class="ap-agent-note">
-                                                                AP Agent v@(caps.Version), probed @Ago(caps.ProbedAt).
+                                                                AP Agent v@(NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(caps.Version)), probed @Ago(caps.ProbedAt).
                                                                 The AP Agent probes what this access point can provide at startup;
                                                                 sources vary by model and firmware.
                                                             </span>
