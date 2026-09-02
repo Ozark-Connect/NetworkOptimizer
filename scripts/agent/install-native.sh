@@ -43,7 +43,7 @@ SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 # PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: fetch the newest v2.8.0-preview*
 # binaries; releases/latest would hand back the pre-conntrack stable agent.
 PREVIEW_TAG="$(curl -fsSL 'https://api.github.com/repos/Ozark-Connect/NetworkOptimizer/releases?per_page=20' 2>/dev/null | sed -n 's/.*"tag_name": *"\(v2\.8\.0-preview[0-9]*\)".*/\1/p' | head -n1)" || PREVIEW_TAG=""
-RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${PREVIEW_TAG:-v2.8.0-preview5}"
+RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${PREVIEW_TAG:-v2.8.0-preview8}"
 
 while [ $# -gt 0 ]; do
     case "$1" in

@@ -21,14 +21,15 @@ public static class AppVersionInfo
     /// Never set it past that release - the Multi-Site agent list shows an
     /// "Update agent" callout for enrolled agents reporting an older version
     /// than this, and over-bumping nags agents into pointless upgrades. A
-    /// prerelease tag counts as a release here: the 2.8 agent changes first
-    /// ship in v2.8.0-preview5, and IsOlderThan ranks a release above its own
-    /// prereleases, so "2.8.0" would nag every preview5 agent running
+    /// prerelease tag counts as a release here: the agent last changed in
+    /// v2.8.0-preview8 (the SNMP poller keeps cached interface names over a
+    /// failed naming walk), and IsOlderThan ranks a release above its own
+    /// prereleases, so "2.8.0" would nag every preview8 agent running
     /// byte-identical code - while a stable "2.8.0" agent still satisfies this
     /// gate. It stays here through GA unless agent-relevant code changes again
     /// (checked by the placeholder PRs #1189/#1190).
     /// </summary>
-    public const string LatestAgentVersion = "2.8.0-preview5";
+    public const string LatestAgentVersion = "2.8.0-preview8";
 
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }
