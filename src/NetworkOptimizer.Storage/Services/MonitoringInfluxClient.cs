@@ -3950,6 +3950,37 @@ union(tables: [means, chan])
         return counts.Select(kv => new WiredPortOccupant(kv.Key.Device, kv.Key.Port, kv.Key.Client, kv.Value.Samples, kv.Value.Ip, kv.Value.Name)).ToList();
     }
 
+    /// <summary>
+    /// The switch port one wired client held most over a window, from its port-tagged
+    /// <c>wired_client</c> points, or null when it has none. The client is a field, so this reads
+    /// the window's points; callers keep the window to days, not weeks.
+    /// </summary>
+    public async Task<(string DeviceMac, int Port)?> QueryWiredClientPortAsync(
+        string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var mac = NormalizeMac(clientMac);
+        if (mac.Length == 0) return null;
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wired_client"")
+  |> filter(fn: (r) => exists r.port)
+  |> filter(fn: (r) => r._field == ""client_mac"" and r._value == ""{mac}"")
+  |> group(columns: [""device_mac"", ""port""])
+  |> count()";
+        (string Device, int Port, long Samples)? best = null;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            if (device.Length == 0) continue;
+            if (!int.TryParse(record.GetValueByKey("port") as string, out var port) || port <= 0) continue;
+            var samples = AsDoubleOrNull(record.GetValueByKey("_value")) is { } n ? (long)n : 0;
+            if (best == null || samples > best.Value.Samples)
+                best = (device, port, samples);
+        }
+        return best is { } b ? (b.Device, b.Port) : null;
+    }
+
     private async Task<IReadOnlyList<ClientByteTotal>> ReadClientTotalsAsync(string flux, CancellationToken ct)
     {
         var results = new List<ClientByteTotal>();

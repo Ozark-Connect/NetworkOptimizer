@@ -292,6 +292,19 @@ public class ClientDashboardService
                     IsOffline = true
                 };
 
+                // The history list carries no switch or port, and a wired client's LAN usage is
+                // its port's counters: without the port, Data Usage reads zero for a client that
+                // was busy all day. Its own port-tagged samples say where it sat.
+                if (offlineIdentity.IsWired && !string.IsNullOrEmpty(offlineIdentity.Mac))
+                {
+                    var port = await LastKnownPortAsync(offlineIdentity.Mac);
+                    if (port is { } known)
+                    {
+                        offlineIdentity.SwitchMac = known.DeviceMac;
+                        offlineIdentity.SwitchPort = known.Port;
+                    }
+                }
+
                 _offlineIdentityCache[clientIp] = offlineIdentity;
                 _logger.LogDebug("Identified offline client {Ip} as {Name} ({Mac})",
                     clientIp, offlineIdentity.DisplayName, offlineIdentity.Mac);
@@ -1371,6 +1384,28 @@ public class ClientDashboardService
             PacketsFromClient = row.UcastPktsIn,
             At = row.Time,
         };
+    }
+
+    /// <summary>
+    /// Where a wired client last sat, from its own port-tagged samples over the past week: the
+    /// port it held most, so a sample or two the console misreported onto an uplink port does not
+    /// win. Null when it has none.
+    /// </summary>
+    private async Task<(string DeviceMac, int Port)?> LastKnownPortAsync(string clientMac)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+            var now = DateTime.UtcNow;
+            return await influx.QueryWiredClientPortAsync(clientMac, now.AddDays(-7), now);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Last known port unavailable for {Mac}", clientMac);
+            return null;
+        }
     }
 
     /// <summary>The SNMP interface names behind a console port number, cached per port.</summary>
