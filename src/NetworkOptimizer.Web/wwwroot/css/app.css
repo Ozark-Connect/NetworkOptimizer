@@ -12674,7 +12674,9 @@ a.path-hop.hop-clickable:hover {
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
     .channel-stats-row {
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
     }
 
     .channel-stat-card {
