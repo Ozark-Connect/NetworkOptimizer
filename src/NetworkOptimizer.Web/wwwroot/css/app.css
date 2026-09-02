@@ -7179,6 +7179,13 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Compact issue count for card headers */
+/* Wi-Fi Optimizer - Health Issues card, Acknowledged tab */
+.acknowledged-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
 .issue-count-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;

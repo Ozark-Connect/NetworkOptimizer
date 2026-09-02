@@ -544,10 +544,11 @@
                     var activeIssues = _healthScore?.Issues.Where(i => i.ShowOnOverview && !i.IsAcknowledged).ToList() ?? new List<HealthIssue>();
                     var acknowledgedIssues = _healthScore?.Issues.Where(i => i.ShowOnOverview && i.IsAcknowledged).ToList() ?? new List<HealthIssue>();
                 }
-                @if (activeIssues.Count > 0)
-                {
-                    <span class="issue-count-sm">@activeIssues.Count issue@(activeIssues.Count != 1 ? "s" : "")</span>
-                }
+                @* Same tab row as Security Audit's Issues Found card. *@
+                <div class="filter-tabs">
+                    <button class="tab @(_issueTab == "active" ? "active" : "")" @onclick='() => _issueTab = "active"'>Active (@activeIssues.Count)</button>
+                    <button class="tab tab-muted @(_issueTab == "acknowledged" ? "active" : "")" @onclick='() => _issueTab = "acknowledged"'>Acknowledged (@acknowledgedIssues.Count)</button>
+                </div>
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -556,6 +557,21 @@
                         <span class="spinner-sm"></span>
                         <span>Loading...</span>
                     </div>
+                }
+                else if (_issueTab == "acknowledged")
+                {
+                    @* Acknowledged issues: hidden from Active, still scored. *@
+                    @if (acknowledgedIssues.Count == 0)
+                    {
+                        <div class="no-issues">
+                            <p>No acknowledged issues.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="acknowledged-note">Acknowledged issues stay in the health score. They are hidden here, not fixed.</p>
+                        <IssuesList Issues="acknowledgedIssues" ShowDetails="true" OnClientClick="HandleMapClientClick" OnRestore="RestoreIssueAsync" />
+                    }
                 }
                 else
                 {
@@ -571,24 +587,6 @@
                     else
                     {
                         <IssuesList Issues="activeIssues" ShowDetails="true" OnClientClick="HandleMapClientClick" OnAcknowledge="AcknowledgeIssueAsync" />
-                    }
-                    @if (acknowledgedIssues.Count > 0)
-                    {
-                        <!-- Acknowledged issues: hidden above, still scored. -->
-                        <div class="issue-type-group issue-info acknowledged-issues">
-                            <div class="issue-type-header @(_acknowledgedExpanded ? "expanded" : "")" @onclick="() => _acknowledgedExpanded = !_acknowledgedExpanded">
-                                <div class="issue-type-body">
-                                    <div class="issue-title">Acknowledged (@acknowledgedIssues.Count)</div>
-                                    <div class="issue-description">Acknowledged issues stay in the health score. They are hidden here, not fixed.</div>
-                                </div>
-                                <span class="issue-type-chevron">@(_acknowledgedExpanded ? "▲" : "▼")</span>
-                            </div>
-                            <div class="expand-wrapper @(_acknowledgedExpanded ? "expanded" : "")">
-                                <div class="expand-content">
-                                    <IssuesList Issues="acknowledgedIssues" ShowDetails="true" OnClientClick="HandleMapClientClick" OnRestore="RestoreIssueAsync" />
-                                </div>
-                            </div>
-                        </div>
                     }
                 }
             </div>
@@ -1009,7 +1007,8 @@
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
-    private bool _acknowledgedExpanded;
+    /// <summary>Health Issues card tab: "active" or "acknowledged".</summary>
+    private string _issueTab = "active";
 
     /// <summary>Acknowledge: hidden from the active list, still scored. The issue object moves groups in place.</summary>
     private async Task AcknowledgeIssueAsync(HealthIssue issue)
