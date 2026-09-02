@@ -353,10 +353,10 @@
     private string ShareTooltip => (_mode, _view) switch
     {
         (Mode.Throughput, View.Wan) => _result?.WanMeasured == true
-            ? "Share of the WAN rate, measured on the Gateway"
+            ? "Share of the WAN traffic the listed clients are moving, measured on the Gateway"
             : _result?.WanEstimated == true
-                ? "Share of the WAN rate, estimated from load and traffic patterns"
-                : "Share of the WAN rate; the clients' traffic matched the WAN load",
+                ? "Share of the WAN traffic the listed clients are moving, estimated from load and traffic patterns"
+                : "Share of the WAN traffic the listed clients are moving; their traffic matched the WAN load",
         (Mode.Throughput, _) => "Share of everything the listed clients are moving",
         (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
         _ => "Share of everything through the clients' ports and radios",
@@ -638,15 +638,11 @@
 
     private double ShareDenominator() => ShareDenominator(_view);
 
-    /// <summary>Share of the WAN rate in the live WAN view; of everything listed otherwise.</summary>
-    private double ShareDenominator(View view)
-    {
-        // The answer's own WAN rate, never the live one: the split was made against it, and a
-        // client allocated at a higher rate divided by a lower one read 200%.
-        if (_mode == Mode.Throughput && view == View.Wan && _result != null)
-            return (_result.WanDownBps ?? 0) + (_result.WanUpBps ?? 0);
-        return VisibleRows(view).Sum(r => RowValue(r, view));
-    }
+    /// <summary>
+    /// Everything listed, in every view. Never the gateway's WAN rate: the client and WAN feeds
+    /// are sampled apart and rarely agree, so shares against it did not add up to 100.
+    /// </summary>
+    private double ShareDenominator(View view) => VisibleRows(view).Sum(r => RowValue(r, view));
 
     /// <summary>
     /// The WAN rate as the tiles beside the card carry it right now, so the WAN line moves with
