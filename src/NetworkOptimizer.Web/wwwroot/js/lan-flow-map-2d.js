@@ -866,29 +866,23 @@ class LanFlowMap2D {
         this._tapStart=null;
     }
 
-    // Frame a node with its context, so the viewer sees where it sits rather than one dot on an
-    // empty canvas: for a client the device it hangs from and that device's clients, for a
-    // device its path up to the gateway. The user's own framing from here on (this clears the
-    // fitted state, so churn does not snap the view back).
+    // Frame a node with its context: the device it hangs from and that device's clients, so
+    // the viewer sees where it sits, not one dot on an empty canvas. The user's own framing
+    // from here on (this clears the fitted state, so churn does not snap the view back).
     _zoomToNode(n){
+        // A device is framed with what hangs off IT, not with the uplink it hangs off. Running
+        // the client path on one frames its parent's subtree, which excludes the device's own
+        // clients - a small box, so the fit below zooms far past everything worth seeing.
         const isDev=n.d.kind===NK.Gateway||n.d.kind===NK.Switch||n.d.kind===NK.AP;
-        const parentOf=t=>{
-            for(const cand of this._treeMap.values())
-                if(cand.clients?.includes(t)||cand.infra?.includes(t))return cand;
-            return null;
-        };
-        const pts=[];
-        if(isDev){
-            // A device under test is read through its uplink, so the frame is the path from it
-            // to the gateway: every hop its traffic crosses on screen, rather than the box it
-            // sits in. Spanning those tiers is also what keeps the fit below off its ceiling.
-            for(let u=n;u;u=parentOf(u))pts.push({x:u.x,y:u.y,hw:G.boxW/2,hh:G.boxH/2});
-        }else{
-            const box=parentOf(n)||n;
-            pts.push({x:box.x,y:box.y,hw:G.boxW/2,hh:G.boxH/2});
-            for(const c of (box.clients||[]))if(this._isNodeVisible(c))pts.push({x:c.x,y:c.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
-            if(box!==n)pts.push({x:n.x,y:n.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
+        let par=null;
+        if(!isDev)for(const cand of this._treeMap.values()){
+            if(cand.clients?.includes(n)||cand.infra?.includes(n)){par=cand;break;}
         }
+        const box=par||n;
+        const pts=[{x:box.x,y:box.y,hw:G.boxW/2,hh:G.boxH/2}];
+        for(const c of (box.clients||[]))if(this._isNodeVisible(c))pts.push({x:c.x,y:c.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
+        if(isDev)for(const c of (box.infra||[]))if(this._isNodeVisible(c))pts.push({x:c.x,y:c.y,hw:G.boxW/2,hh:G.boxH/2});
+        if(box!==n)pts.push({x:n.x,y:n.y,hw:G.clientCellW/2,hh:G.clientCellH/2});
         let l=Infinity,r=-Infinity,t=Infinity,b=-Infinity;
         for(const p of pts){l=Math.min(l,p.x-p.hw);r=Math.max(r,p.x+p.hw);t=Math.min(t,p.y-p.hh);b=Math.max(b,p.y+p.hh);}
         const pad=40;
@@ -904,7 +898,7 @@ class LanFlowMap2D {
         // since its label hangs below the dot; left-to-right the dot plus room for half a label,
         // which is centered under it, so the client sits close to the edge.
         const edgeX=G.clientR*this._scale+61, edgeY=G.clientCellH*this._scale+16;
-        // A device sits in the middle of its path to the gateway; only a leaf goes to the edge.
+        // A device sits in the middle of its own subtree; only a leaf goes to the edge.
         if(isDev){this._ox=(l+r)/2; this._oy=(t+b)/2;}
         else if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2;}
         else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
