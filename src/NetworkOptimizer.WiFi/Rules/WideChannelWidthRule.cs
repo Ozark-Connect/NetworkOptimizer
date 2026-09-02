@@ -8,7 +8,7 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// - 6 GHz 320 MHz: always suggest 160 MHz (better client performance + AP co-channel separation)
 /// - 5 GHz >= 160 MHz with weak-signal clients: suggest narrowing to 80 MHz
 /// - 5 GHz >= 160 MHz where every client is agent-measured and none negotiates more than half the
-///   width: the extra width carries nothing (verbiage.md CL-WIDTH)
+///   width: the extra width carries nothing
 /// 6 GHz 160 MHz is not flagged (less co-channel interference than 5 GHz).
 /// A radio carrying a mesh backhaul is never asked to narrow, on either band: the width is paying
 /// for the link. And on a band where any AP carries a backhaul, every other radio's recommendation
@@ -72,10 +72,14 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                     hasWeakSignal = weakPct >= WeakClientPctThreshold;
                 }
 
-                // What the clients negotiate, when the agent measured every one of them.
+                // What the width is asked for: every client on the radio agent-measured, and the
+                // widest any client that can roam here negotiated over the lookback, site-wide.
+                // Without the history the radio is never called unused: a snapshot misses the
+                // clients that were here an hour ago.
                 int? maxNegotiated = clients != null && clients.Count >= MinClientsForSignalCheck
                     && clients.All(c => c.NegotiatedWidth is > 0)
-                    ? clients.Max(c => c.NegotiatedWidth!.Value)
+                    && radio.MeasuredMaxNegotiatedWidth is { } demand
+                    ? Math.Max(demand, clients.Max(c => c.NegotiatedWidth!.Value))
                     : null;
                 var unusedWidth = maxNegotiated is { } max && max * 2 <= currentWidth;
 
@@ -85,9 +89,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                     var issue = hasWeakSignal
                         ? BuildWeakSignalIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160, weakClients, totalClients, weakPct, meshAps)
                         : BuildInfoIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160, meshAps);
-                    // Copy: verbiage.md CL-WIDTH-NOTE.
                     if (unusedWidth)
-                        issue.Description += $" None of its {totalClients} clients negotiate more than {maxNegotiated} MHz today.";
+                        issue.Description += $" No client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 7 days.";
                     yield return WithIntent(issue, radio);
                     continue;
                 }
@@ -118,7 +121,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
 
     /// <summary>
     /// Where to change the width. Site-wide through Default WiFi Speeds unless an AP on the band
-    /// carries a mesh backhaul, in which case per-AP, naming why (verbiage.md WW-R-MESH).
+    /// carries a mesh backhaul, in which case per-AP, naming why.
     /// </summary>
     private static string Recommendation(string apName, RadioBand band, int suggestedWidth, IReadOnlyList<string> meshAps, string siteWideVerb)
     {
@@ -187,7 +190,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
 
     /// <summary>
     /// Measured branch: every client on the radio is agent-measured and none negotiates more than
-    /// half the width. Copy: verbiage.md CL-WIDTH-T / CL-WIDTH-D / CL-WIDTH-R / CL-WIDTH-R-MESH.
+    /// half the width.
     /// </summary>
     private HealthIssue BuildUnusedWidthIssue(
         string apMac, string apName, RadioBand band, int currentWidth, int maxNegotiated, int totalClients, IReadOnlyList<string> meshAps)
@@ -200,7 +203,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Radio(apMac, band)),
             Title = $"Unused Width on {bandName}: {apName}",
-            Description = $"{apName} is using {currentWidth} MHz on {bandName}, and none of its {totalClients} clients negotiate more than {maxNegotiated} MHz. " +
+            Description = $"{apName} is using {currentWidth} MHz on {bandName}, and no client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 7 days ({totalClients} on it now). " +
                 "The extra width is not carrying traffic, and it makes the radio easier to interfere with.",
             AffectedEntity = apName,
             Recommendation = Recommendation(apName, band, maxNegotiated, meshAps, "set"),

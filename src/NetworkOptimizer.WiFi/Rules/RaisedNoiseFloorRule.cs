@@ -45,7 +45,6 @@ public class RaisedNoiseFloorRule : IWiFiOptimizerRule
                 if (delta < RaisedFloorDeltaDb || floor < RaisedFloorAbsoluteDbm) continue;
 
                 var bandName = band.ToDisplayString();
-                // Copy: verbiage.md NF-1-*.
                 yield return new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Warning,

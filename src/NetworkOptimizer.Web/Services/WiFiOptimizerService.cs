@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Helpers;
@@ -574,10 +574,7 @@ public class WiFiOptimizerService : IWiFiScanService
     {
         // Covered APs and their clients carry what only the agent measures about an association;
         // on a console-only site every one of those fields stays null.
-        var collector = _apAgentTelemetry.GetFor(_siteSlug);
-        var enriched = ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
-        if (enriched > 0)
-            _logger.LogDebug("[ClientEvidence] {Count} client(s) carry AP Agent association facts (site {Site})", enriched, _siteSlug);
+        await EnrichWithAgentEvidenceAsync(aps, clients);
 
         // Determine which APs have which bands available
         var has5gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
@@ -1418,6 +1415,88 @@ public class WiFiOptimizerService : IWiFiScanService
         };
     }
 
+    /// <summary>Hard bound on the negotiated-width history read; on timeout the history is absent.</summary>
+    private static readonly TimeSpan NegotiatedWidthQueryTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan NegotiatedWidthCacheFor = TimeSpan.FromMinutes(10);
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? _negotiatedWidths;
+    private DateTime _negotiatedWidthsAt = DateTime.MinValue;
+
+    /// <summary>
+    /// Lays the agent's per-association facts over the client snapshots and the site-wide
+    /// negotiated-width demand over the radios. Both no-ops on a site without agents: the
+    /// collector holds no facts and the history query returns no rows.
+    /// </summary>
+    private async Task EnrichWithAgentEvidenceAsync(List<AccessPointSnapshot> aps, List<WirelessClientSnapshot> clients)
+    {
+        var collector = _apAgentTelemetry.GetFor(_siteSlug);
+        var enriched = ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
+        if (enriched > 0)
+            _logger.LogDebug("[ClientEvidence] {Count} client(s) carry AP Agent association facts (site {Site})", enriched, _siteSlug);
+
+        var history = await GetNegotiatedWidthHistoryAsync();
+        if (history == null) return;
+        var radios = ApAgent.ApAgentWidthDemand.Apply(aps, clients, history, await GetApLocksAsync());
+        if (radios > 0)
+            _logger.LogDebug("[ClientEvidence] negotiated-width demand set on {Radios} radio(s) from {Clients} client(s) of history (site {Site})",
+                radios, history.Count, _siteSlug);
+    }
+
+    private IReadOnlyDictionary<string, string>? _apLocks;
+    private DateTime _apLocksAt = DateTime.MinValue;
+
+    /// <summary>
+    /// AP locks (client MAC to AP MAC) from the console's full client roster, which knows a
+    /// device's lock whether or not it is online. Null when the roster cannot be read, in which
+    /// case only the active clients' locks apply.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> GetApLocksAsync()
+    {
+        if (_apLocks != null && DateTime.UtcNow - _apLocksAt < NegotiatedWidthCacheFor)
+            return _apLocks;
+        if (_connectionService.Client == null) return null;
+        try
+        {
+            using var timeout = new CancellationTokenSource(NegotiatedWidthQueryTimeout);
+            var roster = await _connectionService.Client.GetAllKnownClientsAsync(timeout.Token);
+            _apLocks = roster
+                .Where(c => c.FixedApEnabled == true && !string.IsNullOrEmpty(c.FixedApMac) && !string.IsNullOrEmpty(c.Mac))
+                .GroupBy(c => c.Mac, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().FixedApMac!, StringComparer.OrdinalIgnoreCase);
+            _apLocksAt = DateTime.UtcNow;
+            return _apLocks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Client roster unavailable; AP locks come from active clients only (site {Site})", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The widest width each client negotiated per band over the lookback, from the agent's
+    /// client rows. Null when the read failed or timed out, which keeps every "unused width"
+    /// judgment silent rather than made from a snapshot.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>?> GetNegotiatedWidthHistoryAsync()
+    {
+        if (_negotiatedWidths != null && DateTime.UtcNow - _negotiatedWidthsAt < NegotiatedWidthCacheFor)
+            return _negotiatedWidths;
+        try
+        {
+            using var timeout = new CancellationTokenSource(NegotiatedWidthQueryTimeout);
+            var to = DateTime.UtcNow;
+            _negotiatedWidths = await _influxRegistry.GetFor(_siteSlug)
+                .QueryNegotiatedWidthsAsync(to - ApAgent.ApAgentWidthDemand.Lookback, to, timeout.Token);
+            _negotiatedWidthsAt = DateTime.UtcNow;
+            return _negotiatedWidths;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Negotiated-width history unavailable; width judgments stay silent (site {Site})", _siteSlug);
+            return null;
+        }
+    }
+
     /// <summary>
     /// What the agent measured about each radio's clients on one band, for width candidates. A
     /// radio gets evidence only when every online client on it is agent-measured and the radio's
@@ -1436,11 +1515,17 @@ public class WiFiOptimizerService : IWiFiScanService
                 && c.ApMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)).ToList();
             if (onRadio.Count == 0 || onRadio.Any(c => c.NegotiatedWidth is not > 0)) continue;
 
+            // The negotiated width is site-wide over the lookback (devices roam); without that
+            // history the live width is read as the radio's own, so nothing argues it narrower.
+            var liveMax = onRadio.Max(c => c.NegotiatedWidth!.Value);
+            var negotiated = radio.MeasuredMaxNegotiatedWidth is { } demand
+                ? Math.Max(demand, liveMax)
+                : Math.Max(liveMax, radio.ChannelWidth ?? liveMax);
             evidence[ap.Mac.ToLowerInvariant()] = new RadioWidthEvidence
             {
                 ClientCount = onRadio.Count,
-                MaxNegotiatedWidth = onRadio.Max(c => c.NegotiatedWidth!.Value),
-                MaxSupportedWidth = onRadio.Max(c => c.Capabilities.MaxChannelWidth ?? 0),
+                MaxNegotiatedWidth = negotiated,
+                MaxSupportedWidth = Math.Max(negotiated, onRadio.Max(c => c.Capabilities.MaxChannelWidth ?? 0)),
                 MeasuredUtilization = radio.MeasuredUtilization,
                 CarriesBackhaul = ap.MeshBackhaulUsesBand(band)
             };
@@ -1542,8 +1627,7 @@ public class WiFiOptimizerService : IWiFiScanService
 
             // Client snapshots carrying the agent's association facts, for width candidates.
             var clients = await GetWirelessClientsAsync();
-            var collector = _apAgentTelemetry.GetFor(_siteSlug);
-            ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
+            await EnrichWithAgentEvidenceAsync(aps, clients);
 
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
@@ -1579,8 +1663,7 @@ public class WiFiOptimizerService : IWiFiScanService
                             .FirstOrDefault(ap => ap.Mac.Equals(rec.ApMac, StringComparison.OrdinalIgnoreCase))?
                             .Radios.Any(r => r.Band == band && r.Channel.HasValue && r.ChannelIsFixed) == true;
 
-                        // A move the agent saw within the last day, and how it measured. Copy for
-                        // the card: verbiage.md PM-1 / PM-2.
+                        // A move the agent saw within the last day, and how it measured, for the card.
                         var move = moves.For(rec.ApMac, band.ToUniFiCode());
                         if (move != null && DateTime.UtcNow - move.At <= TimeSpan.FromDays(1) && move.ToChannel == rec.CurrentChannel)
                         {

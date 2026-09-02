@@ -9,7 +9,6 @@ namespace NetworkOptimizer.WiFi.Helpers;
 /// </summary>
 public static class RadioIntent
 {
-    // Copy: research/wifi-agent-insights/verbiage.md, DC-HINT-*.
     /// <summary>DC-HINT-POWER.</summary>
     public const string PowerHint =
         "These power levels are set by hand in UniFi Network, so this is a check rather than a correction.";

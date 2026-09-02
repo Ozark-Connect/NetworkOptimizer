@@ -49,7 +49,6 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
             .ToList();
         var unattributed = highUtilRadios.Except(ownTraffic).Except(interference).ToList();
 
-        // Copy: verbiage.md UT-OWN-*, UT-OTHER-*, UT-BOTH-NOTE.
         var emitted = 0;
         if (ownTraffic.Count > 0)
         {

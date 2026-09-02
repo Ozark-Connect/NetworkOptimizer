@@ -94,7 +94,7 @@ public class ApChannelRecommendation
 
     /// <summary>
     /// Why the recommended width differs from the current one, in the card's words; null when
-    /// the width is unchanged. Set only from AP Agent evidence (verbiage.md WO-NARROW / WO-WIDER).
+    /// the width is unchanged. Set only from AP Agent evidence.
     /// </summary>
     public string? WidthReason { get; set; }
 }

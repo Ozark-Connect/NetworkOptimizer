@@ -574,7 +574,7 @@
                     }
                     @if (acknowledgedIssues.Count > 0)
                     {
-                        <!-- Acknowledged issues: hidden above, still scored. Copy: verbiage.md DC-ACKED-* -->
+                        <!-- Acknowledged issues: hidden above, still scored. -->
                         <div class="issue-type-group issue-info acknowledged-issues">
                             <div class="issue-type-header @(_acknowledgedExpanded ? "expanded" : "")" @onclick="() => _acknowledgedExpanded = !_acknowledgedExpanded">
                                 <div class="issue-type-body">

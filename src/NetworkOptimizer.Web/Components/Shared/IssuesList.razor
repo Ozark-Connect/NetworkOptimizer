@@ -18,11 +18,15 @@
                         @((MarkupString)GetSeverityIcon(firstIssue.Severity))
                     </div>
                     <div class="issue-content">
-                        @if (ShowDetails && firstIssue.Dimensions.Any())
+                        @if ((ShowDetails && firstIssue.Dimensions.Any()) || HasAction(firstIssue))
                         {
                             <div class="issue-meta">
-                                <span class="issue-badge @GetSeverityClass(firstIssue.Severity)">@GetSeverityLabel(firstIssue.Severity)</span>
-                                <span class="issue-dimension">@FormatDimensions(firstIssue.Dimensions)</span>
+                                @if (ShowDetails && firstIssue.Dimensions.Any())
+                                {
+                                    <span class="issue-badge @GetSeverityClass(firstIssue.Severity)">@GetSeverityLabel(firstIssue.Severity)</span>
+                                    <span class="issue-dimension">@FormatDimensions(firstIssue.Dimensions)</span>
+                                }
+                                @RenderActions(firstIssue)
                             </div>
                         }
                         <div class="issue-title">@firstIssue.Title</div>
@@ -55,7 +59,6 @@
                         {
                             <div class="issue-recommendation">@FormatRecommendation(firstIssue.Recommendation)</div>
                         }
-                        @RenderActions(firstIssue)
                     </div>
                 </div>
             }
@@ -113,8 +116,8 @@
                                                     <span class="context-item"><strong>Affected:</strong> @issue.AffectedEntity</span>
                                                 }
                                             }
+                                            @RenderActions(issue)
                                         </div>
-                                        @RenderActions(issue)
                                     </div>
                                 }
                             </div>
@@ -150,23 +153,23 @@
 
     private HashSet<string> _expandedGroups = new();
 
-    // Copy: verbiage.md DC-ACK / DC-RESTORE, the same words and tooltips as Security Audit.
+    private bool HasAction(HealthIssue issue) =>
+        issue.IsAcknowledged ? OnRestore.HasDelegate : OnAcknowledge.HasDelegate;
+
+    // The same words, tooltips, and placement as Security Audit: the button ends the top row
+    // (badge row on a card, context row in a group).
     private RenderFragment RenderActions(HealthIssue issue) => __builder =>
     {
         if (OnAcknowledge.HasDelegate && !issue.IsAcknowledged)
         {
             <SiteAdminOnly>
-                <div class="issue-actions">
-                    <button class="btn btn-sm btn-ghost" @onclick="() => OnAcknowledge.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Hide this issue - still scored">Acknowledge</button>
-                </div>
+                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => OnAcknowledge.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Hide this issue - still scored">Acknowledge</button>
             </SiteAdminOnly>
         }
         else if (OnRestore.HasDelegate && issue.IsAcknowledged)
         {
             <SiteAdminOnly>
-                <div class="issue-actions">
-                    <button class="btn btn-sm btn-ghost" @onclick="() => OnRestore.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Restore this issue">Restore</button>
-                </div>
+                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => OnRestore.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Restore this issue">Restore</button>
             </SiteAdminOnly>
         }
     };
@@ -306,9 +309,5 @@
     .issue-client-link:hover {
         color: var(--accent-color);
         text-decoration: underline;
-    }
-
-    .issue-actions {
-        margin-top: 0.4rem;
     }
 </style>

@@ -43,21 +43,40 @@ public class WideChannelWidthRuleTests
     public void Clients_that_all_negotiate_half_the_width_make_the_measured_issue()
     {
         var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 160);
+        ap.Radios[0].MeasuredMaxNegotiatedWidth = 80;
 
         var issue = _rule.EvaluateAll(Context([ap], Clients(ap.Mac, RadioBand.Band5GHz, 4, -55, 80))).Single();
 
         issue.Title.Should().Be("Unused Width on 5 GHz: AP-1");
         issue.Class.Should().Be(HealthIssueClass.Measured);
         issue.Description.Should().Be(
-            "AP-1 is using 160 MHz on 5 GHz, and none of its 4 clients negotiate more than 80 MHz. " +
+            "AP-1 is using 160 MHz on 5 GHz, and no client that can roam to it has negotiated more than 80 MHz in the last 7 days (4 on it now). " +
             "The extra width is not carrying traffic, and it makes the radio easier to interfere with.");
         issue.Recommendation.Should().Be(SiteWide);
+    }
+
+    [Fact]
+    public void Without_the_weeks_history_a_snapshot_never_calls_the_width_unused()
+    {
+        var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 160);
+
+        _rule.EvaluateAll(Context([ap], Clients(ap.Mac, RadioBand.Band5GHz, 4, -55, 80))).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_client_that_negotiated_the_full_width_this_week_keeps_it_even_when_away()
+    {
+        var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 160);
+        ap.Radios[0].MeasuredMaxNegotiatedWidth = 160;
+
+        _rule.EvaluateAll(Context([ap], Clients(ap.Mac, RadioBand.Band5GHz, 4, -55, 80))).Should().BeEmpty();
     }
 
     [Fact]
     public void One_client_using_the_full_width_is_enough_to_keep_it()
     {
         var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 160);
+        ap.Radios[0].MeasuredMaxNegotiatedWidth = 80;
         var clients = Clients(ap.Mac, RadioBand.Band5GHz, 4, -55, 80);
         clients[0].NegotiatedWidth = 160;
 
@@ -68,6 +87,7 @@ public class WideChannelWidthRuleTests
     public void One_console_client_and_the_radio_is_evaluated_as_today()
     {
         var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 160);
+        ap.Radios[0].MeasuredMaxNegotiatedWidth = 80;
         var clients = Clients(ap.Mac, RadioBand.Band5GHz, 4, -55, 80);
         clients[0].NegotiatedWidth = null;
 
@@ -114,11 +134,12 @@ public class WideChannelWidthRuleTests
     public void The_320_issue_notes_what_clients_negotiate_when_measured()
     {
         var ap = Ap("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 320);
+        ap.Radios[0].MeasuredMaxNegotiatedWidth = 160;
 
         var issue = _rule.EvaluateAll(Context([ap], Clients(ap.Mac, RadioBand.Band6GHz, 4, -55, 160))).Single();
 
         issue.Severity.Should().Be(HealthIssueSeverity.Info);
-        issue.Description.Should().EndWith(" None of its 4 clients negotiate more than 160 MHz today.");
+        issue.Description.Should().EndWith(" No client that can roam to it has negotiated more than 160 MHz in the last 7 days.");
     }
 
     [Fact]

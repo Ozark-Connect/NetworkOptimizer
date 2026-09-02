@@ -123,7 +123,7 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 // Graded by measured airtime when every radio in the group has a reading: an
                 // overlap nobody is using costs little, one both sides are busy on is the warning.
                 // A group with an unmeasured radio is not graded, because "quiet" cannot be
-                // asserted for a radio nobody measured. Copy: verbiage.md CC-1 / CC-2.
+                // asserted for a radio nobody measured.
                 var severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning;
                 var impact = isDenseDeployment ? -1 : -5;
                 var measured = reported.Select(r => r.Radio.MeasuredUtilization).ToList();

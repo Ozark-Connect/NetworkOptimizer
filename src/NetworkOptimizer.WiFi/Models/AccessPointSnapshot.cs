@@ -246,6 +246,14 @@ public class RadioSnapshot
     /// <summary>When the measured fields were read (UTC).</summary>
     public DateTime? MeasuredAt { get; set; }
 
+    /// <summary>
+    /// The widest any client that can roam to this radio has negotiated on its band over the
+    /// lookback, from the AP Agent's client history and the clients on it now. Site-wide because
+    /// devices roam; a device locked to another AP is not counted, one locked to this AP is. Null
+    /// without agent history.
+    /// </summary>
+    public int? MeasuredMaxNegotiatedWidth { get; set; }
+
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }
 

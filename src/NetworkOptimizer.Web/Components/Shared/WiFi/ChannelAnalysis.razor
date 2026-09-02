@@ -275,7 +275,6 @@
                                         {
                                             <span class="soak-badge" data-tooltip="@GetSoakTooltip(rec)">Soaking</span>
                                         }
-                                        @* Copy: verbiage.md DC-KEPT / DC-FIXED *@
                                         @if (rec.IsKept)
                                         {
                                             <span class="mesh-link-badge" data-tooltip="Kept on its channel - the plan leaves it where it is">Kept</span>
@@ -321,7 +320,7 @@
                                     {
                                         <div class="rec-move-note"><span>@rec.WidthReason</span></div>
                                     }
-                                    @* A move the AP Agent saw within the last day. Copy: verbiage.md PM-1 / PM-2 *@
+                                    @* A move the AP Agent saw within the last day. *@
                                     @if (rec.MovedAt.HasValue)
                                     {
                                         <div class="rec-move-note">
@@ -338,7 +337,7 @@
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
-                                    @* Copy: verbiage.md DC-KEEP / DC-KEPT. A mesh child follows its parent, so Keep sits on the parent. *@
+                                    @* A mesh child follows its parent, so Keep sits on the parent. *@
                                     @if (!rec.IsMeshConstrained)
                                     {
                                         <SiteAdminOnly>
@@ -362,7 +361,6 @@
                     }
                     @if (plan.KeptRadioCount > 0)
                     {
-                        @* Copy: verbiage.md DC-PLAN-KEPT *@
                         <div class="recommendation-notice">@plan.KeptRadioCount radio(s) kept where they are.</div>
                     }
                     else if (plan.UnplacedApCount > 0)

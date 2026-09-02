@@ -4257,6 +4257,50 @@ span |> last() |> yield(name: ""last"")";
     /// distinct() on the single client_mac field is what keeps this cheap over a long range; do not
     /// widen the field filter, which would turn it into a full pivot over the measurement.
     /// </summary>
+    /// <summary>
+    /// The widest channel each client negotiated per band over the range, from AP Agent rows only
+    /// (the ones carrying <c>nss</c>): the console's per-client width is the radio's, not the
+    /// client's. Keyed by client MAC, then band tag ("2.4ghz" / "5ghz" / "6ghz"). Empty when
+    /// InfluxDB is not configured, the query fails, or no agent has written.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>> QueryNegotiatedWidthsAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        if (!IsConfigured) return result;
+
+        // Windowed before the pivot for the same pushdown reason as the client-rate query; last()
+        // per window keeps a width a width rather than averaging two into one that never existed.
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""channel_width"" or r._field == ""nss"")
+  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)
+  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac and exists r.channel_width and exists r.nss)
+  |> group(columns: [""client_mac"", ""band""])
+  |> max(column: ""channel_width"")
+  |> group()";
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("client_mac") is not string mac || mac.Length == 0) continue;
+            if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
+            var width = (int)(AsDoubleOrNull(record.GetValueByKey("channel_width")) ?? 0);
+            if (width <= 0) continue;
+
+            if (!result.TryGetValue(mac, out var byBand))
+            {
+                byBand = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                result[mac] = byBand;
+            }
+            ((Dictionary<string, int>)byBand)[band] = Math.Max(width, byBand.TryGetValue(band, out var w) ? w : 0);
+        }
+        return result;
+    }
+
     public async Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>> QueryWifiClientBandsAsync(
         DateTime from,
         DateTime to,

@@ -1548,7 +1548,7 @@ public class ChannelRecommendationService
             }
         }
 
-        // Why a width changed, in the card's words. Copy: verbiage.md WO-NARROW / WO-WIDER.
+        // Why a width changed, in the card's words.
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
@@ -1556,7 +1556,7 @@ public class ChannelRecommendationService
             rec.WidthReason = null;
             if (node.WidthEvidence is not { } e || finalAssignment[i].Width == node.CurrentWidth) continue;
             rec.WidthReason = finalAssignment[i].Width < node.CurrentWidth
-                ? $"Narrower because its {e.ClientCount} clients negotiate at most {e.MaxNegotiatedWidth} MHz; the rest of the width only overlaps neighbors."
+                ? $"Narrower because no client that can roam to it has negotiated more than {e.MaxNegotiatedWidth} MHz in the last 7 days; the rest of the width only overlaps neighbors."
                 : $"Wider because its clients can use {finalAssignment[i].Width} MHz and the air is quiet ({e.MeasuredUtilization ?? 0}% busy).";
         }
 

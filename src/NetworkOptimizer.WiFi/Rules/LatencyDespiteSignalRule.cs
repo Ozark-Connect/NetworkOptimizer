@@ -45,7 +45,6 @@ public class LatencyDespiteSignalRule : IWiFiOptimizerRule
                 if (medianLatency < HighLatencyMs && stalls < StallFloor) continue;
 
                 var bandName = radio.Band.ToDisplayString();
-                // Copy: verbiage.md CL-LAT-T / CL-LAT-D / CL-LAT-R.
                 yield return new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Warning,

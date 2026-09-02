@@ -48,7 +48,6 @@ public class StickyClientRule : IWiFiOptimizerRule
                 $"{(string.IsNullOrEmpty(c.Name) ? c.Mac : c.Name)} (joined at {c.JoinSignal} dBm, now {c.Signal} dBm)"));
             var ignored = sticky.Count(c => c.RoamNudges is > 0 && c.RoamNudgesAccepted is 0);
 
-            // Copy: verbiage.md CL-STICKY-T / CL-STICKY-D / CL-STICKY-N / CL-STICKY-R.
             var description = $"{sticky.Count} client(s) joined {ap.Name} at a weak signal and have stayed for over {hours} hour(s) without roaming: {list}.";
             if (ignored > 0)
                 description += $" {ignored} of them ignored a roam nudge (BSS transition request).";
