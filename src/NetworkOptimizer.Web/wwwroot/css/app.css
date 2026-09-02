@@ -7186,6 +7186,11 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-muted);
 }
 
+/* Inside Security Audit's issues list the list's own gap spaces it; no margin on top of that. */
+.issues-list .acknowledged-note {
+    margin-bottom: 0;
+}
+
 .issue-count-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
