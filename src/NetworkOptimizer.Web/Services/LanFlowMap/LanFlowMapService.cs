@@ -887,12 +887,7 @@ public class LanFlowMapService
                     {
                         var (pMac, pIf) = ParsePortKey(link.PortKey);
                         if (ratesByDevice.TryGetValue(pMac, out var pPts))
-                        {
-                            resolved = pPts
-                                .Where(p => string.Equals(p.IfName, pIf, StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                .FirstOrDefault();
-                        }
+                            resolved = ClosestPortPoint(pPts, pIf, at);
                     }
 
                     // Fallback: child device's own interface. Covers mesh APs
@@ -949,10 +944,7 @@ public class LanFlowMapService
                                     string.Equals(n.Mac, childMac, StringComparison.OrdinalIgnoreCase));
                                 if (childNode?.UplinkIfName != null)
                                 {
-                                    resolved = cPts
-                                        .Where(p => string.Equals(p.IfName, childNode.UplinkIfName, StringComparison.OrdinalIgnoreCase))
-                                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                        .FirstOrDefault();
+                                    resolved = ClosestPortPoint(cPts, childNode.UplinkIfName, at);
                                     fromChildSide = true;
                                 }
                             }
@@ -998,10 +990,7 @@ public class LanFlowMapService
                         var (deviceMac, ifName) = ParsePortKey(link.PortKey);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
-                            var closest = pts
-                                .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                .FirstOrDefault();
+                            var closest = ClosestPortPoint(pts, ifName, at);
                             if (closest != null)
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
@@ -2590,6 +2579,24 @@ public class LanFlowMapService
     // ---------------------------------------------------------------------------------
     // Internal helpers
     // ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The point a port key names, nearest <paramref name="at"/>. Matches the raw port_id tag as
+    /// well as if_name: a switch can hold two InterfaceNameMap rows for one port - the user's
+    /// alias and the raw "0/N" - and which one a PortKey carries is decided by whichever row the
+    /// map loaded last, while Influx keys the series on the alias. Matching either end makes the
+    /// lookup indifferent to that. Live is unaffected: it reads the console's port stats by index.
+    /// </summary>
+    private static MonitoringInfluxClient.InterfaceRatePoint? ClosestPortPoint(
+        IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string? ifName, DateTime at)
+    {
+        if (string.IsNullOrEmpty(ifName)) return null;
+        return points
+            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p.PortId, ifName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+            .FirstOrDefault();
+    }
 
     private async Task<Dictionary<(string mac, int port), InterfaceNameMap>> LoadInterfaceNameMaps(CancellationToken ct)
     {
