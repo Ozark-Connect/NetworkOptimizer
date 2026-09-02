@@ -129,6 +129,21 @@ public static class ChannelMemoryHelper
     /// <param name="events">Channel change events for one AP and band</param>
     /// <param name="currentChannel">The radio's current channel - never soaked</param>
     /// <param name="now">Current time (UTC)</param>
+    /// <summary>
+    /// Whether a radio sits on a channel no record explains: the last recorded config names a
+    /// different channel, and none of the known change events (console log or persisted) lands
+    /// on the current one. UniFi Network logs nothing for a Channel AI move, so this is how such
+    /// a move is noticed at all. False when there is no recorded config to compare against.
+    /// </summary>
+    public static bool IsUnloggedChange(
+        int currentChannel,
+        int? lastRecordedChannel,
+        IEnumerable<ChannelChangeEvent> knownEvents)
+    {
+        if (lastRecordedChannel is not > 0 || lastRecordedChannel == currentChannel) return false;
+        return !knownEvents.Any(e => e.NewChannel == currentChannel);
+    }
+
     public static ChannelSoakInfo? BuildSoakInfo(
         IEnumerable<ChannelChangeEvent> events,
         int currentChannel,

@@ -1743,6 +1743,23 @@ public class WiFiOptimizerService : IWiFiScanService
                 persistedChanges = new List<Storage.Models.ApChannelChange>();
             }
 
+            // UniFi Network logs no channel-change event for a move Channel AI makes, so a radio can
+            // be on a channel nothing recorded. The memory collector catches that on its 6-hour
+            // cycle; here the live channel is checked against the last recorded config on every
+            // build, so the move starts soaking on the next refresh instead of hours later. The
+            // record is persisted so the collector sees a config that agrees and writes nothing.
+            List<Storage.Models.ApChannelChange> latestConfigs;
+            try
+            {
+                latestConfigs = await _channelMemoryRepository.GetLatestConfigsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to load latest channel configs for soak state");
+                latestConfigs = new List<Storage.Models.ApChannelChange>();
+            }
+            var unlogged = new List<Storage.Models.ApChannelChange>();
+
             foreach (var band in bands)
             {
                 var bandCode = band.ToUniFiCode();
@@ -1754,6 +1771,7 @@ public class WiFiOptimizerService : IWiFiScanService
                     if (radio == null) continue;
 
                     var macLower = ap.Mac.ToLowerInvariant();
+                    var currentChannel = radio.Channel!.Value;
                     var changeEvents = new List<ChannelChangeEvent>();
 
                     if (allResults != null)
@@ -1776,13 +1794,57 @@ public class WiFiOptimizerService : IWiFiScanService
                             PreviousChannel = c.PreviousChannel!.Value
                         }));
 
-                    var soak = ChannelMemoryHelper.BuildSoakInfo(changeEvents, radio.Channel!.Value, now);
+                    var lastKnown = latestConfigs.FirstOrDefault(c =>
+                        c.ApMac.Equals(macLower, StringComparison.OrdinalIgnoreCase) && c.Band == bandCode);
+                    if (lastKnown != null
+                        && ChannelMemoryHelper.IsUnloggedChange(currentChannel, lastKnown.NewChannel, changeEvents))
+                    {
+                        // Stamped at detection: the move happened since the last build or collector
+                        // pass, and a stale stamp would spend soak the radio never got.
+                        var observed = new Storage.Models.ApChannelChange
+                        {
+                            ApMac = macLower,
+                            Band = bandCode,
+                            PreviousChannel = lastKnown.NewChannel,
+                            PreviousWidthMhz = lastKnown.NewWidthMhz,
+                            NewChannel = currentChannel,
+                            NewWidthMhz = radio.ChannelWidth is > 0 ? radio.ChannelWidth : null,
+                            ChangedAtUtc = now.UtcDateTime,
+                            Source = Storage.Models.ApChannelChangeSource.Observed
+                        };
+                        unlogged.Add(observed);
+                        changeEvents.Add(new ChannelChangeEvent
+                        {
+                            Timestamp = now,
+                            ApMac = macLower,
+                            Band = band,
+                            NewChannel = currentChannel,
+                            PreviousChannel = lastKnown.NewChannel
+                        });
+                        _logger.LogDebug(
+                            "[ChannelRec] {ApName} {Band}: on ch{Current} with no change logged since ch{Previous}; recording the move and starting its soak",
+                            ap.Name, band, currentChannel, lastKnown.NewChannel);
+                    }
+
+                    var soak = ChannelMemoryHelper.BuildSoakInfo(changeEvents, currentChannel, now);
                     if (soak != null)
                         bandSoak[macLower] = soak;
                 }
 
                 if (bandSoak.Count > 0)
                     context.Soak[band] = bandSoak;
+            }
+
+            if (unlogged.Count > 0)
+            {
+                try
+                {
+                    await _channelMemoryRepository.AddChangesAsync(unlogged);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to persist {Count} observed channel change(s); soak holds for this build only", unlogged.Count);
+                }
             }
         }
         catch (Exception ex)

@@ -50,6 +50,49 @@ public class ChannelMemoryHelperTests
         ChannelMemoryHelper.GetChannelAtTime(Now.AddDays(-1), events, 11).Should().Be(11);
     }
 
+    // --- IsUnloggedChange ---
+    // UniFi Network logs nothing for a Channel AI move; the radio is simply on a channel the
+    // record never saw it reach.
+
+    [Fact]
+    public void IsUnloggedChange_RadioMovedWithNoEvent_IsTrue()
+    {
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 6, knownEvents: [])
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_MoveAlreadyRecorded_IsFalse()
+    {
+        var events = new[] { Change(Now.AddHours(-1), from: 6, to: 11) };
+
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 6, events).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_RadioStillOnRecordedChannel_IsFalse()
+    {
+        ChannelMemoryHelper.IsUnloggedChange(6, lastRecordedChannel: 6, knownEvents: []).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_NoRecordedConfig_IsFalse()
+    {
+        // A radio never recorded has nothing to be compared against; the collector's initial
+        // record establishes the baseline, not a fabricated move.
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: null, knownEvents: []).Should().BeFalse();
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 0, knownEvents: []).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_EventOnAnotherChannel_IsStillTrue()
+    {
+        // The recorded move went to 1; the radio is on 11 now, and nothing explains that.
+        var events = new[] { Change(Now.AddHours(-3), from: 6, to: 1) };
+
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 1, events).Should().BeTrue();
+    }
+
     // --- BuildSoakInfo ---
 
     [Fact]
