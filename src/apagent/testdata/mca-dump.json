@@ -50,6 +50,67 @@
   {
    "name": "wifi1",
    "radio": "na",
+   "scan_table": [
+    {
+     "bssid": "02:00:00:AA:00:01",
+     "essid": "Neighbor-5",
+     "band": "na",
+     "channel": 44,
+     "bw": 80,
+     "center_freq": 5210,
+     "freq": 5220,
+     "signal": -71,
+     "noise": -95,
+     "rssi": 24,
+     "age": 1,
+     "rssi_age": 1,
+     "is_ubnt": false,
+     "is_adhoc": false,
+     "security": "wpa2"
+    },
+    {
+     "bssid": "02:00:00:aa:00:02",
+     "essid": "Stale-5",
+     "band": "na",
+     "channel": 149,
+     "bw": 40,
+     "center_freq": 5755,
+     "freq": 5745,
+     "signal": -80,
+     "noise": -95,
+     "rssi": 15,
+     "age": 400,
+     "rssi_age": 400,
+     "is_ubnt": false,
+     "is_adhoc": false,
+     "security": "wpa2"
+    }
+   ],
+   "spectrum_table_time": 1787604800,
+   "spectrum_table": [
+    {
+     "channel": 36,
+     "center_freq": 5180,
+     "width": 20,
+     "utilization": 12,
+     "interference": -64,
+     "other_bss_count": 2,
+     "perf_index": 88,
+     "total_samples": 60,
+     "interference_type": []
+    },
+    {
+     "channel": 44,
+     "center_freq": 5220,
+     "width": 20,
+     "utilization": 31,
+     "interference": -58,
+     "other_bss_count": 4,
+     "perf_index": 62,
+     "total_samples": 60,
+     "interference_type": ["microwave"]
+    }
+   ],
    "nss": 4,
    "max_txpower": 29,
    "min_txpower": 6,

@@ -127,6 +127,14 @@ public sealed class ApAgentTelemetryCollector
     /// </summary>
     private readonly ConcurrentDictionary<string, PassBytes> _passBytes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ApAgentRadioAirtime>> _radios = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ApAgentScanPayload> _scans = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What an access point's radios last reported hearing, or null when no agent covers it or
+    /// the read failed. Read once per write pass alongside the radios.
+    /// </summary>
+    public ApAgentScanPayload? ScanFor(string apMac)
+        => _scans.TryGetValue(ApAgentWifiFieldMapper.NormalizeMac(apMac), out var scan) ? scan : null;
 
     private DateTime _lastWriteAt = DateTime.MinValue;
 
@@ -723,10 +731,15 @@ public sealed class ApAgentTelemetryCollector
     {
         var covered = targets.Where(t => _coverage.Covers(t.Mac, DateTime.UtcNow)).ToList();
         _radios.Clear();
+        _scans.Clear();
 
         foreach (var target in covered)
         {
             if (ct.IsCancellationRequested) return;
+
+            // What the radios hear rides the same pass; a failed read leaves the console's scan.
+            var scan = await _telemetry.GetScanAsync(_siteSlug, target.Host, target.Token, RadiosTimeout, ct);
+            if (scan != null) _scans[ApAgentWifiFieldMapper.NormalizeMac(target.Mac)] = scan;
 
             var payload = await _telemetry.GetRadiosAsync(_siteSlug, target.Host, target.Token, RadiosTimeout, ct);
             if (payload == null) continue;

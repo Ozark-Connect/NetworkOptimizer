@@ -482,6 +482,81 @@ public sealed class ApAgentTcpStats
     public int Stalls { get; set; }
 }
 
+/// <summary>The AP Agent's GET /scan reply: what each radio hears, from the AP's own tables.</summary>
+public sealed class ApAgentScanPayload
+{
+    /// <summary>When the tables were read on the AP; an entry's age counts from here.</summary>
+    [JsonPropertyName("read_at")]
+    public DateTime ReadAt { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>One entry per radio, the dedicated scan radio included.</summary>
+    [JsonPropertyName("radios")]
+    public List<ApAgentRadioScan> Radios { get; set; } = new();
+}
+
+/// <summary>What one radio hears.</summary>
+public sealed class ApAgentRadioScan
+{
+    /// <summary>Interface name, e.g. "wifi1".</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    /// <summary>Band token ("2.4" / "5" / "6"); empty on the scan radio, which hears every band.</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Whether this is the dedicated scan radio.</summary>
+    [JsonPropertyName("scan_radio")]
+    public bool ScanRadio { get; set; }
+
+    /// <summary>When the spectrum table was taken, from the AP's spectrum_table_time.</summary>
+    [JsonPropertyName("spectrum_at")]
+    public DateTime? SpectrumAt { get; set; }
+
+    /// <summary>The neighbors this radio hears.</summary>
+    [JsonPropertyName("scan_table")]
+    public List<ApAgentScanEntry> Scan { get; set; } = new();
+
+    /// <summary>Per-channel occupancy as this radio measured it.</summary>
+    [JsonPropertyName("spectrum_table")]
+    public List<ApAgentSpectrumEntry> Spectrum { get; set; } = new();
+}
+
+/// <summary>One neighbor in a radio's scan table.</summary>
+public sealed class ApAgentScanEntry
+{
+    [JsonPropertyName("bssid")] public string Bssid { get; set; } = "";
+    [JsonPropertyName("essid")] public string? Essid { get; set; }
+    /// <summary>Band token ("2.4" / "5" / "6").</summary>
+    [JsonPropertyName("band")] public string? Band { get; set; }
+    [JsonPropertyName("channel")] public int Channel { get; set; }
+    [JsonPropertyName("bw")] public int Width { get; set; }
+    [JsonPropertyName("center_mhz")] public int CenterMhz { get; set; }
+    [JsonPropertyName("signal")] public int Signal { get; set; }
+    [JsonPropertyName("noise")] public int Noise { get; set; }
+    /// <summary>Seconds since the AP last heard it, as of <see cref="ApAgentScanPayload.ReadAt"/>.</summary>
+    [JsonPropertyName("age")] public int AgeSeconds { get; set; }
+    [JsonPropertyName("is_ubnt")] public bool IsUbnt { get; set; }
+}
+
+/// <summary>One channel in a radio's spectrum table.</summary>
+public sealed class ApAgentSpectrumEntry
+{
+    [JsonPropertyName("channel")] public int Channel { get; set; }
+    [JsonPropertyName("center_mhz")] public int CenterMhz { get; set; }
+    [JsonPropertyName("width")] public int Width { get; set; }
+    /// <summary>Percent busy.</summary>
+    [JsonPropertyName("utilization")] public int Utilization { get; set; }
+    /// <summary>dBm-like, as the console's spectrum scan reports it; stored as the channel's noise floor.</summary>
+    [JsonPropertyName("interference")] public int Interference { get; set; }
+    [JsonPropertyName("other_bss_count")] public int OtherBssCount { get; set; }
+    [JsonPropertyName("total_samples")] public int TotalSamples { get; set; }
+}
+
 /// <summary>The AP Agent's GET /radios reply, reduced to what the collector keeps.</summary>
 public sealed class ApAgentRadiosPayload
 {

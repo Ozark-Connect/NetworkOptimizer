@@ -130,11 +130,11 @@ type VapState struct {
 // IeeeModes is passed through as raw JSON: it is an opaque bitmask that reads as a number on
 // measured firmware, and a type that drifts must not fail the whole parse.
 type RadioState struct {
-	Name           string           `json:"name"`
-	Radio          string           `json:"radio"`
-	Band           string           `json:"band,omitempty"`
-	Channel        int              `json:"channel,omitempty"`
-	Bandwidth      int              `json:"bw,omitempty"`
+	Name      string `json:"name"`
+	Radio     string `json:"radio"`
+	Band      string `json:"band,omitempty"`
+	Channel   int    `json:"channel,omitempty"`
+	Bandwidth int    `json:"bw,omitempty"`
 	// CenterMhz is the operating block's center from `iw dev`. It is what identifies a 320 MHz
 	// radio's block, which the primary alone does not. Zero when iw did not answer.
 	CenterMhz      int              `json:"center_mhz,omitempty"`
@@ -157,6 +157,47 @@ type RadioState struct {
 	CollectedAt    time.Time        `json:"collected_at"`
 }
 
+// ScanEntry is one neighbor a radio hears, from mca-dump's scan_table: the list the AP itself
+// maintains, continuously, without a console scan cycle.
+type ScanEntry struct {
+	Bssid      string `json:"bssid"`
+	Essid      string `json:"essid,omitempty"`
+	Band       string `json:"band,omitempty"`
+	Channel    int    `json:"channel"`
+	Width      int    `json:"bw,omitempty"`
+	CenterMhz  int    `json:"center_mhz,omitempty"`
+	Signal     int    `json:"signal"`
+	Noise      int    `json:"noise,omitempty"`
+	AgeSeconds int    `json:"age"`
+	IsUbnt     bool   `json:"is_ubnt"`
+}
+
+// SpectrumEntry is one channel of a radio's spectrum_table. Interference is dBm-like, not a
+// percent; the server stores it as the channel's noise floor, as it does the console's.
+type SpectrumEntry struct {
+	Channel       int `json:"channel"`
+	CenterMhz     int `json:"center_mhz,omitempty"`
+	Width         int `json:"width,omitempty"`
+	Utilization   int `json:"utilization"`
+	Interference  int `json:"interference"`
+	OtherBssCount int `json:"other_bss_count"`
+	TotalSamples  int `json:"total_samples,omitempty"`
+}
+
+// RadioScan is what one radio hears. Both lists are always present, empty rather than null.
+type RadioScan struct {
+	Name       string          `json:"name"`
+	Band       string          `json:"band,omitempty"`
+	ScanRadio  bool            `json:"scan_radio,omitempty"`
+	SpectrumAt *time.Time      `json:"spectrum_at,omitempty"`
+	Scan       []ScanEntry     `json:"scan_table"`
+	Spectrum   []SpectrumEntry `json:"spectrum_table"`
+}
+
+// maxScanEntryAge drops neighbors the AP has not heard for this long: serving a stale sighting is
+// the console's under-detection problem in the other direction.
+const maxScanEntryAge = 300
+
 // McaSnapshot is one mca-dump pass, reduced to the fields this agent serves. The 142 KB document
 // is never retained: only what is parsed out of it stays in memory.
 type McaSnapshot struct {
@@ -165,6 +206,7 @@ type McaSnapshot struct {
 	Hostname    string
 	Vaps        []VapState
 	Radios      []RadioState
+	Scans       []RadioScan
 	Stations    []StaSlow
 	CollectedAt time.Time
 }
@@ -181,6 +223,78 @@ type mcaRadioRaw struct {
 	Is11be     bool                       `json:"is_11be"`
 	HasDfs     bool                       `json:"has_dfs"`
 	Athstats   map[string]json.RawMessage `json:"athstats"`
+	// The two tables are parsed on their own so a shape drift in either loses that table alone,
+	// never the radio.
+	ScanTable         json.RawMessage `json:"scan_table"`
+	SpectrumTable     json.RawMessage `json:"spectrum_table"`
+	SpectrumTableTime json.RawMessage `json:"spectrum_table_time"`
+}
+
+type mcaScanRaw struct {
+	Bssid      string `json:"bssid"`
+	Essid      string `json:"essid"`
+	Band       string `json:"band"`
+	Channel    int    `json:"channel"`
+	Bw         int    `json:"bw"`
+	CenterFreq int    `json:"center_freq"`
+	Signal     int    `json:"signal"`
+	Noise      int    `json:"noise"`
+	Age        int    `json:"age"`
+	IsUbnt     bool   `json:"is_ubnt"`
+}
+
+type mcaSpectrumRaw struct {
+	Channel       int `json:"channel"`
+	CenterFreq    int `json:"center_freq"`
+	Width         int `json:"width"`
+	Utilization   int `json:"utilization"`
+	Interference  int `json:"interference"`
+	OtherBssCount int `json:"other_bss_count"`
+	TotalSamples  int `json:"total_samples"`
+}
+
+// parseRadioScan reduces one radio's tables. Either table failing to parse yields an empty list.
+func parseRadioScan(r mcaRadioRaw, band string, scanRadio bool) RadioScan {
+	out := RadioScan{Name: r.Name, Band: band, ScanRadio: scanRadio, Scan: []ScanEntry{}, Spectrum: []SpectrumEntry{}}
+
+	var scans []mcaScanRaw
+	if len(r.ScanTable) > 0 && json.Unmarshal(r.ScanTable, &scans) == nil {
+		for _, s := range scans {
+			if s.Bssid == "" || s.Age > maxScanEntryAge {
+				continue
+			}
+			out.Scan = append(out.Scan, ScanEntry{
+				Bssid: normalizeMAC(s.Bssid), Essid: s.Essid, Band: bandForRadio(s.Band),
+				Channel: s.Channel, Width: s.Bw, CenterMhz: s.CenterFreq,
+				Signal: s.Signal, Noise: s.Noise, AgeSeconds: s.Age, IsUbnt: s.IsUbnt,
+			})
+		}
+	}
+
+	var spectrum []mcaSpectrumRaw
+	if len(r.SpectrumTable) > 0 && json.Unmarshal(r.SpectrumTable, &spectrum) == nil {
+		for _, s := range spectrum {
+			if s.Channel <= 0 {
+				continue
+			}
+			out.Spectrum = append(out.Spectrum, SpectrumEntry{
+				Channel: s.Channel, CenterMhz: s.CenterFreq, Width: s.Width,
+				Utilization: s.Utilization, Interference: s.Interference,
+				OtherBssCount: s.OtherBssCount, TotalSamples: s.TotalSamples,
+			})
+		}
+	}
+
+	if len(r.SpectrumTableTime) > 0 {
+		var n json.Number
+		if json.Unmarshal(r.SpectrumTableTime, &n) == nil {
+			if secs, err := n.Int64(); err == nil && secs > 0 {
+				at := time.Unix(secs, 0).UTC()
+				out.SpectrumAt = &at
+			}
+		}
+	}
+	return out
 }
 
 type mcaVapRaw struct {
@@ -250,6 +364,7 @@ func parseMcaFull(data []byte, now time.Time) (McaSnapshot, error) {
 			}
 		}
 		snap.Radios = append(snap.Radios, radio)
+		snap.Scans = append(snap.Scans, parseRadioScan(r, radio.Band, radio.ScanRadio))
 	}
 
 	if raw.VapTable != nil {

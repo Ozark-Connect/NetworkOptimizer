@@ -723,6 +723,12 @@ public class WiFiOptimizerService : IWiFiScanService
                 apMac: null,
                 startTime: startTime,
                 endTime: endTime);
+            // What agent-covered APs hear right now, laid over the console's scan for the same
+            // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
+            // targets exclude it without a rule of their own.
+            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow);
+            if (merged > 0)
+                _logger.LogDebug("[AgentScan] {Count} AP/band scan result(s) carry AP Agent neighbors or spectrum (site {Site})", merged, _siteSlug);
             // Record raw sightings for the rolling window, but cache and return the RAW scan -
             // the live RF Environment view must show the current scan, not a pooled union. Only
             // the channel recommendation reads the pooled view (see PoolNeighborSightings).

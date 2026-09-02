@@ -217,6 +217,8 @@ type Table struct {
 	identity map[string]identityRecord
 	vaps     []VapState
 	radios   []RadioState
+	scans    []RadioScan
+	scansAt  time.Time
 	ap       ApInfo
 	tiers    TierStatus
 
@@ -371,6 +373,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 
 	t.vaps = snap.Vaps
 	t.radios = snap.Radios
+	t.scans, t.scansAt = snap.Scans, now
 	t.applyCentersLocked()
 	if snap.Hostname != "" {
 		t.ap.Hostname = snap.Hostname
@@ -976,6 +979,21 @@ func copyCounters(src map[string]int64) map[string]int64 {
 		out[k] = v
 	}
 	return out
+}
+
+// Scans returns what each radio hears, and when mca-dump was read: the entries' ages count from
+// there, not from the request.
+func (t *Table) Scans() ([]RadioScan, time.Time) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	out := make([]RadioScan, 0, len(t.scans))
+	for _, s := range t.scans {
+		s.Scan = append([]ScanEntry{}, s.Scan...)
+		s.Spectrum = append([]SpectrumEntry{}, s.Spectrum...)
+		out = append(out, s)
+	}
+	return out, t.scansAt
 }
 
 func (t *Table) Ap() ApInfo {
