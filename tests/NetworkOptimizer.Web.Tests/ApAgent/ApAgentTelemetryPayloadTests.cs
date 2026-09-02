@@ -158,6 +158,34 @@ public class ApAgentTelemetryPayloadTests
     }
 
     [Fact]
+    public void A_channel_change_event_parses_with_both_sides()
+    {
+        const string json = """
+        {
+          "agent_started_at": "2026-09-02T17:00:00Z",
+          "collected_at": "2026-09-02T17:20:10Z",
+          "events": [
+            {
+              "seq": 7, "type": "channel_change", "radio": "wifi2", "collected_at": "2026-09-02T17:20:05Z",
+              "channel": { "band": "6", "from_channel": 101, "from_bw": 160, "from_center_mhz": 6505, "to_channel": 69, "to_bw": 160, "to_center_mhz": 6345 }
+            }
+          ]
+        }
+        """;
+
+        var payload = JsonSerializer.Deserialize<ApAgentEventsPayload>(json, Options)!;
+
+        var e = payload.Events.Single();
+        e.Type.Should().Be(ApAgentEventTypes.ChannelChange);
+        e.Radio.Should().Be("wifi2");
+        e.Channel.Should().NotBeNull();
+        e.Channel!.FromChannel.Should().Be(101);
+        e.Channel.ToChannel.Should().Be(69);
+        e.Channel.ToCenterMhz.Should().Be(6345);
+        e.Channel.Band.Should().Be("6");
+    }
+
+    [Fact]
     public void A_radio_without_a_center_reads_as_absent_not_zero()
     {
         var payload = JsonSerializer.Deserialize<ApAgentRadiosPayload>(

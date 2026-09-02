@@ -34,24 +34,28 @@ public sealed class ApAgentRoamCollector
     private readonly ApAgentEventsClient _events;
     private readonly ILogger<ApAgentRoamCollector> _logger;
     private readonly string _siteSlug;
+    private readonly ApAgentChannelMoveCollector? _channelMoves;
 
     private readonly ApAgentRoamAssembler _assembler = new();
     private readonly Dictionary<string, DateTime> _vapsLoadedAt = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _lastPrunedAt = DateTime.MinValue;
 
     /// <summary>Creates the collector for one site.</summary>
+    /// <param name="channelMoves">Where channel_change events on the same ring are routed; null drops them.</param>
     public ApAgentRoamCollector(
         IServiceProvider serviceProvider,
         ApAgentTargetDirectory directory,
         ApAgentEventsClient events,
         ILogger<ApAgentRoamCollector> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        ApAgentChannelMoveCollector? channelMoves = null)
     {
         _serviceProvider = serviceProvider;
         _directory = directory;
         _events = events;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _channelMoves = channelMoves;
     }
 
     /// <summary>
@@ -156,7 +160,16 @@ public sealed class ApAgentRoamCollector
         }
 
         foreach (var e in window.Events)
+        {
+            // A radio move rides the same ring as the client events but is about no client.
+            if (e.Type == ApAgentEventTypes.ChannelChange)
+            {
+                if (_channelMoves != null)
+                    await _channelMoves.RecordAsync(target.Mac, target.Name, e, ct);
+                continue;
+            }
             batch.Add(new ApRoamObservedEvent(target.Mac, e, window.Gap));
+        }
     }
 
     private static async Task PersistAsync(

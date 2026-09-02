@@ -116,6 +116,9 @@ public static class ApAgentEventTypes
 
     /// <summary>A peer told this access point that a client moved.</summary>
     public const string RoamToPeer = "roam_to_peer";
+
+    /// <summary>A serving radio moved channel, width, or block; about a radio, not a client.</summary>
+    public const string ChannelChange = "channel_change";
 }
 
 /// <summary>One membership fact from an access point's hostapd control socket.</summary>
@@ -152,6 +155,14 @@ public sealed class ApAgentEvent
     [JsonPropertyName("peer_bssid")]
     public string? PeerBssid { get; set; }
 
+    /// <summary>The radio a channel_change event is about; null on client events.</summary>
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }
+
+    /// <summary>The before and after of a channel_change event; null on client events.</summary>
+    [JsonPropertyName("channel")]
+    public ApAgentChannelChange? Channel { get; set; }
+
     /// <summary>When the agent recorded it.</summary>
     [JsonPropertyName("collected_at")]
     public DateTime CollectedAt { get; set; }
@@ -159,6 +170,38 @@ public sealed class ApAgentEvent
     /// <summary>The access-point-side instant, preferring the source's own clock where it has one.</summary>
     [JsonIgnore]
     public DateTime At => (EventTime ?? CollectedAt).ToUniversalTime();
+}
+
+/// <summary>A radio move as the agent saw it, within one mca-dump pass of the radio moving.</summary>
+public sealed class ApAgentChannelChange
+{
+    /// <summary>Band token ("2.4", "5", "6").</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Primary channel before the move.</summary>
+    [JsonPropertyName("from_channel")]
+    public int FromChannel { get; set; }
+
+    /// <summary>Width in MHz before the move; 0 when unknown.</summary>
+    [JsonPropertyName("from_bw")]
+    public int FromBw { get; set; }
+
+    /// <summary>Block center in MHz before the move; 0 when unknown.</summary>
+    [JsonPropertyName("from_center_mhz")]
+    public int FromCenterMhz { get; set; }
+
+    /// <summary>Primary channel after the move.</summary>
+    [JsonPropertyName("to_channel")]
+    public int ToChannel { get; set; }
+
+    /// <summary>Width in MHz after the move; 0 when unknown.</summary>
+    [JsonPropertyName("to_bw")]
+    public int ToBw { get; set; }
+
+    /// <summary>Block center in MHz after the move; 0 when the agent had not read it yet.</summary>
+    [JsonPropertyName("to_center_mhz")]
+    public int ToCenterMhz { get; set; }
 }
 
 /// <summary>The AP Agent's GET /events?since= reply, a bounded replay window.</summary>

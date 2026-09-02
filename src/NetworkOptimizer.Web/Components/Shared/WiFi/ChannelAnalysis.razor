@@ -317,6 +317,20 @@
                                         }
                                         <span class="rec-no-change">(No change)</span>
                                     }
+                                    @* A move the AP Agent saw within the last day. Copy: verbiage.md PM-1 / PM-2 *@
+                                    @if (rec.MovedAt.HasValue)
+                                    {
+                                        <div class="rec-move-note">
+                                            @if (rec.MoveInterferenceBefore.HasValue && rec.MoveInterferenceAfter.HasValue)
+                                            {
+                                                <span>Measured since the move: interference @rec.MoveInterferenceBefore.Value.ToString("F0")% before, @rec.MoveInterferenceAfter.Value.ToString("F0")% after.</span>
+                                            }
+                                            else if (rec.MoveVerdictDueAt.HasValue)
+                                            {
+                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime().ToString("t").</span>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>

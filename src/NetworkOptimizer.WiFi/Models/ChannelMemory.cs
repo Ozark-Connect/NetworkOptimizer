@@ -16,6 +16,29 @@ public class ChannelSoakInfo
 
     /// <summary>When the soak period ends (UTC): last change + soak window</summary>
     public DateTimeOffset SoakEndsAt { get; init; }
+
+    /// <summary>
+    /// The AP Agent's one-hour verdict on the move that started this soak, when the AP is covered
+    /// and the hour has elapsed. Read by exactly one thing: the soak escape, which lets a radio
+    /// leave a channel measured Worse at one hour instead of waiting on the console's report.
+    /// </summary>
+    public MoveOutcome? MeasuredOutcome { get; init; }
+
+    /// <summary>When the verdict was reached (UTC).</summary>
+    public DateTimeOffset? MeasuredAt { get; init; }
+}
+
+/// <summary>How a channel move measured after an hour, from the agent's own airtime readings.</summary>
+public enum MoveOutcome
+{
+    /// <summary>Interference fell by more than the dead band.</summary>
+    Improved,
+
+    /// <summary>Within the dead band either way.</summary>
+    Same,
+
+    /// <summary>Interference rose by more than the dead band.</summary>
+    Worse
 }
 
 /// <summary>

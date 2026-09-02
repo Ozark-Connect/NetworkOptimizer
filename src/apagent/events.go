@@ -22,7 +22,23 @@ const (
 	EventRoamToPeer    = "roam_to_peer"
 	EventListenerUp    = "listener_up"
 	EventListenerDown  = "listener_down"
+	// EventChannelChange is a serving radio moving channel, width, or block, noticed within one
+	// mca-dump pass. UniFi Network logs nothing for a move Channel AI makes, so this is how the
+	// server learns of one at the time it happens rather than hours later.
+	EventChannelChange = "channel_change"
 )
+
+// ChannelChange is the before and after of a radio move. Centers are 0 when unknown at the
+// moment of the event; the server takes the center from the next radio reading either way.
+type ChannelChange struct {
+	Band          string `json:"band,omitempty"`
+	FromChannel   int    `json:"from_channel"`
+	FromBw        int    `json:"from_bw,omitempty"`
+	FromCenterMhz int    `json:"from_center_mhz,omitempty"`
+	ToChannel     int    `json:"to_channel"`
+	ToBw          int    `json:"to_bw,omitempty"`
+	ToCenterMhz   int    `json:"to_center_mhz,omitempty"`
+}
 
 const (
 	// hostapdKeepalive paces the PING that proves the control socket is still attached to a live
@@ -42,15 +58,18 @@ const (
 // Event is one membership fact. EventTime is the source's own timestamp where a source provides
 // one; the hostapd control socket does not, so only CollectedAt is set for its events.
 type Event struct {
-	Seq         uint64     `json:"seq"`
-	Type        string     `json:"type"`
-	Vap         string     `json:"vap"`
-	MAC         string     `json:"mac,omitempty"`
-	PeerBssid   string     `json:"peer_bssid,omitempty"`
-	Detail      string     `json:"detail,omitempty"`
-	Sta         *StaEvent  `json:"sta,omitempty"`
-	EventTime   *time.Time `json:"event_time,omitempty"`
-	CollectedAt time.Time  `json:"collected_at"`
+	Seq       uint64     `json:"seq"`
+	Type      string     `json:"type"`
+	Vap       string     `json:"vap"`
+	MAC       string     `json:"mac,omitempty"`
+	PeerBssid string     `json:"peer_bssid,omitempty"`
+	Detail    string     `json:"detail,omitempty"`
+	Sta       *StaEvent  `json:"sta,omitempty"`
+	EventTime *time.Time `json:"event_time,omitempty"`
+	// Radio and Channel are set on a channel_change event only; it is about a radio, not a client.
+	Radio       string         `json:"radio,omitempty"`
+	Channel     *ChannelChange `json:"channel,omitempty"`
+	CollectedAt time.Time      `json:"collected_at"`
 }
 
 // EventRing is a bounded in-memory replay window. A collector that restarts asks for everything

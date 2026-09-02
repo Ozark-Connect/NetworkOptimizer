@@ -37,6 +37,12 @@ public class ChannelMemoryCollectionService : BackgroundService
     /// <summary>UniFi hourly report retention we can safely reach back into.</summary>
     private static readonly TimeSpan MaxLookback = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// A console event landing this close to an agent record for the same destination channel
+    /// is the same move seen from the other clock, not a second one.
+    /// </summary>
+    private static readonly TimeSpan AgentEventMatchWindow = TimeSpan.FromMinutes(5);
+
     /// <summary>How long outcome buckets and superseded change records are kept.</summary>
     private const int RetentionDays = 365;
 
@@ -255,6 +261,13 @@ public class ChannelMemoryCollectionService : BackgroundService
                 var lastRecordedAt = DateTime.SpecifyKind(lastKnown.ChangedAtUtc, DateTimeKind.Utc);
                 foreach (var evt in bandEvents.Where(e => e.Timestamp.UtcDateTime > lastRecordedAt))
                 {
+                    // The agent already logged this move, seconds after it happened; the console's
+                    // own event for it is the same move on another clock, not a second one.
+                    if (lastKnown.Source == ApChannelChangeSource.Agent
+                        && lastKnown.NewChannel == evt.NewChannel
+                        && (evt.Timestamp.UtcDateTime - lastRecordedAt).Duration() <= AgentEventMatchWindow)
+                        continue;
+
                     var isCurrentConfig = evt.NewChannel == currentChannel && evt == lastEvent;
                     newChanges.Add(new ApChannelChange
                     {

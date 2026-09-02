@@ -257,6 +257,7 @@ func (c *Collector) runBytes(ctx context.Context) {
 		readings[stationKey(s.Vap, s.MAC)] = StaBytes{TxBytes: s.TxBytes, RxBytes: s.RxBytes, At: now}
 	}
 
+	previous := c.table.Radios()
 	c.table.ApplySlow(snap, now)
 	c.table.ApplyBytes(readings, now)
 	// A channel change leaves the held iw answer a pass stale, and the slow tier's counter
@@ -264,6 +265,11 @@ func (c *Collector) runBytes(ctx context.Context) {
 	// tier's cadence, whenever a serving radio has a channel but no center.
 	if c.table.CentersStale() {
 		c.table.SetRadioCenters(collectRadioCenters(ctx), now)
+	}
+	// After the center refresh, so a move's destination carries its block when iw answered.
+	// Straight onto the ring: ApplyEvent ignores an event with no client, which this has none.
+	for _, e := range channelChanges(previous, c.table.Radios(), now) {
+		c.ring.Add(e)
 	}
 	c.bytes.succeeded(now)
 	c.slow.succeeded(now)

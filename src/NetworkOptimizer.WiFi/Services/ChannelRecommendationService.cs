@@ -1930,6 +1930,9 @@ public class ChannelRecommendationService
     private static bool IsCurrentChannelMeasurablySuffering(InterferenceGraph graph, RadioBand band, int apIndex)
     {
         var node = graph.Nodes[apIndex];
+        // The agent's one-hour verdict on the move is the same measured-worse evidence, an hour
+        // in rather than after the console's reports accumulate. Nothing else reads it.
+        if (node.SoakInfo?.MeasuredOutcome == MoveOutcome.Worse) return true;
         if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
 
         var escapePct = GetSoakEscapeInterferencePct(band);

@@ -40,6 +40,18 @@ public class ApChannelRecommendation
     /// <summary>The channel is set by hand in UniFi Network rather than by Channel AI. Labeled, never skipped.</summary>
     public bool IsChannelFixed { get; set; }
 
+    /// <summary>When the radio last moved, if within the last day and the AP Agent saw it (UTC).</summary>
+    public DateTime? MovedAt { get; set; }
+
+    /// <summary>When the one-hour measurement of that move lands (UTC).</summary>
+    public DateTime? MoveVerdictDueAt { get; set; }
+
+    /// <summary>Interference percent over the hour before the move, once the verdict exists.</summary>
+    public double? MoveInterferenceBefore { get; set; }
+
+    /// <summary>Interference percent over the hour after the move, once the verdict exists.</summary>
+    public double? MoveInterferenceAfter { get; set; }
+
     /// <summary>Whether the AP's current channel span is subject to DFS.</summary>
     public bool IsCurrentDfsChannel { get; set; }
 

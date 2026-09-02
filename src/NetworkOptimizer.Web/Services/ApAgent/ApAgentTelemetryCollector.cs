@@ -733,6 +733,7 @@ public sealed class ApAgentTelemetryCollector
             foreach (var r in payload.Radios.Where(r => !r.ScanRadio && !r.CounterOnly))
                 _noiseFloors.Record(target.Mac, r.Name, r.NoiseFloor, at);
             await _insights.RadioHealth.RecordAsync(target.Mac, target.Name, radios, ct);
+            _insights.ChannelMoves.NoteRadios(target.Mac, target.Name, radios);
 
             foreach (var r in payload.Radios)
             {
@@ -746,6 +747,9 @@ public sealed class ApAgentTelemetryCollector
                 _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at, center, r.NoiseFloor);
             }
         }
+
+        // Any move whose hour is up gets its verdict from the hours folded above.
+        _insights.ChannelMoves.EvaluateOutcomes(_airtime, DateTime.UtcNow);
     }
 
     /// <summary>Keeps only the counters that have a home, so the rest of the reply is not retained.</summary>

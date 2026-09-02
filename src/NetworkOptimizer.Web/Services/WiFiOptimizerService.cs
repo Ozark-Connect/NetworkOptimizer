@@ -54,6 +54,7 @@ public class WiFiOptimizerService : IWiFiScanService
     /// </summary>
     private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
+    private readonly ApAgent.ApAgentInsightsRegistry _apAgentInsights;
 
     /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
@@ -99,12 +100,14 @@ public class WiFiOptimizerService : IWiFiScanService
         NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource measuredClients,
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
+        ApAgent.ApAgentInsightsRegistry apAgentInsights,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
         _apAgentTelemetry = apAgentTelemetry;
+        _apAgentInsights = apAgentInsights;
         _licenseState = licenseState;
         _siteSlug = siteContext.Slug;
         _connectionService = connectionService;
@@ -1512,12 +1515,24 @@ public class WiFiOptimizerService : IWiFiScanService
                     // What the operator said about each radio, for the card: kept, or set by hand.
                     var keptOnBand = kept.Where(k => k.Band == band.ToUniFiCode())
                         .Select(k => k.ApMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var moves = _apAgentInsights.GetFor(_siteSlug).ChannelMoves.Tracker;
                     foreach (var rec in plan.Recommendations)
                     {
                         rec.IsKept = keptOnBand.Contains(rec.ApMac);
                         rec.IsChannelFixed = aps
                             .FirstOrDefault(ap => ap.Mac.Equals(rec.ApMac, StringComparison.OrdinalIgnoreCase))?
                             .Radios.Any(r => r.Band == band && r.Channel.HasValue && r.ChannelIsFixed) == true;
+
+                        // A move the agent saw within the last day, and how it measured. Copy for
+                        // the card: verbiage.md PM-1 / PM-2.
+                        var move = moves.For(rec.ApMac, band.ToUniFiCode());
+                        if (move != null && DateTime.UtcNow - move.At <= TimeSpan.FromDays(1) && move.ToChannel == rec.CurrentChannel)
+                        {
+                            rec.MovedAt = move.At;
+                            rec.MoveVerdictDueAt = move.VerdictDueAt;
+                            rec.MoveInterferenceBefore = move.InterferenceBefore;
+                            rec.MoveInterferenceAfter = move.InterferenceAfter;
+                        }
                     }
                     plan.KeptRadioCount = plan.Recommendations.Count(r => r.IsKept);
 
@@ -1927,6 +1942,20 @@ public class WiFiOptimizerService : IWiFiScanService
                     }
 
                     var soak = ChannelMemoryHelper.BuildSoakInfo(changeEvents, currentChannel, now);
+                    // The agent's one-hour verdict on the move that started this soak, where there
+                    // is one. Read by the soak escape alone.
+                    var move = _apAgentInsights.GetFor(_siteSlug).ChannelMoves.Tracker.For(macLower, bandCode);
+                    if (soak != null && move is { Outcome: not null } && move.ToChannel == currentChannel)
+                    {
+                        soak = new ChannelSoakInfo
+                        {
+                            SoakedChannels = soak.SoakedChannels,
+                            LastChangeAt = soak.LastChangeAt,
+                            SoakEndsAt = soak.SoakEndsAt,
+                            MeasuredOutcome = move.Outcome,
+                            MeasuredAt = move.VerdictAt
+                        };
+                    }
                     if (soak != null)
                         bandSoak[macLower] = soak;
                 }
