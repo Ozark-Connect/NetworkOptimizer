@@ -135,6 +135,9 @@ type RadioState struct {
 	Band           string           `json:"band,omitempty"`
 	Channel        int              `json:"channel,omitempty"`
 	Bandwidth      int              `json:"bw,omitempty"`
+	// CenterMhz is the operating block's center from `iw dev`. It is what identifies a 320 MHz
+	// radio's block, which the primary alone does not. Zero when iw did not answer.
+	CenterMhz      int              `json:"center_mhz,omitempty"`
 	Nss            int              `json:"nss,omitempty"`
 	MaxTxPower     int              `json:"max_txpower,omitempty"`
 	MinTxPower     int              `json:"min_txpower,omitempty"`

@@ -231,6 +231,12 @@ public class ApNode
     public string Name { get; set; } = string.Empty;
     public int CurrentChannel { get; set; }
     public int CurrentWidth { get; set; }
+
+    /// <summary>
+    /// Measured center of the current block, as a channel number, or null. Applies only to the
+    /// current assignment: a candidate has no center until UniFi applies it and picks the block.
+    /// </summary>
+    public int? CurrentCenter { get; set; }
     public int[] ValidChannels { get; set; } = [];
     public int[] ValidWidths { get; set; } = [];
     public bool IsPlaced { get; set; }

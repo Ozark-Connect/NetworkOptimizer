@@ -106,6 +106,12 @@ public class HealthIssue
     /// <summary>Affected entity (AP name, client name, etc.)</summary>
     public string? AffectedEntity { get; set; }
 
+    /// <summary>
+    /// Primary channels the issue is about, for a channel-keyed UI to match on without parsing
+    /// the title. Empty for issues that are not about specific channels.
+    /// </summary>
+    public HashSet<int> AffectedChannels { get; set; } = new();
+
     /// <summary>MAC address of affected client, for linking to client details</summary>
     public string? AffectedClientMac { get; set; }
 

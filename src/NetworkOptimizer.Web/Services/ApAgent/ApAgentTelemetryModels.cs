@@ -461,6 +461,13 @@ public sealed class ApAgentRadio
     [JsonPropertyName("bw")]
     public int Bandwidth { get; set; }
 
+    /// <summary>
+    /// Center frequency of the operating block in MHz, from the AP's own <c>iw dev</c>. Absent
+    /// when the agent could not read it. What identifies a 320 MHz radio's block.
+    /// </summary>
+    [JsonPropertyName("center_mhz")]
+    public int? CenterMhz { get; set; }
+
     /// <summary>Measured noise floor in dBm.</summary>
     [JsonPropertyName("noise_floor")]
     public int? NoiseFloor { get; set; }

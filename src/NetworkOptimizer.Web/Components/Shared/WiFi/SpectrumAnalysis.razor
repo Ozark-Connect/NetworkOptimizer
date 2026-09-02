@@ -1156,7 +1156,7 @@
         var yourSpans = accessPoints
             .SelectMany(ap => ap.Radios)
             .Where(r => r.Channel.HasValue && r.Band == selectedBand)
-            .Select(r => GetChannelSpan(r.Channel!.Value, r.ChannelWidth ?? 20))
+            .Select(r => GetChannelSpan(r.Channel!.Value, r.ChannelWidth ?? 20, r.CenterChannel))
             .ToList();
 
         return filteredNeighbors
@@ -1235,7 +1235,7 @@
             const int assumedSignal = -65;
             var weight = ChannelSpanHelper.SignalToInterferenceWeight(assumedSignal);
             interferenceSources.Add((
-                Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
+                Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20, radio.CenterChannel),
                 Weight: weight
             ));
         }
@@ -1320,8 +1320,8 @@
         };
     }
 
-    private (int Low, int High) GetChannelSpan(int primaryChannel, int width) =>
-        ChannelSpanHelper.GetChannelSpan(selectedBand, primaryChannel, width);
+    private (int Low, int High) GetChannelSpan(int primaryChannel, int width, int? centerChannel = null) =>
+        ChannelSpanHelper.GetChannelSpan(selectedBand, primaryChannel, width, centerChannel);
 
     private static bool SpansOverlap((int Low, int High) a, (int Low, int High) b) =>
         ChannelSpanHelper.SpansOverlap(a, b);

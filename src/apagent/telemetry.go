@@ -205,6 +205,11 @@ type Table struct {
 	// delta window would reset on every pass and the CCA wedge would never be visible.
 	prevCounters   map[string]map[string]int64
 	prevCountersAt time.Time
+
+	// centers is the last `iw dev` answer by interface. Held here for the same reason as
+	// prevCounters: ApplySlow replaces the radio table wholesale, and the center is re-applied
+	// to the fresh table on every pass rather than being lost between slow-tier reads.
+	centers map[string]iwChannel
 }
 
 func NewTable(maxSize int, ttl time.Duration) *Table {
@@ -306,6 +311,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 
 	t.vaps = snap.Vaps
 	t.radios = snap.Radios
+	t.applyCentersLocked()
 	if snap.Hostname != "" {
 		t.ap.Hostname = snap.Hostname
 	}
@@ -409,6 +415,37 @@ func (t *Table) SetRadioCounters(counters map[string]map[string]int64, sources m
 		t.prevCounters[r.Name] = snapshot
 	}
 	t.prevCountersAt = now
+}
+
+// SetRadioCenters records one `iw dev` pass and applies it to the radio table. An empty pass keeps
+// the previous answer: iw failing once must not flap the field off and on.
+func (t *Table) SetRadioCenters(centers map[string]iwChannel, now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(centers) == 0 {
+		return
+	}
+	t.centers = centers
+	t.applyCentersLocked()
+}
+
+func (t *Table) applyCentersLocked() {
+	for i := range t.radios {
+		t.radios[i].CenterMhz = centerForRadio(t.radios[i], t.vaps, t.centers)
+	}
+}
+
+// CentersStale reports a serving radio that has a channel but no center: the held iw answer is
+// from before its channel change, or nothing has been read yet.
+func (t *Table) CentersStale() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, r := range t.radios {
+		if !r.ScanRadio && !r.CounterOnly && r.Channel != 0 && r.CenterMhz == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Table) SetTiers(s TierStatus) {

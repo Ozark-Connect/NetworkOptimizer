@@ -450,7 +450,11 @@
         @if (_selectedChannel != null)
         {
             var apsOnChannel = GetApsOnChannel(_selectedBand, _selectedChannel.Value);
-            var hasActualOverlap = IsChannelOverlapped(_selectedBand, _selectedChannel.Value);
+            var coChannelIssue = CoChannelIssueFor(_selectedBand, _selectedChannel.Value);
+            var hasActualOverlap = coChannelIssue != null;
+            // Same primary keeps the count sentence; an overlap between different primaries
+            // reaches past this channel, so the issue's own description names the blocks.
+            var overlapReachesOtherChannels = coChannelIssue != null && coChannelIssue.AffectedChannels.Count > 1;
             var hasMeshPair = IsChannelMesh(_selectedBand, _selectedChannel.Value);
             <div class="channel-details-section">
                 <div class="section-header">
@@ -462,7 +466,14 @@
                 {
                     <div class="overlap-warning">
                         <span class="warning-icon">!</span>
-                        <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                        @if (overlapReachesOtherChannels)
+                        {
+                            <span>@coChannelIssue!.Description</span>
+                        }
+                        else
+                        {
+                            <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                        }
                     </div>
                 }
                 else if (hasMeshPair)
@@ -491,7 +502,7 @@
                                     </div>
                                     @if (radio.ChannelWidth >= 40)
                                     {
-                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel);
+                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel, radio.CenterChannel);
                                         var spanOrdered = span.OrderBy(c => c).ToList();
                                         <div class="detail-item">
                                             <span class="detail-label">Bonded:</span>
@@ -881,13 +892,19 @@
     {
         if (!channel.HasValue) return false;
 
-        // Use the health engine's co-channel issues which apply propagation filtering
-        // to avoid false positives from APs that are too far apart to interfere
+        return CoChannelIssueFor(band, channel.Value) != null;
+    }
+
+    // The health engine's co-channel issues apply propagation filtering, which avoids false
+    // positives from APs too far apart to interfere. An issue can span several primaries, so
+    // it is matched on its channel set rather than its title.
+    private HealthIssue? CoChannelIssueFor(RadioBand band, int channel)
+    {
         var bandStr = band.ToDisplayString();
-        return _channelIssues.Any(i =>
+        return _channelIssues.FirstOrDefault(i =>
             i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase) &&
             i.Title.Contains(bandStr) &&
-            i.Title.Contains($"Channel {channel.Value}"));
+            i.AffectedChannels.Contains(channel));
     }
 
     private bool IsChannelMesh(RadioBand band, int? channel)
@@ -1235,7 +1252,7 @@
             var width = radio.ChannelWidth!.Value;
             var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
 
-            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel);
+            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel, radio.CenterChannel);
             var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
 
             // De-duplicate by primary channel - same primary = same group
@@ -1307,8 +1324,8 @@
         }
     }
 
-    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null) =>
-        ChannelSpanHelper.GetChannelWidthSpan(band, primaryChannel, width, extChannel);
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null, int? centerChannel = null) =>
+        ChannelSpanHelper.GetChannelWidthSpan(band, primaryChannel, width, extChannel, centerChannel);
 
     private string GetChannelGroupClass(RadioBand band, int channel)
     {

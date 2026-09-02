@@ -64,7 +64,18 @@ public static class WiFiAnalysisHelpers
     public static List<AccessPointSnapshot> FilterOutMeshPairs(
         List<AccessPointSnapshot> apsOnChannel,
         RadioBand band,
-        int channel)
+        int channel) =>
+        FilterOutMeshPairs(apsOnChannel, band, _ => channel);
+
+    /// <summary>
+    /// <see cref="FilterOutMeshPairs(List{AccessPointSnapshot}, RadioBand, int)"/> for a group
+    /// whose radios overlap in spectrum without sharing a primary: <paramref name="channelOf"/>
+    /// gives each AP's own primary on the band.
+    /// </summary>
+    public static List<AccessPointSnapshot> FilterOutMeshPairs(
+        List<AccessPointSnapshot> apsOnChannel,
+        RadioBand band,
+        Func<AccessPointSnapshot, int> channelOf)
     {
         if (apsOnChannel.Count < 2)
             return apsOnChannel;
@@ -75,7 +86,7 @@ public static class WiFiAnalysisHelpers
         {
             if (ap.IsMeshChild &&
                 !string.IsNullOrEmpty(ap.MeshParentMac) &&
-                ap.MeshUplinkUsesChannel(band, channel))
+                ap.MeshUplinkUsesChannel(band, channelOf(ap)))
             {
                 meshPairs.Add((ap.Mac.ToLowerInvariant(), ap.MeshParentMac.ToLowerInvariant()));
             }
@@ -130,6 +141,18 @@ public static class WiFiAnalysisHelpers
         List<AccessPointSnapshot> aps,
         RadioBand band, int channel,
         ApPropagationContext propCtx,
+        PropagationService propagationSvc) =>
+        FilterByPropagation(aps, band, _ => channel, propCtx, propagationSvc);
+
+    /// <summary>
+    /// <see cref="FilterByPropagation(List{AccessPointSnapshot}, RadioBand, int, ApPropagationContext, PropagationService)"/>
+    /// for a group whose radios overlap in spectrum without sharing a primary:
+    /// <paramref name="channelOf"/> gives each AP's own primary on the band.
+    /// </summary>
+    public static List<AccessPointSnapshot> FilterByPropagation(
+        List<AccessPointSnapshot> aps,
+        RadioBand band, Func<AccessPointSnapshot, int> channelOf,
+        ApPropagationContext propCtx,
         PropagationService propagationSvc)
     {
         var bandStr = band.ToPropagationBand();
@@ -144,6 +167,7 @@ public static class WiFiAnalysisHelpers
             if (propCtx.ApsByMac.TryGetValue(macLower, out var propAp))
             {
                 // Override TX power from live radio data for this specific band/channel
+                var channel = channelOf(ap);
                 var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel == channel);
                 var txPower = radio?.TxPower ?? propAp.TxPowerDbm;
                 var antennaGain = radio?.AntennaGain ?? propAp.AntennaGainDbi;
