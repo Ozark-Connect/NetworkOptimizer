@@ -55,6 +55,23 @@ public class ApAgentMembershipLedgerTests
     }
 
     [Fact]
+    public void MemberCount_IsTheVouchedClientsOfAFreshAnswer()
+    {
+        var ledger = new ApAgentMembershipLedger();
+        ledger.Record(Ap1, new[]
+        {
+            Client(mac: "00:11:22:33:44:01"),
+            Client(mac: "00:11:22:33:44:02"),
+            Client(mac: "00:11:22:33:44:03", authorized: false),
+        }, Now);
+
+        ledger.MemberCount(Ap1, Now).Should().Be(2, "an unauthenticated station is listed, not held");
+        ledger.MemberCount(Ap2, Now).Should().BeNull("no answer from that AP");
+        ledger.MemberCount(Ap1, Now + ApAgentMembershipLedger.AnswerTtl + TimeSpan.FromSeconds(1))
+            .Should().BeNull("a stale answer vouches for nothing");
+    }
+
+    [Fact]
     public void Member_IsPresent_ByKeyMldAndLinkMac()
     {
         var ledger = new ApAgentMembershipLedger();
