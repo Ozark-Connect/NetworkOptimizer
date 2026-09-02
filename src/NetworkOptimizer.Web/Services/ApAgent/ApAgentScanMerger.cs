@@ -16,7 +16,14 @@ public static class ApAgentScanMerger
     public static readonly TimeSpan FreshWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>Applies the merge in place. Returns how many (AP, band) results took agent data.</summary>
-    public static int Apply(List<ChannelScanResult> results, Func<string, ApAgentScanPayload?> scanFor, DateTimeOffset now)
+    /// <param name="ownBssids">The site's own BSSIDs, so a sibling AP the radio hears is never an
+    /// external neighbor: the recommender already charges siblings as internal interference, and
+    /// counting them twice would push covered radios off channels the console path keeps.</param>
+    public static int Apply(
+        List<ChannelScanResult> results,
+        Func<string, ApAgentScanPayload?> scanFor,
+        DateTimeOffset now,
+        IReadOnlySet<string>? ownBssids = null)
     {
         var merged = 0;
         foreach (var result in results)
@@ -27,7 +34,7 @@ public static class ApAgentScanMerger
             var readAt = new DateTimeOffset(DateTime.SpecifyKind(payload.ReadAt, DateTimeKind.Utc));
             if (readAt == DateTimeOffset.UnixEpoch || now - readAt > FreshWindow) continue;
 
-            var touched = MergeNeighbors(result, payload, readAt);
+            var touched = MergeNeighbors(result, payload, readAt, ownBssids);
             touched |= MergeSpectrum(result, payload, readAt);
             if (touched) merged++;
         }
@@ -38,7 +45,7 @@ public static class ApAgentScanMerger
     /// Every radio's sightings on this band, the scan radio's included: a serving radio hears its
     /// own channel, the scan radio the whole band, and the pool de-duplicates by BSSID.
     /// </summary>
-    private static bool MergeNeighbors(ChannelScanResult result, ApAgentScanPayload payload, DateTimeOffset readAt)
+    private static bool MergeNeighbors(ChannelScanResult result, ApAgentScanPayload payload, DateTimeOffset readAt, IReadOnlySet<string>? ownBssids)
     {
         var byBssid = result.Neighbors
             .Where(n => !string.IsNullOrEmpty(n.Bssid))
@@ -69,7 +76,8 @@ public static class ApAgentScanMerger
                     Channel = e.Channel,
                     Width = e.Width > 0 ? e.Width : null,
                     Signal = e.Signal,
-                    IsOwnNetwork = e.IsUbnt,
+                    // Same rule as the console path: a Ubiquiti flag or one of our own BSSIDs.
+                    IsOwnNetwork = e.IsUbnt || (ownBssids?.Contains(e.Bssid) ?? false),
                     LastSeen = seenAt,
                 };
                 result.Neighbors.Add(added);
@@ -95,6 +103,11 @@ public static class ApAgentScanMerger
         var entries = source.Spectrum.Where(s => serving != null || BandOfMhz(s.CenterMhz) == result.Band).ToList();
         if (entries.Count == 0) return false;
 
+        // The agent's table carries no DFS state; keep the console's per channel where it had one,
+        // else the 5 GHz DFS range, so RF Environment's DFS labels survive the replacement.
+        var consoleDfs = result.Channels
+            .GroupBy(c => c.Channel)
+            .ToDictionary(g => g.Key, g => (g.First().IsDfs, g.First().DfsState));
         result.Channels = entries.Select(s => new ChannelInfo
         {
             Channel = s.Channel,
@@ -104,6 +117,10 @@ public static class ApAgentScanMerger
             // Same convention as the console's scan: "interference" is a dBm floor, not a percent.
             NoiseFloor = s.Interference < 0 ? s.Interference : null,
             NeighborCount = s.OtherBssCount,
+            IsDfs = consoleDfs.TryGetValue(s.Channel, out var dfs)
+                ? dfs.IsDfs
+                : result.Band == RadioBand.Band5GHz && s.Channel is >= 52 and <= 144,
+            DfsState = consoleDfs.TryGetValue(s.Channel, out var state) ? state.DfsState : null,
         }).ToList();
         result.SpectrumTableTime = source.SpectrumAt is { } at
             ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc))

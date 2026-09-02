@@ -82,6 +82,17 @@ public class ApAgentScanMergerTests
     }
 
     [Fact]
+    public void A_sibling_ap_the_radio_hears_is_our_own_network_not_a_neighbor()
+    {
+        var result = Result(Ap, RadioBand.Band5GHz);
+        var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "02:00:00:AA:00:01" };
+
+        ApAgentScanMerger.Apply([result], _ => Payload(), Now, own);
+
+        result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:01").IsOwnNetwork.Should().BeTrue();
+    }
+
+    [Fact]
     public void A_covered_bands_spectrum_replaces_the_consoles()
     {
         var result = Result(Ap, RadioBand.Band5GHz);

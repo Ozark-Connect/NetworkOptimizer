@@ -726,7 +726,12 @@ public class WiFiOptimizerService : IWiFiScanService
             // What agent-covered APs hear right now, laid over the console's scan for the same
             // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
             // targets exclude it without a rule of their own.
-            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow);
+            var ownBssids = (await GetAccessPointsAsync())
+                .SelectMany(ap => ap.Vaps)
+                .Select(v => v.Bssid)
+                .Where(b => !string.IsNullOrEmpty(b))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, ownBssids);
             if (merged > 0)
                 _logger.LogDebug("[AgentScan] {Count} AP/band scan result(s) carry AP Agent neighbors or spectrum (site {Site})", merged, _siteSlug);
             // Record raw sightings for the rolling window, but cache and return the RAW scan -
