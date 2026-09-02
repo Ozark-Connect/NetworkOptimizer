@@ -215,6 +215,28 @@ public class RadioSnapshot
     /// </summary>
     public bool WidthIsOverride { get; set; }
 
+    /// <summary>
+    /// Airtime busy percent measured by the AP Agent in the last two minutes (the radio's own
+    /// <c>cu_total</c>). Null without an agent, or when its reading is stale. Named apart from
+    /// <see cref="ChannelUtilization"/>, the console's figure, which keeps feeding every rule.
+    /// </summary>
+    public int? MeasuredUtilization { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is this radio's own traffic (<c>cu_self_tx</c> plus <c>cu_self_rx</c>).</summary>
+    public int? MeasuredSelfAirtime { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is other transmitters (<c>cu_interf</c>).</summary>
+    public int? MeasuredInterference { get; set; }
+
+    /// <summary>The radio's latest measured noise floor in dBm, from the AP Agent.</summary>
+    public int? MeasuredNoiseFloor { get; set; }
+
+    /// <summary>The median of the last hour's measured noise floors, once an hour's worth exists.</summary>
+    public int? MeasuredNoiseFloorHour { get; set; }
+
+    /// <summary>When the measured fields were read (UTC).</summary>
+    public DateTime? MeasuredAt { get; set; }
+
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }
 

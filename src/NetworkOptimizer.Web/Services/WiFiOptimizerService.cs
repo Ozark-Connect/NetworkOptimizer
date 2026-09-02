@@ -427,7 +427,8 @@ public class WiFiOptimizerService : IWiFiScanService
                 // Radios an AP Agent covers carry their measured block center; the console never
                 // reports it. Applied here so the health rules, the channel recommender, and the
                 // Wi-Fi Optimizer tabs all read the same snapshot.
-                var centers = ApAgent.ApAgentRadioEnricher.Apply(aps, mac => _apAgentTelemetry.GetFor(_siteSlug).RadioAirtime(mac));
+                var collector = _apAgentTelemetry.GetFor(_siteSlug);
+                var centers = ApAgent.ApAgentRadioEnricher.Apply(aps, collector.RadioAirtime, collector.NoiseFloorHourMedian);
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     foreach (var byAp in centers.GroupBy(t => t.ApName))

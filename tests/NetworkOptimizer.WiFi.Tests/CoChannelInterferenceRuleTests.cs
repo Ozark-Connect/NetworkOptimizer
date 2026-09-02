@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.WiFi.Data;
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Rules;
 using NetworkOptimizer.WiFi.Services;
@@ -343,6 +344,59 @@ public class CoChannelInterferenceRuleTests
 
         issues.Should().HaveCount(1);
         issues[0].Description.Should().Be("2 APs (AP-Dual, AP-Other) are using the same channel.");
+    }
+
+    [Fact]
+    public void MeasuredAirtime_GradesTheOverlap()
+    {
+        AccessPointSnapshot Measured(string mac, string name, int channel, int util)
+        {
+            var ap = CreateAp(mac, name, RadioBand.Band5GHz, channel, width: 80);
+            ap.Radios[0].MeasuredUtilization = util;
+            return ap;
+        }
+
+        // Both quiet: an Info issue that says so.
+        var quiet = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>
+        {
+            Measured("aa:bb:cc:dd:ee:01", "AP-1", 36, 3), Measured("aa:bb:cc:dd:ee:02", "AP-2", 36, 7)
+        })).Single();
+        quiet.Severity.Should().Be(HealthIssueSeverity.Info);
+        quiet.ScoreImpact.Should().Be(-1);
+        quiet.Description.Should().EndWith("Both radios are lightly used right now (3% to 7% of airtime busy), so this overlap costs little today.");
+
+        // One busy: the warning, naming the airtime.
+        var busy = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>
+        {
+            Measured("aa:bb:cc:dd:ee:01", "AP-1", 36, 44), Measured("aa:bb:cc:dd:ee:02", "AP-2", 36, 51)
+        })).Single();
+        busy.Severity.Should().Be(HealthIssueSeverity.Warning);
+        busy.Description.Should().EndWith("The shared spectrum is busy: AP-1 at 44%, AP-2 at 51%. They are taking turns on the same air.");
+
+        // One radio unmeasured: today's issue, ungraded.
+        var mixed = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>
+        {
+            Measured("aa:bb:cc:dd:ee:01", "AP-1", 36, 3), CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36, width: 80)
+        })).Single();
+        mixed.Severity.Should().Be(HealthIssueSeverity.Warning);
+        mixed.Description.Should().Be("2 APs (AP-1, AP-2) are using the same channel.");
+    }
+
+    [Fact]
+    public void FixedChannelsOnEveryRadio_AddTheHintWithoutSofteningTheWarning()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36, width: 80),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36, width: 80)
+        };
+        foreach (var ap in aps) ap.Radios[0].ChannelIsFixed = true;
+
+        var issue = _rule.EvaluateAll(CreateContext(aps)).Single();
+
+        issue.Severity.Should().Be(HealthIssueSeverity.Warning);
+        issue.Description.Should().EndWith(RadioIntent.ChannelHint);
+        issue.Key.Should().Be("WIFI-COCHANNEL-001|na|aa:bb:cc:dd:ee:01+aa:bb:cc:dd:ee:02");
     }
 
     [Fact]

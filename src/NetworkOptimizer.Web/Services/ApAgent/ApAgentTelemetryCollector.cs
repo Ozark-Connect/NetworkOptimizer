@@ -83,6 +83,11 @@ public sealed class ApAgentTelemetryCollector
         "pdev_resets", "cycle_cnt", "rx_clear_cnt", "tx_frame_cnt", "phy_err_cnt",
     };
 
+    private readonly ApAgentNoiseFloorHistory _noiseFloors = new();
+
+    /// <summary>The median noise floor over the last hour for one radio, or null until an hour's worth exists.</summary>
+    public int? NoiseFloorHourMedian(string apMac, string radio) => _noiseFloors.HourMedian(apMac, radio, DateTime.UtcNow);
+
     private readonly ApAgentTargetDirectory _directory;
     private readonly ApAgentTelemetryClient _telemetry;
     private readonly ApAgentInsightsRegistry.SiteApAgentInsights _insights;
@@ -725,6 +730,8 @@ public sealed class ApAgentTelemetryCollector
                 .ToList();
 
             _radios[target.Mac] = radios;
+            foreach (var r in payload.Radios.Where(r => !r.ScanRadio && !r.CounterOnly))
+                _noiseFloors.Record(target.Mac, r.Name, r.NoiseFloor, at);
             await _insights.RadioHealth.RecordAsync(target.Mac, target.Name, radios, ct);
 
             foreach (var r in payload.Radios)
