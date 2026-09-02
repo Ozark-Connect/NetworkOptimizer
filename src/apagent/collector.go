@@ -259,6 +259,12 @@ func (c *Collector) runBytes(ctx context.Context) {
 
 	c.table.ApplySlow(snap, now)
 	c.table.ApplyBytes(readings, now)
+	// A channel change leaves the held iw answer a pass stale, and the slow tier's counter
+	// tools can push its next read minutes out during a reprovision. Re-read here, on this
+	// tier's cadence, whenever a serving radio has a channel but no center.
+	if c.table.CentersStale() {
+		c.table.SetRadioCenters(collectRadioCenters(ctx), now)
+	}
 	c.bytes.succeeded(now)
 	c.slow.succeeded(now)
 }
@@ -271,6 +277,11 @@ func (c *Collector) runSlow(ctx context.Context) {
 	}
 	now := time.Now().UTC()
 
+	// The block center changes only with the channel, so it rides this tier. One netlink dump
+	// per pass, well under the mca-dump cost, and read before the counter tools so their
+	// timeouts on a reprovisioning access point cannot hold it back.
+	c.table.SetRadioCenters(collectRadioCenters(ctx), now)
+
 	// Radio counters ride the slow tier: the CCA wedge is read from deltas, and a delta needs two
 	// samples an interval apart rather than two samples a second apart. This runs even when the
 	// tools give nothing, because mca-dump's own cu_* counters still want their deltas computed.
@@ -279,10 +290,6 @@ func (c *Collector) runSlow(ctx context.Context) {
 		counters, sources = collectRadioCounters(ctx, radios)
 	}
 	c.table.SetRadioCounters(counters, sources, now)
-
-	// The block center changes only with the channel, so it rides this tier too. One netlink
-	// dump per pass, well under the mca-dump cost.
-	c.table.SetRadioCenters(collectRadioCenters(ctx), now)
 }
 
 func (c *Collector) publishTiers() {

@@ -435,6 +435,19 @@ func (t *Table) applyCentersLocked() {
 	}
 }
 
+// CentersStale reports a serving radio that has a channel but no center: the held iw answer is
+// from before its channel change, or nothing has been read yet.
+func (t *Table) CentersStale() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, r := range t.radios {
+		if !r.ScanRadio && !r.CounterOnly && r.Channel != 0 && r.CenterMhz == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *Table) SetTiers(s TierStatus) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -129,6 +129,59 @@ func TestRadioCentersSurviveApplySlow(t *testing.T) {
 	}
 }
 
+// A channel change makes the held answer stale for that radio, and the bytes tier re-reads iw on
+// that signal rather than waiting for the next slow pass.
+func TestCentersStaleAfterAChannelChange(t *testing.T) {
+	table, snap := newFixtureTable(t)
+	now := time.Now().UTC()
+	if !table.CentersStale() {
+		t.Fatal("nothing read yet must count as stale")
+	}
+
+	centers := map[string]iwChannel{}
+	for _, r := range snap.Radios {
+		if r.Channel == 0 || r.ScanRadio {
+			continue
+		}
+		centers[r.Name] = iwChannel{PrimaryMHz: mhzForChannel(r.Band, r.Channel), WidthMHz: 20, CenterMHz: mhzForChannel(r.Band, r.Channel)}
+	}
+	table.SetRadioCenters(centers, now)
+	if table.CentersStale() {
+		t.Fatalf("every serving radio has a center, yet stale: %+v", table.Radios())
+	}
+
+	// wifi2 moves; mca-dump reports the new channel while the held iw answer still has the old.
+	// The radio's channel is set from its VAPs at parse time, so both are moved here.
+	for i := range snap.Vaps {
+		if snap.Vaps[i].RadioName == "wifi2" {
+			snap.Vaps[i].Channel = 101
+		}
+	}
+	for i := range snap.Radios {
+		if snap.Radios[i].Name == "wifi2" {
+			snap.Radios[i].Channel = 101
+		}
+	}
+	table.ApplySlow(snap, now.Add(10*time.Second))
+	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 0 {
+		t.Errorf("a stale primary must not carry its center onto the new channel, got %d", got)
+	}
+	if !table.CentersStale() {
+		t.Error("the moved radio must read as stale so the bytes tier re-reads iw")
+	}
+}
+
+func mhzForChannel(band string, ch int) int {
+	switch band {
+	case "2.4":
+		return 2407 + ch*5
+	case "5":
+		return 5000 + ch*5
+	default:
+		return 5950 + ch*5
+	}
+}
+
 func radioNamed(t *testing.T, radios []RadioState, name string) RadioState {
 	t.Helper()
 	for _, r := range radios {
