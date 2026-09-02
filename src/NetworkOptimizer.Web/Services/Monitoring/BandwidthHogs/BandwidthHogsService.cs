@@ -575,9 +575,15 @@ public class BandwidthHogsService
             {
                 var occupants = await _influx.QueryWiredPortOccupantsAsync(from, to, ct);
                 var portsByNumber = await PortsByNumberAsync(ct);
+                var trunkPorts = TrunkPorts(snapshot);
                 foreach (var group in occupants.GroupBy(o => (o.DeviceMac, o.Port)))
                 {
                     if (!portsByNumber.TryGetValue(group.Key, out var portInfo)) continue;
+                    // A trunk carries everything behind it and hosts no client of its own. The only
+                    // occupants it ever shows are the console's glitch samples, and over a long
+                    // window those are the whole list, so nothing dominates and the trunk would
+                    // stand in the table as a "(5)" client carrying terabytes.
+                    if (portInfo.IfNames.Any(n => trunkPorts.Contains((group.Key.DeviceMac, n)))) continue;
                     long down = 0, up = 0;
                     var any = false;
                     foreach (var ifName in portInfo.IfNames)
@@ -1202,6 +1208,29 @@ public class BandwidthHogsService
 
     /// <summary>A console port number's counter interfaces and the port's own display name.</summary>
     private sealed record PortInfo(List<string> IfNames, string? Name);
+
+    /// <summary>
+    /// Every (device, interface) the map draws as a trunk: the parent side of each uplink, mesh
+    /// backhaul, and WAN link, and each device's own uplink port. Empty without a snapshot.
+    /// </summary>
+    private static HashSet<(string DeviceMac, string IfName)> TrunkPorts(LanFlowMapSnapshot? snapshot)
+    {
+        var trunks = new HashSet<(string, string)>();
+        if (snapshot == null) return trunks;
+        foreach (var link in snapshot.Links)
+        {
+            if (link.Kind is not (LanLinkKind.Uplink or LanLinkKind.MeshBackhaul or LanLinkKind.Wan)) continue;
+            if (string.IsNullOrEmpty(link.PortKey)) continue;
+            var sep = link.PortKey.IndexOf('|');
+            if (sep > 0) trunks.Add((NormalizeMac(link.PortKey[..sep]), link.PortKey[(sep + 1)..]));
+        }
+        foreach (var node in snapshot.Nodes)
+        {
+            if (!string.IsNullOrEmpty(node.Mac) && !string.IsNullOrEmpty(node.UplinkIfName))
+                trunks.Add((NormalizeMac(node.Mac), node.UplinkIfName));
+        }
+        return trunks;
+    }
 
     private async Task<Dictionary<(string DeviceMac, int Port), PortInfo>> PortsByNumberAsync(CancellationToken ct)
     {
