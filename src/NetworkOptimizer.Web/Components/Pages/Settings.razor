@@ -4223,6 +4223,9 @@
             // Keep the Sites table's agent status current while the page is open -
             // without this the Status column is a page-load snapshot and disagrees
             // with the site dropdown / All Sites page after an agent comes or goes.
+            // The open panel's per-agent facts refresh with it: after a one-click Gateway
+            // install the new agent's row otherwise shows its WAN IP instead of Gateway
+            // until the panel is closed and reopened.
             _agentPollTimer ??= new System.Threading.Timer(async _ =>
             {
                 try
@@ -4230,6 +4233,11 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
+                        {
+                            await LoadAgentsOnGatewayAsync(openSite);
+                            await LoadSpeedTestHostAsync(openSite);
+                        }
                         StateHasChanged();
                     });
                 }
