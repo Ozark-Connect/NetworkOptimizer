@@ -1948,8 +1948,10 @@ export class LanFlowMap {
     // raised emissive into the glow.
     _pulseFocus(nowMs) {
         if (!this._focusMac) return;
+        // Meshes first, as the lookup always was: a client that pops back in mid-playback gets a
+        // mesh with no snapshot entry, and a speed-test link lands in playback.
         this._focusClientId ||= ['cli-' + this._focusMac, 'dev-' + this._focusMac]
-            .find(id => (this._snapshot?.nodes ?? []).some(n => n.id === id)) ?? null;
+            .find(id => this._nodeMeshes.has(id) || (this._snapshot?.nodes ?? []).some(n => n.id === id)) ?? null;
         if (!this._focusClientId) {
             if (nowMs >= this._focusGiveUp) this._focusMac = null;
             return;
