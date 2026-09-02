@@ -334,7 +334,10 @@ public class SnmpPoller : ISnmpPoller
                 }
                 if (cache.Metadata is { } kept && KeepCachedMetadata(kept, metadata))
                 {
-                    // LastMetadataPoll stays, so the refresh is retried next pass.
+                    // Names from the cache, the rest fresh. Retried at the slow tier's own cadence,
+                    // which is also how often a real label change is picked up.
+                    cache.Metadata = MergeKeepingNames(kept, metadata);
+                    cache.LastMetadataPoll = now;
                     _logger.LogDebug("Interface naming walk failed for {Ip}; keeping the cached names", ip);
                 }
                 else
@@ -686,13 +689,39 @@ public class SnmpPoller : ISnmpPoller
     }
 
     /// <summary>
-    /// Whether a refresh whose naming walks failed is dropped in favor of the metadata already
-    /// cached. Adopting it renames every interface the walk missed, which splits the series and
+    /// Whether a refresh whose naming walks failed takes its names from the metadata already
+    /// cached. Adopting them renames every interface the walk missed, which splits the series and
     /// plants a name-map row for each; with nothing cached yet the partial walk is still the best
     /// the device offers.
     /// </summary>
     internal static bool KeepCachedMetadata(InterfaceMetadataCache? cached, InterfaceMetadataCache fresh) =>
         fresh.NamingIncomplete && cached != null;
+
+    /// <summary>
+    /// The fresh refresh with its names replaced by the cached ones: only a name change splits a
+    /// series, while speed, admin state, MTU, type and MAC are better current than stable. The
+    /// two are keyed on one index space only if they agree on the ifXTable offset - a fixed
+    /// property of the device, so a different reading off a partial walk is a misdetection, and
+    /// the cached metadata stands whole.
+    /// </summary>
+    internal static InterfaceMetadataCache MergeKeepingNames(InterfaceMetadataCache cached, InterfaceMetadataCache fresh)
+    {
+        if (fresh.IfXTableIndexOffset != cached.IfXTableIndexOffset) return cached;
+        return new InterfaceMetadataCache
+        {
+            DescrByIdx = fresh.DescrByIdx,
+            NameByIdx = cached.NameByIdx,
+            AliasByIdx = cached.AliasByIdx,
+            TypeByIdx = fresh.TypeByIdx,
+            MtuByIdx = fresh.MtuByIdx,
+            SpeedByIdx = fresh.SpeedByIdx,
+            HighSpeedByIdx = fresh.HighSpeedByIdx,
+            PhysAddrByIdx = fresh.PhysAddrByIdx,
+            AdminByIdx = fresh.AdminByIdx,
+            LastChangeByIdx = fresh.LastChangeByIdx,
+            IfXTableIndexOffset = fresh.IfXTableIndexOffset,
+        };
+    }
 
     private static void ParseHostResourcesMemory(List<Variable> storageVars, DeviceMetrics metrics)
     {

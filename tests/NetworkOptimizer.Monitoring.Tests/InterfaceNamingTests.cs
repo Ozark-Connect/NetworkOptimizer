@@ -44,6 +44,41 @@ public class InterfaceNamingTests
     }
 
     [Fact]
+    public void MergeKeepsTheCachedNamesAndTakesTheFreshSpeeds()
+    {
+        var cached = new InterfaceMetadataCache
+        {
+            NameByIdx = { ["2"] = "NE Camera Port" },
+            AliasByIdx = { ["2"] = "NE Camera Port" },
+            HighSpeedByIdx = { ["2"] = "1000" },
+        };
+        var fresh = new InterfaceMetadataCache
+        {
+            NameByIdx = { ["2"] = "0/2" },
+            HighSpeedByIdx = { ["2"] = "100" },
+            AdminByIdx = { ["2"] = "1" },
+            NamingIncomplete = true,
+        };
+
+        var merged = SnmpPoller.MergeKeepingNames(cached, fresh);
+
+        Assert.Equal("NE Camera Port", merged.NameByIdx["2"]);
+        Assert.Equal("NE Camera Port", merged.AliasByIdx["2"]);
+        Assert.Equal("100", merged.HighSpeedByIdx["2"]);
+        Assert.Equal("1", merged.AdminByIdx["2"]);
+        Assert.False(merged.NamingIncomplete);
+    }
+
+    [Fact]
+    public void MergeStandsOnTheCacheWhenThePartialWalkMisreadTheIndexOffset()
+    {
+        var cached = new InterfaceMetadataCache { IfXTableIndexOffset = 1_000_000, NameByIdx = { ["1"] = "Uplink" } };
+        var fresh = new InterfaceMetadataCache { IfXTableIndexOffset = 0, NamingIncomplete = true };
+
+        Assert.Same(cached, SnmpPoller.MergeKeepingNames(cached, fresh));
+    }
+
+    [Fact]
     public void CompleteNamingAlwaysReplacesTheCache()
     {
         var cached = new InterfaceMetadataCache();
