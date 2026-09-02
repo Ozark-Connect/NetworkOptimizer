@@ -1893,7 +1893,10 @@
     [SupplyParameterFromQuery(Name = "at")]
     public string? AtParam { get; set; }
 
-    /// <summary>A client MAC the maps glow for a few seconds on arrival, from Client Performance's Live View link.</summary>
+    /// <summary>
+    /// A MAC the maps glow for a few seconds on arrival, from Client Performance's Live View
+    /// link or a speed-test result's. Names a client or a UniFi device; the maps resolve either.
+    /// </summary>
     [SupplyParameterFromQuery(Name = "client")]
     public string? ClientParam { get; set; }
 

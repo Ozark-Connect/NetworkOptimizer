@@ -504,8 +504,18 @@
             return stampMs - 2 * DurationSeconds * 1000L;
         }
     }
-    /// <summary>Live View at the moment of this test, on the WAN that ran it.</summary>
-    private string LiveViewHref => $"/monitoring?tab=live&at={LiveViewAtMs}{LiveViewWanQuery}";
+    /// <summary>Live View at the moment of this test, on the WAN that ran it, pointed at what it measured.</summary>
+    private string LiveViewHref => $"/monitoring?tab=live&at={LiveViewAtMs}{LiveViewWanQuery}{LiveViewClientQuery}";
+
+    /// <summary>
+    /// What the result was measured against, as the maps' focus target ("&amp;client=aa:bb:.."),
+    /// so Live View glows it on arrival the way Client Performance's own link does. The MAC names
+    /// a client or a UniFi device - path analysis fills it from whichever the target turned out to
+    /// be, and both maps resolve either. Empty for a gateway WAN test, which names nothing on the
+    /// LAN and lands on the timestamp alone as before.
+    /// </summary>
+    private string LiveViewClientQuery =>
+        string.IsNullOrEmpty(Result?.ClientMac) ? "" : $"&client={Uri.EscapeDataString(Result.ClientMac)}";
 
     /// <summary>
     /// The WAN the result was measured on, as the live filter's interface key ("&amp;wan=wan2").

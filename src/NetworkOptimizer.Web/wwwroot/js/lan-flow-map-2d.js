@@ -306,7 +306,7 @@ class LanFlowMap2D {
         // Optional per-node overlay map (Firmware Rollout): id -> {color,badge,pulse,dim}.
         // Distinct from _overlays, which is this map's own visibility toggles.
         this._nodeOverlays=null;
-        // A node to pick out for a moment on arrival: {id, until}. Set by mount(focusClient).
+        // A node to pick out for a moment on arrival: {mac, until}. Set by mount(focusClient).
         this._focus=null;
         // Host-page chrome switches (Firmware Rollout hides what it does not use).
         this._hideOverlayControls=false;
@@ -1908,10 +1908,12 @@ class LanFlowMap2D {
         }
 
         // Arrival focus: the same ring the overlay pulse draws, in the download blue, for a few
-        // seconds around the client Client Performance sent the viewer here from.
+        // seconds around the node a deep link sent the viewer here to look at.
         if(this._focus){
             const now=performance.now();
-            let n=this._treeMap.get(this._focus.id);
+            // Either node kind: a speed test's target is a client or a UniFi device, and the
+            // ring below already draws a box for one and a circle for the other.
+            let n=this._treeMap.get('cli-'+this._focus.mac)||this._treeMap.get('dev-'+this._focus.mac);
             // A VirtualHub member is never laid out or drawn (the hub subsumes its children),
             // so its TN sits at the constructor's (0,0) and the ring would land in empty
             // space. The hub is the member's on-screen representative.
@@ -2526,7 +2528,7 @@ export async function mount(containerId,opts){
     if(!container)return;
     _inst=new LanFlowMap2D(container,opts);
     if(opts?.liveOnly)_inst._liveOnly=true;
-    if(opts?.focusClient)_inst._focus={id:'cli-'+String(opts.focusClient).toLowerCase().replaceAll('-',':'),until:null,giveUp:performance.now()+FOCUS_GIVE_UP_MS};
+    if(opts?.focusClient)_inst._focus={mac:String(opts.focusClient).toLowerCase().replaceAll('-',':'),until:null,giveUp:performance.now()+FOCUS_GIVE_UP_MS};
     // Fullscreen the element that holds the map AND its sibling controls, where a page has them:
     // expanding the stage alone leaves its timeline behind the overlay.
     if(opts?.fullscreenEl)_inst._fsTarget=document.getElementById(opts.fullscreenEl);

@@ -223,12 +223,15 @@ export class LanFlowMap {
         // Deep-link entry point (e.g. from a speed-test result): an absolute epoch-ms
         // instant to open in historic playback, paused. Applied once at the end of start().
         this._initialAtMs = Number.isFinite(options.initialAt) ? options.initialAt : null;
-        // A client to glow for a moment on arrival (Client Performance's Live View link).
-        this._focusClientId = options.focusClient
-            ? 'cli-' + String(options.focusClient).toLowerCase().replaceAll('-', ':') : null;
+        // A node to glow for a moment on arrival (Client Performance's Live View link, or a
+        // speed-test result's). Held as the MAC, not a node id: the target is a client or a
+        // UniFi device, and which prefix it carries is only known once the snapshot is in.
+        this._focusMac = options.focusClient
+            ? String(options.focusClient).toLowerCase().replaceAll('-', ':') : null;
+        this._focusClientId = null;
         // The clock starts when the node first exists, not here: the scene builds after the fetch.
         this._focusUntil = 0;
-        this._focusGiveUp = this._focusClientId ? performance.now() + FOCUS_GIVE_UP_MS : 0;
+        this._focusGiveUp = this._focusMac ? performance.now() + FOCUS_GIVE_UP_MS : 0;
         this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
@@ -1944,7 +1947,13 @@ export class LanFlowMap {
     // bright for FOCUS_MS, then go back to exactly what they were. The bloom pass turns the
     // raised emissive into the glow.
     _pulseFocus(nowMs) {
-        if (!this._focusClientId) return;
+        if (!this._focusMac) return;
+        this._focusClientId ||= ['cli-' + this._focusMac, 'dev-' + this._focusMac]
+            .find(id => (this._snapshot?.nodes ?? []).some(n => n.id === id)) ?? null;
+        if (!this._focusClientId) {
+            if (nowMs >= this._focusGiveUp) this._focusMac = null;
+            return;
+        }
         let group = this._nodeMeshes.get(this._focusClientId);
         // A VirtualHub member can be missing or hidden while the hub stands in for it on
         // screen; glow the hub, or the arrival focus breathes on nothing.
@@ -1962,7 +1971,7 @@ export class LanFlowMap {
                 // starts later owns the remaining 1.3s.
                 this._flyToGroup(group);
             }
-            else if (nowMs >= this._focusGiveUp) this._focusClientId = null;
+            else if (nowMs >= this._focusGiveUp) { this._focusMac = null; this._focusClientId = null; }
             if (!this._focusUntil) return;
         }
         // A rebuilt scene hands the client a new mesh: put the old one back and glow the new.
@@ -1975,7 +1984,7 @@ export class LanFlowMap {
                 if (g.halo) { g.halo.material.color.setHex(g.haloColor); g.halo.material.opacity = g.haloOpacity; }
                 this._focusGlowing = null;
             }
-            if (nowMs >= this._focusUntil) this._focusClientId = null;
+            if (nowMs >= this._focusUntil) { this._focusMac = null; this._focusClientId = null; }
             if (!stale || nowMs >= this._focusUntil) return;
         }
         if (!this._focusGlowing) {
