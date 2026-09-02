@@ -78,19 +78,45 @@ func TestCenterForRadioAttribution(t *testing.T) {
 	}
 }
 
+// After a channel change the held iw answer is a pass stale. Its primary no longer matches
+// mca-dump's channel, and pairing the new primary with the old block would be worse than nothing.
+func TestCenterForRadioDropsAStalePrimary(t *testing.T) {
+	centers := parseIwDev(loadCapture(t, "iw-dev.txt"))
+
+	if got := centerForRadio(RadioState{Name: "wifi2", Channel: 165}, nil, centers); got != 6745 {
+		t.Errorf("matching primary: center = %d, want 6745", got)
+	}
+	if got := centerForRadio(RadioState{Name: "wifi2", Channel: 101}, nil, centers); got != 0 {
+		t.Errorf("radio moved to 101 but iw still says 165: center = %d, want 0", got)
+	}
+	if got := centerForRadio(RadioState{Name: "wifi1", Channel: 100}, nil, centers); got != 5570 {
+		t.Errorf("5 GHz primary 5500 MHz is channel 100: center = %d, want 5570", got)
+	}
+}
+
+func TestChannelFromMHz(t *testing.T) {
+	for mhz, want := range map[int]int{2412: 1, 2462: 11, 2484: 14, 5180: 36, 5500: 100, 5955: 1, 6295: 69, 6775: 165, 0: 0} {
+		if got := channelFromMHz(mhz); got != want {
+			t.Errorf("channelFromMHz(%d) = %d, want %d", mhz, got, want)
+		}
+	}
+}
+
 // The center survives the slow tier replacing the radio table, and is served on /radios.
 func TestRadioCentersSurviveApplySlow(t *testing.T) {
 	table, snap := newFixtureTable(t)
 	now := time.Now().UTC()
 
-	table.SetRadioCenters(map[string]iwChannel{"wifi2": {PrimaryMHz: 6775, WidthMHz: 320, CenterMHz: 6745}}, now)
-	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6745 {
-		t.Fatalf("center after SetRadioCenters = %d, want 6745", got)
+	// The fixture's wifi2 is on primary 85 (6375 MHz); at 320 MHz its lower block is 65-125,
+	// center 95 (6425 MHz).
+	table.SetRadioCenters(map[string]iwChannel{"wifi2": {PrimaryMHz: 6375, WidthMHz: 320, CenterMHz: 6425}}, now)
+	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6425 {
+		t.Fatalf("center after SetRadioCenters = %d, want 6425", got)
 	}
 
 	table.ApplySlow(snap, now.Add(10*time.Second))
-	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6745 {
-		t.Errorf("center after ApplySlow = %d, want 6745: the next mca-dump pass must not clear it", got)
+	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6425 {
+		t.Errorf("center after ApplySlow = %d, want 6425: the next mca-dump pass must not clear it", got)
 	}
 	if got := radioNamed(t, table.Radios(), "wifi0").CenterMhz; got != 0 {
 		t.Errorf("a radio iw did not answer for reads %d, want 0", got)
@@ -98,8 +124,8 @@ func TestRadioCentersSurviveApplySlow(t *testing.T) {
 
 	// An empty pass (iw missing) leaves the last known center in place rather than flapping it.
 	table.SetRadioCenters(nil, now.Add(30*time.Second))
-	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6745 {
-		t.Errorf("center after an empty pass = %d, want 6745", got)
+	if got := radioNamed(t, table.Radios(), "wifi2").CenterMhz; got != 6425 {
+		t.Errorf("center after an empty pass = %d, want 6425", got)
 	}
 }
 

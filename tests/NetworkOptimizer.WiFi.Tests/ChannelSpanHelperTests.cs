@@ -273,6 +273,21 @@ public class ChannelSpanHelperTests
             .Should().Be(0.0);
     }
 
+    [Fact]
+    public void ComputeOverlapFactor_SamePrimary_DifferentMeasuredBlocks_IsPartial()
+    {
+        // Primary 37 is valid in both 1-61 and 33-93; two radios that chose differently share
+        // 33-61, not the whole channel.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 37, 320, 37, 320, center1: 31, center2: 63)
+            .Should().Be(0.7);
+        // Same primary with no centers, or matching ones, stays full co-channel.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 37, 320, 37, 320).Should().Be(1.0);
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band6GHz, 37, 320, 37, 320, center1: 63, center2: 63)
+            .Should().Be(1.0);
+        // Below 320 MHz a primary pins the block, so one measured side changes nothing.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band5GHz, 36, 80, 36, 80, center1: 42).Should().Be(1.0);
+    }
+
     // --- GetChannelWidthSpan ---
 
     [Fact]

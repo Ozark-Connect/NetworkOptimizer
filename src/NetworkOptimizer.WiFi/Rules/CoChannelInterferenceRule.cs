@@ -42,10 +42,13 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
 
             foreach (var group in GroupByOverlap(radiosInBand))
             {
-                // One radio per AP on a band, so the group's APs are its radios' owners.
-                var channelByMac = group.ToDictionary(r => r.Ap.Mac.ToLowerInvariant(), r => r.Channel);
+                // An AP normally has one radio per band; one with two takes its first radio's
+                // primary for the mesh and propagation checks and is listed once.
+                var channelByMac = new Dictionary<string, int>();
+                foreach (var r in group)
+                    channelByMac.TryAdd(r.Ap.Mac.ToLowerInvariant(), r.Channel);
                 int ChannelOf(AccessPointSnapshot ap) => channelByMac[ap.Mac.ToLowerInvariant()];
-                var apsInGroup = group.Select(r => r.Ap).ToList();
+                var apsInGroup = group.Select(r => r.Ap).Distinct().ToList();
 
                 // Mesh pairs MUST share a channel, so a group that is nothing but mesh pairs is
                 // not an issue. One outsider in the group contends with the pair as much as the

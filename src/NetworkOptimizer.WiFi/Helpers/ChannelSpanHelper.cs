@@ -176,9 +176,9 @@ public static class ChannelSpanHelper
             };
         }
 
-        // 5/6 GHz: OFDM non-overlapping channel plan
-        // Check if same primary channel
-        if (channel1 == channel2)
+        // 5/6 GHz: OFDM non-overlapping channel plan. The same primary is co-channel unless
+        // measured centers say the two 320 MHz radios chose different blocks around it.
+        if (channel1 == channel2 && center1 == center2)
             return 1.0;
 
         // Check bonding group overlap

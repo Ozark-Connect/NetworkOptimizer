@@ -73,6 +73,29 @@ public class ApAgentRadioEnricherTests
     }
 
     [Fact]
+    public void Traces_say_what_happened_to_each_wide_radio_on_a_covered_ap()
+    {
+        var covered = Ap(Radio("wifi2", RadioBand.Band6GHz, 69, 320), Radio("wifi1", RadioBand.Band5GHz, 100, 160));
+        var uncovered = new AccessPointSnapshot
+        {
+            Mac = "aa:bb:cc:dd:ee:02", Name = "AP-2",
+            Radios = new() { Radio("wifi2", RadioBand.Band6GHz, 5, 320) }
+        };
+        var agent = new[]
+        {
+            AgentRadio("wifi2", "6", 69, 320, 6265),
+            AgentRadio("wifi1", "5", 36, 160, 5250),
+        };
+
+        var traces = ApAgentRadioEnricher.Apply(new[] { covered, uncovered },
+            mac => mac == ApMac ? agent : Array.Empty<ApAgentRadioAirtime>());
+
+        traces.Should().HaveCount(2, "the uncovered AP contributes nothing");
+        traces[0].ToString().Should().Be("wifi2 6 GHz ch 69/320 center 63 -> block 33-93 (measured, 6265 MHz)");
+        traces[1].ToString().Should().Be("wifi1 5 GHz ch 100/160 no center -> block 100-128 (agent still on ch 36, waiting for it to agree)");
+    }
+
+    [Fact]
     public void Twenty_megahertz_and_2_4_GHz_radios_are_skipped()
     {
         var ap = Ap(Radio("wifi0", RadioBand.Band2_4GHz, 11, 40), Radio("wifi1", RadioBand.Band5GHz, 36, 20));

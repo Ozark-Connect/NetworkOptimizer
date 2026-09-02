@@ -329,6 +329,23 @@ public class CoChannelInterferenceRuleTests
     }
 
     [Fact]
+    public void AnApWithTwoRadiosOnOneBand_IsListedOnce()
+    {
+        var twoRadio = CreateAp("aa:bb:cc:dd:ee:01", "AP-Dual", RadioBand.Band5GHz, 36, width: 80);
+        twoRadio.Radios.Add(new RadioSnapshot { Band = RadioBand.Band5GHz, Channel = 36, ChannelWidth = 80, TxPower = 20 });
+        var aps = new List<AccessPointSnapshot>
+        {
+            twoRadio,
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Other", RadioBand.Band5GHz, 36, width: 80)
+        };
+
+        var issues = _rule.EvaluateAll(CreateContext(aps)).ToList();
+
+        issues.Should().HaveCount(1);
+        issues[0].Description.Should().Be("2 APs (AP-Dual, AP-Other) are using the same channel.");
+    }
+
+    [Fact]
     public void AMeshPairAloneOnOverlappingSpectrum_NoIssue()
     {
         var aps = new List<AccessPointSnapshot>

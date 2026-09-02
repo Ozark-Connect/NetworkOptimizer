@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -53,32 +55,69 @@ func parseIwDev(out string) map[string]iwChannel {
 	return found
 }
 
+// iwPath resolves the tool. The agent runs under procd with a PATH that need not include
+// /usr/sbin, which is where the measured firmware keeps iw.
+func iwPath() string {
+	if p, err := exec.LookPath("iw"); err == nil {
+		return p
+	}
+	if _, err := os.Stat("/usr/sbin/iw"); err == nil {
+		return "/usr/sbin/iw"
+	}
+	return "iw"
+}
+
 // collectRadioCenters runs one `iw dev` pass. A missing tool or an unreadable answer yields an
 // empty map, never an error: the center is an enrichment and its absence must not fail the tier.
 func collectRadioCenters(ctx context.Context) map[string]iwChannel {
-	out, err := runCommand(ctx, 5*time.Second, "iw", "dev")
+	out, err := runCommand(ctx, 5*time.Second, iwPath(), "dev")
 	if err != nil {
 		return nil
 	}
 	return parseIwDev(out)
 }
 
+// channelFromMHz converts a primary frequency to its channel number on each band's grid.
+func channelFromMHz(mhz int) int {
+	switch {
+	case mhz == 2484:
+		return 14
+	case mhz >= 2412 && mhz <= 2472:
+		return (mhz - 2407) / 5
+	case mhz >= 5000 && mhz < 5950:
+		return (mhz - 5000) / 5
+	case mhz >= 5950:
+		return (mhz - 5950) / 5
+	}
+	return 0
+}
+
 // centerForRadio resolves a radio's block center from the interface map: the radio's own netdev
 // first, then any VAP that is up on it (every VAP on a radio prints the same line). Zero when
 // nothing on the radio carries a channel line, and never for the scan radio, which hops.
+//
+// The iw answer is held across mca-dump passes, so after a channel change it can be a pass stale.
+// A line whose primary is not the radio's current channel is that stale answer and is dropped
+// rather than pairing the new primary with the old block.
 func centerForRadio(radio RadioState, vaps []VapState, centers map[string]iwChannel) int {
 	if radio.ScanRadio || len(centers) == 0 {
 		return 0
 	}
-	if ch, ok := centers[radio.Name]; ok {
+	accept := func(ch iwChannel) int {
+		if radio.Channel != 0 && channelFromMHz(ch.PrimaryMHz) != radio.Channel {
+			return 0
+		}
 		return ch.CenterMHz
+	}
+	if ch, ok := centers[radio.Name]; ok {
+		return accept(ch)
 	}
 	for _, v := range vaps {
 		if v.RadioName != radio.Name || !v.Up {
 			continue
 		}
 		if ch, ok := centers[v.Name]; ok {
-			return ch.CenterMHz
+			return accept(ch)
 		}
 	}
 	return 0
