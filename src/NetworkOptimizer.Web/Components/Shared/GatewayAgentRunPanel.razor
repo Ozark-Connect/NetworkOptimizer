@@ -51,7 +51,7 @@
         <button type="button" class="btn btn-primary btn-sm" @onclick="Start">
             @(_run == null ? "Run It for Me" : "Run It Again")
         </button>
-        <span class="gw-run-hint">Runs this command on the gateway over SSH and shows the output here.</span>
+        <span class="gw-run-hint">Runs this @(IsUpgrade ? "upgrade" : "install") command on the gateway over SSH and shows the output here.</span>
     </div>
 }
 
