@@ -3152,7 +3152,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         return (int)(theoreticalMbps * FallbackOverheadFactor);
     }
 
-    private void CalculateBottleneck(NetworkPath path)
+    /// <summary>
+    /// Re-derives the path's bottleneck, max, and realistic max from its hops as they stand now.
+    /// For a caller that re-rates a hop after the trace (the client Wi-Fi fit): without this the
+    /// stored max, realistic max, and description keep describing the trace-time rate.
+    /// </summary>
+    public static void RecalculateBottleneck(NetworkPath path)
+    {
+        foreach (var hop in path.Hops)
+            hop.IsBottleneck = false;
+        CalculateBottleneck(path);
+    }
+
+    private static void CalculateBottleneck(NetworkPath path)
     {
         if (path.Hops.Count == 0)
         {

@@ -166,6 +166,24 @@ public class LanFlowMapService
         {
             rawDevices = new List<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse>();
         }
+
+        // The console nests the second unit of a Building Bridge pair inside the first, so it is
+        // on no device list - yet it is the device the far building's switch uplinks to. Without
+        // it the pair's wireless link has one end and everything behind it draws isolated.
+        var bridgePeers = UniFiDiscovery.BuildingBridgePeers(rawDevices);
+        if (bridgePeers.Count > 0)
+        {
+            var listed = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)), StringComparer.OrdinalIgnoreCase);
+            rawDevices.AddRange(bridgePeers);
+            foreach (var peer in bridgePeers)
+            {
+                if (listed.Add(NormalizeMac(peer.Mac)))
+                    topology.Devices.Add(UniFiDiscovery.MapBuildingBridgePeer(peer));
+            }
+            _logger.LogDebug("LAN map [{Site}]: {Count} Building Bridge peer unit(s) added from peer_ubb",
+                _siteContext.Slug, bridgePeers.Count);
+        }
+
         var rawByMac = rawDevices
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
@@ -911,10 +929,10 @@ public class LanFlowMapService
                                         RateOutBps = meshPts.Sum(p => p.RateOutBps ?? 0),
                                     };
                                 }
-                                // UDB single-port bridge: no vwiresta interface. Its downlink
-                                // port_table rate is persisted under a synthetic "bridge-downlink"
-                                // series (BridgeInterfaceRecorder), stored in the same rateIn =
-                                // downstream convention, so it maps through the block below.
+                                // UDB and UBB: no vwiresta interface. Their bridged flow is persisted
+                                // under a synthetic "bridge-downlink" series (BridgeInterfaceRecorder),
+                                // stored in the same rateIn = downstream convention, so it maps
+                                // through the block below.
                                 resolved ??= cPts
                                     .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
                                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
@@ -2592,6 +2610,8 @@ public class LanFlowMapService
         DeviceType.Switch => LanNodeKind.Switch,
         DeviceType.SmartPower => LanNodeKind.Switch,
         DeviceType.AccessPoint => LanNodeKind.AccessPoint,
+        // A bridge unit (UDB, or either half of a UBB pair) is a one-port switch to the map.
+        DeviceType.DeviceBridge or DeviceType.BuildingBridge => LanNodeKind.Switch,
         _ => LanNodeKind.Switch,
     };
 
@@ -2788,6 +2808,8 @@ public class LanFlowMapService
         "ng" or "2.4ghz" or "2.4 GHz" or "2.4" => "2.4",
         "na" or "5ghz" or "5 GHz" or "5" => "5",
         "6e" or "6ghz" or "6 GHz" or "6" => "6",
+        // 802.11ad: the Building Bridge's 60 GHz link.
+        "ad" or "60ghz" or "60 GHz" or "60" => "60",
         _ => null,
     };
 

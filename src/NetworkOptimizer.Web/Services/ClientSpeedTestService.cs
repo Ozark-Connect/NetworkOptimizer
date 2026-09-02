@@ -762,6 +762,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
             }
 
             // The wireless hop is what the trace renders. Ingress is TX (To Device), egress is RX.
+            // The bottleneck, max, and grades were derived from the trace-time rate, so they are
+            // re-derived from the re-rated hop or the stored path keeps describing a link that
+            // was never the one tested.
             //
             // Assigned back deliberately: PathAnalysis caches the deserialized object, and only its
             // setter rewrites PathAnalysisJson. Mutating the hop alone changes what this instance
@@ -772,6 +775,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 if (best.TxIsPlausible && best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
                 if (best.RxIsPlausible && best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
+                NetworkPathAnalyzer.RecalculateBottleneck(analysis!.Path);
+                analysis.CalculateEfficiency();
+                analysis.GenerateInsights();
                 result.PathAnalysis = analysis;
             }
 

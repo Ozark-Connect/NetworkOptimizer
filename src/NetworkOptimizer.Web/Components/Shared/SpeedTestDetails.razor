@@ -1645,11 +1645,11 @@
     /// - FromDevice (↓): Client SENDS → AP RECEIVES → uses RX rate
     /// - ToDevice (↑): Server SENDS → AP TRANSMITS → uses TX rate
     /// </summary>
-    private (double fromMaxMbps, double toMaxMbps, double fromEff, double toEff, int overheadPct) GetDirectionalEfficiencyData()
+    private (double fromMaxMbps, double toMaxMbps, double fromEff, double toEff, int fromOverheadPct, int toOverheadPct) GetDirectionalEfficiencyData()
     {
         if (PathAnalysis == null || Result == null)
         {
-            return (0, 0, 0, 0, 6); // Default overhead
+            return (0, 0, 0, 0, 6, 6); // Default overhead
         }
 
         var (rxKbps, txKbps) = GetDirectionalRates();
@@ -1671,12 +1671,13 @@
         if (PathAnalysis == null || Result == null)
             return directionText;
 
-        var (fromMax, toMax, fromEff, toEff, overheadPct) = GetDirectionalEfficiencyData();
+        var (fromMax, toMax, fromEff, toEff, fromOverheadPct, toOverheadPct) = GetDirectionalEfficiencyData();
 
         // Get the relevant values for this direction
         var maxMbps = isFromDevice ? fromMax : toMax;
         var measuredMbps = isFromDevice ? DownloadMbps : UploadMbps;
         var efficiency = isFromDevice ? fromEff : toEff;
+        var overheadPct = isFromDevice ? fromOverheadPct : toOverheadPct;
 
         // If we don't have valid data, return just the direction text
         if (maxMbps <= 0 || measuredMbps <= 0)
@@ -1781,7 +1782,7 @@
         }
 
         // Asymmetric wireless bottleneck: show both directions with colored arrows
-        var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
+        var (fromMax, toMax, _, _, _, _) = GetDirectionalEfficiencyData();
 
         // Use Gbps if both are >= 1000, otherwise Mbps
         string fromVal, toVal, unit;
@@ -1895,7 +1896,7 @@
         if (PathAnalysis == null || !IsLinkAsymmetric())
             return (false, "Mbps");
 
-        var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
+        var (fromMax, toMax, _, _, _, _) = GetDirectionalEfficiencyData();
         var useGbps = fromMax >= 1000 && toMax >= 1000;
         return (useGbps, useGbps ? "Gbps" : "Mbps");
     }
@@ -1913,7 +1914,7 @@
         var (rxKbps, txKbps) = GetDirectionalRates();
         if (rxKbps > 0 && txKbps > 0)
         {
-            var (_, _, fromEff, toEff, _) = GetDirectionalEfficiencyData();
+            var (_, _, fromEff, toEff, _, _) = GetDirectionalEfficiencyData();
             return isFromDevice ? fromEff : toEff;
         }
 
