@@ -22,6 +22,33 @@ public class ApAgentAirtimeAggregatorTests
     }
 
     [Fact]
+    public void The_hour_carries_the_majority_center_and_the_mean_noise_floor()
+    {
+        var agg = new ApAgentAirtimeAggregator();
+        for (var i = 0; i < 100; i++)
+            agg.Record(Ap, "6", 69, 320, 30, 5, Hour.AddSeconds(i * 30), centerChannel: 63, noiseFloorDbm: -92);
+        for (var i = 100; i < 120; i++)
+            agg.Record(Ap, "6", 69, 320, 30, 5, Hour.AddSeconds(i * 30), centerChannel: 95, noiseFloorDbm: -82);
+
+        var h = agg.GetFinalizedHours(Hour, Hour.AddHours(1)).Should().ContainSingle().Subject;
+
+        h.CenterChannel.Should().Be(63, "the block the readings named most often owns the hour");
+        h.AvgNoiseFloor.Should().BeApproximately((-92.0 * 100 - 82.0 * 20) / 120, 0.001);
+    }
+
+    [Fact]
+    public void Readings_without_a_center_or_floor_leave_both_null()
+    {
+        var agg = new ApAgentAirtimeAggregator();
+        RecordMany(agg, 60, Hour);
+
+        var h = agg.GetFinalizedHours(Hour, Hour.AddHours(1)).Should().ContainSingle().Subject;
+
+        h.CenterChannel.Should().BeNull();
+        h.AvgNoiseFloor.Should().BeNull();
+    }
+
+    [Fact]
     public void A_full_hour_of_readings_folds_into_one_hour_with_the_averages()
     {
         var agg = new ApAgentAirtimeAggregator();

@@ -47,6 +47,19 @@ public class ApChannelOutcome
     /// <summary>Number of samples aggregated into this bucket</summary>
     public int SampleCount { get; set; }
 
+    /// <summary>
+    /// Center of the block the radio occupied, as a channel number, from the AP Agent. Null on
+    /// console-sourced buckets and on agent buckets from before it was reported. At 320 MHz
+    /// this is what files a day's outcome under the right block; the primary alone cannot.
+    /// </summary>
+    public int? CenterChannel { get; set; }
+
+    /// <summary>Sum of measured noise floors (dBm) over the samples that carried one; null when none did</summary>
+    public double? NoiseFloorSum { get; set; }
+
+    /// <summary>How many samples carried a noise floor (divide NoiseFloorSum by this for the average)</summary>
+    public int NoiseFloorSamples { get; set; }
+
     /// <summary>Timestamp of the most recent sample in this bucket (UTC)</summary>
     public DateTime LastSampleUtc { get; set; }
 }

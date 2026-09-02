@@ -279,6 +279,16 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
                 bucket.SampleCount++;
                 if (sample.TimestampUtc > bucket.LastSampleUtc)
                     bucket.LastSampleUtc = sample.TimestampUtc;
+                // The agent's block center and noise floor, where a sample carried them. The
+                // center is the newest one seen: a bucket is one primary on one day, and the
+                // block behind it changes only with a channel change.
+                if (sample.CenterChannel.HasValue)
+                    bucket.CenterChannel = sample.CenterChannel;
+                if (sample.NoiseFloor.HasValue)
+                {
+                    bucket.NoiseFloorSum = (bucket.NoiseFloorSum ?? 0) + sample.NoiseFloor.Value;
+                    bucket.NoiseFloorSamples++;
+                }
             }
         }
     }

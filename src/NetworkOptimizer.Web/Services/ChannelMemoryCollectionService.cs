@@ -222,9 +222,17 @@ public class ChannelMemoryCollectionService : BackgroundService
                          lastKnown.NewWidthMhz.HasValue && lastKnown.NewWidthMhz.Value == currentWidth)
                     widthValidFrom = DateTimeOffset.MinValue;
 
-                samples.AddRange(BuildRadioSamples(
+                var radioSamples = BuildRadioSamples(
                     macLower, bandCode, band, metrics, bandEvents,
-                    currentChannel, currentWidth, widthValidFrom, start, collectEnd, agentHours));
+                    currentChannel, currentWidth, widthValidFrom, start, collectEnd, agentHours);
+                samples.AddRange(radioSamples);
+                foreach (var s in radioSamples.Where(s => s.CenterChannel.HasValue || s.NoiseFloor.HasValue))
+                {
+                    _logger.LogDebug(
+                        "[ChannelMemory] {ApName} {Band} ch {Channel}/{Width} center {Center} floor {Floor} -> bucket {Day}",
+                        ap.Name, band, s.Channel, s.WidthMhz, s.CenterChannel?.ToString() ?? "-",
+                        s.NoiseFloor?.ToString("F0") ?? "-", s.TimestampUtc.Date.ToString("yyyy-MM-dd"));
+                }
 
                 // Maintain the persisted change log. The last persisted record per radio is
                 // the de-duplication high-water: only events newer than it are appended.
@@ -402,7 +410,9 @@ public class ChannelMemoryCollectionService : BackgroundService
                 h.LastSampleUtc,
                 h.AvgUtilization,
                 h.AvgInterference,
-                txRetry));
+                txRetry,
+                h.CenterChannel,
+                h.AvgNoiseFloor));
         }
 
         return samples;

@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.WiFi.Helpers;
+using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -732,7 +734,9 @@ public sealed class ApAgentTelemetryCollector
                 if (r.ScanRadio || r.CounterOnly) continue;
                 if (r.Counters == null || !r.Counters.TryGetValue("cu_total", out var cuTotal)) continue;
                 var cuInterf = r.Counters.TryGetValue("cu_interf", out var i) ? i : 0;
-                _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at);
+                var band = RadioBandExtensions.FromUniFiCode(ApAgentAirtimeAggregator.MapBandCode(r.Band ?? r.Radio));
+                int? center = r.CenterMhz is { } mhz ? ChannelSpanHelper.CenterChannelFromMhz(band, mhz) : null;
+                _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at, center, r.NoiseFloor);
             }
         }
     }

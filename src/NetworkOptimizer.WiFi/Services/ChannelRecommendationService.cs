@@ -451,7 +451,8 @@ public class ChannelRecommendationService
         Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
         Dictionary<string, ChannelSoakInfo>? soakInfo = null,
         Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null,
-        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null)
+        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null,
+        Dictionary<string, Dictionary<int, double>>? historicalNoiseFloor = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -520,6 +521,7 @@ public class ChannelRecommendationService
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
                 HistoricalStress = apHistStress,
                 HistoricalStressCredibility = historicalCredibility?.GetValueOrDefault(macLower),
+                HistoricalNoiseFloor = historicalNoiseFloor?.GetValueOrDefault(macLower),
                 SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
@@ -2217,6 +2219,10 @@ public class ChannelRecommendationService
             // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
             double contentionPenalty = 0;
             double utilizationPenalty = 0;
+            // The remembered noise floor, on the scan floor's own scale so a measured past and a
+            // scanned present price RF energy the same way. Returned on the band-dampened side,
+            // as the scan's floor term is, because ambient energy means less on 2.4 GHz.
+            double rememberedNoise = 0;
             // How well the assigned channel is evidenced, 0 (never measured) to 1 (full strength).
             // Propagated estimates carry no credibility entry and count at full weight, as before.
             double assignedCredibility = 0;
@@ -2234,6 +2240,11 @@ public class ChannelRecommendationService
                     assignedCredibility = Math.Max(assignedCredibility, cred);
 
                     if (!countedSpans.Add(histSpan)) continue;
+
+                    // Counted before the quiet-span skip: a channel can be idle in airtime and
+                    // still sit on a raised floor, which is the case the floor exists to catch.
+                    if (node.HistoricalNoiseFloor != null && node.HistoricalNoiseFloor.TryGetValue(histChannel, out var floor))
+                        rememberedNoise += ScanNoiseFloorPenalty((int)Math.Round(floor)) * cred;
 
                     if (stress.TxRetryPct < StressMinThreshold &&
                         stress.Utilization < StressMinThreshold &&
@@ -2265,7 +2276,7 @@ public class ChannelRecommendationService
                 utilizationPenalty *= Math.Max(scale, OwnLoadUtilizationFloor);
             }
 
-            return (contentionPenalty + utilizationPenalty, 0);
+            return (contentionPenalty + utilizationPenalty, rememberedNoise);
         }
 
         // Fallback: use current radio stats on current channel span

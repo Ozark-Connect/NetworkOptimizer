@@ -1502,7 +1502,8 @@ public class WiFiOptimizerService : IWiFiScanService
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
                         aps, band, propCtx, scanResults, regulatoryData, bandOptions, bandStress, bandSoak,
                         clientRates?.GetValueOrDefault(band),
-                        historicalContext?.Credibility.GetValueOrDefault(band));
+                        historicalContext?.Credibility.GetValueOrDefault(band),
+                        historicalContext?.NoiseFloor.GetValueOrDefault(band));
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, bandOptions, hasBuildingData);
@@ -1556,6 +1557,9 @@ public class WiFiOptimizerService : IWiFiScanService
 
         /// <summary>How far each channel's remembered stress is trusted, 0-1, per band and AP.</summary>
         public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> Credibility { get; } = new();
+
+        /// <summary>Remembered noise floor per channel (dBm), per band and AP; only agent-measured hours carry one.</summary>
+        public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> NoiseFloor { get; } = new();
     }
 
     /// <summary>
@@ -1770,12 +1774,14 @@ public class WiFiOptimizerService : IWiFiScanService
                             .Select(o => new ChannelOutcomeBucket(
                                 o.Channel, o.WidthMhz, o.UtilizationSum, o.InterferenceSum,
                                 o.TxRetrySum, o.SampleCount,
-                                new DateTimeOffset(DateTime.SpecifyKind(o.LastSampleUtc, DateTimeKind.Utc))))
+                                new DateTimeOffset(DateTime.SpecifyKind(o.LastSampleUtc, DateTimeKind.Utc)),
+                                o.CenterChannel, o.NoiseFloorSum, o.NoiseFloorSamples))
                             .ToList();
                         if (buckets.Count == 0) continue;
 
                         var recent = context.Stress[band].GetValueOrDefault(macLower);
                         var credibility = new Dictionary<int, double>();
+                        var noiseFloor = new Dictionary<int, double>();
                         var confidence = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(
                             neighborLoad.GetValueOrDefault((macLower, bandCode)));
                         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
@@ -1783,7 +1789,8 @@ public class WiFiOptimizerService : IWiFiScanService
                             ChannelMemoryHelper.MinLongTermSamples, band, confidence,
                             trace: msg => _logger.LogDebug("[ChannelRec] {ApName} {Band}: {Message}",
                                 ap.Name, band, msg),
-                            credibilityOut: credibility);
+                            credibilityOut: credibility,
+                            noiseFloorOut: noiseFloor);
                         if (merged == null) continue;
 
                         // Logged unconditionally: when confidence suppresses the memory the channel
@@ -1800,6 +1807,13 @@ public class WiFiOptimizerService : IWiFiScanService
                                 context.Credibility[band] = bandCred =
                                     new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
                             bandCred[macLower] = credibility;
+                        }
+                        if (noiseFloor.Count > 0)
+                        {
+                            if (!context.NoiseFloor.TryGetValue(band, out var bandNoise))
+                                context.NoiseFloor[band] = bandNoise =
+                                    new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+                            bandNoise[macLower] = noiseFloor;
                         }
                     }
                 }

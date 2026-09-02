@@ -30,6 +30,9 @@ public class ChannelSoakInfo
 /// <param name="TxRetrySum">Sum of TX retry percentages</param>
 /// <param name="SampleCount">Number of samples in the bucket</param>
 /// <param name="LastSampleAt">Most recent sample in the bucket (UTC)</param>
+/// <param name="CenterChannel">Measured block center as a channel number, or null (console-sourced, or before the agent reported it)</param>
+/// <param name="NoiseFloorSum">Sum of measured noise floors (dBm) over the samples that carried one; null when none did</param>
+/// <param name="NoiseFloorSamples">How many samples carried a noise floor</param>
 public record ChannelOutcomeBucket(
     int Channel,
     int WidthMhz,
@@ -37,7 +40,10 @@ public record ChannelOutcomeBucket(
     double InterferenceSum,
     double TxRetrySum,
     int SampleCount,
-    DateTimeOffset LastSampleAt);
+    DateTimeOffset LastSampleAt,
+    int? CenterChannel = null,
+    double? NoiseFloorSum = null,
+    int NoiseFloorSamples = 0);
 
 /// <summary>
 /// One persisted neighbor sighting for an AP radio, storage-neutral so the engine project

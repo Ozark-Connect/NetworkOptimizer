@@ -14,6 +14,8 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="AvgInterference">Mean interference percent over the winning config's readings.</param>
 /// <param name="ReadingCount">How many readings the winning config contributed.</param>
 /// <param name="LastSampleUtc">Timestamp of the winning config's newest reading.</param>
+/// <param name="CenterChannel">The block center the winning config's readings carried most often, as a channel number; null when none carried one.</param>
+/// <param name="AvgNoiseFloor">Mean noise floor (dBm) over the winning config's readings that carried one; null when none did.</param>
 public sealed record ApAgentAirtimeHour(
     string ApMac,
     string Band,
@@ -23,7 +25,9 @@ public sealed record ApAgentAirtimeHour(
     double AvgUtilization,
     double AvgInterference,
     int ReadingCount,
-    DateTime LastSampleUtc);
+    DateTime LastSampleUtc,
+    int? CenterChannel = null,
+    double? AvgNoiseFloor = null);
 
 /// <summary>
 /// Folds the AP Agent's continuous airtime readings into per-radio hourly aggregates for the
@@ -60,7 +64,8 @@ public sealed class ApAgentAirtimeAggregator
     /// values (counter sentinels) are dropped rather than clamped into a plausible number.
     /// </summary>
     public void Record(string apMac, string? bandToken, int channel, int widthMhz,
-        double cuTotal, double cuInterference, DateTime atUtc)
+        double cuTotal, double cuInterference, DateTime atUtc,
+        int? centerChannel = null, int? noiseFloorDbm = null)
     {
         var band = MapBandCode(bandToken);
         if (band.Length == 0 || channel <= 0) return;
@@ -95,6 +100,14 @@ public sealed class ApAgentAirtimeAggregator
             seg.UtilizationSum += cuTotal;
             seg.InterferenceSum += interference;
             if (atUtc > seg.LastAt) seg.LastAt = atUtc;
+            if (centerChannel is > 0)
+                seg.CenterCounts[centerChannel.Value] = seg.CenterCounts.GetValueOrDefault(centerChannel.Value) + 1;
+            // A floor above 0 dBm or below -120 is a counter sentinel, not a reading.
+            if (noiseFloorDbm is < 0 and > -120)
+            {
+                seg.NoiseCount++;
+                seg.NoiseSum += noiseFloorDbm.Value;
+            }
         }
     }
 
@@ -151,13 +164,21 @@ public sealed class ApAgentAirtimeAggregator
         if (winner.Value == null || winner.Value.Count < MinReadingsPerHour) return;
 
         var seg = winner.Value;
+        // Majority center, like majority config: the block behind a primary changes only with a
+        // channel change, so within one winning segment the readings agree except across one.
+        int? center = seg.CenterCounts.Count == 0
+            ? null
+            : seg.CenterCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).First().Key;
+        double? noise = seg.NoiseCount > 0 ? seg.NoiseSum / seg.NoiseCount : null;
         _finalized[(open.HourUtc, mac, band)] = new ApAgentAirtimeHour(
             mac, band, open.HourUtc,
             winner.Key.Channel, winner.Key.Width,
             seg.UtilizationSum / seg.Count,
             seg.InterferenceSum / seg.Count,
             seg.Count,
-            seg.LastAt);
+            seg.LastAt,
+            center,
+            noise);
 
         var retentionCutoff = open.HourUtc - Retention;
         while (_finalized.Count > 0)
@@ -184,5 +205,8 @@ public sealed class ApAgentAirtimeAggregator
         public double UtilizationSum;
         public double InterferenceSum;
         public DateTime LastAt;
+        public readonly Dictionary<int, int> CenterCounts = new();
+        public int NoiseCount;
+        public double NoiseSum;
     }
 }

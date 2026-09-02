@@ -236,6 +236,13 @@ public class ApNode
     /// </summary>
     public Dictionary<int, double>? HistoricalStressCredibility { get; set; }
 
+    /// <summary>
+    /// Remembered noise floor per channel (dBm), from the AP Agent's radio readings folded into
+    /// the outcome memory. Absent for a channel the agent never measured, and for every channel
+    /// on a site without agents; the stress penalty then adds nothing for it.
+    /// </summary>
+    public Dictionary<int, double>? HistoricalNoiseFloor { get; set; }
+
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int CurrentChannel { get; set; }
