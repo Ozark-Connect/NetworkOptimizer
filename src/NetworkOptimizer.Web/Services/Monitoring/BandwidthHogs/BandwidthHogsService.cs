@@ -574,13 +574,13 @@ public class BandwidthHogsService
             if (ports.Count > 0)
             {
                 var occupants = await _influx.QueryWiredPortOccupantsAsync(from, to, ct);
-                var ifNamesByPort = await IfNamesByPortAsync(ct);
+                var portsByNumber = await PortsByNumberAsync(ct);
                 foreach (var group in occupants.GroupBy(o => (o.DeviceMac, o.Port)))
                 {
-                    if (!ifNamesByPort.TryGetValue(group.Key, out var ifNames)) continue;
+                    if (!portsByNumber.TryGetValue(group.Key, out var portInfo)) continue;
                     long down = 0, up = 0;
                     var any = false;
-                    foreach (var ifName in ifNames)
+                    foreach (var ifName in portInfo.IfNames)
                     {
                         if (!ports.TryGetValue((group.Key.DeviceMac, ifName), out var total)) continue;
                         down += total.ToClientBytes;
@@ -589,13 +589,16 @@ public class BandwidthHogsService
                     }
                     if (!any || (down == 0 && up == 0)) continue;
                     var switchName = nodeById.TryGetValue("dev-" + group.Key.DeviceMac, out var sw) ? sw.Name : null;
-                    var macs = group.Select(o => o.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    // The console occasionally reports every client on an uplink port for a sample
+                    // or two; those never lived on the port and must not join its row.
+                    var residents = RealOccupants(group.ToList());
+                    var macs = residents.Select(o => o.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                     // Over a long window a port hosts clients in succession, not concurrency: a
                     // device that moved away months of samples ago must not turn the port into a
                     // phantom "(5)" hub carrying mixed traffic and linking to a past tenant. The
                     // sample counts say who actually lived there; only a port with no dominant
                     // occupant is genuinely shared.
-                    if (DominantOccupant(group.ToList()) is { } occupant)
+                    if (DominantOccupant(residents) is { } occupant)
                     {
                         var row = RowFor(occupant.ClientMac);
                         rows[occupant.ClientMac] = row with
@@ -613,7 +616,9 @@ public class BandwidthHogsService
                     // A shared port: one row for the port, named as the map names its hub, with
                     // the WAN bytes of everything behind it. The interfaces keep their own WAN rows.
                     long wanDown = 0, wanUp = 0;
-                    string? portName = null;
+                    // The port's own name, never a member's: a member's port name is the port it
+                    // sits on NOW, which a passer-by sample would otherwise lend to this row.
+                    var portName = portInfo.Name;
                     // The row links to the interface with the most WAN traffic, as the map's hub does.
                     string? representativeIp = null;
                     long representativeBytes = -1;
@@ -638,14 +643,12 @@ public class BandwidthHogsService
                             representativeBytes = memberBytes;
                             representativeIp = memberIp;
                         }
-                        if (portName == null && nodeByMac.TryGetValue(mac, out var node) && !string.IsNullOrEmpty(node.SwitchPortName))
-                            portName = node.SwitchPortName;
                     }
                     var key = $"hub-{group.Key.DeviceMac}-{group.Key.Port}";
                     rows[key] = new HogRow
                     {
                         ClientMac = key,
-                        Name = $"{portName ?? $"Port {group.Key.Port}"} ({macs.Count})",
+                        Name = $"{(string.IsNullOrWhiteSpace(portName) ? $"Port {group.Key.Port}" : portName)} ({macs.Count})",
                         Ip = representativeIp,
                         IsWired = true,
                         DownBytes = down,
@@ -819,6 +822,21 @@ public class BandwidthHogsService
     /// </summary>
     public static double UnarmedWanCapBps(double dpiRecentBytes, TimeSpan dpiWindow, double? consoleBps) =>
         2 * Math.Max(Math.Max(0, dpiRecentBytes) * 8 / dpiWindow.TotalSeconds, Math.Max(0, consoleBps ?? 0));
+
+    /// <summary>
+    /// The occupants that actually lived on a port: those with at least one sample in twenty of
+    /// the port's most-seen occupant. The console now and then reports every client on an uplink
+    /// port for a sample or two, and a shared port's row must not count those among its members
+    /// or take a name from them.
+    /// </summary>
+    public static List<MonitoringInfluxClient.WiredPortOccupant> RealOccupants(
+        IReadOnlyList<MonitoringInfluxClient.WiredPortOccupant> occupants)
+    {
+        if (occupants.Count <= 1) return occupants.ToList();
+        var top = occupants.Max(o => o.Samples);
+        var floor = Math.Max(2, top / 20);
+        return occupants.Where(o => o.Samples >= floor).ToList();
+    }
 
     /// <summary>
     /// The client a port's usage belongs to: the sole occupant, or one holding at least nine of
@@ -1182,19 +1200,23 @@ public class BandwidthHogsService
         return merged.Values.ToList();
     }
 
-    private async Task<Dictionary<(string DeviceMac, int Port), List<string>>> IfNamesByPortAsync(CancellationToken ct)
+    /// <summary>A console port number's counter interfaces and the port's own display name.</summary>
+    private sealed record PortInfo(List<string> IfNames, string? Name);
+
+    private async Task<Dictionary<(string DeviceMac, int Port), PortInfo>> PortsByNumberAsync(CancellationToken ct)
     {
-        var result = new Dictionary<(string, int), List<string>>();
+        var result = new Dictionary<(string, int), PortInfo>();
         await using var db = _siteDb.CreateForSite(_site.Slug, _site.IsDefault);
         var maps = await db.InterfaceNameMaps.AsNoTracking()
             .Where(m => m.PortNumber != null)
-            .Select(m => new { m.DeviceMac, m.PortNumber, m.IfName })
+            .Select(m => new { m.DeviceMac, m.PortNumber, m.IfName, m.FriendlyName })
             .ToListAsync(ct);
         foreach (var m in maps)
         {
             var key = (NormalizeMac(m.DeviceMac), m.PortNumber!.Value);
-            if (!result.TryGetValue(key, out var list)) result[key] = list = new List<string>();
-            list.Add(m.IfName);
+            if (!result.TryGetValue(key, out var info))
+                result[key] = info = new PortInfo(new List<string>(), m.FriendlyName);
+            info.IfNames.Add(m.IfName);
         }
         return result;
     }

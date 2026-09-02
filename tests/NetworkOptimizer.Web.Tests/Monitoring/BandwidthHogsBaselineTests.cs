@@ -193,6 +193,28 @@ public class BandwidthHogsDominantOccupantTests
     {
         BandwidthHogsService.DominantOccupant(Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.WiredPortOccupant>()).Should().BeNull();
     }
+
+    [Fact]
+    public void A_console_glitch_is_not_an_occupant()
+    {
+        // A hypervisor's seven interfaces all day, and four clients the console put on the port
+        // for two samples: the port stays a seven-way hub, not an eleven-way one.
+        var occupants = new List<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.WiredPortOccupant>();
+        for (var i = 1; i <= 7; i++) occupants.Add(O($"aa:bb:cc:dd:ee:0{i}", 2830));
+        for (var i = 1; i <= 4; i++) occupants.Add(O($"aa:bb:cc:dd:ff:0{i}", 2));
+        var real = BandwidthHogsService.RealOccupants(occupants);
+        real.Should().HaveCount(7);
+        real.Should().OnlyContain(o => o.Samples == 2830);
+        BandwidthHogsService.DominantOccupant(real).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_short_stay_on_a_quiet_port_still_counts()
+    {
+        // Two devices that each sat on the port for a while are both real occupants.
+        var occupants = new[] { O("aa:bb:cc:dd:ee:01", 60), O("aa:bb:cc:dd:ee:02", 40) };
+        BandwidthHogsService.RealOccupants(occupants).Should().HaveCount(2);
+    }
 }
 
 /// <summary>The never-touches-the-WAN exclusion, as a predicate over what the console recorded.</summary>
