@@ -122,6 +122,14 @@ public sealed class ApAgentTelemetryClient
         string siteSlug, string apHost, string? token, TimeSpan timeout, CancellationToken ct = default)
         => GetAsync<ApAgentRadiosPayload>(siteSlug, apHost, token, "/radios", timeout, MaxRadiosBytes, ct);
 
+    /// <summary>A few dozen neighbors and a channel list per radio; bounded well above that.</summary>
+    private const long MaxScanBytes = 2 * 1024 * 1024;
+
+    /// <summary>Fetches what the AP's radios hear (neighbors and spectrum). Returns null on any failure.</summary>
+    public Task<ApAgentScanPayload?> GetScanAsync(
+        string siteSlug, string apHost, string? token, TimeSpan timeout, CancellationToken ct = default)
+        => GetAsync<ApAgentScanPayload>(siteSlug, apHost, token, "/scan", timeout, MaxScanBytes, ct);
+
     private async Task<T?> GetAsync<T>(
         string siteSlug, string apHost, string? token, string path, TimeSpan timeout, long maxBytes, CancellationToken ct)
         where T : class

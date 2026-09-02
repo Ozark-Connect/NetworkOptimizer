@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -29,10 +30,12 @@ public class HighPowerRule : IWiFiOptimizerRule
         if (highPowerAps.Count == 0)
             return null;
 
-        return new HealthIssue
+        var issue = new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.ChannelHealth, HealthDimension.SignalQuality },
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(highPowerAps.Select(ap => ap.Mac))),
             Title = highPowerAps.Count == 1
                 ? $"All Radios on High Power: {highPowerAps[0].Name}"
                 : $"{highPowerAps.Count} APs with All Radios on High Power",
@@ -46,5 +49,9 @@ public class HighPowerRule : IWiFiOptimizerRule
                     : "consider 'Medium' for balanced coverage."),
             ScoreImpact = -5 * highPowerAps.Count
         };
+
+        // A power mode of "high" is a choice, not a default: say so and keep it a check.
+        var allFixed = highPowerAps.All(ap => ap.Radios.Where(r => r.Channel.HasValue).All(r => r.TxPowerIsFixed));
+        return allFixed ? RadioIntent.MarkDeliberate(issue, RadioIntent.PowerHint) : issue;
     }
 }

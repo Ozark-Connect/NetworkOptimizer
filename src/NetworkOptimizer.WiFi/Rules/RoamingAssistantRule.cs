@@ -1,10 +1,13 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
 public class RoamingAssistantRule : IWiFiOptimizerRule
 {
-    public string RuleId => "WIFI-ROAMING-ASSISTANT-001";
+    private const string Id = "WIFI-ROAMING-ASSISTANT-001";
+
+    public string RuleId => Id;
 
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
@@ -86,6 +89,8 @@ public class RoamingAssistantRule : IWiFiOptimizerRule
     {
         Severity = HealthIssueSeverity.Info,
         Dimensions = { HealthDimension.RoamingPerformance },
+        Class = HealthIssueClass.Advisory,
+        Key = HealthIssueKeys.For(Id, HealthIssueKeys.Names(new[] { affected })),
         Title = "Enable Roaming Assistant (Recommended)",
         Description = description,
         AffectedEntity = affected,

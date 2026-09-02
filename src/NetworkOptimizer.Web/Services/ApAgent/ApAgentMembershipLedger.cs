@@ -226,6 +226,15 @@ public sealed class ApAgentMembershipLedger
     }
 
     /// <summary>
+    /// How many clients one access point's fresh answer vouches for; null without a fresh answer.
+    /// Exact where the console's count lags its report interval.
+    /// </summary>
+    public int? MemberCount(string apMac, DateTime now)
+        => _answers.TryGetValue(Normalize(apMac), out var answer) && now - answer.At <= AnswerTtl
+            ? answer.MemberKeys.Count
+            : null;
+
+    /// <summary>
     /// Whether this access point's claim on the client has been discarded because a newer
     /// association exists elsewhere. The telemetry paths consult this so a dead entry's readings
     /// are not written or published as if the client were still on that access point.

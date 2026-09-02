@@ -831,6 +831,9 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.NonStandardChannelRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighPowerOverlapRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.RaisedNoiseFloorRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.StickyClientRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.LatencyDespiteSignalRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddSingleton<ChannelPlanCache>();
 builder.Services.AddScoped<WiFiOptimizerService>();
@@ -879,6 +882,17 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRep
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddSiteScopedRegistry<ChannelMemoryRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryRegistry>());
+
+// What the operator told the Wi-Fi Optimizer: acknowledged issues and kept radios, per site.
+// The repository is ungated (the optimizer reads it while building a score or plan); the two
+// services are the UI's gates (reads Viewer, writes Site Admin).
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.WiFiInsightRepository>(
+        sp,
+        sp.GetRequiredService<SiteContextService>().Slug,
+        sp.GetRequiredService<SiteContextService>().IsDefault));
+builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
+builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

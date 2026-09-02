@@ -214,12 +214,19 @@ func parseUbntRoamLine(line string, now time.Time) (Event, bool) {
 // SyslogSource tails the AP's syslog for the two event families the hostapd control socket does
 // not carry: stahtd's association quality records, and hostapd's UBNT_ROAM peer gossip.
 type SyslogSource struct {
-	path string
-	ring *EventRing
+	path    string
+	ring    *EventRing
+	observe func(Event)
 }
 
-func NewSyslogSource(path string, ring *EventRing) *SyslogSource {
-	return &SyslogSource{path: path, ring: ring}
+// NewSyslogSource tails path into ring. observe, when given, sees every stored event, which is how
+// the table learns the join RSSI stahtd reports.
+func NewSyslogSource(path string, ring *EventRing, observe ...func(Event)) *SyslogSource {
+	s := &SyslogSource{path: path, ring: ring}
+	if len(observe) > 0 {
+		s.observe = observe[0]
+	}
+	return s
 }
 
 // Run tails the file until ctx is cancelled. It starts at the end: the ring is a live replay
@@ -296,10 +303,17 @@ func (s *SyslogSource) Run(ctx context.Context) {
 func (s *SyslogSource) consume(line string) {
 	now := time.Now().UTC()
 	if ev, ok := parseStahtdLine(line, now); ok {
-		s.ring.Add(ev)
+		s.emit(ev)
 		return
 	}
 	if ev, ok := parseUbntRoamLine(line, now); ok {
-		s.ring.Add(ev)
+		s.emit(ev)
+	}
+}
+
+func (s *SyslogSource) emit(ev Event) {
+	stored := s.ring.Add(ev)
+	if s.observe != nil {
+		s.observe(stored)
 	}
 }

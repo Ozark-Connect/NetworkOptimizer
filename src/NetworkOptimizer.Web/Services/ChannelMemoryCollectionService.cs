@@ -37,6 +37,12 @@ public class ChannelMemoryCollectionService : BackgroundService
     /// <summary>UniFi hourly report retention we can safely reach back into.</summary>
     private static readonly TimeSpan MaxLookback = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// A console event landing this close to an agent record for the same destination channel
+    /// is the same move seen from the other clock, not a second one.
+    /// </summary>
+    private static readonly TimeSpan AgentEventMatchWindow = TimeSpan.FromMinutes(5);
+
     /// <summary>How long outcome buckets and superseded change records are kept.</summary>
     private const int RetentionDays = 365;
 
@@ -222,9 +228,17 @@ public class ChannelMemoryCollectionService : BackgroundService
                          lastKnown.NewWidthMhz.HasValue && lastKnown.NewWidthMhz.Value == currentWidth)
                     widthValidFrom = DateTimeOffset.MinValue;
 
-                samples.AddRange(BuildRadioSamples(
+                var radioSamples = BuildRadioSamples(
                     macLower, bandCode, band, metrics, bandEvents,
-                    currentChannel, currentWidth, widthValidFrom, start, collectEnd, agentHours));
+                    currentChannel, currentWidth, widthValidFrom, start, collectEnd, agentHours);
+                samples.AddRange(radioSamples);
+                foreach (var s in radioSamples.Where(s => s.CenterChannel.HasValue || s.NoiseFloor.HasValue))
+                {
+                    _logger.LogDebug(
+                        "[ChannelMemory] {ApName} {Band} ch {Channel}/{Width} center {Center} floor {Floor} -> bucket {Day}",
+                        ap.Name, band, s.Channel, s.WidthMhz, s.CenterChannel?.ToString() ?? "-",
+                        s.NoiseFloor?.ToString("F0") ?? "-", s.TimestampUtc.Date.ToString("yyyy-MM-dd"));
+                }
 
                 // Maintain the persisted change log. The last persisted record per radio is
                 // the de-duplication high-water: only events newer than it are appended.
@@ -247,6 +261,13 @@ public class ChannelMemoryCollectionService : BackgroundService
                 var lastRecordedAt = DateTime.SpecifyKind(lastKnown.ChangedAtUtc, DateTimeKind.Utc);
                 foreach (var evt in bandEvents.Where(e => e.Timestamp.UtcDateTime > lastRecordedAt))
                 {
+                    // The agent already logged this move, seconds after it happened; the console's
+                    // own event for it is the same move on another clock, not a second one.
+                    if (lastKnown.Source == ApChannelChangeSource.Agent
+                        && lastKnown.NewChannel == evt.NewChannel
+                        && (evt.Timestamp.UtcDateTime - lastRecordedAt).Duration() <= AgentEventMatchWindow)
+                        continue;
+
                     var isCurrentConfig = evt.NewChannel == currentChannel && evt == lastEvent;
                     newChanges.Add(new ApChannelChange
                     {
@@ -402,7 +423,9 @@ public class ChannelMemoryCollectionService : BackgroundService
                 h.LastSampleUtc,
                 h.AvgUtilization,
                 h.AvgInterference,
-                txRetry));
+                txRetry,
+                h.CenterChannel,
+                h.AvgNoiseFloor));
         }
 
         return samples;

@@ -96,6 +96,33 @@ public class ApAgentRadioEnricherTests
     }
 
     [Fact]
+    public void Fresh_counters_land_as_measured_airtime_and_floor_and_stale_ones_do_not()
+    {
+        var ap = Ap(Radio("wifi2", RadioBand.Band6GHz, 69, 160), Radio("wifi0", RadioBand.Band2_4GHz, 11, 20));
+        var counters = new Dictionary<string, long> { ["cu_total"] = 44, ["cu_self_tx"] = 20, ["cu_self_rx"] = 11, ["cu_interf"] = 9 };
+        var fresh = new ApAgentRadioAirtime("wifi2", "6", 69, 160, 6345, -91, counters, new Dictionary<string, long>(), 30, DateTime.UtcNow);
+        var stale = new ApAgentRadioAirtime("wifi0", "2.4", 11, 20, null, -88, counters, new Dictionary<string, long>(), 30, DateTime.UtcNow.AddMinutes(-5));
+
+        var traces = ApAgentRadioEnricher.Apply(new[] { ap }, _ => new[] { fresh, stale }, (_, radio) => radio == "wifi2" ? -90 : null);
+
+        var wide = ap.Radios[0];
+        wide.MeasuredUtilization.Should().Be(44);
+        wide.MeasuredSelfAirtime.Should().Be(31);
+        wide.MeasuredInterference.Should().Be(9);
+        wide.MeasuredNoiseFloor.Should().Be(-91);
+        wide.MeasuredNoiseFloorHour.Should().Be(-90);
+        wide.CenterChannel.Should().Be(79);
+
+        var narrow = ap.Radios[1];
+        narrow.MeasuredUtilization.Should().BeNull("a five-minute-old reading is not copied");
+        narrow.CenterChannel.Should().BeNull();
+
+        traces.Should().HaveCount(2);
+        traces[0].ToString().Should().Be("wifi2 6 GHz ch 69/160 center 79 -> block 65-93 (measured, 6345 MHz); airtime 44% (self 31%, other 9%), floor -91 dBm");
+        traces[1].ToString().Should().Be("wifi0 2.4 GHz ch 11/20 no center -> block 9-13 (narrow radio, no block to resolve)");
+    }
+
+    [Fact]
     public void Twenty_megahertz_and_2_4_GHz_radios_are_skipped()
     {
         var ap = Ap(Radio("wifi0", RadioBand.Band2_4GHz, 11, 40), Radio("wifi1", RadioBand.Band5GHz, 36, 20));

@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -24,6 +25,8 @@ public class MinRssiEnabledRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.RoamingPerformance },
             Title = "Minimum RSSI Enabled",
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(apsWithMinRssi.Select(ap => ap.Mac))),
             Description = $"{apsWithMinRssi.Count} AP(s) have Minimum RSSI enabled. " +
                 "This hard-disconnects clients below the threshold, which can help roaming but may cause " +
                 "unexpected disconnects with sticky or poorly-behaved clients.",

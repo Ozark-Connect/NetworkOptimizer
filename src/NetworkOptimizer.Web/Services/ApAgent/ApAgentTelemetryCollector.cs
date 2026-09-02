@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.WiFi.Helpers;
+using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -81,6 +83,26 @@ public sealed class ApAgentTelemetryCollector
         "pdev_resets", "cycle_cnt", "rx_clear_cnt", "tx_frame_cnt", "phy_err_cnt",
     };
 
+    private readonly ApAgentNoiseFloorHistory _noiseFloors = new();
+    private readonly ApAgentClientEvidence _evidence = new();
+
+    /// <summary>The median noise floor over the last hour for one radio, or null until an hour's worth exists.</summary>
+    public int? NoiseFloorHourMedian(string apMac, string radio) => _noiseFloors.HourMedian(apMac, radio, DateTime.UtcNow);
+
+    /// <summary>The per-association facts for the clients one access point last sampled.</summary>
+    public IReadOnlyList<ApAgentClientFacts> ClientFacts(string apMac) => _evidence.Latest(apMac, DateTime.UtcNow);
+
+    /// <summary>The last hour's latency median and stall delta for one client on one access point.</summary>
+    public (double? MedianLatencyMs, int? Stalls) ClientHourStats(string apMac, string clientMac) =>
+        _evidence.HourStats(apMac, clientMac, DateTime.UtcNow);
+
+    /// <summary>The clients an access point holds right now per its agent; null when no agent covers it.</summary>
+    public int? MeasuredClientCount(string apMac)
+    {
+        var now = DateTime.UtcNow;
+        return _coverage.Covers(apMac, now) ? _membership.MemberCount(apMac, now) : null;
+    }
+
     private readonly ApAgentTargetDirectory _directory;
     private readonly ApAgentTelemetryClient _telemetry;
     private readonly ApAgentInsightsRegistry.SiteApAgentInsights _insights;
@@ -105,6 +127,14 @@ public sealed class ApAgentTelemetryCollector
     /// </summary>
     private readonly ConcurrentDictionary<string, PassBytes> _passBytes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ApAgentRadioAirtime>> _radios = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ApAgentScanPayload> _scans = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What an access point's radios last reported hearing, or null when no agent covers it or
+    /// the read failed. Read once per write pass alongside the radios.
+    /// </summary>
+    public ApAgentScanPayload? ScanFor(string apMac)
+        => _scans.TryGetValue(ApAgentWifiFieldMapper.NormalizeMac(apMac), out var scan) ? scan : null;
 
     private DateTime _lastWriteAt = DateTime.MinValue;
 
@@ -378,6 +408,7 @@ public sealed class ApAgentTelemetryCollector
         _lastWriteAt = now;
 
         PrunePassBytes(now);
+        _evidence.Prune(now);
 
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
         foreach (var target in targets)
@@ -463,6 +494,7 @@ public sealed class ApAgentTelemetryCollector
                     if (_membership.IsClaimSuperseded(target.Mac, sample.ClientMac)) continue;
 
                     accumulator.Add(sample, now);
+                    _evidence.Record(sample, now);
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.
@@ -699,10 +731,15 @@ public sealed class ApAgentTelemetryCollector
     {
         var covered = targets.Where(t => _coverage.Covers(t.Mac, DateTime.UtcNow)).ToList();
         _radios.Clear();
+        _scans.Clear();
 
         foreach (var target in covered)
         {
             if (ct.IsCancellationRequested) return;
+
+            // What the radios hear rides the same pass; a failed read leaves the console's scan.
+            var scan = await _telemetry.GetScanAsync(_siteSlug, target.Host, target.Token, RadiosTimeout, ct);
+            if (scan != null) _scans[ApAgentWifiFieldMapper.NormalizeMac(target.Mac)] = scan;
 
             var payload = await _telemetry.GetRadiosAsync(_siteSlug, target.Host, target.Token, RadiosTimeout, ct);
             if (payload == null) continue;
@@ -723,7 +760,10 @@ public sealed class ApAgentTelemetryCollector
                 .ToList();
 
             _radios[target.Mac] = radios;
+            foreach (var r in payload.Radios.Where(r => !r.ScanRadio && !r.CounterOnly))
+                _noiseFloors.Record(target.Mac, r.Name, r.NoiseFloor, at);
             await _insights.RadioHealth.RecordAsync(target.Mac, target.Name, radios, ct);
+            _insights.ChannelMoves.NoteRadios(target.Mac, target.Name, radios);
 
             foreach (var r in payload.Radios)
             {
@@ -732,9 +772,14 @@ public sealed class ApAgentTelemetryCollector
                 if (r.ScanRadio || r.CounterOnly) continue;
                 if (r.Counters == null || !r.Counters.TryGetValue("cu_total", out var cuTotal)) continue;
                 var cuInterf = r.Counters.TryGetValue("cu_interf", out var i) ? i : 0;
-                _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at);
+                var band = RadioBandExtensions.FromUniFiCode(ApAgentAirtimeAggregator.MapBandCode(r.Band ?? r.Radio));
+                int? center = r.CenterMhz is { } mhz ? ChannelSpanHelper.CenterChannelFromMhz(band, mhz) : null;
+                _airtime.Record(target.Mac, r.Band ?? r.Radio, r.Channel, r.Bandwidth, cuTotal, cuInterf, at, center, r.NoiseFloor);
             }
         }
+
+        // Any move whose hour is up gets its verdict from the hours folded above.
+        _insights.ChannelMoves.EvaluateOutcomes(_airtime, DateTime.UtcNow);
     }
 
     /// <summary>Keeps only the counters that have a home, so the rest of the reply is not retained.</summary>

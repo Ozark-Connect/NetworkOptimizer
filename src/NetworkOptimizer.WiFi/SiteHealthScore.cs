@@ -94,6 +94,31 @@ public class HealthIssue
     /// <summary>Issue severity</summary>
     public HealthIssueSeverity Severity { get; set; }
 
+    /// <summary>Rule that produced the issue. Set by the engine, not the rule.</summary>
+    public string RuleId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Stable identity, <c>{RuleId}|{scope}</c>, where the scope names what the issue is about
+    /// (an AP MAC and band, a sorted MAC set, an SSID) and never a number that changes. Titles
+    /// carry counts and percentages, so an acknowledgment keyed on a title would be forgotten
+    /// every time the number moved. Rules set it through <c>HealthIssueKeys</c>; the engine
+    /// fills a fallback for a rule that does not.
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the issue reports what the air is doing (never suppressed by intent) or what the
+    /// configuration could do differently (dropped to Info with a hint when the configuration
+    /// shows the operator chose it).
+    /// </summary>
+    public HealthIssueClass Class { get; set; }
+
+    /// <summary>
+    /// Acknowledged by the operator: hidden from the active list, still scored, still listed
+    /// under Acknowledged. Set after the rules run; never by a rule.
+    /// </summary>
+    public bool IsAcknowledged { get; set; }
+
     /// <summary>Affected dimensions (an issue can affect multiple dimensions)</summary>
     public HashSet<HealthDimension> Dimensions { get; set; } = new();
 
@@ -151,6 +176,19 @@ public enum HealthIssueSeverity
     Info,
     Warning,
     Critical
+}
+
+/// <summary>What kind of finding an issue is; see <see cref="HealthIssue.Class"/>.</summary>
+public enum HealthIssueClass
+{
+    /// <summary>The rule did not say. The engine treats it as Measured, the safer reading.</summary>
+    Unclassified = 0,
+
+    /// <summary>Something the air is doing: overlap, noise, utilization, retries, clients.</summary>
+    Measured,
+
+    /// <summary>Something the configuration could do differently: width, power, roaming settings.</summary>
+    Advisory
 }
 
 /// <summary>

@@ -18,11 +18,15 @@
                         @((MarkupString)GetSeverityIcon(firstIssue.Severity))
                     </div>
                     <div class="issue-content">
-                        @if (ShowDetails && firstIssue.Dimensions.Any())
+                        @if ((ShowDetails && firstIssue.Dimensions.Any()) || HasAction(firstIssue))
                         {
                             <div class="issue-meta">
-                                <span class="issue-badge @GetSeverityClass(firstIssue.Severity)">@GetSeverityLabel(firstIssue.Severity)</span>
-                                <span class="issue-dimension">@FormatDimensions(firstIssue.Dimensions)</span>
+                                @if (ShowDetails && firstIssue.Dimensions.Any())
+                                {
+                                    <span class="issue-badge @GetSeverityClass(firstIssue.Severity)">@GetSeverityLabel(firstIssue.Severity)</span>
+                                    <span class="issue-dimension">@FormatDimensions(firstIssue.Dimensions)</span>
+                                }
+                                @RenderActions(firstIssue)
                             </div>
                         }
                         <div class="issue-title">@firstIssue.Title</div>
@@ -112,6 +116,7 @@
                                                     <span class="context-item"><strong>Affected:</strong> @issue.AffectedEntity</span>
                                                 }
                                             }
+                                            @RenderActions(issue)
                                         </div>
                                     </div>
                                 }
@@ -138,7 +143,36 @@
     [Parameter]
     public EventCallback<string> OnClientClick { get; set; }
 
+    /// <summary>Acknowledge an issue (Site Admin): hidden from the active list, still scored. Absent: no button.</summary>
+    [Parameter]
+    public EventCallback<HealthIssue> OnAcknowledge { get; set; }
+
+    /// <summary>Restore an acknowledged issue (Site Admin). Absent: no button.</summary>
+    [Parameter]
+    public EventCallback<HealthIssue> OnRestore { get; set; }
+
     private HashSet<string> _expandedGroups = new();
+
+    private bool HasAction(HealthIssue issue) =>
+        issue.IsAcknowledged ? OnRestore.HasDelegate : OnAcknowledge.HasDelegate;
+
+    // The same words, tooltips, and placement as Security Audit: the button ends the top row
+    // (badge row on a card, context row in a group).
+    private RenderFragment RenderActions(HealthIssue issue) => __builder =>
+    {
+        if (OnAcknowledge.HasDelegate && !issue.IsAcknowledged)
+        {
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => OnAcknowledge.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Hide this issue - still scored">Acknowledge</button>
+            </SiteAdminOnly>
+        }
+        else if (OnRestore.HasDelegate && issue.IsAcknowledged)
+        {
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => OnRestore.InvokeAsync(issue)" @onclick:stopPropagation="true" data-tooltip="Restore this issue">Restore</button>
+            </SiteAdminOnly>
+        }
+    };
 
     private IEnumerable<IGrouping<string, HealthIssue>> GetGroupedIssues()
     {

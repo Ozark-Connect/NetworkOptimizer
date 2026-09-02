@@ -28,6 +28,15 @@ public class AccessPointSnapshot
     /// <summary>Total connected clients across all radios</summary>
     public int TotalClients { get; set; }
 
+    /// <summary>
+    /// Clients the AP Agent holds right now: exact and seconds old, where the console's count lags
+    /// its report interval and keeps a client the agent saw leave. Null on an AP no agent covers.
+    /// </summary>
+    public int? MeasuredClientCount { get; set; }
+
+    /// <summary>The measured count where there is one, the console's otherwise.</summary>
+    public int EffectiveClientCount => MeasuredClientCount ?? TotalClients;
+
     /// <summary>Per-radio details</summary>
     public List<RadioSnapshot> Radios { get; set; } = new();
 
@@ -202,6 +211,48 @@ public class RadioSnapshot
     /// never says which; this does. Null without an agent, and the span falls back to a guess.
     /// </summary>
     public int? CenterChannel { get; set; }
+
+    /// <summary>The channel is set by hand in UniFi Network (radio_table channel is a number, not "auto").</summary>
+    public bool ChannelIsFixed { get; set; }
+
+    /// <summary>The TX power mode is set by hand in UniFi Network (anything but "auto").</summary>
+    public bool TxPowerIsFixed { get; set; }
+
+    /// <summary>
+    /// This radio's width differs from the most common width on its band across the site, which
+    /// is the best available reading of a deliberate per-AP width; UniFi carries no override flag.
+    /// </summary>
+    public bool WidthIsOverride { get; set; }
+
+    /// <summary>
+    /// Airtime busy percent measured by the AP Agent in the last two minutes (the radio's own
+    /// <c>cu_total</c>). Null without an agent, or when its reading is stale. Named apart from
+    /// <see cref="ChannelUtilization"/>, the console's figure, which keeps feeding every rule.
+    /// </summary>
+    public int? MeasuredUtilization { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is this radio's own traffic (<c>cu_self_tx</c> plus <c>cu_self_rx</c>).</summary>
+    public int? MeasuredSelfAirtime { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is other transmitters (<c>cu_interf</c>).</summary>
+    public int? MeasuredInterference { get; set; }
+
+    /// <summary>The radio's latest measured noise floor in dBm, from the AP Agent.</summary>
+    public int? MeasuredNoiseFloor { get; set; }
+
+    /// <summary>The median of the last hour's measured noise floors, once an hour's worth exists.</summary>
+    public int? MeasuredNoiseFloorHour { get; set; }
+
+    /// <summary>When the measured fields were read (UTC).</summary>
+    public DateTime? MeasuredAt { get; set; }
+
+    /// <summary>
+    /// The widest any client that can roam to this radio has negotiated on its band over the
+    /// lookback, from the AP Agent's client history and the clients on it now. Site-wide because
+    /// devices roam; a device locked to another AP is not counted, one locked to this AP is. Null
+    /// without agent history.
+    /// </summary>
+    public int? MeasuredMaxNegotiatedWidth { get; set; }
 
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }

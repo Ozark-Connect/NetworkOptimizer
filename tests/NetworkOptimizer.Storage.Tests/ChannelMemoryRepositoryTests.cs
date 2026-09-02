@@ -53,6 +53,25 @@ public class ChannelMemoryRepositoryTests : IDisposable
         new(mac, band, channel, width, timestamp, util, interf, txRetry);
 
     [Fact]
+    public async Task AddOutcomeSamples_KeepsTheCenterAndSumsTheNoiseFloorOnlyWhereCarried()
+    {
+        var day = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc);
+
+        await _repository.AddOutcomeSamplesAsync(new[]
+        {
+            new ChannelOutcomeSample("aa:bb:cc:dd:ee:01", "6e", 69, 320, day.AddHours(1), 20, 10, 1, CenterChannel: 63, NoiseFloor: -92),
+            new ChannelOutcomeSample("aa:bb:cc:dd:ee:01", "6e", 69, 320, day.AddHours(2), 20, 10, 1),
+            new ChannelOutcomeSample("aa:bb:cc:dd:ee:01", "6e", 69, 320, day.AddHours(3), 20, 10, 1, CenterChannel: 63, NoiseFloor: -88),
+        });
+
+        var bucket = (await _repository.GetOutcomesSinceAsync(day.AddDays(-1))).Should().ContainSingle().Subject;
+        bucket.SampleCount.Should().Be(3);
+        bucket.CenterChannel.Should().Be(63);
+        bucket.NoiseFloorSamples.Should().Be(2, "the console-style sample carried no floor");
+        bucket.NoiseFloorSum.Should().BeApproximately(-180, 0.001);
+    }
+
+    [Fact]
     public async Task AddOutcomeSamples_CreatesAndAccumulatesDailyBucket()
     {
         var day = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc);

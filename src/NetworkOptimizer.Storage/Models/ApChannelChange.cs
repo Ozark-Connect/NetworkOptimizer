@@ -35,6 +35,12 @@ public class ApChannelChange
     /// <summary>Channel width (MHz) after the change; null when unknown</summary>
     public int? NewWidthMhz { get; set; }
 
+    /// <summary>Block center before the change as a channel number, from the AP Agent; null when unknown</summary>
+    public int? PreviousCenterChannel { get; set; }
+
+    /// <summary>Block center after the change as a channel number, from the AP Agent; null when unknown</summary>
+    public int? NewCenterChannel { get; set; }
+
     /// <summary>When the change occurred (UTC). For observed diffs this is detection time,
     /// which upper-bounds the real change time.</summary>
     public DateTime ChangedAtUtc { get; set; }
@@ -58,4 +64,7 @@ public static class ApChannelChangeSource
 
     /// <summary>First sighting of this radio - establishes the baseline config, no prior channel</summary>
     public const string Initial = "initial";
+
+    /// <summary>Reported by the AP Agent within one mca-dump pass of the radio moving (authoritative timestamp, carries block centers)</summary>
+    public const string Agent = "agent";
 }

@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ISystemSettingsService SettingsService
+@inject IWiFiRadioKeepService RadioKeep
 @implements IDisposable
 
 <div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
@@ -274,11 +275,27 @@
                                         {
                                             <span class="soak-badge" data-tooltip="@GetSoakTooltip(rec)">Soaking</span>
                                         }
+                                        @if (rec.IsKept)
+                                        {
+                                            <span class="mesh-link-badge" data-tooltip="Pinned - Channel Recommendation leaves this radio where it is">Pinned</span>
+                                        }
                                         @if (rec.IsUnplaced)
                                         {
                                             <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
                                         }
                                     </span>
+                                    @* A mesh child follows its parent, so the pin sits on the parent. *@
+                                    @if (!rec.IsMeshConstrained)
+                                    {
+                                        <SiteAdminOnly>
+                                            <button class="rec-pin-btn @(rec.IsKept ? "pinned" : "")" disabled="@_keepBusy"
+                                                    data-tooltip="@(rec.IsKept ? "Unpin Channel - let Channel Recommendation move this radio again" : "Pin Channel - Channel Recommendation will leave this radio where it is")"
+                                                    aria-label="@(rec.IsKept ? "Unpin Channel" : "Pin Channel")"
+                                                    @onclick="() => ToggleKeepAsync(rec)">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                                            </button>
+                                        </SiteAdminOnly>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
@@ -307,6 +324,24 @@
                                         }
                                         <span class="rec-no-change">(No change)</span>
                                     }
+                                    @if (!string.IsNullOrEmpty(rec.WidthReason))
+                                    {
+                                        <div class="rec-move-note"><span>@rec.WidthReason</span></div>
+                                    }
+                                    @* A move the AP Agent saw within the last day. *@
+                                    @if (rec.MovedAt.HasValue)
+                                    {
+                                        <div class="rec-move-note">
+                                            @if (rec.MoveInterferenceBefore.HasValue && rec.MoveInterferenceAfter.HasValue)
+                                            {
+                                                <span>Measured since the move: interference @rec.MoveInterferenceBefore.Value.ToString("F0")% before, @rec.MoveInterferenceAfter.Value.ToString("F0")% after.</span>
+                                            }
+                                            else if (rec.MoveVerdictDueAt.HasValue)
+                                            {
+                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime().ToString("t").</span>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
@@ -322,6 +357,10 @@
                             No floor plan or building data found. Build out your property in Signal Map for propagation-modeled recommendations
                             that account for wall materials, antenna patterns, and AP placement.
                         </div>
+                    }
+                    @if (plan.KeptRadioCount > 0)
+                    {
+                        <div class="recommendation-notice">@plan.KeptRadioCount radio(s) pinned.</div>
                     }
                     else if (plan.UnplacedApCount > 0)
                     {
@@ -683,6 +722,31 @@
     public void Dispose() => _ageTimer?.Dispose();
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
+    private bool _keepBusy;
+
+    /// <summary>
+    /// Keep or release one radio, then rebuild the plan: the kept set is part of the plan's
+    /// cache key, so the rebuild is a different question rather than a stale answer.
+    /// </summary>
+    private async Task ToggleKeepAsync(ApChannelRecommendation rec)
+    {
+        if (_keepBusy) return;
+        _keepBusy = true;
+        try
+        {
+            if (rec.IsKept)
+                await RadioKeep.ReleaseAsync(rec.ApMac, rec.Band);
+            else
+                await RadioKeep.KeepAsync(rec.ApMac, rec.Band);
+
+            var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
+        }
+        finally
+        {
+            _keepBusy = false;
+        }
+    }
     private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
     private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 

@@ -477,10 +477,16 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("ChangedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("NewCenterChannel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("NewChannel")
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("NewWidthMhz")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreviousCenterChannel")
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("PreviousChannel")
@@ -522,6 +528,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("BucketDate")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("CenterChannel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Channel")
                         .HasColumnType("INTEGER");
 
@@ -530,6 +539,12 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<DateTime>("LastSampleUtc")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("NoiseFloorSamples")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("NoiseFloorSum")
+                        .HasColumnType("REAL");
 
                     b.Property<int>("SampleCount")
                         .HasColumnType("INTEGER");
@@ -1692,6 +1707,58 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("RowKey");
 
                     b.ToTable("HogRowBaselines", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiIssueAcknowledgment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("AcknowledgedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IssueKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IssueKey")
+                        .IsUnique();
+
+                    b.ToTable("WiFiIssueAcknowledgments", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiRadioPreference", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("KeepChannelSince")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApMac", "Band")
+                        .IsUnique();
+
+                    b.ToTable("WiFiRadioPreferences", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.InterfaceNameMap", b =>

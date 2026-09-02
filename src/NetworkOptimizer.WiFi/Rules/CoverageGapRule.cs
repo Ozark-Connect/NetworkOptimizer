@@ -54,6 +54,8 @@ public class CoverageGapRule : IWiFiOptimizerRule
                 Severity = HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.SignalQuality },
                 Title = $"Coverage Gap Near {ap.Name}",
+                Class = HealthIssueClass.Measured,
+                Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { ap.Mac })),
                 Description = $"{weakPct:F0}% of clients ({weakCount} of {clientCount}) connected to {ap.Name} have weak signal " +
                     "for their band. These clients may be too far from the AP or experiencing obstruction.",
                 AffectedEntity = ap.Name,
@@ -69,6 +71,8 @@ public class CoverageGapRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.SignalQuality },
             Title = $"Coverage Gaps Near {coverageGapAps.Count} APs",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(coverageGapAps.Select(x => x.Ap.Mac))),
             Description = $"{coverageGapAps.Count} access points have >={WeakSignalPctThreshold:F0}% of clients with weak signal for their band. " +
                 "This indicates significant coverage gaps in your deployment.",
             AffectedEntity = string.Join(", ", coverageGapAps.Select(x => $"{x.Ap.Name} ({x.WeakPct:F0}%)")),

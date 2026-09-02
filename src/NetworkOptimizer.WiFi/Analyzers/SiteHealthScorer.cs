@@ -488,10 +488,15 @@ public class SiteHealthScorer
         {
             var apInfo = !string.IsNullOrEmpty(client.ApName) ? $" on {client.ApName}" : "";
             var isCritical = SignalClassification.IsCriticalSignal(client.Signal!.Value, client.Band);
+            // Keyed by the client alone: a weak device is the same issue on whichever AP or band
+            // it roams to, so one acknowledgment covers it until it is restored.
             score.Issues.Add(new HealthIssue
             {
                 Severity = isCritical ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.SignalQuality },
+                RuleId = "WIFI-WEAK-SIGNAL-001",
+                Class = HealthIssueClass.Measured,
+                Key = HealthIssueKeys.For("WIFI-WEAK-SIGNAL-001", HealthIssueKeys.Macs(new[] { client.Mac })),
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm on {client.Band.ToDisplayString()}){apInfo}",
                 AffectedEntity = client.Name,
@@ -518,6 +523,9 @@ public class SiteHealthScorer
             {
                 Severity = radio.ChannelUtilization > 90 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
+                RuleId = "WIFI-CHANNEL-UTIL-001",
+                Class = HealthIssueClass.Measured,
+                Key = HealthIssueKeys.For("WIFI-CHANNEL-UTIL-001", HealthIssueKeys.Radio(ap.Mac, radio.Band)),
                 Title = "High channel utilization",
                 Description = $"{radio.Band.ToDisplayString()} radio at {radio.ChannelUtilization}% utilization",
                 AffectedEntity = ap.Name,
@@ -551,6 +559,9 @@ public class SiteHealthScorer
                     // Below 90% success is a serious roaming problem (mirrors the dimension's -20 tier)
                     Severity = edge.SuccessRate < RoamSevereRatePct ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                     Dimensions = { HealthDimension.RoamingPerformance },
+                    RuleId = "WIFI-ROAM-FAILURES-001",
+                    Class = HealthIssueClass.Measured,
+                    Key = HealthIssueKeys.For("WIFI-ROAM-FAILURES-001", HealthIssueKeys.Macs(new[] { edge.Endpoint1Mac, edge.Endpoint2Mac })),
                     Title = "Roaming failures",
                     Description = $"{100 - edge.SuccessRate:F0}% roam failure rate ({failures} of {edge.TotalRoamAttempts} roams) between these APs",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
@@ -569,6 +580,9 @@ public class SiteHealthScorer
             {
                 Severity = HealthIssueSeverity.Info,
                 Dimensions = { HealthDimension.AirtimeEfficiency },
+                RuleId = "WIFI-LEGACY-CLIENTS-001",
+                Class = HealthIssueClass.Measured,
+                Key = HealthIssueKeys.For("WIFI-LEGACY-CLIENTS-001"),
                 Title = "Legacy clients detected",
                 Description = $"{legacyClients.Count} clients using Wi-Fi 4 or older",
                 Recommendation = "Legacy clients consume more airtime - consider upgrading or isolating to separate SSID.",

@@ -162,6 +162,12 @@ public static class AuditActions
     /// <summary>A client was asked to move to a different access point over 802.11v.</summary>
     public const string ApAgentClientSteered = "ap_agent.client.steered";
 
+    // Wi-Fi Optimizer: the operator's answers to what it reports
+    public const string WiFiIssueAcknowledged = "wifi.issue.acknowledged";
+    public const string WiFiIssueRestored = "wifi.issue.restored";
+    public const string WiFiRadioKept = "wifi.radio.kept";
+    public const string WiFiRadioReleased = "wifi.radio.released";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 

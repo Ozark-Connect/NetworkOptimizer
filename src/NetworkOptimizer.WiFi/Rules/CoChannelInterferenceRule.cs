@@ -20,6 +20,12 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
 
     public string RuleId => "WIFI-COCHANNEL-001";
 
+    /// <summary>Every radio in the group at or under this measured airtime: the overlap costs little today.</summary>
+    private const int QuietAirtimePct = 15;
+
+    /// <summary>Any radio in the group at or over this measured airtime: they are taking turns.</summary>
+    private const int BusyAirtimePct = 40;
+
     /// <summary>One radio on the band, with the spectrum it occupies.</summary>
     private sealed record BandRadio(AccessPointSnapshot Ap, RadioSnapshot Radio, (int Low, int High) Span)
     {
@@ -114,16 +120,45 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 if (isDenseDeployment)
                     description += denseNote;
 
-                yield return new HealthIssue
+                // Graded by measured airtime when every radio in the group has a reading: an
+                // overlap nobody is using costs little, one both sides are busy on is the warning.
+                // A group with an unmeasured radio is not graded, because "quiet" cannot be
+                // asserted for a radio nobody measured.
+                var severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning;
+                var impact = isDenseDeployment ? -1 : -5;
+                var measured = reported.Select(r => r.Radio.MeasuredUtilization).ToList();
+                if (measured.All(m => m.HasValue))
                 {
-                    Severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning,
+                    var values = measured.Select(m => m!.Value).ToList();
+                    if (values.All(v => v <= QuietAirtimePct))
+                    {
+                        severity = HealthIssueSeverity.Info;
+                        impact = -1;
+                        description += $" Both radios are lightly used right now ({values.Min()}% to {values.Max()}% of airtime busy), so this overlap costs little today.";
+                    }
+                    else if (values.Any(v => v >= BusyAirtimePct))
+                    {
+                        var busyList = string.Join(", ", reported.Select(r => $"{r.Ap.Name} at {r.Radio.MeasuredUtilization}%"));
+                        description += $" The shared spectrum is busy: {busyList}. They are taking turns on the same air.";
+                    }
+                }
+
+                var issue = new HealthIssue
+                {
+                    Severity = severity,
                     Dimensions = { HealthDimension.ChannelHealth },
+                    Class = HealthIssueClass.Measured,
+                    Key = HealthIssueKeys.For(RuleId, band.ToUniFiCode(), HealthIssueKeys.Macs(reported.Select(r => r.Ap.Mac))),
                     Title = title,
                     Description = description,
                     Recommendation = recommendation,
-                    ScoreImpact = isDenseDeployment ? -1 : -5,
+                    ScoreImpact = impact,
                     AffectedChannels = primaries.ToHashSet()
                 };
+                // Measured overlap keeps its severity; the hint only says whose choice the channels were.
+                if (reported.All(r => r.Radio.ChannelIsFixed))
+                    RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);
+                yield return issue;
             }
         }
     }

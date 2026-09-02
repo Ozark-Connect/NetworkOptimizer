@@ -7179,6 +7179,18 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Compact issue count for card headers */
+/* Wi-Fi Optimizer - Health Issues card, Acknowledged tab */
+.acknowledged-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Inside Security Audit's issues list the list's own gap spaces it; no margin on top of that. */
+.issues-list .acknowledged-note {
+    margin-bottom: 0;
+}
+
 .issue-count-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -12456,6 +12468,38 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.5rem;
 }
 
+/* Channels recommendation row: pin toggle beside the AP name */
+.rec-pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.rec-pin-btn:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.rec-pin-btn.pinned {
+    opacity: 1;
+    color: var(--accent-color);
+}
+
+.rec-pin-btn:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+
 .soak-badge {
     font-size: 0.7rem;
     font-weight: 500;
@@ -12629,12 +12673,20 @@ a.path-hop.hop-clickable:hover {
 
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
+    /* Used twice on Channels: the four summary stats (2x2) and the per-band plan summary of two
+       or three cards. An odd last card takes the full row rather than sitting half-width alone. */
     .channel-stats-row {
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
     }
 
     .channel-stat-card {
         min-width: unset;
+    }
+
+    .channel-stat-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 
     .band-tabs {

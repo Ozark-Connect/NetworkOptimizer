@@ -21,6 +21,7 @@
 @inject PullToRefreshState PtrState
 @inject IApMapAdminService ApMapAdmin
 @inject IAuthorizationService Authz
+@inject IWiFiIssueAcknowledgmentService IssueAcknowledgments
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -539,11 +540,15 @@
         <div class="card card-span-2">
             <div class="card-header">
                 <h2 class="card-title">Health Issues</h2>
-                @{ var overviewIssueCount = _healthScore?.Issues.Count(i => i.ShowOnOverview) ?? 0; }
-                @if (overviewIssueCount > 0)
-                {
-                    <span class="issue-count-sm">@overviewIssueCount issue@(overviewIssueCount != 1 ? "s" : "")</span>
+                @{
+                    var activeIssues = _healthScore?.Issues.Where(i => i.ShowOnOverview && !i.IsAcknowledged).ToList() ?? new List<HealthIssue>();
+                    var acknowledgedIssues = _healthScore?.Issues.Where(i => i.ShowOnOverview && i.IsAcknowledged).ToList() ?? new List<HealthIssue>();
                 }
+                @* Same tab row as Security Audit's Issues Found card. *@
+                <div class="filter-tabs">
+                    <button class="tab @(_issueTab == "active" ? "active" : "")" @onclick='() => _issueTab = "active"'>Active (@activeIssues.Count)</button>
+                    <button class="tab tab-muted @(_issueTab == "acknowledged" ? "active" : "")" @onclick='() => _issueTab = "acknowledged"'>Acknowledged (@acknowledgedIssues.Count)</button>
+                </div>
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -553,18 +558,36 @@
                         <span>Loading...</span>
                     </div>
                 }
-                else if (_healthScore?.Issues.Any(i => i.ShowOnOverview) != true)
+                else if (_issueTab == "acknowledged")
                 {
-                    <div class="empty-state success-state">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-                        </svg>
-                        <p>No issues detected. Your Wi-Fi network is healthy!</p>
-                    </div>
+                    @* Acknowledged issues: hidden from Active, still scored. *@
+                    @if (acknowledgedIssues.Count == 0)
+                    {
+                        <div class="no-issues">
+                            <p>No acknowledged issues are present right now.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="acknowledged-note">Acknowledged issues stay in the health score. They are hidden here, not fixed.</p>
+                        <IssuesList Issues="acknowledgedIssues" ShowDetails="true" OnClientClick="HandleMapClientClick" OnRestore="RestoreIssueAsync" />
+                    }
                 }
                 else
                 {
-                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" OnClientClick="HandleMapClientClick" />
+                    @if (activeIssues.Count == 0)
+                    {
+                        <div class="empty-state success-state">
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                            <p>No issues detected. Your Wi-Fi network is healthy!</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <IssuesList Issues="activeIssues" ShowDetails="true" OnClientClick="HandleMapClientClick" OnAcknowledge="AcknowledgeIssueAsync" />
+                    }
                 }
             </div>
         </div>
@@ -984,6 +1007,24 @@
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
+    /// <summary>Health Issues card tab: "active" or "acknowledged".</summary>
+    private string _issueTab = "active";
+
+    /// <summary>Acknowledge: hidden from the active list, still scored. The issue object moves groups in place.</summary>
+    private async Task AcknowledgeIssueAsync(HealthIssue issue)
+    {
+        // An issue without a key cannot be remembered, so it must not vanish either.
+        if (string.IsNullOrEmpty(issue.Key)) return;
+        await IssueAcknowledgments.AcknowledgeAsync(issue.Key);
+        issue.IsAcknowledged = true;
+    }
+
+    private async Task RestoreIssueAsync(HealthIssue issue)
+    {
+        if (string.IsNullOrEmpty(issue.Key)) return;
+        await IssueAcknowledgments.RestoreAsync(issue.Key);
+        issue.IsAcknowledged = false;
+    }
     private List<Iperf3Result> _speedTestResults = new();
     private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();

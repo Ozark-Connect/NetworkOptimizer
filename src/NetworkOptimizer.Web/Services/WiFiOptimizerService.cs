@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Helpers;
@@ -31,6 +31,7 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
     private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
+    private readonly NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository _wifiInsights;
     /// <summary>
     /// The registry rather than a MonitoringInfluxClient directly: the client is IAsyncDisposable,
     /// and injecting it here put one into scopes this service creates and disposes synchronously,
@@ -53,6 +54,7 @@ public class WiFiOptimizerService : IWiFiScanService
     /// </summary>
     private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
+    private readonly ApAgent.ApAgentInsightsRegistry _apAgentInsights;
 
     /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
@@ -90,6 +92,7 @@ public class WiFiOptimizerService : IWiFiScanService
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
+        NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository wifiInsights,
         MonitoringInfluxRegistry influxRegistry,
         ChannelPlanCache planCache,
         SiteContextService siteContext,
@@ -97,12 +100,14 @@ public class WiFiOptimizerService : IWiFiScanService
         NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource measuredClients,
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
+        ApAgent.ApAgentInsightsRegistry apAgentInsights,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
         _apAgentTelemetry = apAgentTelemetry;
+        _apAgentInsights = apAgentInsights;
         _licenseState = licenseState;
         _siteSlug = siteContext.Slug;
         _connectionService = connectionService;
@@ -114,6 +119,7 @@ public class WiFiOptimizerService : IWiFiScanService
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
         _channelMemoryRepository = channelMemoryRepository;
+        _wifiInsights = wifiInsights;
         _influxRegistry = influxRegistry;
         _planCache = planCache;
         _logger = logger;
@@ -195,6 +201,9 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.AirtimeEfficiency },
+                    RuleId = "WIFI-MLO-001",
+                    Class = HealthIssueClass.Advisory,
+                    Key = HealthIssueKeys.For("WIFI-MLO-001"),
                     Title = "MLO enabled",
                     Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO allows Wi-Fi 7 devices to aggregate multiple bands simultaneously. Non-Wi-Fi 7 devices may see reduced throughput on 5 GHz and 6 GHz bands.",
                     Recommendation = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing slow speeds on 5 GHz or 6 GHz."
@@ -211,6 +220,9 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     Severity = HealthIssueSeverity.Info,
                     Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
+                    RuleId = "WIFI-6GHZ-DISABLED-001",
+                    Class = HealthIssueClass.Advisory,
+                    Key = HealthIssueKeys.For("WIFI-6GHZ-DISABLED-001"),
                     Title = "6 GHz disabled",
                     Description = $"You have {aps6GHzCount} access point{(aps6GHzCount > 1 ? "s" : "")} with 6 GHz radios, but no SSIDs are broadcasting on 6 GHz. Enabling 6 GHz can offload Wi-Fi 6E/7 capable devices from congested 2.4 GHz and 5 GHz bands.",
                     Recommendation = "Enable 6 GHz on your SSIDs in UniFi Network: Settings > WiFi > (SSID) > Radio Band."
@@ -222,6 +234,18 @@ public class WiFiOptimizerService : IWiFiScanService
             {
                 var context = await BuildOptimizerContextAsync(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
                 _optimizerEngine.EvaluateRules(score, context);
+            }
+
+            // Acknowledged issues stay in the list and the score; the UI decides what to hide.
+            try
+            {
+                var acknowledged = await _wifiInsights.GetAcknowledgedIssueKeysAsync();
+                foreach (var issue in score.Issues)
+                    issue.IsAcknowledged = !string.IsNullOrEmpty(issue.Key) && acknowledged.Contains(issue.Key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not load Wi-Fi issue acknowledgments; showing every issue as active");
             }
 
             _cachedHealthScore = score;
@@ -406,7 +430,8 @@ public class WiFiOptimizerService : IWiFiScanService
                 // Radios an AP Agent covers carry their measured block center; the console never
                 // reports it. Applied here so the health rules, the channel recommender, and the
                 // Wi-Fi Optimizer tabs all read the same snapshot.
-                var centers = ApAgent.ApAgentRadioEnricher.Apply(aps, mac => _apAgentTelemetry.GetFor(_siteSlug).RadioAirtime(mac));
+                var collector = _apAgentTelemetry.GetFor(_siteSlug);
+                var centers = ApAgent.ApAgentRadioEnricher.Apply(aps, collector.RadioAirtime, collector.NoiseFloorHourMedian);
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     foreach (var byAp in centers.GroupBy(t => t.ApName))
@@ -547,6 +572,10 @@ public class WiFiOptimizerService : IWiFiScanService
         List<WlanConfiguration> wlans,
         List<AuditNetworkInfo> networks)
     {
+        // Covered APs and their clients carry what only the agent measures about an association;
+        // on a console-only site every one of those fields stays null.
+        await EnrichWithAgentEvidenceAsync(aps, clients);
+
         // Determine which APs have which bands available
         var has5gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
         var has6gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz && r.Channel.HasValue));
@@ -691,6 +720,17 @@ public class WiFiOptimizerService : IWiFiScanService
                 apMac: null,
                 startTime: startTime,
                 endTime: endTime);
+            // What agent-covered APs hear right now, laid over the console's scan for the same
+            // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
+            // targets exclude it without a rule of their own.
+            var ownBssids = (await GetAccessPointsAsync())
+                .SelectMany(ap => ap.Vaps)
+                .Select(v => v.Bssid)
+                .Where(b => !string.IsNullOrEmpty(b))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, ownBssids);
+            if (merged > 0)
+                _logger.LogDebug("[AgentScan] {Count} AP/band scan result(s) carry AP Agent neighbors or spectrum (site {Site})", merged, _siteSlug);
             // Record raw sightings for the rolling window, but cache and return the RAW scan -
             // the live RF Environment view must show the current scan, not a pooled union. Only
             // the channel recommendation reads the pooled view (see PoolNeighborSightings).
@@ -1022,7 +1062,7 @@ public class WiFiOptimizerService : IWiFiScanService
                 if (!byAp.TryGetValue(mac, out var list))
                     byAp[mac] = list = new List<ClientRateSample>();
                 list.Add(new ClientRateSample(
-                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps));
+                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps, row.NormalizedTxRateMbps));
             }
 
             foreach (var (band, byAp) in byBand)
@@ -1308,7 +1348,7 @@ public class WiFiOptimizerService : IWiFiScanService
     /// Get channel recommendations for a specific band.
     /// Coordinates data loading and calls the recommendation engine for all bands.
     /// </summary>
-    public Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
+    public async Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
         RecommendationOptions? options = null,
         bool forceRefresh = false)
     {
@@ -1318,25 +1358,186 @@ public class WiFiOptimizerService : IWiFiScanService
         var pinned = opts.PinnedApMacs is { Count: > 0 }
             ? string.Join("+", opts.PinnedApMacs.OrderBy(m => m, StringComparer.Ordinal))
             : "none";
-        var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}";
+        // Kept radios are a constraint on the plan, so a Keep is a different question too.
+        var kept = await GetKeptRadiosAsync();
+        var keptKey = kept.Count > 0
+            ? string.Join("+", kept.Select(k => $"{k.ApMac}/{k.Band}").OrderBy(k => k, StringComparer.Ordinal))
+            : "none";
+        var key = $"{_siteSlug}|{opts.DfsPreference}|{opts.OptimizeWidths}|{pinned}|kept:{keptKey}";
 
         // A run that lost a band is served but never cached: caching it would hide that band for
         // the rest of the hour behind a plan that looks complete.
         var partial = false;
-        return _planCache.GetOrBuildPlanAsync(key, forceRefresh,
+        return await _planCache.GetOrBuildPlanAsync(key, forceRefresh,
             async () =>
             {
-                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh);
+                var (plans, anyBandFailed) = await BuildAllChannelRecommendationsAsync(options, forceRefresh, kept);
                 partial = anyBandFailed;
                 return plans;
             },
             shouldCache: p => p is { Count: > 0 } && !partial);
     }
 
+    /// <summary>Kept radios, or none when the store cannot be read: a plan is never blocked on a preference.</summary>
+    private async Task<List<(string ApMac, string Band)>> GetKeptRadiosAsync()
+    {
+        try
+        {
+            return await _wifiInsights.GetKeptRadiosAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not load kept radios; planning without them");
+            return new List<(string, string)>();
+        }
+    }
+
+    /// <summary>
+    /// The options for one band: the caller's, plus the radios kept on that band as pins. The
+    /// engine's pin is per AP MAC and per Optimize call, and Optimize runs per band, so a
+    /// per-radio Keep is a per-band pin set.
+    /// </summary>
+    private static RecommendationOptions WithKeptRadios(
+        RecommendationOptions? options, IReadOnlyList<(string ApMac, string Band)> kept, RadioBand band)
+    {
+        var source = options ?? new RecommendationOptions();
+        var bandCode = band.ToUniFiCode();
+        var pins = new HashSet<string>(source.PinnedApMacs ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var k in kept.Where(k => k.Band == bandCode))
+            pins.Add(k.ApMac);
+        return new RecommendationOptions
+        {
+            DfsPreference = source.DfsPreference,
+            // Width candidates are gated per radio on agent evidence, so asking for them costs a
+            // console-only site nothing.
+            OptimizeWidths = true,
+            PinnedApMacs = pins.Count > 0 ? pins : source.PinnedApMacs
+        };
+    }
+
+    /// <summary>Hard bound on the negotiated-width history read; on timeout the history is absent.</summary>
+    private static readonly TimeSpan NegotiatedWidthQueryTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan NegotiatedWidthCacheFor = TimeSpan.FromMinutes(10);
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? _negotiatedWidths;
+    private DateTime _negotiatedWidthsAt = DateTime.MinValue;
+
+    /// <summary>
+    /// Lays the agent's per-association facts over the client snapshots and the site-wide
+    /// negotiated-width demand over the radios. Both no-ops on a site without agents: the
+    /// collector holds no facts and the history query returns no rows.
+    /// </summary>
+    private async Task EnrichWithAgentEvidenceAsync(List<AccessPointSnapshot> aps, List<WirelessClientSnapshot> clients)
+    {
+        var collector = _apAgentTelemetry.GetFor(_siteSlug);
+        var enriched = ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
+        if (enriched > 0)
+            _logger.LogDebug("[ClientEvidence] {Count} client(s) carry AP Agent association facts (site {Site})", enriched, _siteSlug);
+
+        var history = await GetNegotiatedWidthHistoryAsync();
+        if (history == null) return;
+        var radios = ApAgent.ApAgentWidthDemand.Apply(aps, clients, history, await GetApLocksAsync());
+        if (radios > 0)
+            _logger.LogDebug("[ClientEvidence] negotiated-width demand set on {Radios} radio(s) from {Clients} client(s) of history (site {Site})",
+                radios, history.Count, _siteSlug);
+    }
+
+    private IReadOnlyDictionary<string, string>? _apLocks;
+    private DateTime _apLocksAt = DateTime.MinValue;
+
+    /// <summary>
+    /// AP locks (client MAC to AP MAC) from the console's full client roster, which knows a
+    /// device's lock whether or not it is online. Null when the roster cannot be read, in which
+    /// case only the active clients' locks apply.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> GetApLocksAsync()
+    {
+        if (_apLocks != null && DateTime.UtcNow - _apLocksAt < NegotiatedWidthCacheFor)
+            return _apLocks;
+        if (_connectionService.Client == null) return null;
+        try
+        {
+            using var timeout = new CancellationTokenSource(NegotiatedWidthQueryTimeout);
+            var roster = await _connectionService.Client.GetAllKnownClientsAsync(timeout.Token);
+            _apLocks = roster
+                .Where(c => c.FixedApEnabled == true && !string.IsNullOrEmpty(c.FixedApMac) && !string.IsNullOrEmpty(c.Mac))
+                .GroupBy(c => c.Mac, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().FixedApMac!, StringComparer.OrdinalIgnoreCase);
+            _apLocksAt = DateTime.UtcNow;
+            return _apLocks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Client roster unavailable; AP locks come from active clients only (site {Site})", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The widest width each client negotiated per band over the lookback, from the agent's
+    /// client rows. Null when the read failed or timed out, which keeps every "unused width"
+    /// judgment silent rather than made from a snapshot.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>?> GetNegotiatedWidthHistoryAsync()
+    {
+        if (_negotiatedWidths != null && DateTime.UtcNow - _negotiatedWidthsAt < NegotiatedWidthCacheFor)
+            return _negotiatedWidths;
+        try
+        {
+            using var timeout = new CancellationTokenSource(NegotiatedWidthQueryTimeout);
+            var to = DateTime.UtcNow;
+            _negotiatedWidths = await _influxRegistry.GetFor(_siteSlug)
+                .QueryNegotiatedWidthsAsync(to - ApAgent.ApAgentWidthDemand.Lookback, to, timeout.Token);
+            _negotiatedWidthsAt = DateTime.UtcNow;
+            return _negotiatedWidths;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Negotiated-width history unavailable; width judgments stay silent (site {Site})", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What the agent measured about each radio's clients on one band, for width candidates. A
+    /// radio gets evidence only when every online client on it is agent-measured and the radio's
+    /// own airtime reading is fresh; anything less leaves the radio at its width.
+    /// </summary>
+    private static Dictionary<string, RadioWidthEvidence> BuildWidthEvidence(
+        List<AccessPointSnapshot> aps, List<WirelessClientSnapshot> clients, RadioBand band)
+    {
+        var evidence = new Dictionary<string, RadioWidthEvidence>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ap in aps.Where(a => a.IsOnline))
+        {
+            var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+            if (radio?.MeasuredUtilization is null) continue;
+
+            var onRadio = clients.Where(c => c.IsOnline && c.Band == band
+                && c.ApMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (onRadio.Count == 0 || onRadio.Any(c => c.NegotiatedWidth is not > 0)) continue;
+
+            // The negotiated width is site-wide over the lookback (devices roam); without that
+            // history the live width is read as the radio's own, so nothing argues it narrower.
+            var liveMax = onRadio.Max(c => c.NegotiatedWidth!.Value);
+            var negotiated = radio.MeasuredMaxNegotiatedWidth is { } demand
+                ? Math.Max(demand, liveMax)
+                : Math.Max(liveMax, radio.ChannelWidth ?? liveMax);
+            evidence[ap.Mac.ToLowerInvariant()] = new RadioWidthEvidence
+            {
+                ClientCount = onRadio.Count,
+                MaxNegotiatedWidth = negotiated,
+                MaxSupportedWidth = Math.Max(negotiated, onRadio.Max(c => c.Capabilities.MaxChannelWidth ?? 0)),
+                MeasuredUtilization = radio.MeasuredUtilization,
+                CarriesBackhaul = ap.MeshBackhaulUsesBand(band)
+            };
+        }
+        return evidence;
+    }
+
     private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
         BuildAllChannelRecommendationsAsync(
         RecommendationOptions? options,
-        bool forceRefresh)
+        bool forceRefresh,
+        IReadOnlyList<(string ApMac, string Band)> kept)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var results = new Dictionary<RadioBand, ChannelPlan>();
@@ -1424,6 +1625,10 @@ public class WiFiOptimizerService : IWiFiScanService
             var clientRates = await _planCache.GetOrBuildClientRatesAsync(
                 _siteSlug, forceRefresh, GetClientRatesAsync);
 
+            // Client snapshots carrying the agent's association facts, for width candidates.
+            var clients = await GetWirelessClientsAsync();
+            await EnrichWithAgentEvidenceAsync(aps, clients);
+
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
             foreach (var band in bands)
@@ -1436,13 +1641,39 @@ public class WiFiOptimizerService : IWiFiScanService
                 {
                     var bandStress = historicalContext?.Stress?.GetValueOrDefault(band);
                     var bandSoak = historicalContext?.Soak.GetValueOrDefault(band);
+                    var bandOptions = WithKeptRadios(options, kept, band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
-                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak,
+                        aps, band, propCtx, scanResults, regulatoryData, bandOptions, bandStress, bandSoak,
                         clientRates?.GetValueOrDefault(band),
-                        historicalContext?.Credibility.GetValueOrDefault(band));
+                        historicalContext?.Credibility.GetValueOrDefault(band),
+                        historicalContext?.NoiseFloor.GetValueOrDefault(band),
+                        BuildWidthEvidence(aps, clients, band));
 
                     var plan = _channelRecommendationService.Optimize(
-                        graph, band, regulatoryData, options, hasBuildingData);
+                        graph, band, regulatoryData, bandOptions, hasBuildingData);
+
+                    // What the operator said about each radio, for the card: kept, or set by hand.
+                    var keptOnBand = kept.Where(k => k.Band == band.ToUniFiCode())
+                        .Select(k => k.ApMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var moves = _apAgentInsights.GetFor(_siteSlug).ChannelMoves.Tracker;
+                    foreach (var rec in plan.Recommendations)
+                    {
+                        rec.IsKept = keptOnBand.Contains(rec.ApMac);
+                        rec.IsChannelFixed = aps
+                            .FirstOrDefault(ap => ap.Mac.Equals(rec.ApMac, StringComparison.OrdinalIgnoreCase))?
+                            .Radios.Any(r => r.Band == band && r.Channel.HasValue && r.ChannelIsFixed) == true;
+
+                        // A move the agent saw within the last day, and how it measured, for the card.
+                        var move = moves.For(rec.ApMac, band.ToUniFiCode());
+                        if (move != null && DateTime.UtcNow - move.At <= TimeSpan.FromDays(1) && move.ToChannel == rec.CurrentChannel)
+                        {
+                            rec.MovedAt = move.At;
+                            rec.MoveVerdictDueAt = move.VerdictDueAt;
+                            rec.MoveInterferenceBefore = move.InterferenceBefore;
+                            rec.MoveInterferenceAfter = move.InterferenceAfter;
+                        }
+                    }
+                    plan.KeptRadioCount = plan.Recommendations.Count(r => r.IsKept);
 
                     plan.ComputedAtUtc = DateTime.UtcNow;
                     results[band] = plan;
@@ -1481,6 +1712,9 @@ public class WiFiOptimizerService : IWiFiScanService
 
         /// <summary>How far each channel's remembered stress is trusted, 0-1, per band and AP.</summary>
         public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> Credibility { get; } = new();
+
+        /// <summary>Remembered noise floor per channel (dBm), per band and AP; only agent-measured hours carry one.</summary>
+        public Dictionary<RadioBand, Dictionary<string, Dictionary<int, double>>> NoiseFloor { get; } = new();
     }
 
     /// <summary>
@@ -1695,12 +1929,14 @@ public class WiFiOptimizerService : IWiFiScanService
                             .Select(o => new ChannelOutcomeBucket(
                                 o.Channel, o.WidthMhz, o.UtilizationSum, o.InterferenceSum,
                                 o.TxRetrySum, o.SampleCount,
-                                new DateTimeOffset(DateTime.SpecifyKind(o.LastSampleUtc, DateTimeKind.Utc))))
+                                new DateTimeOffset(DateTime.SpecifyKind(o.LastSampleUtc, DateTimeKind.Utc)),
+                                o.CenterChannel, o.NoiseFloorSum, o.NoiseFloorSamples))
                             .ToList();
                         if (buckets.Count == 0) continue;
 
                         var recent = context.Stress[band].GetValueOrDefault(macLower);
                         var credibility = new Dictionary<int, double>();
+                        var noiseFloor = new Dictionary<int, double>();
                         var confidence = ChannelMemoryHelper.HistoryConfidenceFromNeighbors(
                             neighborLoad.GetValueOrDefault((macLower, bandCode)));
                         var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
@@ -1708,7 +1944,8 @@ public class WiFiOptimizerService : IWiFiScanService
                             ChannelMemoryHelper.MinLongTermSamples, band, confidence,
                             trace: msg => _logger.LogDebug("[ChannelRec] {ApName} {Band}: {Message}",
                                 ap.Name, band, msg),
-                            credibilityOut: credibility);
+                            credibilityOut: credibility,
+                            noiseFloorOut: noiseFloor);
                         if (merged == null) continue;
 
                         // Logged unconditionally: when confidence suppresses the memory the channel
@@ -1725,6 +1962,13 @@ public class WiFiOptimizerService : IWiFiScanService
                                 context.Credibility[band] = bandCred =
                                     new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
                             bandCred[macLower] = credibility;
+                        }
+                        if (noiseFloor.Count > 0)
+                        {
+                            if (!context.NoiseFloor.TryGetValue(band, out var bandNoise))
+                                context.NoiseFloor[band] = bandNoise =
+                                    new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+                            bandNoise[macLower] = noiseFloor;
                         }
                     }
                 }
@@ -1837,6 +2081,20 @@ public class WiFiOptimizerService : IWiFiScanService
                     }
 
                     var soak = ChannelMemoryHelper.BuildSoakInfo(changeEvents, currentChannel, now);
+                    // The agent's one-hour verdict on the move that started this soak, where there
+                    // is one. Read by the soak escape alone.
+                    var move = _apAgentInsights.GetFor(_siteSlug).ChannelMoves.Tracker.For(macLower, bandCode);
+                    if (soak != null && move is { Outcome: not null } && move.ToChannel == currentChannel)
+                    {
+                        soak = new ChannelSoakInfo
+                        {
+                            SoakedChannels = soak.SoakedChannels,
+                            LastChangeAt = soak.LastChangeAt,
+                            SoakEndsAt = soak.SoakEndsAt,
+                            MeasuredOutcome = move.Outcome,
+                            MeasuredAt = move.VerdictAt
+                        };
+                    }
                     if (soak != null)
                         bandSoak[macLower] = soak;
                 }

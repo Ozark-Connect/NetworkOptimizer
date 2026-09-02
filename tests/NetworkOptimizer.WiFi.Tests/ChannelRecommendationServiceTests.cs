@@ -53,6 +53,38 @@ public class ChannelRecommendationServiceTests
         };
 
     [Fact]
+    public void ScoreAssignment_ARememberedRaisedNoiseFloorCostsAChannel()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36, width: 80),
+        };
+        var stress = new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:01"] = new() { [36] = (10, 10, 1), [149] = (10, 10, 1) }
+        };
+        var quiet = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:01"] = new() { [36] = -92, [149] = -92 }
+        };
+        var raised = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:01"] = new() { [36] = -92, [149] = -60 }
+        };
+
+        var quietGraph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, null, stress, historicalNoiseFloor: quiet);
+        var raisedGraph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, null, stress, historicalNoiseFloor: raised);
+        var noneGraph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, null, stress);
+
+        var on149 = new[] { (149, 80) };
+        _service.ScoreAssignment(raisedGraph, on149, RadioBand.Band5GHz)
+            .Should().BeGreaterThan(_service.ScoreAssignment(quietGraph, on149, RadioBand.Band5GHz));
+        // No floor at all scores exactly as a quiet one: the term adds nothing without a reading.
+        _service.ScoreAssignment(noneGraph, on149, RadioBand.Band5GHz)
+            .Should().Be(_service.ScoreAssignment(quietGraph, on149, RadioBand.Band5GHz));
+    }
+
+    [Fact]
     public void BuildInterferenceGraph_CarriesTheMeasuredCenter()
     {
         var aps = new List<AccessPointSnapshot>

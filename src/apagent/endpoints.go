@@ -53,6 +53,26 @@ type RadiosPayload struct {
 	CollectedAt time.Time    `json:"collected_at"`
 }
 
+// ScanPayload is GET /scan: what each radio hears, from mca-dump's own scan and spectrum tables.
+// ReadAt is when the tables were read; an entry's age counts from there.
+type ScanPayload struct {
+	Ap          ApInfo      `json:"ap"`
+	Radios      []RadioScan `json:"radios"`
+	ReadAt      time.Time   `json:"read_at"`
+	CollectedAt time.Time   `json:"collected_at"`
+}
+
+func (s *State) scanPayload(*http.Request) (any, error) {
+	table, _ := s.telemetry()
+	radios, readAt := table.Scans()
+	return ScanPayload{
+		Ap:          table.Ap(),
+		Radios:      radios,
+		ReadAt:      readAt,
+		CollectedAt: time.Now().UTC(),
+	}, nil
+}
+
 // EventsPayload is GET /events?since=. AgentStartedAt is what tells a collector the sequence
 // numbering restarted: the agent holds no state across a reboot, so seq begins at 1 again.
 type EventsPayload struct {

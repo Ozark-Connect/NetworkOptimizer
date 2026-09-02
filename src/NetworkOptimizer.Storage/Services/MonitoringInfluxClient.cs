@@ -3270,6 +3270,12 @@ from(bucket: ""{_longtermBucket}"")
         public DateTime Day { get; init; }
         public int WindowCount { get; init; }
         public double MeanTxRateMbps { get; init; }
+
+        /// <summary>
+        /// Mean rate per spatial stream per 20 MHz, set only when EVERY window in the bucket carried
+        /// the client's stream count (the AP Agent path writes it; the console's does not).
+        /// </summary>
+        public double? NormalizedTxRateMbps { get; init; }
     }
 
     /// <summary>
@@ -3315,7 +3321,7 @@ import ""math""
 means = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"")
+  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"" or r._field == ""nss"")
   |> aggregateWindow(every: {ClientRateWindowEvery}, fn: mean, createEmpty: false)
 
 chan = from(bucket: ""{_bucket}"")
@@ -3336,11 +3342,13 @@ union(tables: [means, chan])
       channel: int(v: r.channel),
       width: int(v: r.channel_width),
       signal_band: {SignalBandStepDb} * int(v: math.floor(x: r.signal_dbm / {SignalBandStepDb}.0)),
-      tx_rate_mbps: r.tx_rate_kbps / 1000.0
+      tx_rate_mbps: r.tx_rate_kbps / 1000.0,
+      normalized: if exists r.nss and r.nss >= 0.5 then 1 else 0,
+      norm_rate_mbps: if exists r.nss and r.nss >= 0.5 then (r.tx_rate_kbps / 1000.0) / (math.round(x: r.nss) * (r.channel_width / 20.0)) else 0.0
   }}))
   |> group(columns: [""device_mac"", ""band"", ""channel"", ""width"", ""signal_band"", ""day""])
-  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps}}), identity: {{n: 0, sum: 0.0}})
-  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
+  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps, norm_n: accumulator.norm_n + r.normalized, norm_sum: accumulator.norm_sum + r.norm_rate_mbps}}), identity: {{n: 0, sum: 0.0, norm_n: 0, norm_sum: 0.0}})
+  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n), norm_n: r.norm_n, mean_norm_rate_mbps: if r.norm_n > 0 then r.norm_sum / float(v: r.norm_n) else 0.0}}))
   |> group()";
 
         var results = new List<ClientChannelRatePoint>();
@@ -3350,6 +3358,7 @@ union(tables: [means, chan])
             if (windows <= 0) continue;
             DateTime.TryParse(record.GetValueByKey("day") as string, null,
                 System.Globalization.DateTimeStyles.AdjustToUniversal, out var day);
+            var normalizedWindows = (int)(AsDoubleOrNull(record.GetValueByKey("norm_n")) ?? 0);
             results.Add(new ClientChannelRatePoint
             {
                 ApMac = record.GetValueByKey("device_mac") as string,
@@ -3360,6 +3369,9 @@ union(tables: [means, chan])
                 Day = day,
                 WindowCount = windows,
                 MeanTxRateMbps = AsDoubleOrNull(record.GetValueByKey("mean_tx_rate_mbps")) ?? 0,
+                NormalizedTxRateMbps = normalizedWindows == windows
+                    ? AsDoubleOrNull(record.GetValueByKey("mean_norm_rate_mbps"))
+                    : null,
             });
         }
         return results;
@@ -4245,6 +4257,50 @@ span |> last() |> yield(name: ""last"")";
     /// distinct() on the single client_mac field is what keeps this cheap over a long range; do not
     /// widen the field filter, which would turn it into a full pivot over the measurement.
     /// </summary>
+    /// <summary>
+    /// The widest channel each client negotiated per band over the range, from AP Agent rows only
+    /// (the ones carrying <c>nss</c>): the console's per-client width is the radio's, not the
+    /// client's. Keyed by client MAC, then band tag ("2.4ghz" / "5ghz" / "6ghz"). Empty when
+    /// InfluxDB is not configured, the query fails, or no agent has written.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>> QueryNegotiatedWidthsAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        if (!IsConfigured) return result;
+
+        // Windowed before the pivot for the same pushdown reason as the client-rate query; last()
+        // per window keeps a width a width rather than averaging two into one that never existed.
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""channel_width"" or r._field == ""nss"")
+  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)
+  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac and exists r.channel_width and exists r.nss)
+  |> group(columns: [""client_mac"", ""band""])
+  |> max(column: ""channel_width"")
+  |> group()";
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("client_mac") is not string mac || mac.Length == 0) continue;
+            if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
+            var width = (int)(AsDoubleOrNull(record.GetValueByKey("channel_width")) ?? 0);
+            if (width <= 0) continue;
+
+            if (!result.TryGetValue(mac, out var byBand))
+            {
+                byBand = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                result[mac] = byBand;
+            }
+            ((Dictionary<string, int>)byBand)[band] = Math.Max(width, byBand.TryGetValue(band, out var w) ? w : 0);
+        }
+        return result;
+    }
+
     public async Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>> QueryWifiClientBandsAsync(
         DateTime from,
         DateTime to,

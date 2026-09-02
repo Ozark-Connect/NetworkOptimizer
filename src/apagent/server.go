@@ -26,6 +26,7 @@ func newMux(state *State) *http.ServeMux {
 	mux.HandleFunc("GET /clients/{mac}", jsonRequestHandler(state.clientPayload))
 	mux.HandleFunc("/vaps", jsonRequestHandler(state.vapsPayload))
 	mux.HandleFunc("/radios", jsonRequestHandler(state.radiosPayload))
+	mux.HandleFunc("/scan", jsonRequestHandler(state.scanPayload))
 	mux.HandleFunc("/events", jsonRequestHandler(state.eventsPayload))
 	mux.HandleFunc("/neighbors", jsonRequestHandler(state.neighborsPayload))
 

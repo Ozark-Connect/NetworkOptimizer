@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -26,10 +27,12 @@ public class TxPowerVariationRule : IWiFiOptimizerRule
         if (powerModes.Count != 1 || powerModes[0] != "high")
             return null;
 
-        return new HealthIssue
+        var issue = new HealthIssue
         {
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.ChannelHealth, HealthDimension.RoamingPerformance },
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId),
             Title = "Consider Varied TX Power Levels",
             Description = WiFiAnalysisHelpers.SupportsAutoPowerLeveling
                 ? "All APs are set to high power. In multi-AP deployments, using 'Auto' or varied power levels often improves roaming behavior and reduces co-channel interference."
@@ -40,5 +43,9 @@ public class TxPowerVariationRule : IWiFiOptimizerRule
             ScoreImpact = -3,
             ShowOnOverview = false  // Informational, only relevant to Channel/Roaming tabs
         };
+
+        // Every radio here is on a chosen power mode, so this is a check on a choice.
+        var allFixed = ctx.AccessPoints.SelectMany(ap => ap.Radios.Where(r => r.Channel.HasValue)).All(r => r.TxPowerIsFixed);
+        return allFixed ? RadioIntent.MarkDeliberate(issue, RadioIntent.PowerHint) : issue;
     }
 }

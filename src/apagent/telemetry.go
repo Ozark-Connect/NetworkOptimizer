@@ -59,6 +59,12 @@ type ClientLink struct {
 	Uptime       int64      `json:"uptime_seconds,omitempty"`
 	IdleSeconds  int64      `json:"idle_seconds"`
 	AssocSeconds int        `json:"assoc_seconds,omitempty"`
+	// JoinRssi is the signal at authentication as stahtd reported it; absent for a link found by a
+	// poll, whose association predates the agent. The BTM counters are this association's BSS
+	// transition responses: answered, and answered with acceptance. All reset on a new assoc.
+	JoinRssi     *int       `json:"join_rssi,omitempty"`
+	BtmRequests  int        `json:"btm_requests,omitempty"`
+	BtmAccepted  int        `json:"btm_accepted,omitempty"`
 	Membership   string     `json:"membership_source"`
 	HasIdentity  bool       `json:"-"`
 	AssocEventAt *time.Time `json:"assoc_event_at,omitempty"`
@@ -143,7 +149,20 @@ type memberState struct {
 	AssocSeq  uint64
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// What this association has taught us; see ClientLink. Reset on assoc.
+	JoinRssi    *int
+	BtmRequests int
+	BtmAccepted int
 }
+
+// pendingJoin holds a stahtd join RSSI that arrived before the link was a member, which the
+// syslog tail and the control socket race for on every association.
+type pendingJoin struct {
+	rssi int
+	at   time.Time
+}
+
+const pendingJoinTtl = 2 * time.Minute
 
 type identityRecord struct {
 	Hostname string
@@ -198,6 +217,8 @@ type Table struct {
 	identity map[string]identityRecord
 	vaps     []VapState
 	radios   []RadioState
+	scans    []RadioScan
+	scansAt  time.Time
 	ap       ApInfo
 	tiers    TierStatus
 
@@ -210,6 +231,8 @@ type Table struct {
 	// prevCounters: ApplySlow replaces the radio table wholesale, and the center is re-applied
 	// to the fresh table on every pass rather than being lost between slow-tier reads.
 	centers map[string]iwChannel
+
+	pendingJoin map[string]pendingJoin
 }
 
 func NewTable(maxSize int, ttl time.Duration) *Table {
@@ -222,6 +245,20 @@ func NewTable(maxSize int, ttl time.Duration) *Table {
 		bytes:        map[string]StaBytes{},
 		identity:     map[string]identityRecord{},
 		prevCounters: map[string]map[string]int64{},
+		pendingJoin:  map[string]pendingJoin{},
+	}
+}
+
+// adoptPendingLocked gives a member the join RSSI that arrived before it existed, if one did.
+func (t *Table) adoptPendingLocked(key string, m *memberState, now time.Time) {
+	p, ok := t.pendingJoin[key]
+	if !ok {
+		return
+	}
+	delete(t.pendingJoin, key)
+	if now.Sub(p.at) <= pendingJoinTtl {
+		rssi := p.rssi
+		m.JoinRssi = &rssi
 	}
 }
 
@@ -257,12 +294,36 @@ func (t *Table) ApplyEvent(e Event) {
 		m.AssocAt = &at
 		m.AssocSeq = e.Seq
 		m.LastSeen = e.CollectedAt
+		// A new association learns afresh.
+		m.JoinRssi, m.BtmRequests, m.BtmAccepted = nil, 0, 0
+		t.adoptPendingLocked(key, m, e.CollectedAt)
 		t.evictLocked()
 
 	case EventDisassoc:
 		delete(t.members, key)
 		delete(t.fast, key)
 		delete(t.slow, key)
+
+	case EventBtmResponse:
+		if m, ok := t.members[key]; ok {
+			m.BtmRequests++
+			if e.Detail == "0" {
+				m.BtmAccepted++
+			}
+		}
+
+	default:
+		// stahtd's association record, which carries the RSSI at authentication. It can arrive
+		// before hostapd's assoc, so a join for a link that is not yet a member waits for it.
+		if e.Sta == nil || e.Sta.AuthRssi == nil || (e.Type != "sta_association" && e.Type != "sta_success") {
+			return
+		}
+		rssi := *e.Sta.AuthRssi
+		if m, ok := t.members[key]; ok {
+			m.JoinRssi = &rssi
+		} else {
+			t.pendingJoin[key] = pendingJoin{rssi: rssi, at: e.CollectedAt}
+		}
 	}
 }
 
@@ -295,6 +356,7 @@ func (t *Table) ApplyFast(stations map[string]StaFast, covered map[string]bool, 
 		if !ok {
 			m = &memberState{Vap: s.Vap, MAC: s.MAC, Source: "poll", FirstSeen: now}
 			t.members[key] = m
+			t.adoptPendingLocked(key, m, now)
 		}
 		m.LastSeen = now
 	}
@@ -311,6 +373,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 
 	t.vaps = snap.Vaps
 	t.radios = snap.Radios
+	t.scans, t.scansAt = snap.Scans, now
 	t.applyCentersLocked()
 	if snap.Hostname != "" {
 		t.ap.Hostname = snap.Hostname
@@ -335,6 +398,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 		if !ok {
 			m = &memberState{Vap: s.Vap, MAC: s.MAC, Source: "poll", FirstSeen: now}
 			t.members[key] = m
+			t.adoptPendingLocked(key, m, now)
 		}
 		m.LastSeen = now
 
@@ -480,6 +544,11 @@ func (t *Table) expireLocked(covered map[string]bool, now time.Time) {
 		delete(t.fast, key)
 		delete(t.slow, key)
 	}
+	for key, p := range t.pendingJoin {
+		if now.Sub(p.at) > pendingJoinTtl {
+			delete(t.pendingJoin, key)
+		}
+	}
 	t.pruneIdentityLocked()
 }
 
@@ -549,6 +618,9 @@ func (t *Table) Clients(now time.Time) []Client {
 			Vap:         m.Vap,
 			Membership:  m.Source,
 			AssocSeq:    m.AssocSeq,
+			JoinRssi:    m.JoinRssi,
+			BtmRequests: m.BtmRequests,
+			BtmAccepted: m.BtmAccepted,
 			CollectedAt: now,
 		}
 		if m.AssocAt != nil {
@@ -907,6 +979,21 @@ func copyCounters(src map[string]int64) map[string]int64 {
 		out[k] = v
 	}
 	return out
+}
+
+// Scans returns what each radio hears, and when mca-dump was read: the entries' ages count from
+// there, not from the request.
+func (t *Table) Scans() ([]RadioScan, time.Time) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	out := make([]RadioScan, 0, len(t.scans))
+	for _, s := range t.scans {
+		s.Scan = append([]ScanEntry{}, s.Scan...)
+		s.Spectrum = append([]SpectrumEntry{}, s.Spectrum...)
+		out = append(out, s)
+	}
+	return out, t.scansAt
 }
 
 func (t *Table) Ap() ApInfo {

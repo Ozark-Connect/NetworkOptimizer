@@ -30,6 +30,11 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="CollectedAt">The access point's own clock when it produced this reading. What the
 /// point is stamped with, matching how loss, latency and SNMP are recorded from an agent: the
 /// server's clock describes when it heard, not when it happened.</param>
+/// <param name="JoinSignal">Signal at authentication; null when the association predates the agent.</param>
+/// <param name="AssocSeconds">Seconds since the active link associated.</param>
+/// <param name="BtmRequests">BSS transition requests this association answered.</param>
+/// <param name="BtmAccepted">Of those, answers that accepted the transition.</param>
+/// <param name="MaxSupportedWidth">Widest channel the client supports, in MHz.</param>
 public sealed record ApAgentWifiSample(
     string ClientMac,
     string ApMac,
@@ -57,7 +62,12 @@ public sealed record ApAgentWifiSample(
     bool NegotiatedIdle,
     long? IdleSeconds,
     int? Nss,
-    DateTime? CollectedAt = null);
+    DateTime? CollectedAt = null,
+    int? JoinSignal = null,
+    int? AssocSeconds = null,
+    int? BtmRequests = null,
+    int? BtmAccepted = null,
+    int? MaxSupportedWidth = null);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
 /// <param name="Sample">Field values, averaged or latest per the fold rules.</param>
@@ -140,7 +150,12 @@ public static class ApAgentWifiFieldMapper
             // The operating stream count says what the link is doing; the capability bit is the
             // ceiling, and only stands in when the AP did not report the operating value.
             Nss: active is { Nss: > 0 } ? active.Nss
-                : client.Capabilities is { Nss: > 0 } caps ? caps.Nss : null);
+                : client.Capabilities is { Nss: > 0 } caps ? caps.Nss : null,
+            JoinSignal: active?.JoinRssi,
+            AssocSeconds: active is { AssocSeconds: > 0 } ? active.AssocSeconds : null,
+            BtmRequests: active?.BtmRequests,
+            BtmAccepted: active?.BtmAccepted,
+            MaxSupportedWidth: client.Capabilities is { BwMaxSupp: > 0 } supp ? supp.BwMaxSupp : null);
     }
 
     /// <summary>The link carrying traffic, as the agent marked it. Falls back to the only link.</summary>
