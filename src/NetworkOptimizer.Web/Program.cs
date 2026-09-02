@@ -268,6 +268,9 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(s
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
+// Which of a site's agents hosts the LAN speed test - one pick shared by the client target, the
+// Settings hint, and path analysis.
+builder.Services.AddSingleton<SiteSpeedTestHostSelector>();
 // The agent tunnel keeps using the concrete singleton (it authenticates with the agent scheme and
 // runs as system); the admin-facing enrollment surface is gated.
 builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequiredService<AgentEnrollmentService>());

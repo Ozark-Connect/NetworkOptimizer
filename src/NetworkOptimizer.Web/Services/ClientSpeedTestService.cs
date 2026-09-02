@@ -29,8 +29,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
     private readonly ApAgent.ApAgentTargetDirectory? _apAgents;
     private readonly Licensing.LicenseStateService? _licenseState;
-    private readonly SiteAgentCoverage? _agentCoverage;
     private readonly Monitoring.SiteVantageDnsResolver? _dnsResolver;
+    private readonly SiteSpeedTestHostSelector? _hostSelector;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
@@ -57,13 +57,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
         ApAgent.ApAgentTargetDirectory? apAgents = null,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
-        SiteAgentCoverage? agentCoverage = null,
         Monitoring.SiteVantageDnsResolver? dnsResolver = null,
+        SiteSpeedTestHostSelector? hostSelector = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
-        _agentCoverage = agentCoverage;
         _dnsResolver = dnsResolver;
+        _hostSelector = hostSelector;
         _logger = logger;
         _dbFactory = dbFactory;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -97,33 +97,25 @@ public class ClientSpeedTestService : IClientSpeedTestService
         => await GetTargetOverrideIpAsync() ?? await ResolveAdvertisedEndpointAsync();
 
     /// <summary>
-    /// The endpoint the site advertises to clients when no override is set: the on-site
-    /// agent's LAN IP wherever the agent covers the site (every secondary site, and the
-    /// default site once configured for it), the same rule <see cref="SiteSpeedTestTargetResolver"/>
-    /// sends clients by. The client hit the agent's nginx / iperf3 there, not this server, so
-    /// the trace runs client to agent on the site's own topology. Otherwise HOST_IP.
+    /// The endpoint the site advertises to clients when no override is set: the agent
+    /// <see cref="SiteSpeedTestHostSelector"/> sends clients to, wherever one is selected (every
+    /// secondary site, and the default site once configured for its agent to cover it). The
+    /// client hit that agent's nginx / iperf3, not this server, so the trace runs client to
+    /// agent on the site's own topology. Otherwise HOST_IP, which only the default site has.
     /// </summary>
     private async Task<string?> ResolveAdvertisedEndpointAsync()
     {
-        if (!_isDefault || (_agentCoverage != null && await _agentCoverage.CoversAsync(_siteSlug)))
+        if (_hostSelector != null)
         {
             try
             {
-                await using var db = await _dbFactory.CreateDbContextAsync();
-                var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == _siteSlug);
-                if (site != null)
-                {
-                    var agent = await db.SiteAgents.AsNoTracking()
-                        .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null && a.LanIp != null)
-                        .OrderByDescending(a => a.LastSeenAt)
-                        .FirstOrDefaultAsync();
-                    if (agent != null && AgentEnrollmentService.IsOnline(agent.LastSeenAt))
-                        return agent.LanIp;
-                }
+                var selection = await _hostSelector.SelectAsync(_siteSlug);
+                if (selection.Host != null)
+                    return selection.Host.LanIp;
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to resolve agent LAN IP for site {Site} path analysis", _siteSlug);
+                _logger.LogDebug(ex, "Failed to select the speed test host for site {Site} path analysis", _siteSlug);
             }
         }
         return _configuration["HOST_IP"];

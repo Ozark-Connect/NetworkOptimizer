@@ -44,6 +44,7 @@
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
+@inject SiteSpeedTestHostSelector HostSelector
 @inject AgentProbeResultSink ProbeSink
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -4584,6 +4585,7 @@
                 await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
                 await LoadAgentsOnGatewayAsync(site);
+                await LoadSpeedTestHostAsync(site);
                 _collectorAgentIds[site.Slug] = await ProbeSink.GetCollectorAgentIdAsync(site.Slug);
             }
         }
@@ -4607,6 +4609,7 @@
         await LoadSshViaAgentAsync(site);
         await LoadAgentCoversSiteAsync(site);
         await LoadClientSpeedTestTargetAsync(site);
+        await LoadSpeedTestHostAsync(site);
         StateHasChanged();
     }
 
@@ -4690,29 +4693,24 @@
     // "Run It for Me" SSH run, so the displayed command and the executed one cannot drift.
     private string GatewayUpgradeCommand() => GatewayAgentCommands.Upgrade(AgentServerUrl.Url);
 
-    // Placeholder shows what a blank override resolves to - the online agent's
-    // detected LAN IP on the agent's https port (same pick as
-    // SiteSpeedTestTargetResolver) - so the operator can see the auto value
-    // they'd be overriding. A gateway-resident agent hosts no speed test, so
-    // its "auto" is nothing (the resolver gates the target off) and the
-    // placeholder says so instead of advertising the gateway's IP. Generic
-    // example when no agent has reported in.
+    // Placeholder shows what a blank override resolves to - the agent SiteSpeedTestHostSelector
+    // picks, on its own https port, the same pick clients are sent to - so the operator can see
+    // the auto value they'd be overriding. When no agent qualifies and one sits on the gateway,
+    // say so instead of advertising the gateway's IP. Generic example when no agent has reported in.
+    private readonly Dictionary<int, SiteSpeedTestHostSelector.Selection> _speedTestHosts = new();
+
+    private async Task LoadSpeedTestHostAsync(Site site)
+        => _speedTestHosts[site.Id] = await HostSelector.SelectAsync(site.Slug);
+
     private string ClientSpeedTestPlaceholder(Site site)
     {
-        if (SiteHasGatewayAgent(site.Id))
-            return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
-        var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
-            .OrderByDescending(a => a.LastSeenAt)
-            .Select(a => a.LanIp)
-            .FirstOrDefault();
-        // The port the agent says it serves on, not an assumed one - otherwise the hint advertises a
-        // URL that differs from the one clients are actually sent to.
-        var port = TunnelRegistry.GetForSite(site.Slug).FirstOrDefault(c => c.SpeedTestPort > 0)?.SpeedTestPort
-            ?? SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
-        return lanIp != null
-            ? $"auto: https://{lanIp}:{port} (agent's detected LAN IP)"
-            : "e.g. 192.168.1.50 or https://speed.example.com";
+        if (!_speedTestHosts.TryGetValue(site.Id, out var selection) || selection.Host == null)
+        {
+            return selection is { AnyOnGateway: true }
+                ? "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test"
+                : "e.g. 192.168.1.50 or https://speed.example.com";
+        }
+        return $"auto: https://{selection.Host.LanIp}:{selection.Host.Port} (agent's detected LAN IP)";
     }
 
     // Which agents run on the UniFi gateway itself, keyed by AGENT id and loaded when the site's
@@ -4731,11 +4729,7 @@
         _agentOnGateway.TryGetValue(agentId, out var onGateway) && onGateway;
 
     // Any of the site's agents on the gateway - for the questions that are about the SITE rather
-    // than one agent row.
-    // TODO(#1106): its one caller wants a narrower question than ANY. The placeholder mirrors what a
-    // blank override resolves to, and SiteSpeedTestTargetResolver resolves against ONE agent, so a
-    // site with a gateway agent and a real-box agent makes the two disagree. Secondary sites only:
-    // the main site does not render the field.
+    // than one agent row (the speed test placeholder asks SiteSpeedTestHostSelector instead).
     private bool SiteHasGatewayAgent(int siteId) =>
         AgentsFor(siteId).Any(a => AgentOnGateway(a.Id));
 
