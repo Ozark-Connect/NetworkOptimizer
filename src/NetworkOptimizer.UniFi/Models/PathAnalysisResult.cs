@@ -153,8 +153,9 @@ public class PathAnalysisResult
 
     /// <summary>
     /// Get the overhead factor for this path based on the bottleneck link type.
-    /// For Wi-Fi clients behind mesh, only uses mesh overhead (55%) if mesh is the bottleneck.
-    /// For mesh AP tests (target IS the mesh AP), always uses mesh overhead.
+    /// Mesh overhead (45%) applies only when the mesh backhaul is the bottleneck. A mesh AP
+    /// whose backhaul outruns its parent's wired uplink (an MLO backhaul over 2.5 GbE) is
+    /// bounded by that wire, at wired overhead.
     /// </summary>
     public double GetOverheadFactor()
     {
@@ -168,22 +169,20 @@ public class PathAnalysisResult
 
         if (meshHop != null)
         {
-            // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
-            if (Path.TargetIsAccessPoint)
-            {
-                return MeshBackhaulOverheadFactor;
-            }
-
-            // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
             var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
                 ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
                 : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
 
-            // Mesh overhead only if mesh is the bottleneck
-            if (meshSpeedMbps > 0 && meshSpeedMbps <= Path.TheoreticalMaxMbps)
-            {
+            // An unrated mesh link on a mesh AP test is still the connection under test.
+            if (meshSpeedMbps <= 0)
+                return Path.TargetIsAccessPoint ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
+
+            if (meshSpeedMbps <= Path.TheoreticalMaxMbps)
                 return MeshBackhaulOverheadFactor;
-            }
+
+            // A mesh AP has no client Wi-Fi link: past the mesh, only wire is left to bound it.
+            if (Path.TargetIsAccessPoint)
+                return WiredOverheadFactor;
         }
 
         return ClientWifiOverheadFactor;
@@ -287,6 +286,19 @@ public class PathAnalysisResult
                     fromDeviceMaxMbps = Math.Min(fromDeviceMaxMbps, meshHop.WirelessTxRateMbps.Value);
                 if (meshHop.WirelessRxRateMbps is > 0)
                     toDeviceMaxMbps = Math.Min(toDeviceMaxMbps, meshHop.WirelessRxRateMbps.Value);
+            }
+
+            // A wireless link faster in BOTH directions than the path's slowest link is not what
+            // bounds the test - a wired hop is (an MLO mesh backhaul over a 2.5 GbE uplink), so
+            // the wire's speed and overhead apply. When the wireless link is the bottleneck the
+            // path max IS one of its two directions and this stays inert.
+            var pathMax = Path.TheoreticalMaxMbps;
+            if (!Path.IsExternalPath && pathMax > 0 && pathMax < fromDeviceMaxMbps && pathMax < toDeviceMaxMbps)
+            {
+                fromDeviceMaxMbps = pathMax;
+                toDeviceMaxMbps = pathMax;
+                overheadFactor = WiredOverheadFactor;
+                overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
             }
 
             var fromRealistic = fromDeviceMaxMbps * overheadFactor;
