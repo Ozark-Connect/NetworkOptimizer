@@ -177,7 +177,9 @@ public class PathAnalysisResult
             if (meshSpeedMbps <= 0)
                 return Path.TargetIsAccessPoint ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
 
-            if (meshSpeedMbps <= Path.TheoreticalMaxMbps)
+            // Read off the hops, not the stored path max: results whose client hop was re-rated
+            // after the trace carry a path max from the trace-time PHY.
+            if (meshSpeedMbps <= SlowestLinkMbps())
                 return MeshBackhaulOverheadFactor;
 
             // A mesh AP has no client Wi-Fi link: past the mesh, only wire is left to bound it.
@@ -207,8 +209,11 @@ public class PathAnalysisResult
     /// </summary>
     /// <param name="wifiRxRateKbps">AP RX rate in Kbps (limits FromDevice direction)</param>
     /// <param name="wifiTxRateKbps">AP TX rate in Kbps (limits ToDevice direction)</param>
-    /// <returns>Tuple of (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency%, toEfficiency%, overheadPercent)</returns>
-    public (double fromDeviceMaxMbps, double toDeviceMaxMbps, double fromEfficiency, double toEfficiency, int overheadPercent)
+    /// <returns>Tuple of (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency%, toEfficiency%,
+    /// fromOverheadPercent, toOverheadPercent). Overhead is per direction because each direction is
+    /// bounded by whichever link leaves it the least: a wire can bind one direction while the
+    /// wireless link still binds the other.</returns>
+    public (double fromDeviceMaxMbps, double toDeviceMaxMbps, double fromEfficiency, double toEfficiency, int fromOverheadPercent, int toOverheadPercent)
         GetDirectionalEfficiency(long? wifiRxRateKbps, long? wifiTxRateKbps)
     {
         // Use stored directional rates if available (wireless clients with TX/RX data, or WAN/VPN)
@@ -255,7 +260,6 @@ public class PathAnalysisResult
             {
                 overheadFactor = ClientWifiOverheadFactor;
             }
-            var overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
 
             // RX = AP receives from client = FromDevice direction limit
             // TX = AP transmits to client = ToDevice direction limit
@@ -288,26 +292,38 @@ public class PathAnalysisResult
                     toDeviceMaxMbps = Math.Min(toDeviceMaxMbps, meshHop.WirelessRxRateMbps.Value);
             }
 
-            // A wireless link faster in BOTH directions than the path's slowest link is not what
-            // bounds the test - a wired hop is (an MLO mesh backhaul over a 2.5 GbE uplink), so
-            // the wire's speed and overhead apply. When the wireless link is the bottleneck the
-            // path max IS one of its two directions and this stays inert.
-            var pathMax = Path.TheoreticalMaxMbps;
-            if (!Path.IsExternalPath && pathMax > 0 && pathMax < fromDeviceMaxMbps && pathMax < toDeviceMaxMbps)
+            // A wireless link faster than the slowest wire on the path (an MLO mesh backhaul over
+            // a 2.5 GbE uplink) shares the test with that wire. Per direction, the binding link is
+            // whichever leaves less after its own overhead: the wire at wired overhead, or the
+            // wireless link at wireless overhead - a mesh at 4 Gbps PHY still bottoms out below a
+            // 2.5 GbE port once its 45% is taken. The wire is found on its own, never inferred
+            // from the path max: that can be the wireless hop's momentary PHY rate at trace time.
+            var fromOverheadFactor = overheadFactor;
+            var toOverheadFactor = overheadFactor;
+            var wiredCap = Path.IsExternalPath ? 0 : SlowestWiredLinkMbps();
+            if (wiredCap > 0)
             {
-                fromDeviceMaxMbps = pathMax;
-                toDeviceMaxMbps = pathMax;
-                overheadFactor = WiredOverheadFactor;
-                overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
+                var wiredRealistic = wiredCap * WiredOverheadFactor;
+                if (wiredRealistic < fromDeviceMaxMbps * fromOverheadFactor)
+                {
+                    fromDeviceMaxMbps = wiredCap;
+                    fromOverheadFactor = WiredOverheadFactor;
+                }
+                if (wiredRealistic < toDeviceMaxMbps * toOverheadFactor)
+                {
+                    toDeviceMaxMbps = wiredCap;
+                    toOverheadFactor = WiredOverheadFactor;
+                }
             }
 
-            var fromRealistic = fromDeviceMaxMbps * overheadFactor;
-            var toRealistic = toDeviceMaxMbps * overheadFactor;
+            var fromRealistic = fromDeviceMaxMbps * fromOverheadFactor;
+            var toRealistic = toDeviceMaxMbps * toOverheadFactor;
 
             var fromEfficiency = fromRealistic > 0 ? (MeasuredFromDeviceMbps / fromRealistic) * 100 : 0;
             var toEfficiency = toRealistic > 0 ? (MeasuredToDeviceMbps / toRealistic) * 100 : 0;
 
-            return (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency, toEfficiency, overheadPercent);
+            return (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency, toEfficiency,
+                OverheadPercent(fromOverheadFactor), OverheadPercent(toOverheadFactor));
         }
 
         // Fall back to symmetric calculation (legacy results or wired clients)
@@ -317,9 +333,45 @@ public class PathAnalysisResult
             Path.TheoreticalMaxMbps,
             FromDeviceEfficiencyPercent,
             ToDeviceEfficiencyPercent,
+            fallbackOverheadPercent,
             fallbackOverheadPercent
         );
     }
+
+    private static int OverheadPercent(double factor) => (int)Math.Round((1 - factor) * 100);
+
+    /// <summary>
+    /// The slowest rated wired link on the path, or 0 when none is. Only a link with a port
+    /// number counts: a wireless client or mesh hop carries none, and a mesh rate mirrored onto
+    /// the parent AP's ingress reads as port 0.
+    /// </summary>
+    private int SlowestWiredLinkMbps()
+    {
+        var min = 0;
+        foreach (var h in Path.Hops)
+        {
+            if (h.IngressPort is > 0 && !h.IsWirelessIngress && h.IngressSpeedMbps > 0 && !IsMeshPort(h.IngressPortName))
+                min = min == 0 ? h.IngressSpeedMbps : Math.Min(min, h.IngressSpeedMbps);
+            if (h.EgressPort is > 0 && !h.IsWirelessEgress && h.EgressSpeedMbps > 0 && !IsMeshPort(h.EgressPortName))
+                min = min == 0 ? h.EgressSpeedMbps : Math.Min(min, h.EgressSpeedMbps);
+        }
+        return min;
+    }
+
+    /// <summary>The slowest rated link on the path, wired or wireless, or 0 when none is.</summary>
+    private int SlowestLinkMbps()
+    {
+        var min = 0;
+        foreach (var h in Path.Hops)
+        {
+            if (h.IngressSpeedMbps > 0) min = min == 0 ? h.IngressSpeedMbps : Math.Min(min, h.IngressSpeedMbps);
+            if (h.EgressSpeedMbps > 0) min = min == 0 ? h.EgressSpeedMbps : Math.Min(min, h.EgressSpeedMbps);
+        }
+        return min;
+    }
+
+    private static bool IsMeshPort(string? portName) =>
+        portName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// Check if the link is asymmetric (>9% difference between TX and RX rates)

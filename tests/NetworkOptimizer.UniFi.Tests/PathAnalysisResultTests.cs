@@ -557,8 +557,9 @@ public class PathAnalysisResultTests
                     EgressPortName = "wireless mesh", EgressSpeedMbps = 6533, IsWirelessEgress = true,
                     WirelessTxRateMbps = 6533, WirelessRxRateMbps = 7206,
                 },
-                new() { Type = HopType.AccessPoint, IngressSpeedMbps = 6533, EgressSpeedMbps = 2500, IsBottleneck = true },
-                new() { Type = HopType.Switch, IngressSpeedMbps = 2500, EgressSpeedMbps = 10000 },
+                // The parent carries the mesh rate on its port-less ingress; only its port 3 is a wire.
+                new() { Type = HopType.AccessPoint, IngressPort = 0, IngressPortName = "Port 0", IngressSpeedMbps = 6533, EgressPort = 3, EgressSpeedMbps = 2500, IsBottleneck = true },
+                new() { Type = HopType.Switch, IngressPort = 3, IngressSpeedMbps = 2500, EgressPort = 10, EgressSpeedMbps = 10000 },
             ],
         },
         MeasuredFromDeviceMbps = 1262,
@@ -571,13 +572,35 @@ public class PathAnalysisResultTests
         var result = MeshApBehindSlowerWire();
         var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
 
-        var (fromMax, toMax, fromEff, toEff, overhead) = result.GetDirectionalEfficiency(rxKbps, txKbps);
+        var (fromMax, toMax, fromEff, toEff, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(rxKbps, txKbps);
 
         fromMax.Should().Be(2500);
         toMax.Should().Be(2500);
-        overhead.Should().Be(6, "a wired bottleneck carries wired overhead");
+        fromOverhead.Should().Be(6, "a wired bottleneck carries wired overhead");
+        toOverhead.Should().Be(6);
         fromEff.Should().BeApproximately(1262 / (2500 * 0.94) * 100, 0.01);
         toEff.Should().BeApproximately(1247 / (2500 * 0.94) * 100, 0.01);
+    }
+
+    [Fact]
+    public void GetDirectionalEfficiency_MeshOverheadStillBindsWhenItLeavesLessThanTheWire()
+    {
+        // Mesh at 4000 / 5000 Mbps PHY over a 2.5 GbE port. The wire is the slowest link, but
+        // 4000 x 0.55 = 2200 is under the wire's 2350, so the from-device direction stays mesh-
+        // bound at mesh overhead while the to-device direction (5000 x 0.55 = 2750) is wire-bound.
+        var result = MeshApBehindSlowerWire();
+        result.Path.Hops[0].WirelessTxRateMbps = 4000;
+        result.Path.Hops[0].WirelessRxRateMbps = 5000;
+        result.Path.Hops[0].IngressSpeedMbps = 4000;
+        result.Path.Hops[0].EgressSpeedMbps = 4000;
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        var (fromMax, toMax, _, _, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(rxKbps, txKbps);
+
+        fromMax.Should().Be(4000);
+        fromOverhead.Should().Be(45);
+        toMax.Should().Be(2500);
+        toOverhead.Should().Be(6);
     }
 
     [Fact]
@@ -607,11 +630,12 @@ public class PathAnalysisResultTests
             MeasuredToDeviceMbps = 1190,
         };
 
-        var (fromMax, toMax, _, _, overhead) = result.GetDirectionalEfficiency(2401_000, 2161_000);
+        var (fromMax, toMax, _, _, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(2401_000, 2161_000);
 
         fromMax.Should().Be(2401);
         toMax.Should().Be(2161);
-        overhead.Should().Be(25);
+        fromOverhead.Should().Be(25);
+        toOverhead.Should().Be(25);
     }
 
     [Fact]
