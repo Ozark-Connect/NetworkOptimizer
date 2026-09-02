@@ -504,7 +504,7 @@ public class BandwidthHogsService
                     var row = RowFor(mac);
                     rows[mac] = row with
                     {
-                        Name = row.Name ?? FirstNonEmpty(c.Client?.Name, c.Client?.Hostname),
+                        Name = row.Name ?? LabelFor(mac, c.Client?.Name, c.Client?.Hostname),
                         IsWired = nodeByMac.ContainsKey(mac) ? row.IsWired : c.Client?.IsWired ?? row.IsWired,
                         WanDownBytes = down,
                         WanUpBytes = up,
@@ -541,11 +541,13 @@ public class BandwidthHogsService
             }
         }
 
-        // A MAC nothing can identify is not a client of ours - UniFi's traffic report can list
-        // the gateway's WAN-side L2 neighbor (the ISP's edge). Unnamed, off-map, un-listed: dropped.
-        var known = await FirstSeenAsync(ct);
+        // A row nothing can name is not shown. The gateway's WAN-side L2 neighbor (the ISP's edge)
+        // reaches here two ways - UniFi's traffic report lists it, named by its MAC (see LabelFor),
+        // and the gateway agent's conntrack attributes flows from the WAN subnet to its ARP entry -
+        // and a bare MAC sends the reader chasing a device that is not theirs. Underreport rather
+        // than misattribute.
         List<HogRow> Resolved() => rows.Values
-            .Where(r => r.Name != null || nodeByMac.ContainsKey(r.ClientMac) || known.ContainsKey(r.ClientMac))
+            .Where(r => !string.IsNullOrWhiteSpace(r.Name))
             .ToList();
 
         if (!includeLan)
@@ -1197,8 +1199,13 @@ public class BandwidthHogsService
         return result;
     }
 
-    private static string? FirstNonEmpty(params string?[] values) =>
-        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+    /// <summary>
+    /// The first real label among the candidates. UniFi's traffic report names a client it
+    /// cannot identify by its MAC (the gateway's WAN-side neighbor arrives that way), and a MAC
+    /// is not a name: it would pass every "has a name" check and still read as a bare MAC.
+    /// </summary>
+    private static string? LabelFor(string mac, params string?[] candidates) =>
+        candidates.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && NormalizeMac(v) != mac);
 
     private static string NormalizeMac(string? mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
