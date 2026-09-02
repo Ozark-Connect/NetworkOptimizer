@@ -34,6 +34,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="AssocSeconds">Seconds since the active link associated.</param>
 /// <param name="BtmRequests">BSS transition requests this association answered.</param>
 /// <param name="BtmAccepted">Of those, answers that accepted the transition.</param>
+/// <param name="MaxSupportedWidth">Widest channel the client supports, in MHz.</param>
 public sealed record ApAgentWifiSample(
     string ClientMac,
     string ApMac,
@@ -65,7 +66,8 @@ public sealed record ApAgentWifiSample(
     int? JoinSignal = null,
     int? AssocSeconds = null,
     int? BtmRequests = null,
-    int? BtmAccepted = null);
+    int? BtmAccepted = null,
+    int? MaxSupportedWidth = null);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
 /// <param name="Sample">Field values, averaged or latest per the fold rules.</param>
@@ -152,7 +154,8 @@ public static class ApAgentWifiFieldMapper
             JoinSignal: active?.JoinRssi,
             AssocSeconds: active is { AssocSeconds: > 0 } ? active.AssocSeconds : null,
             BtmRequests: active?.BtmRequests,
-            BtmAccepted: active?.BtmAccepted);
+            BtmAccepted: active?.BtmAccepted,
+            MaxSupportedWidth: client.Capabilities is { BwMaxSupp: > 0 } supp ? supp.BwMaxSupp : null);
     }
 
     /// <summary>The link carrying traffic, as the agent marked it. Falls back to the only link.</summary>

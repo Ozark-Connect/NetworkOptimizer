@@ -1406,9 +1406,41 @@ public class WiFiOptimizerService : IWiFiScanService
         return new RecommendationOptions
         {
             DfsPreference = source.DfsPreference,
-            OptimizeWidths = source.OptimizeWidths,
+            // Width candidates are gated per radio on agent evidence, so asking for them costs a
+            // console-only site nothing.
+            OptimizeWidths = true,
             PinnedApMacs = pins.Count > 0 ? pins : source.PinnedApMacs
         };
+    }
+
+    /// <summary>
+    /// What the agent measured about each radio's clients on one band, for width candidates. A
+    /// radio gets evidence only when every online client on it is agent-measured and the radio's
+    /// own airtime reading is fresh; anything less leaves the radio at its width.
+    /// </summary>
+    private static Dictionary<string, RadioWidthEvidence> BuildWidthEvidence(
+        List<AccessPointSnapshot> aps, List<WirelessClientSnapshot> clients, RadioBand band)
+    {
+        var evidence = new Dictionary<string, RadioWidthEvidence>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ap in aps.Where(a => a.IsOnline))
+        {
+            var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+            if (radio?.MeasuredUtilization is null) continue;
+
+            var onRadio = clients.Where(c => c.IsOnline && c.Band == band
+                && c.ApMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (onRadio.Count == 0 || onRadio.Any(c => c.NegotiatedWidth is not > 0)) continue;
+
+            evidence[ap.Mac.ToLowerInvariant()] = new RadioWidthEvidence
+            {
+                ClientCount = onRadio.Count,
+                MaxNegotiatedWidth = onRadio.Max(c => c.NegotiatedWidth!.Value),
+                MaxSupportedWidth = onRadio.Max(c => c.Capabilities.MaxChannelWidth ?? 0),
+                MeasuredUtilization = radio.MeasuredUtilization,
+                CarriesBackhaul = ap.MeshBackhaulUsesBand(band)
+            };
+        }
+        return evidence;
     }
 
     private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
@@ -1503,6 +1535,11 @@ public class WiFiOptimizerService : IWiFiScanService
             var clientRates = await _planCache.GetOrBuildClientRatesAsync(
                 _siteSlug, forceRefresh, GetClientRatesAsync);
 
+            // Client snapshots carrying the agent's association facts, for width candidates.
+            var clients = await GetWirelessClientsAsync();
+            var collector = _apAgentTelemetry.GetFor(_siteSlug);
+            ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
+
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
             foreach (var band in bands)
@@ -1520,7 +1557,8 @@ public class WiFiOptimizerService : IWiFiScanService
                         aps, band, propCtx, scanResults, regulatoryData, bandOptions, bandStress, bandSoak,
                         clientRates?.GetValueOrDefault(band),
                         historicalContext?.Credibility.GetValueOrDefault(band),
-                        historicalContext?.NoiseFloor.GetValueOrDefault(band));
+                        historicalContext?.NoiseFloor.GetValueOrDefault(band),
+                        BuildWidthEvidence(aps, clients, band));
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, bandOptions, hasBuildingData);

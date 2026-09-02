@@ -91,6 +91,34 @@ public class ApChannelRecommendation
 
     /// <summary>Short human explanation for <see cref="ScanRescanRecommended"/>, for a UI tooltip.</summary>
     public string? ScanRescanReason { get; set; }
+
+    /// <summary>
+    /// Why the recommended width differs from the current one, in the card's words; null when
+    /// the width is unchanged. Set only from AP Agent evidence (verbiage.md WO-NARROW / WO-WIDER).
+    /// </summary>
+    public string? WidthReason { get; set; }
+}
+
+/// <summary>
+/// What the AP Agent measured about a radio's clients and air, for width candidates. Absent on
+/// a radio no agent covers, which keeps the radio at its current width exactly as before.
+/// </summary>
+public sealed class RadioWidthEvidence
+{
+    /// <summary>Online clients on the radio, every one agent-measured.</summary>
+    public int ClientCount { get; init; }
+
+    /// <summary>The widest any client negotiates, in MHz.</summary>
+    public int MaxNegotiatedWidth { get; init; }
+
+    /// <summary>The widest any client can use, in MHz; 0 when the agent reported no capability.</summary>
+    public int MaxSupportedWidth { get; init; }
+
+    /// <summary>The radio's measured busy percent over the last two minutes.</summary>
+    public int? MeasuredUtilization { get; init; }
+
+    /// <summary>The radio's band carries a mesh backhaul on this AP; its width is never a candidate.</summary>
+    public bool CarriesBackhaul { get; init; }
 }
 
 /// <summary>
@@ -267,6 +295,16 @@ public class ApNode
     public int? CurrentCenter { get; set; }
     public int[] ValidChannels { get; set; } = [];
     public int[] ValidWidths { get; set; } = [];
+
+    /// <summary>
+    /// Candidate channels at each width other than the current one (which keeps
+    /// <see cref="ValidChannels"/>). A 160 MHz block starts on different channels than an 80 MHz
+    /// one, so a (channel, width) pair is only a candidate when the channel is valid at that width.
+    /// </summary>
+    public Dictionary<int, int[]> ValidChannelsByWidth { get; set; } = new();
+
+    /// <summary>Agent-measured width evidence, or null on a radio no agent covers.</summary>
+    public RadioWidthEvidence? WidthEvidence { get; set; }
     public bool IsPlaced { get; set; }
     public bool HasDfs { get; set; }
 

@@ -452,7 +452,8 @@ public class ChannelRecommendationService
         Dictionary<string, ChannelSoakInfo>? soakInfo = null,
         Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null,
         Dictionary<string, Dictionary<int, double>>? historicalCredibility = null,
-        Dictionary<string, Dictionary<int, double>>? historicalNoiseFloor = null)
+        Dictionary<string, Dictionary<int, double>>? historicalNoiseFloor = null,
+        Dictionary<string, RadioWidthEvidence>? widthEvidence = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -505,6 +506,26 @@ public class ChannelRecommendationService
                     "to live radio stats for the current channel only",
                     ap.Name, band);
 
+            // Width candidates come only from agent evidence, and only when asked for. A radio
+            // without evidence keeps its width, and the search runs exactly as it always has.
+            var evidence = opts.OptimizeWidths ? widthEvidence?.GetValueOrDefault(macLower) : null;
+            var widths = evidence != null
+                ? CandidateWidths(band, radio, evidence, currentWidth)
+                : new[] { currentWidth };
+            var channelsByWidth = new Dictionary<int, int[]>();
+            foreach (var w in widths.Where(w => w != currentWidth))
+            {
+                var channels = DeduplicateByBondingGroup(
+                    GetValidChannels(band, radio, regulatoryData, opts.DfsPreference, w), band, w, radio.Channel!.Value);
+                if (channels.Length > 0) channelsByWidth[w] = channels;
+            }
+            widths = widths.Where(w => w == currentWidth || channelsByWidth.ContainsKey(w)).ToArray();
+            if (widths.Length > 1)
+                _logger.LogDebug("[ChannelRec] {ApName} {Band}: width candidates [{Widths}] from agent evidence " +
+                    "({Clients} client(s), negotiate <= {Neg} MHz, support <= {Sup} MHz, {Util}% busy)",
+                    ap.Name, band, string.Join(", ", widths), evidence!.ClientCount, evidence.MaxNegotiatedWidth,
+                    evidence.MaxSupportedWidth, evidence.MeasuredUtilization?.ToString() ?? "-");
+
             graph.Nodes.Add(new ApNode
             {
                 Mac = ap.Mac,
@@ -513,7 +534,9 @@ public class ChannelRecommendationService
                 CurrentWidth = currentWidth,
                 CurrentCenter = radio.CenterChannel,
                 ValidChannels = validChannels,
-                ValidWidths = new[] { currentWidth }, // Width changes are a future feature
+                ValidWidths = widths,
+                ValidChannelsByWidth = channelsByWidth,
+                WidthEvidence = evidence,
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
@@ -568,6 +591,63 @@ public class ChannelRecommendationService
         LogGraphDetails(graph, band, bandAps, options);
 
         return graph;
+    }
+
+    /// <summary>Widths a radio can take, narrowest first.</summary>
+    private static readonly int[] WidthLadder = { 20, 40, 80, 160, 320 };
+
+    /// <summary>Busy percent at or under which the air is quiet enough to widen into.</summary>
+    public const int QuietAirtimeForWideningPct = 25;
+
+    /// <summary>Clients a radio needs before its negotiated widths can argue it narrower.</summary>
+    public const int MinClientsForNarrowing = 3;
+
+    /// <summary>
+    /// The widths worth searching for one radio, from what its clients negotiate and can use.
+    /// Narrower only when every client (three or more) negotiates at most half the width; wider
+    /// only when a client can use more than the radio gives and the air is quiet. Never on
+    /// 2.4 GHz, never on a radio carrying a mesh backhaul. The current width is always included.
+    /// </summary>
+    public static int[] CandidateWidths(RadioBand band, RadioSnapshot radio, RadioWidthEvidence e, int currentWidth)
+    {
+        if (band == RadioBand.Band2_4GHz || e.CarriesBackhaul || e.ClientCount == 0)
+            return new[] { currentWidth };
+
+        var radioMax = band == RadioBand.Band6GHz && radio.Is11Be ? 320 : 160;
+        var demand = Math.Min(e.MaxSupportedWidth > 0 ? e.MaxSupportedWidth : e.MaxNegotiatedWidth, radioMax);
+        var widths = new SortedSet<int> { currentWidth };
+
+        if (e.ClientCount >= MinClientsForNarrowing && e.MaxNegotiatedWidth > 0 && e.MaxNegotiatedWidth * 2 <= currentWidth)
+            foreach (var w in WidthLadder.Where(w => w >= e.MaxNegotiatedWidth && w < currentWidth))
+                widths.Add(w);
+
+        if (demand > currentWidth && e.MeasuredUtilization is { } busy && busy <= QuietAirtimeForWideningPct)
+            foreach (var w in WidthLadder.Where(w => w > currentWidth && w <= demand))
+                widths.Add(w);
+
+        return widths.ToArray();
+    }
+
+    /// <summary>The candidate channels for a node at one width.</summary>
+    private static int[] ChannelsFor(ApNode node, int width) =>
+        width == node.CurrentWidth || !node.ValidChannelsByWidth.TryGetValue(width, out var channels)
+            ? node.ValidChannels
+            : channels;
+
+    /// <summary>Score per halving below what the radio's clients can use.</summary>
+    private const double WidthShortfallWeight = 0.8;
+
+    /// <summary>
+    /// The cost of a width below what the radio's clients can use, so narrowing is never free and
+    /// widening pays for the overlap it adds. Zero without agent evidence, so a console-only
+    /// site scores exactly as before.
+    /// </summary>
+    private static double WidthShortfallPenalty(ApNode node, int width)
+    {
+        if (node.WidthEvidence is not { } e || width <= 0) return 0;
+        var demand = e.MaxSupportedWidth > 0 ? e.MaxSupportedWidth : e.MaxNegotiatedWidth;
+        if (demand <= width) return 0;
+        return WidthShortfallWeight * Math.Log2((double)demand / width);
     }
 
     /// <summary>
@@ -858,7 +938,12 @@ public class ChannelRecommendationService
                         clientFactor < 1.0 ? "supports" : clientFactor > 1.0 ? "contradicts" : "has no opinion on",
                         recommendedChannel, clientFactor, clientReason);
 
-                if (currentApScore < moveThreshold)
+                // A width-only change is not a channel move: it disrupts nothing but the width,
+                // so the "healthy radios stay put" gate does not apply to it. The improvement
+                // gates below still do.
+                var widthOnly = recommendedChannel == node.CurrentChannel;
+
+                if (currentApScore < moveThreshold && !widthOnly)
                 {
                     _logger.LogDebug(
                         "[ChannelRec] {ApName} current score {Score:F3} below threshold {Threshold:F3}, " +
@@ -1463,6 +1548,18 @@ public class ChannelRecommendationService
             }
         }
 
+        // Why a width changed, in the card's words. Copy: verbiage.md WO-NARROW / WO-WIDER.
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            rec.WidthReason = null;
+            if (node.WidthEvidence is not { } e || finalAssignment[i].Width == node.CurrentWidth) continue;
+            rec.WidthReason = finalAssignment[i].Width < node.CurrentWidth
+                ? $"Narrower because its {e.ClientCount} clients negotiate at most {e.MaxNegotiatedWidth} MHz; the rest of the width only overlaps neighbors."
+                : $"Wider because its clients can use {finalAssignment[i].Width} MHz and the air is quiet ({e.MeasuredUtilization ?? 0}% busy).";
+        }
+
         // Re-score ALL APs against the final assignment for accurate display.
         // Unchanged APs may still be affected by other APs' moves (e.g., a neighbor
         // moved onto or off their channel), so their displayed score must reflect reality.
@@ -1577,6 +1674,10 @@ public class ChannelRecommendationService
         for (int i = 0; i < n; i++)
             score += ComputeDfsDepartureFriction(graph, band, i, assignment[i]);
 
+        // Width below what the clients can use (agent evidence only)
+        for (int i = 0; i < n; i++)
+            score += WidthShortfallPenalty(graph.Nodes[i], assignment[i].Width);
+
         return score;
     }
 
@@ -1635,6 +1736,9 @@ public class ChannelRecommendationService
 
         // Friction against blindly leaving a DFS channel for an unobserved non-DFS one
         score += ComputeDfsDepartureFriction(graph, band, apIndex, assignment[apIndex]);
+
+        // Width below what the clients can use (agent evidence only)
+        score += WidthShortfallPenalty(graph.Nodes[apIndex], assignment[apIndex].Width);
 
         return score;
     }
@@ -2888,7 +2992,7 @@ public class ChannelRecommendationService
     }
 
     private static int GetMaxValidChannels(InterferenceGraph graph) =>
-        graph.Nodes.Max(n => n.ValidChannels.Length);
+        graph.Nodes.Max(n => n.ValidWidths.Sum(w => ChannelsFor(n, w).Length));
 
     /// <summary>
     /// Count how many APs have a different channel/width vs the original assignment.
@@ -3068,9 +3172,9 @@ public class ChannelRecommendationService
             var apIdx = searchIndices[depth];
             var node = graph.Nodes[apIdx];
 
-            foreach (var ch in node.ValidChannels)
+            foreach (var w in node.ValidWidths)
             {
-                foreach (var w in node.ValidWidths)
+                foreach (var ch in ChannelsFor(node, w))
                 {
                     currentAssignment[apIdx] = (ch, w);
                     Search(depth + 1);
@@ -3126,9 +3230,9 @@ public class ChannelRecommendationService
                 var bestW = node.CurrentWidth;
                 var bestLocal = double.MaxValue;
 
-                foreach (var ch in node.ValidChannels)
+                foreach (var w in node.ValidWidths)
                 {
-                    foreach (var w in node.ValidWidths)
+                    foreach (var ch in ChannelsFor(node, w))
                     {
                         assignment[apIdx] = (ch, w);
                         ApplyMeshConstraints(graph, assignment);
@@ -3161,9 +3265,9 @@ public class ChannelRecommendationService
                     var node = graph.Nodes[apIdx];
                     var currentScore = ScoreAssignment(graph, assignment, band);
 
-                    foreach (var ch in node.ValidChannels)
+                    foreach (var w in node.ValidWidths)
                     {
-                        foreach (var w in node.ValidWidths)
+                        foreach (var ch in ChannelsFor(node, w))
                         {
                             if (ch == assignment[apIdx].Channel && w == assignment[apIdx].Width)
                                 continue;

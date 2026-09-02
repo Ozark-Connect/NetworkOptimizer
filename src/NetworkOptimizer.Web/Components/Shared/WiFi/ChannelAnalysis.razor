@@ -317,6 +317,10 @@
                                         }
                                         <span class="rec-no-change">(No change)</span>
                                     }
+                                    @if (!string.IsNullOrEmpty(rec.WidthReason))
+                                    {
+                                        <div class="rec-move-note"><span>@rec.WidthReason</span></div>
+                                    }
                                     @* A move the AP Agent saw within the last day. Copy: verbiage.md PM-1 / PM-2 *@
                                     @if (rec.MovedAt.HasValue)
                                     {

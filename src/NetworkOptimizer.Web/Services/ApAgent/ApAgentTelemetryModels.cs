@@ -324,6 +324,10 @@ public sealed class ApAgentClientCapabilities
     /// <summary>Maximum spatial streams the client advertises.</summary>
     [JsonPropertyName("nss")]
     public int Nss { get; set; }
+
+    /// <summary>Widest channel the client supports, in MHz; 0 when the AP did not report it.</summary>
+    [JsonPropertyName("bw_max_supp")]
+    public int BwMaxSupp { get; set; }
 }
 
 /// <summary>

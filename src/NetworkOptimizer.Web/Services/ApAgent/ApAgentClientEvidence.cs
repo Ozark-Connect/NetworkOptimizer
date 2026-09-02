@@ -12,6 +12,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="NegotiatedWidth">The width the client negotiated, in MHz.</param>
 /// <param name="Nss">Operating spatial streams.</param>
 /// <param name="At">When the reading was taken.</param>
+/// <param name="MaxSupportedWidth">Widest channel the client supports, in MHz.</param>
 public sealed record ApAgentClientFacts(
     string ApMac,
     string ClientMac,
@@ -21,7 +22,8 @@ public sealed record ApAgentClientFacts(
     int? RoamNudgesAccepted,
     int? NegotiatedWidth,
     int? Nss,
-    DateTime At);
+    DateTime At,
+    int? MaxSupportedWidth = null);
 
 /// <summary>
 /// Per-association facts and the last hour of latency and stalls, from the sampling pass, held in
@@ -56,7 +58,7 @@ public sealed class ApAgentClientEvidence
                 s.JoinSignal,
                 s.AssocSeconds is { } secs ? TimeSpan.FromSeconds(secs) : null,
                 s.BtmRequests, s.BtmAccepted,
-                s.ChannelWidth, s.Nss, now);
+                s.ChannelWidth, s.Nss, now, s.MaxSupportedWidth);
             entry.Ring.Add((now, s.LatencyAvgMs, s.TcpStalls));
             var cutoff = now - HourWindow;
             entry.Ring.RemoveAll(r => r.At < cutoff);

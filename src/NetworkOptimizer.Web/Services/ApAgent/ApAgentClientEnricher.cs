@@ -59,6 +59,7 @@ public static class ApAgentClientEnricher
                 client.RoamNudges = facts.RoamNudges;
                 client.RoamNudgesAccepted = facts.RoamNudgesAccepted;
                 client.NegotiatedWidth = facts.NegotiatedWidth;
+                if (facts.MaxSupportedWidth is > 0) client.Capabilities.MaxChannelWidth = facts.MaxSupportedWidth;
 
                 var (latency, stalls) = hourStatsFor(apMac, facts.ClientMac);
                 client.MeasuredLatencyAvgMs = latency;
