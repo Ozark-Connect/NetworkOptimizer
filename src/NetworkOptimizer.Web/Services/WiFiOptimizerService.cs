@@ -241,7 +241,7 @@ public class WiFiOptimizerService : IWiFiScanService
             {
                 var acknowledged = await _wifiInsights.GetAcknowledgedIssueKeysAsync();
                 foreach (var issue in score.Issues)
-                    issue.IsAcknowledged = acknowledged.Contains(issue.Key);
+                    issue.IsAcknowledged = !string.IsNullOrEmpty(issue.Key) && acknowledged.Contains(issue.Key);
             }
             catch (Exception ex)
             {

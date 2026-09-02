@@ -1014,12 +1014,15 @@
     /// <summary>Acknowledge: hidden from the active list, still scored. The issue object moves groups in place.</summary>
     private async Task AcknowledgeIssueAsync(HealthIssue issue)
     {
+        // An issue without a key cannot be remembered, so it must not vanish either.
+        if (string.IsNullOrEmpty(issue.Key)) return;
         await IssueAcknowledgments.AcknowledgeAsync(issue.Key);
         issue.IsAcknowledged = true;
     }
 
     private async Task RestoreIssueAsync(HealthIssue issue)
     {
+        if (string.IsNullOrEmpty(issue.Key)) return;
         await IssueAcknowledgments.RestoreAsync(issue.Key);
         issue.IsAcknowledged = false;
     }
