@@ -1140,6 +1140,9 @@ public class ChannelRecommendationService
         {
             var node = graph.Nodes[i];
             var rec = plan.Recommendations[i];
+            // A pinned AP is never moved, however badly it scores; the search left it out and
+            // this pass must too.
+            if (pinnedIndices.Contains(i)) continue;
             // A mesh child can't be moved on its own - it follows its leader's channel.
             if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
             var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
