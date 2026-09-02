@@ -645,9 +645,9 @@
                                             </SiteOperatorOnly>
                                             @if (ap.MeshUplinkIsMlo && ap.MeshUplinkLinks.Count > 0)
                                             {
-                                                @* UniFi reports the MLO links only from the parent's end; these rows are
-                                                   built from the parent's downlink_table with direction flipped to the
-                                                   child's perspective. The empty signal span keeps a row at three grid
+                                                @* Child's perspective: its own uplink.mlo_links (signal as the child
+                                                   measures it), or the parent's downlink_table flipped when the child
+                                                   reports no links. The empty signal span keeps a row at three grid
                                                    cells so the columns stay aligned. *@
                                                 <div class="mesh-mlo-links">
                                                     @foreach (var link in ap.MeshUplinkLinks.OrderByDescending(l => l.Band))

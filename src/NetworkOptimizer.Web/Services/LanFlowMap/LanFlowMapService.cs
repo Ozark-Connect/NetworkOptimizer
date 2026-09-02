@@ -1552,9 +1552,10 @@ public class LanFlowMapService
                 node.PhyTxKbps = d.UplinkTxRateKbps > 0 ? d.UplinkTxRateKbps : null;
                 node.PhyRxKbps = d.UplinkRxRateKbps > 0 ? d.UplinkRxRateKbps : null;
                 node.Band = NormalizeBand(d.UplinkRadioBand);
-                // The child's own uplink names only its STA link; on an MLO backhaul the pair's
-                // rate is the parent-summed aggregate (claim rates are the parent's perspective,
-                // so they map inverted). Never lower what the child already reported.
+                node.IsMloMesh = d.UplinkIsMlo;
+                // The child's uplink rates already sum its MLO links. The parent's claim is the
+                // same aggregate from the other end (its perspective, so inverted) and only ever
+                // raises what the child reported: a floor for a child that reports no links.
                 if (meshParentByChild.TryGetValue(mac, out var mloClaim)
                     && mloClaim.IsMlo && !mloClaim.Contradicts(d.UplinkMac))
                 {
@@ -1645,11 +1646,13 @@ public class LanFlowMapService
                 {
                     if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
                     if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
-                    // The child's own uplink names only its STA link; an MLO pair's capacity is
-                    // the parent-summed aggregate. Never lower what the child reported. (claim
-                    // holds the agreeing parent claim here - a contradicting one took the
-                    // fromDownlinkTable branch above.) CapacityBps drives the pipes' saturation
-                    // ramp, so it takes the aggregate too or MLO throughput reads oversaturated.
+                    link.IsMloMesh = d.UplinkIsMlo;
+                    // The child's rates already sum its MLO links; the parent's claim is the same
+                    // aggregate from the other end and only ever raises them (a floor for a child
+                    // that reports no links). claim holds the agreeing parent claim here - a
+                    // contradicting one took the fromDownlinkTable branch above. CapacityBps
+                    // drives the pipes' saturation ramp, so it takes the aggregate too or MLO
+                    // throughput reads oversaturated.
                     if (claim.IsMlo)
                     {
                         link.IsMloMesh = true;

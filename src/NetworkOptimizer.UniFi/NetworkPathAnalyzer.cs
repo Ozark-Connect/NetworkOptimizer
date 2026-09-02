@@ -1553,9 +1553,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Attaches the per-link MLO breakdown of a mesh backhaul to a hop, child's perspective
-    /// (the parent transmitting is the child receiving). Rates on the hop itself are the
-    /// caller's concern; this only records the flag and the links for display.
+    /// Attaches the per-link MLO breakdown of a parent claim to a hop, flipped to the child's
+    /// perspective (the parent transmitting is the child receiving). Signal stays the parent's
+    /// reading. Rates on the hop itself are the caller's concern; this only records the flag
+    /// and the links for display.
     /// </summary>
     private static void ApplyMloBackhaulDetail(NetworkHop hop, UniFiDiscovery.MeshParentClaim claim)
     {
@@ -1573,23 +1574,39 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Overlays the aggregate MLO capacity on a mesh hop the child described itself. The child's
-    /// uplink block names only its STA link, so its rates under-report an MLO backhaul; when the
-    /// parent's claim agrees on who the parent is and is MLO, the parent's per-link sum replaces
-    /// them. Returns the aggregate child-toward-parent Mbps (the hop's egress), or null when the
-    /// overlay does not apply.
+    /// Marks a mesh hop the child described itself as MLO and attaches its per-link breakdown.
+    /// The child's own uplink.mlo_links is the source: each link with the signal as the child
+    /// measures it, and the hop's rates (the uplink's top-level tx/rx) already sum those links.
+    /// A child that reports no links falls back to the agreeing parent's claim: its links,
+    /// flipped, and its per-link sum overlaid without lowering a rate already on the hop.
+    /// Returns the aggregate child-toward-parent Mbps (the hop's egress), or null when the hop
+    /// is not MLO.
     /// </summary>
     private static int? ApplySelfReportedMloOverlay(
         NetworkHop hop,
         DiscoveredDevice device,
         IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents)
     {
-        if (!meshParents.TryGetValue(device.Mac, out var claim)
-            || claim.Contradicts(device.UplinkMac)
-            || !claim.IsMlo || claim.Links.Count == 0)
+        var claimIsMlo = meshParents.TryGetValue(device.Mac, out var claim)
+            && !claim.Contradicts(device.UplinkMac)
+            && claim.IsMlo && claim.Links.Count > 0;
+
+        if (device.UplinkMloLinks.Count > 0 && (device.UplinkIsMlo || claimIsMlo))
         {
-            return null;
+            hop.IsMloMeshBackhaul = true;
+            hop.MeshMloLinks = device.UplinkMloLinks.Select(l => new MeshBackhaulLink
+            {
+                Band = l.Band,
+                Channel = l.Channel,
+                WidthMhz = l.WidthMhz,
+                SignalDbm = l.SignalDbm,
+                TxRateMbps = l.TxRateMbps,
+                RxRateMbps = l.RxRateMbps,
+            }).ToList();
+            return hop.WirelessTxRateMbps;
         }
+
+        if (!claimIsMlo) return null;
 
         ApplyMloBackhaulDetail(hop, claim);
         // The child measures its own STA link, so its signal outranks the parent's for

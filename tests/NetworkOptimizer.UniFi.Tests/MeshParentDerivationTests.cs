@@ -197,4 +197,71 @@ public class MeshParentDerivationTests
     {
         default(UniFiDiscovery.MeshParentClaim).Links.Should().NotBeNull().And.BeEmpty();
     }
+
+    // --- The child's own side: uplink.mlo_links, one entry per link, signal as the child measures it ---
+
+    private static UniFiDeviceResponse MloChild(params UplinkMloLink[] links) => new()
+    {
+        Mac = ChildMac,
+        Uplink = new UplinkInfo
+        {
+            Type = "wireless",
+            UplinkMac = ParentMac,
+            Name = "vwiresta7",
+            RadioBand = "na",
+            Channel = 40,
+            Signal = -36,
+            TxRate = links.Sum(l => l.TxRate),
+            RxRate = links.Sum(l => l.RxRate),
+            MloLinks = links.Length == 0 ? null : links.ToList(),
+        },
+        RadioTableStats =
+        [
+            new RadioTableStats { Name = "wifi1", Radio = "na", Bw = 160 },
+            new RadioTableStats { Name = "wifi2", Radio = "6e", Bw = 320 },
+        ],
+    };
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_KeepsTheChildsOwnReadingPerLink()
+    {
+        // The child measures both links itself; nothing here is the parent's reading, and the
+        // rates are not flipped - the child's TX is already toward the parent.
+        var child = MloChild(
+            new UplinkMloLink { Radio = "6e", Channel = 5, Name = "vwiresta4", Signal = -41, TxRate = 4_804_000, RxRate = 4_804_000 },
+            new UplinkMloLink { Radio = "na", Channel = 40, Name = "vwiresta7", Signal = -36, TxRate = 1_729_400, RxRate = 2_161_800 });
+
+        var links = UniFiDiscovery.BuildSelfReportedMloLinks(child);
+
+        links.Should().HaveCount(2);
+        var sixGhz = links.Single(l => l.Band == "6e");
+        sixGhz.SignalDbm.Should().Be(-41);
+        sixGhz.Channel.Should().Be(5);
+        sixGhz.TxRateMbps.Should().Be(4804);
+        sixGhz.RxRateMbps.Should().Be(4804);
+        var fiveGhz = links.Single(l => l.Band == "na");
+        fiveGhz.SignalDbm.Should().Be(-36);
+        fiveGhz.TxRateMbps.Should().Be(1729);
+        fiveGhz.RxRateMbps.Should().Be(2161);
+    }
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_WidthComesOffTheChildsOwnRadio()
+    {
+        var child = MloChild(
+            new UplinkMloLink { Radio = "6e", TxRate = 1 },
+            new UplinkMloLink { Radio = "na", TxRate = 1 });
+
+        var links = UniFiDiscovery.BuildSelfReportedMloLinks(child);
+
+        links.Single(l => l.Band == "6e").WidthMhz.Should().Be(320);
+        links.Single(l => l.Band == "na").WidthMhz.Should().Be(160);
+    }
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_EmptyWhenTheUplinkReportsNoLinks()
+    {
+        UniFiDiscovery.BuildSelfReportedMloLinks(MloChild()).Should().BeEmpty();
+        UniFiDiscovery.BuildSelfReportedMloLinks(new UniFiDeviceResponse { Mac = ChildMac }).Should().BeEmpty();
+    }
 }

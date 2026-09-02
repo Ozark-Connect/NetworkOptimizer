@@ -107,7 +107,8 @@ public class NetworkHop
 
     /// <summary>
     /// Per-link detail of an MLO mesh backhaul, child AP's perspective (TX toward the parent).
-    /// Read from the parent's downlink_table - the only end UniFi reports per link.
+    /// From the child's own uplink.mlo_links when it reports them, else the parent's
+    /// downlink_table flipped.
     /// </summary>
     public List<MeshBackhaulLink>? MeshMloLinks { get; set; }
 
@@ -135,7 +136,8 @@ public class NetworkHop
 
 /// <summary>
 /// One radio link of an MLO mesh backhaul on a <see cref="NetworkHop"/>, child AP's perspective
-/// (TX toward the parent). Signal is the parent's reading - the only end reported per link.
+/// (TX toward the parent). Signal is the child's own reading when it reports its links
+/// (uplink.mlo_links), else the parent's.
 /// </summary>
 public class MeshBackhaulLink
 {

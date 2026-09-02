@@ -92,8 +92,8 @@ public class AccessPointSnapshot
     public bool MeshUplinkIsMlo { get; set; }
 
     /// <summary>
-    /// Every band/channel the mesh uplink occupies: the self-reported STA link plus any
-    /// parent-derived MLO links. A classic backhaul yields one entry; non-mesh APs none.
+    /// Every band/channel the mesh uplink occupies: the STA link plus any other MLO links.
+    /// A classic backhaul yields one entry; non-mesh APs none.
     /// </summary>
     public IEnumerable<(RadioBand Band, int? Channel)> MeshUplinkBandChannels
     {
@@ -126,9 +126,9 @@ public class AccessPointSnapshot
         MeshChildren.Any(c => c.UplinkBand == band || c.Links.Any(l => l.Band == band));
 
     /// <summary>
-    /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). The child's
-    /// own uplink block describes at most one link, so on MLO these are read from the parent's
-    /// downlink_table; empty when the parent reports nothing.
+    /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). From the
+    /// child's own uplink.mlo_links when it reports them (signal as the child measures it), else
+    /// the parent's downlink_table flipped; empty when neither end reports links.
     /// </summary>
     public List<MeshLinkInfo> MeshUplinkLinks { get; set; } = new();
 
@@ -163,8 +163,9 @@ public class MeshChildInfo
 }
 
 /// <summary>
-/// One radio link of a mesh backhaul. TX/RX direction follows the owning collection's
-/// perspective; signal is always the parent's reading (the only end reported).
+/// One radio link of a mesh backhaul. TX/RX direction and the signal reading follow the owning
+/// collection's end: the child's own on <see cref="AccessPointSnapshot.MeshUplinkLinks"/> (when
+/// it reports its links), the parent's on <see cref="MeshChildInfo.Links"/>.
 /// </summary>
 public class MeshLinkInfo
 {

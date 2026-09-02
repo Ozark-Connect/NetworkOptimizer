@@ -753,19 +753,22 @@ public class UplinkInfo
     public bool FullDuplex { get; set; }
 
     /// <summary>
-    /// TX rate for wireless uplinks in Kbps
+    /// TX rate for wireless uplinks in Kbps. On an MLO mesh backhaul this is the SUM over
+    /// <see cref="MloLinks"/>, not the STA link's own rate.
     /// </summary>
     [JsonPropertyName("tx_rate")]
     public long TxRate { get; set; }
 
     /// <summary>
-    /// RX rate for wireless uplinks in Kbps
+    /// RX rate for wireless uplinks in Kbps. On an MLO mesh backhaul this is the SUM over
+    /// <see cref="MloLinks"/>, not the STA link's own rate.
     /// </summary>
     [JsonPropertyName("rx_rate")]
     public long RxRate { get; set; }
 
     /// <summary>
-    /// Radio band for wireless uplinks (ng=2.4GHz, na=5GHz, 6e=6GHz)
+    /// Radio band for wireless uplinks (ng=2.4GHz, na=5GHz, 6e=6GHz). On an MLO mesh backhaul
+    /// this, channel, and signal describe only the STA link; see <see cref="MloLinks"/>.
     /// </summary>
     [JsonPropertyName("radio")]
     public string? RadioBand { get; set; }
@@ -793,6 +796,63 @@ public class UplinkInfo
     /// </summary>
     [JsonPropertyName("noise")]
     public int? Noise { get; set; }
+
+    /// <summary>
+    /// Per-link detail of an MLO mesh backhaul, the child's own account: every link, with the
+    /// signal as the CHILD measures it. The block's top-level name/radio/channel/signal describe
+    /// only the STA link. Absent on wired uplinks and classic (single-link) backhauls.
+    /// </summary>
+    [JsonPropertyName("mlo_links")]
+    public List<UplinkMloLink>? MloLinks { get; set; }
+}
+
+/// <summary>
+/// One link of an MLO mesh backhaul as the child reports it in uplink.mlo_links. Rates are the
+/// child's perspective (TX toward the parent) and signal is the child's own reading; the
+/// parent's downlink_table carries the same link seen from the other end.
+/// </summary>
+public class UplinkMloLink
+{
+    /// <summary>STA backhaul interface carrying this link (e.g. "vwiresta4")</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>Radio band code (ng=2.4GHz, na=5GHz, 6e=6GHz)</summary>
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }
+
+    [JsonPropertyName("channel")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Channel { get; set; }
+
+    /// <summary>Signal in dBm as the child measures it</summary>
+    [JsonPropertyName("signal")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Signal { get; set; }
+
+    [JsonPropertyName("rssi")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Rssi { get; set; }
+
+    /// <summary>Link rate in Kbps, child toward parent</summary>
+    [JsonPropertyName("tx_rate")]
+    public long TxRate { get; set; }
+
+    /// <summary>Link rate in Kbps, parent toward child</summary>
+    [JsonPropertyName("rx_rate")]
+    public long RxRate { get; set; }
+
+    [JsonPropertyName("tx_bytes")]
+    public long TxBytes { get; set; }
+
+    [JsonPropertyName("rx_bytes")]
+    public long RxBytes { get; set; }
+
+    [JsonPropertyName("tx_packets")]
+    public long TxPackets { get; set; }
+
+    [JsonPropertyName("rx_packets")]
+    public long RxPackets { get; set; }
 }
 
 public class DeviceStats

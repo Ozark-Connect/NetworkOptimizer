@@ -82,9 +82,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             {
                 snapshot.MeshParentName = parent.Name;
 
-                // Try to get the parent's view from its downlink_table. It is the fuller account:
-                // one entry PER LINK, so on an MLO backhaul it holds links the child's own uplink
-                // block never mentions (the child names only its STA link).
+                // The parent's view from its downlink_table: one entry PER LINK on an MLO
+                // backhaul, each with the PARENT's signal reading. This is the parent card's
+                // account; the child card reads the child's own mlo_links below.
                 int? parentSignal = null;
                 int? parentTxRateMbps = null;
                 int? parentRxRateMbps = null;
@@ -123,24 +123,44 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     }
                 }
 
-                // The child's own uplink.is_mlo counts too: UniFi does not set it today, but a
-                // firmware that starts reporting the child side is expected to reuse its standard
-                // MLO station shape, and the flag must not depend on the parent's table alone.
-                snapshot.MeshUplinkIsMlo = isMlo ||
-                    (devicesByMac.TryGetValue(snapshot.Mac, out var selfDevice) && selfDevice.UplinkIsMlo);
-                // Child's perspective flips direction: the parent transmitting is the child
-                // receiving. The child measures its own STA link, so its signal outranks the
-                // parent's for that link; the other links are only reported by the parent.
-                snapshot.MeshUplinkLinks = parentLinks.Select(l => new MeshLinkInfo
+                devicesByMac.TryGetValue(snapshot.Mac, out var selfDevice);
+                snapshot.MeshUplinkIsMlo = isMlo || selfDevice?.UplinkIsMlo == true;
+                // The child's own mlo_links are its side of the backhaul: every link, signal as
+                // the child measures it, rates already child-perspective. Only when the child
+                // names this parent do they describe this link; a claim-derived parent means the
+                // child's uplink block is about something else.
+                var selfLinks = selfDevice != null
+                    && string.Equals(selfDevice.UplinkMac, snapshot.MeshParentMac, StringComparison.OrdinalIgnoreCase)
+                    ? selfDevice.UplinkMloLinks
+                    : [];
+                if (selfLinks.Count > 0 && snapshot.MeshUplinkIsMlo)
                 {
-                    Band = l.Band,
-                    Channel = l.Channel,
-                    SignalDbm = l.Band.HasValue && l.Band == snapshot.MeshUplinkBand && snapshot.MeshUplinkSignalDbm.HasValue
-                        ? snapshot.MeshUplinkSignalDbm
-                        : l.SignalDbm,
-                    TxRateMbps = l.RxRateMbps,
-                    RxRateMbps = l.TxRateMbps,
-                }).ToList();
+                    snapshot.MeshUplinkLinks = selfLinks.Select(l => new MeshLinkInfo
+                    {
+                        Band = RadioBandExtensions.FromUniFiCode(l.Band),
+                        Channel = l.Channel,
+                        SignalDbm = l.SignalDbm,
+                        TxRateMbps = l.TxRateMbps,
+                        RxRateMbps = l.RxRateMbps,
+                    }).ToList();
+                }
+                else
+                {
+                    // Fallback for a child that reports no links: the parent's entries flipped
+                    // to the child's perspective (the parent transmitting is the child
+                    // receiving). The child's own STA-link signal outranks the parent's for
+                    // that link; the other links keep the parent's reading.
+                    snapshot.MeshUplinkLinks = parentLinks.Select(l => new MeshLinkInfo
+                    {
+                        Band = l.Band,
+                        Channel = l.Channel,
+                        SignalDbm = l.Band.HasValue && l.Band == snapshot.MeshUplinkBand && snapshot.MeshUplinkSignalDbm.HasValue
+                            ? snapshot.MeshUplinkSignalDbm
+                            : l.SignalDbm,
+                        TxRateMbps = l.RxRateMbps,
+                        RxRateMbps = l.TxRateMbps,
+                    }).ToList();
+                }
 
                 parent.MeshChildren.Add(new MeshChildInfo
                 {

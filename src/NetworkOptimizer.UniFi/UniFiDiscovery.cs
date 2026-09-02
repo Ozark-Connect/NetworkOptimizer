@@ -103,7 +103,8 @@ public class UniFiDiscovery
                 UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
                 UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
                 UplinkType = d.Uplink?.Type,
-                UplinkIsMlo = d.Uplink?.IsMlo == true,
+                UplinkIsMlo = d.Uplink?.IsMlo == true || (d.Uplink?.MloLinks?.Count ?? 0) > 1,
+                UplinkMloLinks = BuildSelfReportedMloLinks(d),
                 // Active uplink interface name. For a wireless mesh child this is the
                 // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
                 // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
@@ -219,7 +220,8 @@ public class UniFiDiscovery
     /// <summary>
     /// One link of a mesh backhaul as the parent reports it in its downlink_table. Rates follow
     /// <see cref="MeshParentClaim"/>'s convention: Tx is parent to child (the child's downstream).
-    /// Signal is the PARENT's reading of the link; the child's end is not reported anywhere.
+    /// Signal is the PARENT's reading of the link; the child's own reading of the same link is in
+    /// its uplink.mlo_links (<see cref="DiscoveredDevice.UplinkMloLinks"/>).
     /// </summary>
     public readonly record struct MeshLinkClaim(string? Radio, int? Channel, int? Signal, long TxRateKbps, long RxRateKbps)
     {
@@ -228,8 +230,8 @@ public class UniFiDiscovery
         public int? WidthMhz { get; init; }
     }
 
-    /// <summary>The parent radio's width for a link's band: the operating width (stats bw)
-    /// when reported, else the configured width (radio_table ht).</summary>
+    /// <summary>A radio's width for a link's band: the operating width (stats bw) when
+    /// reported, else the configured width (radio_table ht).</summary>
     private static int? ResolveRadioWidth(List<RadioTableStats>? stats, List<RadioTableEntry>? table, string? radio)
     {
         if (string.IsNullOrEmpty(radio)) return null;
@@ -237,6 +239,27 @@ public class UniFiDiscovery
         if (bw is > 0) return bw;
         var ht = table?.FirstOrDefault(t => string.Equals(t.Radio, radio, StringComparison.OrdinalIgnoreCase))?.ChannelWidth;
         return ht is > 0 ? ht : null;
+    }
+
+    /// <summary>
+    /// The child's own per-link account of its mesh backhaul (uplink.mlo_links), child's
+    /// perspective: TX toward the parent, signal as the child measures it, width off the child's
+    /// radio for each link's band. Empty when the uplink reports no links (wired, a classic
+    /// backhaul, or a firmware that describes the backhaul only from the parent's end).
+    /// </summary>
+    public static List<MeshBackhaulLink> BuildSelfReportedMloLinks(UniFiDeviceResponse d)
+    {
+        var links = d.Uplink?.MloLinks;
+        if (links == null || links.Count == 0) return [];
+        return links.Select(l => new MeshBackhaulLink
+        {
+            Band = l.Radio,
+            Channel = l.Channel,
+            WidthMhz = ResolveRadioWidth(d.RadioTableStats, d.RadioTable, l.Radio),
+            SignalDbm = l.Signal,
+            TxRateMbps = l.TxRate > 0 ? (int)(l.TxRate / 1000) : null,
+            RxRateMbps = l.RxRate > 0 ? (int)(l.RxRate / 1000) : null,
+        }).ToList();
     }
 
     /// <summary>
@@ -951,12 +974,18 @@ public class DiscoveredDevice
     public string? UplinkType { get; set; }  // "wire" or "wireless"
 
     /// <summary>
-    /// Whether the device's own uplink block flags MLO (uplink.is_mlo). UniFi does not set this
-    /// for mesh children today - the per-link truth lives on the parent - but a firmware that
-    /// starts reporting the child side is expected to reuse its standard MLO station shape,
-    /// and this flag is the cheapest half of it.
+    /// Whether the device's own uplink is an MLO backhaul: more than one entry in
+    /// uplink.mlo_links (how UniFi reports a mesh child's side today), or uplink.is_mlo, which
+    /// UniFi does not set on the uplink block but is its standard MLO station flag elsewhere.
     /// </summary>
     public bool UplinkIsMlo { get; set; }
+
+    /// <summary>
+    /// The child's own per-link account of its MLO backhaul (uplink.mlo_links), child's
+    /// perspective: TX toward the parent, signal as the child measures it. The
+    /// Uplink*RateKbps fields above already sum these links. Empty when not reported.
+    /// </summary>
+    public List<MeshBackhaulLink> UplinkMloLinks { get; set; } = [];
     /// <summary>
     /// Active uplink interface name (uplink.name). For a wireless mesh child this is the
     /// wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways it's the
