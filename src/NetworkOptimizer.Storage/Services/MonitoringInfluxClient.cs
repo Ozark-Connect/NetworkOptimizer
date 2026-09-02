@@ -3874,10 +3874,15 @@ union(tables: [means, chan])
         // silently dropped (WOL ports, AP sub-interfaces). Stray guard: same fall detection as
         // PortDropCounterFalls (a delta cap ate real multi-gig deltas; a rate ceiling passed a
         // real 32-bit recovery on a gigabit port).
+        // One sample a minute per interface before differencing: a site polling ports every two
+        // seconds hands this half a million points per field for a two-hour top-up, and a total
+        // over a window needs only the endpoints. Costs the opening minute of each interface
+        // (the bytes before its first kept sample), a few tenths of a percent on a day.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
+  |> aggregateWindow(every: 1m, fn: last, createEmpty: false)
   |> filter(fn: (r) => r._value > 0)
   |> duplicate(column: ""_value"", as: ""fall"")
   |> difference(columns: [""fall""], keepFirst: true)
