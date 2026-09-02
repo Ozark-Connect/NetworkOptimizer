@@ -134,6 +134,24 @@ public class AgentOnGatewayDetector : ISiteScopedRegistry
     }
 
     /// <summary>
+    /// The connected agent a LAN test runs from: one that is not on the site's gateway (a test
+    /// from the gateway to the gateway measures nothing), most recently heard from first. Null
+    /// when every connected agent sits on the gateway, or none is connected - a disabled or
+    /// unreachable agent holds no connection, so it is never chosen.
+    /// </summary>
+    public async Task<AgentTunnelConnection?> LanTestAgentAsync(string siteSlug, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(siteSlug)) return null;
+        foreach (var connection in _tunnelRegistry.GetForSite(siteSlug).OrderByDescending(c => c.LastMessageAt))
+        {
+            var onGateway = connection.OnGateway
+                ?? await IsAgentOnGatewayAsync(siteSlug, connection.AgentId, connection.HostAddresses, ct);
+            if (!onGateway) return connection;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Whether the site's online agent appears to run on the site's UniFi
     /// gateway. Answers instantly from cache once a site has ever been resolved
     /// (a stale answer is served while a background refresh runs); the first

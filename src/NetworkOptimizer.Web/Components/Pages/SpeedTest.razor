@@ -1643,9 +1643,12 @@
         _siteAgentOffline = _agentRequired && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
 
         // UI gating for a gateway-resident agent: the Gateway Speed Test is a
-        // self-test there (hidden), and the UniFi Device Speed Test needs device
-        // SSH through the tunnel, so it keys on the devices-via-agent proxy flag.
-        _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        // self-test there (hidden) - unless another connected agent sits off the
+        // gateway, which is where the test then runs. The UniFi Device Speed Test
+        // needs device SSH through the tunnel, so it keys on the devices-via-agent flag.
+        _agentOnGateway = agentOnline
+            && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug)
+            && await OnGatewayDetector.LanTestAgentAsync(SiteContext.Slug) == null;
         _devicesViaAgent = await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
     }
 
