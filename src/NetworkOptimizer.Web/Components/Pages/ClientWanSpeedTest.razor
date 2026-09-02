@@ -983,7 +983,16 @@
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
             Legend = new Legend { Show = false },
-            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                // The shared Monitoring tooltip, via its window hook (a serialized function string
+                // cannot import the module): rows ordered as the lines sit, and a dot on every one.
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }"
+            },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } },
             Fill = new Fill
             {
@@ -1036,7 +1045,14 @@
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
             Legend = new Legend { Show = false },
-            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' " + unit + @"'; }, omitSeconds: true }) : ''; }"
+            },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }
         };
     }
