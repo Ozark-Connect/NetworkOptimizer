@@ -496,14 +496,49 @@ func TestBandAndChannelComeFromTheVap(t *testing.T) {
 	table, _ := newFixtureTable(t)
 	tablet := findClient(t, table.Clients(time.Now().UTC()), fixtureTabletMA)
 
-	if tablet.Band != "5" || tablet.Channel != 128 || tablet.Bandwidth != 160 {
-		t.Errorf("VAP context missing: band %q ch %d bw %d", tablet.Band, tablet.Channel, tablet.Bandwidth)
+	if tablet.Band != "5" || tablet.Channel != 128 {
+		t.Errorf("VAP context missing: band %q ch %d", tablet.Band, tablet.Channel)
+	}
+	// Width is the exception: the VAP runs 160 but the tablet's chwidth 2 says it negotiated 80.
+	if tablet.Bandwidth != 80 {
+		t.Errorf("bw = %d, want the client's 80, not the VAP's 160", tablet.Bandwidth)
 	}
 	if tablet.Ssid != "TestNet" || tablet.Bssid == "" {
 		t.Errorf("SSID and BSSID must come from the VAP: %q / %q", tablet.Ssid, tablet.Bssid)
 	}
 	if tablet.LinkCount != 1 {
 		t.Errorf("a non-MLO client has %d links, want 1", tablet.LinkCount)
+	}
+}
+
+// A station's width is what it negotiated, never the radio's operating width. Measured: a 160 MHz
+// phone on a 320 MHz radio (chwidth 3, HE160), and a 320 MHz laptop on the same radio (chwidth 5,
+// EHT320). A UniFi "240 MHz" radio has no driver mode of its own, so its clients say EHT320 and
+// the radio's width is the ceiling.
+func TestNegotiatedWidthIsTheClientsNotTheRadios(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    string
+		chwidth int
+		radio   int
+		want    int
+	}{
+		{"HE160 phone on a 320 radio", "IEEE80211_MODE_11AXA_HE160", 3, 320, 160},
+		{"EHT320 laptop on a 320 radio", "IEEE80211_MODE_11BEA_EHT320", 5, 320, 320},
+		{"EHT160 Wi-Fi 7 phone on a 320 radio", "IEEE80211_MODE_11BEA_EHT160", 3, 320, 160},
+		{"80 MHz tablet on a 160 radio, slow tier only", "", 2, 160, 80},
+		{"40 MHz stick on a 160 radio, slow tier only", "", 1, 160, 40},
+		{"HT40PLUS on 2.4", "IEEE80211_MODE_11NG_HT40PLUS", 1, 40, 40},
+		{"legacy 11g client, slow tier says 20", "IEEE80211_MODE_11G", 0, 20, 20},
+		{"EHT320 client on a 240 radio is capped", "IEEE80211_MODE_11BEA_EHT320", 5, 240, 240},
+		{"mode wins over a disagreeing index", "IEEE80211_MODE_11AXA_HE80", 3, 160, 80},
+		{"nothing known falls back to the radio", "", -1, 160, 160},
+		{"80+80 index is unknown, mode decides", "IEEE80211_MODE_11AXA_HE80_80", 4, 160, 160},
+	}
+	for _, c := range cases {
+		if got := negotiatedWidth(c.mode, c.chwidth, c.radio); got != c.want {
+			t.Errorf("%s: negotiatedWidth(%q, %d, %d) = %d, want %d", c.name, c.mode, c.chwidth, c.radio, got, c.want)
+		}
 	}
 }
 

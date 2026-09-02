@@ -1,7 +1,9 @@
 package main
 
 import (
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -523,6 +525,7 @@ func (t *Table) Clients(now time.Time) []Client {
 
 		clientKey := m.MAC
 		record := &Client{FirstSeenAt: m.FirstSeen, LastSeenAt: m.LastSeen}
+		chwidth := -1
 
 		if f, ok := t.fast[key]; ok {
 			applyFastToLink(&link, f)
@@ -530,6 +533,7 @@ func (t *Table) Clients(now time.Time) []Client {
 		}
 		if s, ok := t.slow[key]; ok {
 			applySlowToLink(&link, s)
+			chwidth = s.ChWidth
 			clientKey = clientKeyFor(s)
 			record.Sources.Slow = true
 			record.MldMAC = ptrString(s.MldMAC)
@@ -545,6 +549,8 @@ func (t *Table) Clients(now time.Time) []Client {
 				Is11r: s.Is11r, IsMlo: s.IsMlo, Nss: s.Nss, BwMaxSupp: s.BwMaxSupp,
 			}
 		}
+		link.Bandwidth = negotiatedWidth(link.Mode, chwidth, link.Bandwidth)
+
 		// Counters are always dated by when they were actually read, whichever tier supplied
 		// them. Leaving the identity poll's copy undated made the server date counters up to a
 		// whole slow interval old as if they were current, so the delta was divided by the wrong
@@ -660,6 +666,60 @@ func applySlowToLink(link *ClientLink, s StaSlow) {
 	link.HasIdentity = s.Hostname != "" || s.IP != ""
 	at := s.SnapshotAt
 	link.SlowAt = &at
+}
+
+// negotiatedWidth is the width the client is actually using, never the radio's. The VAP's bw is
+// the radio's operating width, and serving it per station showed a 160 MHz phone as 320. The
+// fast tier's phy-mode suffix is preferred (1 Hz, and it names the width outright), then the slow
+// tier's width index; the radio's width is the fallback and the ceiling. The ceiling is what gets a
+// UniFi "240 MHz" radio right: the driver has no 240 mode, so a client on one reports EHT320.
+func negotiatedWidth(mode string, chwidth int, radioWidth int) int {
+	w := widthFromMode(mode)
+	if w == 0 {
+		w = widthFromIndex(chwidth)
+	}
+	if w == 0 {
+		return radioWidth
+	}
+	if radioWidth > 0 && w > radioWidth {
+		return radioWidth
+	}
+	return w
+}
+
+// modeWidthRe matches the width at the end of a driver phy-mode token: HT40PLUS, VHT80_80,
+// HE160, EHT320. A legacy token (11A, 11B, 11G) has no width and yields 0.
+var modeWidthRe = regexp.MustCompile(`(20|40|80|160|320)(_80)?(?:PLUS|MINUS)?$`)
+
+func widthFromMode(mode string) int {
+	m := modeWidthRe.FindStringSubmatch(strings.ToUpper(strings.TrimSpace(mode)))
+	if m == nil {
+		return 0
+	}
+	w, _ := strconv.Atoi(m[1])
+	if m[2] != "" {
+		return 160 // 80+80 is two 80 MHz segments
+	}
+	return w
+}
+
+// widthFromIndex decodes sta_table's chwidth, the Qualcomm width enum, to MHz. Measured against
+// live clients and their rate ceilings: 0=20, 1=40, 2=80, 3=160, 5=320. Index 4 is 80+80, which
+// no EHT radio runs; it and anything unknown yield 0 so the caller falls back.
+func widthFromIndex(idx int) int {
+	switch idx {
+	case 0:
+		return 20
+	case 1:
+		return 40
+	case 2:
+		return 80
+	case 3:
+		return 160
+	case 5:
+		return 320
+	}
+	return 0
 }
 
 func sortLinks(links []ClientLink) {
