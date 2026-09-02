@@ -112,10 +112,13 @@ public record RememberedNeighborSighting(
 /// <param name="Day">UTC day, used for the distinct-day evidence floor</param>
 /// <param name="WindowCount">Active windows in this bucket</param>
 /// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those windows</param>
+/// <param name="NormalizedTxRateMbps">The same rate per spatial stream per 20 MHz, where every
+/// window carried the client's stream count; null for console-sourced windows</param>
 public record ClientRateSample(
     int Channel,
     int WidthMhz,
     int SignalBandDbm,
     DateTime Day,
     int WindowCount,
-    double MeanTxRateMbps);
+    double MeanTxRateMbps,
+    double? NormalizedTxRateMbps = null);

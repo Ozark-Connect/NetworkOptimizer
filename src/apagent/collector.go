@@ -97,7 +97,7 @@ func NewCollector(cfg *Config, table *Table, ring *EventRing) *Collector {
 	c.events = NewEventSource(cfg.HostapdDir, ring, table.ApplyEvent)
 	// stahtd's association quality and hostapd's UBNT_ROAM peer gossip only reach syslog, never
 	// the control socket, so the roam phase timing and auth_rssi need this second source.
-	c.syslog = NewSyslogSource(cfg.SyslogPath, ring)
+	c.syslog = NewSyslogSource(cfg.SyslogPath, ring, table.ApplyEvent)
 	c.fast.interval = time.Duration(cfg.FastIntervalMs) * time.Millisecond
 	c.slow.interval = time.Duration(cfg.SlowIntervalSeconds) * time.Second
 	c.bytes.interval = time.Duration(cfg.BytesIntervalSeconds) * time.Second

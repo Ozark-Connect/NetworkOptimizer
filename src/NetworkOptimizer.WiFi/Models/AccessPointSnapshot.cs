@@ -28,6 +28,15 @@ public class AccessPointSnapshot
     /// <summary>Total connected clients across all radios</summary>
     public int TotalClients { get; set; }
 
+    /// <summary>
+    /// Clients the AP Agent holds right now: exact and seconds old, where the console's count lags
+    /// its report interval and keeps a client the agent saw leave. Null on an AP no agent covers.
+    /// </summary>
+    public int? MeasuredClientCount { get; set; }
+
+    /// <summary>The measured count where there is one, the console's otherwise.</summary>
+    public int EffectiveClientCount => MeasuredClientCount ?? TotalClients;
+
     /// <summary>Per-radio details</summary>
     public List<RadioSnapshot> Radios { get; set; } = new();
 

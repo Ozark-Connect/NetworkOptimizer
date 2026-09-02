@@ -80,8 +80,12 @@ public static class ClientOutcomeHelper
         }
         if (currentChannel == candidateChannel) return 1.0;
 
-        var current = Summarize(samples, currentChannel);
-        var candidate = Summarize(samples, candidateChannel);
+        // A channel looks slow when its clients are 1x1 phones. Where every window on this radio
+        // carries the client's stream count, the rate per stream per 20 MHz is compared instead;
+        // one console-sourced window and the raw rate stands for all, so the two are never mixed.
+        var normalized = samples.All(s => s.NormalizedTxRateMbps.HasValue);
+        var current = Summarize(samples, currentChannel, normalized);
+        var candidate = Summarize(samples, candidateChannel, normalized);
         if (current == null || candidate == null)
         {
             reason = current == null
@@ -159,7 +163,7 @@ public static class ClientOutcomeHelper
         public int DistinctDays { get; set; }
     }
 
-    private static ChannelSummary? Summarize(IReadOnlyList<ClientRateSample> samples, int channel)
+    private static ChannelSummary? Summarize(IReadOnlyList<ClientRateSample> samples, int channel, bool normalized)
     {
         var rows = samples.Where(s => s.Channel == channel && s.WindowCount > 0).ToList();
         if (rows.Count == 0) return null;
@@ -173,7 +177,7 @@ public static class ClientOutcomeHelper
         {
             var n = group.Sum(r => r.WindowCount);
             if (n <= 0) continue;
-            var mean = group.Sum(r => r.MeanTxRateMbps * r.WindowCount) / n;
+            var mean = group.Sum(r => (normalized ? r.NormalizedTxRateMbps!.Value : r.MeanTxRateMbps) * r.WindowCount) / n;
             summary.ByBand[group.Key] = (n, mean);
         }
 

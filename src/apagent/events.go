@@ -26,6 +26,9 @@ const (
 	// mca-dump pass. UniFi Network logs nothing for a move Channel AI makes, so this is how the
 	// server learns of one at the time it happens rather than hours later.
 	EventChannelChange = "channel_change"
+	// EventBtmResponse is a client answering a BSS transition request, whoever sent it: the
+	// server's roam, or UniFi's own Roaming Assistant. Detail carries the status code; 0 accepted.
+	EventBtmResponse = "btm_response"
 )
 
 // ChannelChange is the before and after of a radio move. Centers are 0 when unknown at the
@@ -195,6 +198,15 @@ func parseHostapdEvent(vap, line string, now time.Time) (Event, bool) {
 		e.Type = EventAssoc
 	case strings.HasPrefix(msg, "AP-STA-DISCONNECTED"):
 		e.Type = EventDisassoc
+	case strings.HasPrefix(msg, "BSS-TM-RESP"):
+		// "BSS-TM-RESP <sta> status_code=<n> bss_termination_delay=<n> target_bssid=<mac>"
+		if len(fields) < 2 || !isMAC(fields[1]) {
+			return Event{}, false
+		}
+		e.Type = EventBtmResponse
+		e.MAC = normalizeMAC(fields[1])
+		e.Detail = valueAfter(fields, "status_code=")
+		return e, true
 	case strings.Contains(msg, "UBNT_ROAM received"):
 		// Cross-AP gossip: this AP is told a client moved to a peer, including clients it never held.
 		e.Type = EventRoamToPeer

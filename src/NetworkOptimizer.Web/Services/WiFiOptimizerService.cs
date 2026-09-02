@@ -572,6 +572,13 @@ public class WiFiOptimizerService : IWiFiScanService
         List<WlanConfiguration> wlans,
         List<AuditNetworkInfo> networks)
     {
+        // Covered APs and their clients carry what only the agent measures about an association;
+        // on a console-only site every one of those fields stays null.
+        var collector = _apAgentTelemetry.GetFor(_siteSlug);
+        var enriched = ApAgent.ApAgentClientEnricher.Apply(aps, clients, collector.ClientFacts, collector.ClientHourStats, collector.MeasuredClientCount);
+        if (enriched > 0)
+            _logger.LogDebug("[ClientEvidence] {Count} client(s) carry AP Agent association facts (site {Site})", enriched, _siteSlug);
+
         // Determine which APs have which bands available
         var has5gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
         var has6gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz && r.Channel.HasValue));
@@ -1047,7 +1054,7 @@ public class WiFiOptimizerService : IWiFiScanService
                 if (!byAp.TryGetValue(mac, out var list))
                     byAp[mac] = list = new List<ClientRateSample>();
                 list.Add(new ClientRateSample(
-                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps));
+                    row.Channel, row.WidthMhz, row.SignalBandDbm, row.Day, row.WindowCount, row.MeanTxRateMbps, row.NormalizedTxRateMbps));
             }
 
             foreach (var (band, byAp) in byBand)

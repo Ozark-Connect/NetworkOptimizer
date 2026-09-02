@@ -50,7 +50,7 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
         // per-AP wireless counts, so identical APs still scored: two APs of 6 against 24 site
         // clients gave a mean of 12, a deviation of 6 each, and exactly the 50% threshold, then
         // reported one AP as overloaded against another with the same count.
-        var clientCounts = ctx.AccessPoints.Select(ap => (double)ap.TotalClients).ToList();
+        var clientCounts = ctx.AccessPoints.Select(ap => (double)ap.EffectiveClientCount).ToList();
         var avgClientsPerAp = clientCounts.Average();
 
         if (avgClientsPerAp <= 0)
@@ -65,8 +65,8 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
 
         // Stable tie-breaking: when multiple APs have the same client count, use MAC to
         // guarantee maxAp and minAp are different APs (opposite MAC sort direction).
-        var maxAp = ctx.AccessPoints.OrderByDescending(a => a.TotalClients).ThenBy(a => a.Mac).First();
-        var minAp = ctx.AccessPoints.OrderBy(a => a.TotalClients).ThenByDescending(a => a.Mac).First();
+        var maxAp = ctx.AccessPoints.OrderByDescending(a => a.EffectiveClientCount).ThenBy(a => a.Mac).First();
+        var minAp = ctx.AccessPoints.OrderBy(a => a.EffectiveClientCount).ThenByDescending(a => a.Mac).First();
 
         // Safety: if they resolved to the same AP (e.g., single AP after filtering), bail
         if (maxAp.Mac.Equals(minAp.Mac, StringComparison.OrdinalIgnoreCase))
@@ -75,8 +75,8 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
         // A relative measure alone fires on counts too small to mean anything. Both floors are
         // absolute so the claim the issue makes - one AP is carrying too much - has to be true in
         // clients, not just in ratio.
-        if (maxAp.TotalClients < MinClientsOnBusiestAp
-            || maxAp.TotalClients - minAp.TotalClients < MinClientGap)
+        if (maxAp.EffectiveClientCount < MinClientsOnBusiestAp
+            || maxAp.EffectiveClientCount - minAp.EffectiveClientCount < MinClientGap)
             return null;
 
         // RF distance check: if both APs are placed on the floor plan, use propagation
@@ -148,10 +148,10 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         Title = "Significant Load Imbalance",
                         Class = HealthIssueClass.Measured,
                         Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
-                        Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
+                        Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} has only {minAp.EffectiveClientCount}. " +
                             $"These APs are in separate coverage zones so some imbalance is expected, " +
                             $"but some clients on {maxAp.Name} have weak signal.",
-                        AffectedEntity = $"{maxAp.Name} ({maxAp.TotalClients}), {minAp.Name} ({minAp.TotalClients})",
+                        AffectedEntity = $"{maxAp.Name} ({maxAp.EffectiveClientCount}), {minAp.Name} ({minAp.EffectiveClientCount})",
                         Recommendation = "Check if weak-signal clients on the busy AP could benefit from additional coverage in that zone.",
                         ScoreImpact = -2
                     };
@@ -172,9 +172,9 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
             Title = "Significant Load Imbalance",
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
-            Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
+            Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} has only {minAp.EffectiveClientCount}. " +
                 $"This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
-            AffectedEntity = $"{maxAp.Name} ({maxAp.TotalClients}), {minAp.Name} ({minAp.TotalClients})",
+            AffectedEntity = $"{maxAp.Name} ({maxAp.EffectiveClientCount}), {minAp.Name} ({minAp.EffectiveClientCount})",
             Recommendation = recommendation,
             ScoreImpact = -8
         };

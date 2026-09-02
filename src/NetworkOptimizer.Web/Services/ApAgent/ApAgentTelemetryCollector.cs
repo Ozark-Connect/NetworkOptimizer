@@ -84,9 +84,24 @@ public sealed class ApAgentTelemetryCollector
     };
 
     private readonly ApAgentNoiseFloorHistory _noiseFloors = new();
+    private readonly ApAgentClientEvidence _evidence = new();
 
     /// <summary>The median noise floor over the last hour for one radio, or null until an hour's worth exists.</summary>
     public int? NoiseFloorHourMedian(string apMac, string radio) => _noiseFloors.HourMedian(apMac, radio, DateTime.UtcNow);
+
+    /// <summary>The per-association facts for the clients one access point last sampled.</summary>
+    public IReadOnlyList<ApAgentClientFacts> ClientFacts(string apMac) => _evidence.Latest(apMac, DateTime.UtcNow);
+
+    /// <summary>The last hour's latency median and stall delta for one client on one access point.</summary>
+    public (double? MedianLatencyMs, int? Stalls) ClientHourStats(string apMac, string clientMac) =>
+        _evidence.HourStats(apMac, clientMac, DateTime.UtcNow);
+
+    /// <summary>The clients an access point holds right now per its agent; null when no agent covers it.</summary>
+    public int? MeasuredClientCount(string apMac)
+    {
+        var now = DateTime.UtcNow;
+        return _coverage.Covers(apMac, now) ? _membership.MemberCount(apMac, now) : null;
+    }
 
     private readonly ApAgentTargetDirectory _directory;
     private readonly ApAgentTelemetryClient _telemetry;
@@ -385,6 +400,7 @@ public sealed class ApAgentTelemetryCollector
         _lastWriteAt = now;
 
         PrunePassBytes(now);
+        _evidence.Prune(now);
 
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
         foreach (var target in targets)
@@ -470,6 +486,7 @@ public sealed class ApAgentTelemetryCollector
                     if (_membership.IsClaimSuperseded(target.Mac, sample.ClientMac)) continue;
 
                     accumulator.Add(sample, now);
+                    _evidence.Record(sample, now);
 
                     // Every pass, not every write window: the cache is what Live View, the maps and
                     // a speed test trace read, and they should see 10 s old readings rather than 30.

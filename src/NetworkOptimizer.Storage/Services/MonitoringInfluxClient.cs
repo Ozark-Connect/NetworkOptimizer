@@ -3270,6 +3270,12 @@ from(bucket: ""{_longtermBucket}"")
         public DateTime Day { get; init; }
         public int WindowCount { get; init; }
         public double MeanTxRateMbps { get; init; }
+
+        /// <summary>
+        /// Mean rate per spatial stream per 20 MHz, set only when EVERY window in the bucket carried
+        /// the client's stream count (the AP Agent path writes it; the console's does not).
+        /// </summary>
+        public double? NormalizedTxRateMbps { get; init; }
     }
 
     /// <summary>
@@ -3315,7 +3321,7 @@ import ""math""
 means = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"")
+  |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"" or r._field == ""nss"")
   |> aggregateWindow(every: {ClientRateWindowEvery}, fn: mean, createEmpty: false)
 
 chan = from(bucket: ""{_bucket}"")
@@ -3336,11 +3342,13 @@ union(tables: [means, chan])
       channel: int(v: r.channel),
       width: int(v: r.channel_width),
       signal_band: {SignalBandStepDb} * int(v: math.floor(x: r.signal_dbm / {SignalBandStepDb}.0)),
-      tx_rate_mbps: r.tx_rate_kbps / 1000.0
+      tx_rate_mbps: r.tx_rate_kbps / 1000.0,
+      normalized: if exists r.nss and r.nss >= 0.5 then 1 else 0,
+      norm_rate_mbps: if exists r.nss and r.nss >= 0.5 then (r.tx_rate_kbps / 1000.0) / (math.round(x: r.nss) * (r.channel_width / 20.0)) else 0.0
   }}))
   |> group(columns: [""device_mac"", ""band"", ""channel"", ""width"", ""signal_band"", ""day""])
-  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps}}), identity: {{n: 0, sum: 0.0}})
-  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n)}}))
+  |> reduce(fn: (r, accumulator) => ({{n: accumulator.n + 1, sum: accumulator.sum + r.tx_rate_mbps, norm_n: accumulator.norm_n + r.normalized, norm_sum: accumulator.norm_sum + r.norm_rate_mbps}}), identity: {{n: 0, sum: 0.0, norm_n: 0, norm_sum: 0.0}})
+  |> map(fn: (r) => ({{device_mac: r.device_mac, band: r.band, channel: r.channel, width: r.width, signal_band: r.signal_band, day: r.day, n: r.n, mean_tx_rate_mbps: r.sum / float(v: r.n), norm_n: r.norm_n, mean_norm_rate_mbps: if r.norm_n > 0 then r.norm_sum / float(v: r.norm_n) else 0.0}}))
   |> group()";
 
         var results = new List<ClientChannelRatePoint>();
@@ -3350,6 +3358,7 @@ union(tables: [means, chan])
             if (windows <= 0) continue;
             DateTime.TryParse(record.GetValueByKey("day") as string, null,
                 System.Globalization.DateTimeStyles.AdjustToUniversal, out var day);
+            var normalizedWindows = (int)(AsDoubleOrNull(record.GetValueByKey("norm_n")) ?? 0);
             results.Add(new ClientChannelRatePoint
             {
                 ApMac = record.GetValueByKey("device_mac") as string,
@@ -3360,6 +3369,9 @@ union(tables: [means, chan])
                 Day = day,
                 WindowCount = windows,
                 MeanTxRateMbps = AsDoubleOrNull(record.GetValueByKey("mean_tx_rate_mbps")) ?? 0,
+                NormalizedTxRateMbps = normalizedWindows == windows
+                    ? AsDoubleOrNull(record.GetValueByKey("mean_norm_rate_mbps"))
+                    : null,
             });
         }
         return results;

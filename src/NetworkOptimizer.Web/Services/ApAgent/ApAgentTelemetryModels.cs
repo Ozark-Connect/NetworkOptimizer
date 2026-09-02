@@ -421,6 +421,22 @@ public sealed class ApAgentClientLink
     [JsonPropertyName("bytes_at")]
     public DateTime? BytesAt { get; set; }
 
+    /// <summary>Seconds since this link associated, from the AP's station table.</summary>
+    [JsonPropertyName("assoc_seconds")]
+    public int AssocSeconds { get; set; }
+
+    /// <summary>Signal at authentication in dBm, from stahtd. Null when the association predates the agent.</summary>
+    [JsonPropertyName("join_rssi")]
+    public int? JoinRssi { get; set; }
+
+    /// <summary>BSS transition requests this association answered, whoever sent them.</summary>
+    [JsonPropertyName("btm_requests")]
+    public int BtmRequests { get; set; }
+
+    /// <summary>Of <see cref="BtmRequests"/>, answers that accepted the transition.</summary>
+    [JsonPropertyName("btm_accepted")]
+    public int BtmAccepted { get; set; }
+
     /// <summary>Cumulative transmit retries.</summary>
     [JsonPropertyName("tx_retries")]
     public long TxRetries { get; set; }
