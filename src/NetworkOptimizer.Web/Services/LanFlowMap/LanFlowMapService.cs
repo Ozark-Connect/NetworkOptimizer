@@ -2606,7 +2606,12 @@ public class LanFlowMapService
         foreach (var m in maps)
         {
             if (!m.PortNumber.HasValue) continue;
-            dict[(NormalizeMac(m.DeviceMac), m.PortNumber.Value)] = m;
+            // A port can hold several rows - the label, and the raw name a failed alias walk once
+            // wrote. The active collector refreshes its row every metadata pass, so the freshest
+            // one is the name the series are being written under now.
+            var key = (NormalizeMac(m.DeviceMac), m.PortNumber.Value);
+            if (!dict.TryGetValue(key, out var current) || m.LastUpdated > current.LastUpdated)
+                dict[key] = m;
         }
         return dict;
     }

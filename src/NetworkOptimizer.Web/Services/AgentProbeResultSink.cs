@@ -1226,7 +1226,7 @@ public class AgentProbeResultSink
             // tier does, so the site's Live View port table and map refresh
             // from memory.
             if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue)
-                liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp);
+                liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp, sample.PortId);
 
             // Feed the shared fabric aggregator, mirroring the fast tier: SNMP
             // per-interface rate -> port_table PortIdx (the primary port rate), fabric-sum

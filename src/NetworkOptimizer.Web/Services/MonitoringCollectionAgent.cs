@@ -2162,7 +2162,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // (UniFi PortTable lags ~30s).
             // Direction: rateOutBps = port TX = data toward the leaf (DownBps in
             // cache convention); rateInBps = port RX = data from the leaf (UpBps).
-            _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+            _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now, iface.PortId);
         }
 
         // A read the calculator does not trust is not stored either: one zero or corrupt sample in

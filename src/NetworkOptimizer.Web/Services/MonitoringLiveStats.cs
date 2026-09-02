@@ -196,7 +196,13 @@ public class MonitoringLiveStats
     // leaf), UpBps = port RX (data arriving on this port from the leaf).
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), PortLiveRate> _portRates = new();
 
-    public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp)
+    /// <summary>
+    /// Stores the rate under <paramref name="ifName"/> and, when it differs, under the raw
+    /// <paramref name="portId"/> as well. The server poller names a UniFi switch port by its
+    /// label and the agent relay by its raw name, and a link's PortKey holds whichever planted
+    /// its name-map row last - so a lookup by either name has to land on the same rate.
+    /// </summary>
+    public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp, string? portId = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return;
         var key = (Normalize(deviceMac), ifName);
@@ -226,6 +232,9 @@ public class MonitoringLiveStats
             };
         }
         _portRates[key] = stored;
+        // The alias key only - a second row series would show the port twice in Live View.
+        if (!string.IsNullOrEmpty(portId) && !string.Equals(portId, ifName, StringComparison.OrdinalIgnoreCase))
+            _portRates[(key.Item1, portId)] = stored;
         AppendRowRate(PortRowKey(deviceMac, ifName), stored.DownBps, stored.UpBps, timestamp);
     }
 

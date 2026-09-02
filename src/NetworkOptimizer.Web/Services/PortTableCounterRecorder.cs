@@ -103,10 +103,10 @@ public static class PortTableCounterRecorder
 
                 // The console refreshes these counters about every 30 s, so most passes hold the
                 // baseline and carry no rate; the live rate stands until the next change.
-                if (calc.RateInBps is { } rateIn && calc.RateOutBps is { } rateOut)
-                    liveStats.RecordPortRate(mac, ifName, rateOut, rateIn, now);
-
                 var portId = port.IfName ?? port.PortIdx.ToString();
+                if (calc.RateInBps is { } rateIn && calc.RateOutBps is { } rateOut)
+                    liveStats.RecordPortRate(mac, ifName, rateOut, rateIn, now, portId);
+
                 var operStatus = port.Up ? 1 : 2;
                 liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
                 {
