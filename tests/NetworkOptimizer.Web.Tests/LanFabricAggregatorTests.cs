@@ -154,4 +154,94 @@ public class LanFabricAggregatorTests
         stats.RateInBps.Should().Be(50, "the SNMP (vwiresta) aggregate wins for a healthy mesh child too");
         stats.RateOutBps.Should().Be(75);
     }
+
+    // ---- Building Bridge pairs ----
+    // One unit is listed and wired to a switch; the other is nested in its peer_ubb, uplinked
+    // wirelessly to the listed one, and is the unit the far building's switch hangs off.
+
+    private const string BridgeWiredMac = "aa:bb:cc:00:00:10";
+    private const string BridgeWirelessMac = "aa:bb:cc:00:00:20";
+
+    private static UniFiDeviceResponse BridgePair(long peerTxBytes, long peerRxBytes) => new()
+    {
+        Mac = BridgeWiredMac,
+        Type = "ubb",
+        Model = "UBB",
+        Uplink = new UplinkInfo { UplinkMac = SwitchMac, Type = "wire", UplinkRemotePort = 17 },
+        PeerUbb = new UniFiDeviceResponse
+        {
+            Mac = BridgeWirelessMac,
+            Type = "ubb",
+            Model = "UBB",
+            Uplink = new UplinkInfo
+            {
+                UplinkMac = BridgeWiredMac,
+                Type = "wireless",
+                TxBytes = peerTxBytes,
+                RxBytes = peerRxBytes,
+            },
+        },
+    };
+
+    [Fact]
+    public void WiredBridgeUnit_AggregateComesFromParentPort()
+    {
+        var fabric = new LanFabricAggregator();
+        var liveStats = NewLiveStats();
+        fabric.SetSnmpPortRate(SwitchMac, 17, rateInBps: 111, rateOutBps: 222);
+        var devices = new List<UniFiDeviceResponse> { Switch(SwitchMac, uplinkMac: null), BridgePair(0, 0) };
+
+        fabric.WriteAggregates(devices, liveStats, DateTime.UtcNow);
+
+        var stats = liveStats.GetForDevice(BridgeWiredMac)!;
+        stats.RateInBps.Should().Be(111, "parent port RX = the unit's uploads = RateInBps");
+        stats.RateOutBps.Should().Be(222);
+    }
+
+    [Fact]
+    public void WirelessBridgeUnit_AggregateComesFromItsUplinkCounters_RateInIsUploads()
+    {
+        // The nested unit is on no device list; its uplink counters are the only account of the
+        // span. Unit perspective: tx = toward the peer = uploads, rx = from it = downloads.
+        var fabric = new LanFabricAggregator();
+        var liveStats = NewLiveStats();
+        var t0 = DateTime.UtcNow;
+        var sw = Switch(SwitchMac, uplinkMac: null);
+
+        fabric.UpdateUnifiPortRates([sw, BridgePair(peerTxBytes: 1_000, peerRxBytes: 5_000)], t0);
+        fabric.UpdateUnifiPortRates([sw, BridgePair(peerTxBytes: 2_000, peerRxBytes: 9_000)], t0.AddSeconds(10));
+        fabric.WriteAggregates([sw, BridgePair(peerTxBytes: 2_000, peerRxBytes: 9_000)], liveStats, t0.AddSeconds(10));
+
+        var stats = liveStats.GetForDevice(BridgeWirelessMac)!;
+        stats.RateInBps.Should().Be(800, "1000 bytes sent in 10 s = 800 bps of uploads into RateInBps");
+        stats.RateOutBps.Should().Be(3200, "4000 bytes received in 10 s = 3200 bps of downloads into RateOutBps");
+    }
+
+    [Fact]
+    public void WirelessBridgeUnit_UnchangedCountersKeepTheLastRate()
+    {
+        // The console refreshes the block ~30 s; a repeated sample must not read as a zero rate.
+        var fabric = new LanFabricAggregator();
+        var t0 = DateTime.UtcNow;
+        var sw = Switch(SwitchMac, uplinkMac: null);
+
+        fabric.UpdateUnifiPortRates([sw, BridgePair(1_000, 5_000)], t0);
+        fabric.UpdateUnifiPortRates([sw, BridgePair(2_000, 9_000)], t0.AddSeconds(10));
+        fabric.UpdateUnifiPortRates([sw, BridgePair(2_000, 9_000)], t0.AddSeconds(15));
+
+        fabric.UplinkRate(BridgeWirelessMac).Should().Be((3200d, 800d));
+    }
+
+    [Fact]
+    public void WirelessBridgeUnit_HasNoAggregateBeforeASecondSample()
+    {
+        var fabric = new LanFabricAggregator();
+        var liveStats = NewLiveStats();
+        var devices = new List<UniFiDeviceResponse> { Switch(SwitchMac, uplinkMac: null), BridgePair(1_000, 5_000) };
+
+        fabric.UpdateUnifiPortRates(devices, DateTime.UtcNow);
+        fabric.WriteAggregates(devices, liveStats, DateTime.UtcNow);
+
+        liveStats.GetForDevice(BridgeWirelessMac).Should().BeNull();
+    }
 }

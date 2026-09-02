@@ -215,6 +215,24 @@ public class UniFiDeviceResponse
     public List<DownlinkTableEntry>? DownlinkTable { get; set; }
 
     /// <summary>
+    /// The wireless links this device holds as a station, one entry per radio, the device's own
+    /// perspective (tx toward the far end). A Building Bridge runs a 60 GHz link with a 5 GHz
+    /// fallback and its uplink block can describe the fallback while the 60 GHz link carries the
+    /// traffic; the entry flagged active is the live one.
+    /// </summary>
+    [JsonPropertyName("active_sta_table")]
+    public List<DownlinkTableEntry>? ActiveStaTable { get; set; }
+
+    /// <summary>
+    /// The other unit of a UniFi Building Bridge pair. The console lists one unit of a pair as a
+    /// device and nests the other here, so this is the only place the second unit exists. It has
+    /// a device's shape: its own uplink (the listed unit, or the switch it is wired to), and the
+    /// far building's switch names it as ITS uplink. Null on every other device.
+    /// </summary>
+    [JsonPropertyName("peer_ubb")]
+    public UniFiDeviceResponse? PeerUbb { get; set; }
+
+    /// <summary>
     /// Device satisfaction score (0-100). Higher is better.
     /// Represents overall Wi-Fi experience quality.
     /// </summary>
@@ -796,6 +814,16 @@ public class UplinkInfo
     /// </summary>
     [JsonPropertyName("noise")]
     public int? Noise { get; set; }
+
+    /// <summary>Cumulative bytes this device has sent over its uplink, toward the parent.</summary>
+    [JsonPropertyName("tx_bytes")]
+    [JsonConverter(typeof(FlexibleLongConverter))]
+    public long TxBytes { get; set; }
+
+    /// <summary>Cumulative bytes this device has received over its uplink, from the parent.</summary>
+    [JsonPropertyName("rx_bytes")]
+    [JsonConverter(typeof(FlexibleLongConverter))]
+    public long RxBytes { get; set; }
 
     /// <summary>
     /// Per-link detail of an MLO mesh backhaul, the child's own account: every link, with the
@@ -1671,6 +1699,14 @@ public class DownlinkTableEntry
     [JsonPropertyName("is_mlo")]
     [JsonConverter(typeof(FlexibleNullableBoolConverter))]
     public bool? IsMlo { get; set; }
+
+    /// <summary>
+    /// Whether this link carries traffic right now. A Building Bridge lists its 60 GHz link and
+    /// its 5 GHz fallback side by side; only one is active.
+    /// </summary>
+    [JsonPropertyName("active")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? Active { get; set; }
 
     /// <summary>Signal strength as seen by the parent AP (dBm)</summary>
     [JsonPropertyName("signal")]

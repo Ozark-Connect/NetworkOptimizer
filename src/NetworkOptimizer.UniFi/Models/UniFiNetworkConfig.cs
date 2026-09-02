@@ -103,6 +103,28 @@ public class FlexibleIntConverter : JsonConverter<int?>
 }
 
 /// <summary>
+/// Tolerant parser for 64-bit counters (byte and packet totals) that may arrive as a number, a
+/// stringified number, a float, or nothing. Mirrors FlexibleIntConverter; a value that cannot be
+/// read is 0, which the byte-delta readers treat as "no sample" rather than as a reset.
+/// </summary>
+public class FlexibleLongConverter : JsonConverter<long>
+{
+    public override long Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.Number when reader.TryGetInt64(out var l) => l,
+            JsonTokenType.Number => (long)reader.GetDouble(),
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) => value,
+            _ => 0,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options)
+        => writer.WriteNumberValue(value);
+}
+
+/// <summary>
 /// Tolerant nullable-double parser for UniFi API fields that may arrive as a number, a
 /// stringified number, or an empty string. Mirrors FlexibleIntConverter but for floating
 /// point. SFP DDM values (rxpower, current, temperature, voltage) are the primary case;

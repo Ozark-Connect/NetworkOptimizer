@@ -64,75 +64,9 @@ public class UniFiDiscovery
             devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()),
             StringComparer.OrdinalIgnoreCase);
 
-        var discoveredDevices = devices.Select(d =>
-        {
-            var hardwareType = d.DeviceType;
-            var effectiveType = DetermineDeviceType(d, allDeviceMacs, _logger);
-
-            return new DiscoveredDevice
-            {
-                Id = d.Id,
-                Mac = d.Mac,
-                Name = d.Name,
-                Type = effectiveType,
-                HardwareType = hardwareType,
-                Model = d.Model,
-                Shortname = d.Shortname,
-                IpAddress = d.Ip,
-                // Set LAN IP for gateways from network config
-                LanIpAddress = effectiveType.IsGateway() ? defaultLanGatewayIp : null,
-                Firmware = d.DisplayableVersion ?? d.Version,
-                Adopted = d.Adopted,
-                State = d.State,
-                Uptime = TimeSpan.FromSeconds(d.Uptime),
-                LastSeen = DateTimeOffset.FromUnixTimeSeconds(d.LastSeen).DateTime,
-                Upgradable = d.Upgradable,
-                UpgradeToFirmware = d.UpgradeToFirmware,
-                SuricataVersion = d.SuricataVersion,
-                SupportedSuricataVersion = d.SupportedSuricataVersion,
-                SuricataUpgradePendingTarget = d.SuricataUpgradePendingTarget,
-                UplinkMac = d.Uplink?.UplinkMac,
-                UplinkPort = d.Uplink?.UplinkRemotePort,
-                LocalUplinkPort = d.Uplink?.PortIdx,
-                IsUplinkConnected = d.Uplink?.Up ?? false,
-                // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
-                UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
-                    ? (int)(d.Uplink.TxRate / 1000)
-                    : d.Uplink?.Speed ?? 0,
-                // Wireless uplink rates in Kbps
-                UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
-                UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
-                UplinkType = d.Uplink?.Type,
-                UplinkIsMlo = d.Uplink?.IsMlo == true || (d.Uplink?.MloLinks?.Count ?? 0) > 1,
-                UplinkMloLinks = BuildSelfReportedMloLinks(d),
-                // Active uplink interface name. For a wireless mesh child this is the
-                // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
-                // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
-                // treating it as a mesh backhaul interface.
-                UplinkInterface = d.Uplink?.Name,
-                UplinkRadioBand = d.Uplink?.RadioBand,
-                UplinkChannel = d.Uplink?.Channel,
-                UplinkSignalDbm = d.Uplink?.Signal,
-                UplinkNoiseDbm = d.Uplink?.Noise,
-                CpuUsage = d.SystemStats?.Cpu,
-                MemoryUsage = d.SystemStats?.Mem,
-                LoadAverage = d.SystemStats?.LoadAvg1?.ToString("F2"),
-                TxBytes = d.Stats?.TxBytes ?? 0,
-                RxBytes = d.Stats?.RxBytes ?? 0,
-                PortCount = d.PortTable?.Count ?? 0,
-                WanInterfaceNames = GetWanInterfaceNames(d),
-                // Wi-Fi specific (APs only)
-                RadioTable = d.RadioTable,
-                RadioTableStats = d.RadioTableStats,
-                AntennaTable = d.AntennaTable,
-                VapTable = d.VapTable,
-                Satisfaction = d.Satisfaction,
-                ScanRadioTable = d.ScanRadioTable,
-                DownlinkTable = d.DownlinkTable,
-                AfcEnabled = d.AfcEnabled,
-                AfcState = d.AfcState
-            };
-        }).ToList();
+        var discoveredDevices = devices
+            .Select(d => MapDevice(d, DetermineDeviceType(d, allDeviceMacs, _logger), defaultLanGatewayIp))
+            .ToList();
 
         // Log wireless uplink details for debugging
         foreach (var d in devices.Where(d => d.Uplink?.Type == "wireless"))
@@ -143,6 +77,122 @@ public class UniFiDiscovery
 
         return discoveredDevices;
     }
+
+    /// <summary>
+    /// The nested second unit of every UniFi Building Bridge pair in <paramref name="devices"/>.
+    /// The console lists one unit of a pair as a device and tucks the other into its
+    /// <c>peer_ubb</c>, so the far building's whole subtree uplinks to a MAC no device list
+    /// carries. Units that are also listed in their own right are left out.
+    /// </summary>
+    public static List<UniFiDeviceResponse> BuildingBridgePeers(IReadOnlyList<UniFiDeviceResponse> devices)
+    {
+        var listed = new HashSet<string>(
+            devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => NormalizeMac(d.Mac)),
+            StringComparer.OrdinalIgnoreCase);
+        var peers = new List<UniFiDeviceResponse>();
+        foreach (var d in devices)
+        {
+            var peer = d.PeerUbb;
+            if (peer == null || string.IsNullOrEmpty(peer.Mac)) continue;
+            if (!listed.Add(NormalizeMac(peer.Mac))) continue;
+            peers.Add(peer);
+        }
+        return peers;
+    }
+
+    /// <summary>
+    /// A nested Building Bridge unit (<see cref="BuildingBridgePeers"/>) as a device of its own,
+    /// mapped exactly as the listed devices are. A bridge unit is never a gateway, so the
+    /// listed-device type adjustment does not apply.
+    /// </summary>
+    public static DiscoveredDevice MapBuildingBridgePeer(UniFiDeviceResponse peer)
+        => MapDevice(peer, peer.DeviceType, defaultLanGatewayIp: null);
+
+    private static DiscoveredDevice MapDevice(UniFiDeviceResponse d, DeviceType effectiveType, string? defaultLanGatewayIp)
+    {
+        var link = ActiveBridgeLink(d);
+        var txRateKbps = link?.TxRate > 0 ? link.TxRate : d.Uplink?.TxRate ?? 0;
+        var rxRateKbps = link?.RxRate > 0 ? link.RxRate : d.Uplink?.RxRate ?? 0;
+
+        return new DiscoveredDevice
+        {
+            Id = d.Id,
+            Mac = d.Mac,
+            Name = d.Name,
+            Type = effectiveType,
+            HardwareType = d.DeviceType,
+            Model = d.Model,
+            Shortname = d.Shortname,
+            IpAddress = d.Ip,
+            // Set LAN IP for gateways from network config
+            LanIpAddress = effectiveType.IsGateway() ? defaultLanGatewayIp : null,
+            Firmware = d.DisplayableVersion ?? d.Version,
+            Adopted = d.Adopted,
+            State = d.State,
+            Uptime = TimeSpan.FromSeconds(d.Uptime),
+            LastSeen = DateTimeOffset.FromUnixTimeSeconds(d.LastSeen).DateTime,
+            Upgradable = d.Upgradable,
+            UpgradeToFirmware = d.UpgradeToFirmware,
+            SuricataVersion = d.SuricataVersion,
+            SupportedSuricataVersion = d.SupportedSuricataVersion,
+            SuricataUpgradePendingTarget = d.SuricataUpgradePendingTarget,
+            UplinkMac = d.Uplink?.UplinkMac,
+            UplinkPort = d.Uplink?.UplinkRemotePort,
+            LocalUplinkPort = d.Uplink?.PortIdx,
+            IsUplinkConnected = d.Uplink?.Up ?? false,
+            // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
+            UplinkSpeedMbps = d.Uplink?.Type == "wireless" && txRateKbps > 0
+                ? (int)(txRateKbps / 1000)
+                : d.Uplink?.Speed ?? 0,
+            // Wireless uplink rates in Kbps
+            UplinkTxRateKbps = txRateKbps,
+            UplinkRxRateKbps = rxRateKbps,
+            UplinkType = d.Uplink?.Type,
+            UplinkIsMlo = d.Uplink?.IsMlo == true || (d.Uplink?.MloLinks?.Count ?? 0) > 1,
+            UplinkMloLinks = BuildSelfReportedMloLinks(d),
+            // Active uplink interface name. For a wireless mesh child this is the
+            // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
+            // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
+            // treating it as a mesh backhaul interface.
+            UplinkInterface = d.Uplink?.Name,
+            UplinkRadioBand = link?.Radio ?? d.Uplink?.RadioBand,
+            UplinkChannel = link?.Channel ?? d.Uplink?.Channel,
+            UplinkSignalDbm = link?.Signal ?? d.Uplink?.Signal,
+            UplinkNoiseDbm = link?.Noise ?? d.Uplink?.Noise,
+            CpuUsage = d.SystemStats?.Cpu,
+            MemoryUsage = d.SystemStats?.Mem,
+            LoadAverage = d.SystemStats?.LoadAvg1?.ToString("F2"),
+            TxBytes = d.Stats?.TxBytes ?? 0,
+            RxBytes = d.Stats?.RxBytes ?? 0,
+            PortCount = d.PortTable?.Count ?? 0,
+            WanInterfaceNames = GetWanInterfaceNames(d),
+            // Wi-Fi specific (APs only)
+            RadioTable = d.RadioTable,
+            RadioTableStats = d.RadioTableStats,
+            AntennaTable = d.AntennaTable,
+            VapTable = d.VapTable,
+            Satisfaction = d.Satisfaction,
+            ScanRadioTable = d.ScanRadioTable,
+            DownlinkTable = d.DownlinkTable,
+            AfcEnabled = d.AfcEnabled,
+            AfcState = d.AfcState
+        };
+    }
+
+    /// <summary>
+    /// The link a wirelessly-uplinked Building Bridge unit is actually carrying traffic on. Its
+    /// uplink block can describe the 5 GHz fallback radio (flagged inactive) while the 60 GHz
+    /// link is up; active_sta_table lists both and flags the live one. Null for anything else,
+    /// so the uplink block stands as reported.
+    /// </summary>
+    private static DownlinkTableEntry? ActiveBridgeLink(UniFiDeviceResponse d)
+    {
+        if (d.DeviceType != DeviceType.BuildingBridge) return null;
+        if (!string.Equals(d.Uplink?.Type, "wireless", StringComparison.OrdinalIgnoreCase)) return null;
+        return d.ActiveStaTable?.FirstOrDefault(l => l.Active == true);
+    }
+
+    private static string NormalizeMac(string mac) => mac.ToLowerInvariant().Replace('-', ':');
 
     /// <summary>
     /// Mesh parent for each child that does not report one itself, read from the other end.
