@@ -352,7 +352,9 @@
 
     private string ShareTooltip => (_mode, _view) switch
     {
-        (Mode.Throughput, View.Wan) => "Share of the listed clients' WAN traffic",
+        (Mode.Throughput, View.Wan) => _result?.WanMeasured == true
+            ? "Share of the listed clients' WAN traffic, measured on the Gateway"
+            : "Share of the listed clients' WAN traffic",
         (Mode.Throughput, _) => "Share of everything the listed clients are moving",
         (Mode.Data, View.Wan) => "Share of WAN traffic, per UniFi Network",
         _ => "Share of everything through the clients' ports and radios",
