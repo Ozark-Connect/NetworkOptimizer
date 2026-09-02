@@ -1409,6 +1409,8 @@ public class ClientDashboardService
     }
 
     /// <summary>The SNMP interface names behind a console port number, cached per port.</summary>
+    // Every row for the port, deliberately: a port can carry its label and the raw name a failed
+    // alias walk once wrote, and the series sit under both.
     private async Task<List<string>> PortIfNamesAsync(string switchMac, int port)
     {
         var mac = switchMac.ToLowerInvariant();

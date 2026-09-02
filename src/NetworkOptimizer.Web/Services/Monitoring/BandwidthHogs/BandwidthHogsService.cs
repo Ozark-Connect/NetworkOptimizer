@@ -1232,6 +1232,8 @@ public class BandwidthHogsService
         return trunks;
     }
 
+    // Every row for a port, deliberately: a port can carry its label and the raw name a failed
+    // alias walk once wrote, and its totals sit under both.
     private async Task<Dictionary<(string DeviceMac, int Port), PortInfo>> PortsByNumberAsync(CancellationToken ct)
     {
         var result = new Dictionary<(string, int), PortInfo>();
