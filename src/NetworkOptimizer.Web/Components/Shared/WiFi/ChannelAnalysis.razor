@@ -277,13 +277,25 @@
                                         }
                                         @if (rec.IsKept)
                                         {
-                                            <span class="mesh-link-badge" data-tooltip="Kept on its channel - the plan leaves it where it is">Kept</span>
+                                            <span class="mesh-link-badge" data-tooltip="Pinned - Channel Recommendation leaves this radio where it is">Pinned</span>
                                         }
                                         @if (rec.IsUnplaced)
                                         {
                                             <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
                                         }
                                     </span>
+                                    @* A mesh child follows its parent, so the pin sits on the parent. *@
+                                    @if (!rec.IsMeshConstrained)
+                                    {
+                                        <SiteAdminOnly>
+                                            <button class="rec-pin-btn @(rec.IsKept ? "pinned" : "")" disabled="@_keepBusy"
+                                                    data-tooltip="@(rec.IsKept ? "Unpin Channel - let Channel Recommendation move this radio again" : "Pin Channel - Channel Recommendation will leave this radio where it is")"
+                                                    aria-label="@(rec.IsKept ? "Unpin Channel" : "Pin Channel")"
+                                                    @onclick="() => ToggleKeepAsync(rec)">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                                            </button>
+                                        </SiteAdminOnly>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
@@ -333,15 +345,6 @@
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
-                                    @* A mesh child follows its parent, so Keep sits on the parent. *@
-                                    @if (!rec.IsMeshConstrained)
-                                    {
-                                        <SiteAdminOnly>
-                                            <button class="btn btn-sm btn-ghost rec-keep-btn" disabled="@_keepBusy" @onclick="() => ToggleKeepAsync(rec)">
-                                                @(rec.IsKept ? "Stop keeping" : "Keep this channel")
-                                            </button>
-                                        </SiteAdminOnly>
-                                    }
                                 </div>
                             </div>
                         }
@@ -357,7 +360,7 @@
                     }
                     @if (plan.KeptRadioCount > 0)
                     {
-                        <div class="recommendation-notice">@plan.KeptRadioCount radio(s) kept where they are.</div>
+                        <div class="recommendation-notice">@plan.KeptRadioCount radio(s) pinned.</div>
                     }
                     else if (plan.UnplacedApCount > 0)
                     {

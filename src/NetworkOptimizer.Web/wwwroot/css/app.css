@@ -12468,6 +12468,38 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.5rem;
 }
 
+/* Channels recommendation row: pin toggle beside the AP name */
+.rec-pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.rec-pin-btn:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.rec-pin-btn.pinned {
+    opacity: 1;
+    color: var(--accent-color);
+}
+
+.rec-pin-btn:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+
 .soak-badge {
     font-size: 0.7rem;
     font-weight: 500;
