@@ -119,7 +119,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     /// The URL comes from the console, and the app trusts the console's certificate by default, so
     /// this is what stops a substituted href from carrying a second command to the gateway.
     /// </summary>
-    private static bool IsSafeFirmwareUrl(string url) =>
+    internal static bool IsSafeFirmwareUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var parsed)
         && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)
         && !url.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c == '\'');
