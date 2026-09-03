@@ -365,6 +365,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public Task ReconsiderAutopilotAsync(CancellationToken cancellationToken = default) =>
         _autopilot.ReconsiderAsync(cancellationToken);
 
+    /// <summary>See <see cref="IRolloutAutopilot.HoldReason"/>.</summary>
+    public string? AutopilotHoldReason => _autopilot.HoldReason;
+
     /// <summary>Holds a running rollout. In-flight devices are still watched to the end of their cycle.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task PauseAsync(CancellationToken cancellationToken = default)

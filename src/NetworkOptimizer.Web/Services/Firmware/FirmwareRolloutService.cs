@@ -94,6 +94,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public Task<string?> GetAutopilotHoldReasonAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(_orchestrator.AutopilotHoldReason);
+
+    /// <inheritdoc />
     public async Task<List<RolloutPlanSummaryView>> GetPlanHistoryAsync(
         int limit = 20, CancellationToken cancellationToken = default)
     {

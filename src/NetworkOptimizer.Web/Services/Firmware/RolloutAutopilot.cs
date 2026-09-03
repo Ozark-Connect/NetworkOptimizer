@@ -23,6 +23,12 @@ public interface IRolloutAutopilot
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task ReconsiderAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Why the last pass planned nothing, in the user's words, or null when it planned, is not
+    /// on autopilot, or has not run yet. The page shows this in place of "nothing is scheduled".
+    /// </summary>
+    string? HoldReason { get; }
 }
 
 /// <summary>
@@ -57,6 +63,12 @@ public class RolloutAutopilot : IRolloutAutopilot
     private readonly string _siteSuffix;
 
     private DateTime _lastCheckedAt = DateTime.MinValue;
+
+    /// <summary>A save plans on the spot while the tick may be planning too; one at a time.</summary>
+    private readonly SemaphoreSlim _planLock = new(1, 1);
+
+    /// <inheritdoc />
+    public string? HoldReason { get; private set; }
 
     /// <param name="repositories">Site-pinned rollout repository access.</param>
     /// <param name="planning">Site-pinned planning source access.</param>
@@ -95,8 +107,8 @@ public class RolloutAutopilot : IRolloutAutopilot
 
     private DateTime Now => _time.GetUtcNow().UtcDateTime;
 
-    /// <inheritdoc />
-    public async Task ReconsiderAsync(CancellationToken cancellationToken = default)
+    /// <summary>Forgets the hourly stamp and the refusal left by the last stopped unattended plan.</summary>
+    private async Task ClearRefusalAsync(CancellationToken cancellationToken)
     {
         _lastCheckedAt = DateTime.MinValue;
 
@@ -121,14 +133,49 @@ public class RolloutAutopilot : IRolloutAutopilot
     }
 
     /// <inheritdoc />
+    public async Task ReconsiderAsync(CancellationToken cancellationToken = default)
+    {
+        await ClearRefusalAsync(cancellationToken);
+
+        // Plan now rather than on the next tick: the wizard reloads the page as soon as the save
+        // returns, and a plan that lands 30 seconds later reads as "nothing is scheduled". A failed
+        // gather is not the save failing - the tick retries it.
+        try
+        {
+            await CreatePlanIfDueAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Autopilot could not plan right after its settings were saved on site {Site}", _siteSlug);
+            HoldReason = $"Planning failed: {ex.Message} Autopilot checks again every hour.";
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<int?> CreatePlanIfDueAsync(CancellationToken cancellationToken = default)
+    {
+        await _planLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await CreatePlanIfDueCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _planLock.Release();
+        }
+    }
+
+    private async Task<int?> CreatePlanIfDueCoreAsync(CancellationToken cancellationToken)
     {
         if (Now - _lastCheckedAt < CheckInterval)
             return null;
 
         var stored = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         if (stored.Mode != FirmwareRolloutMode.Autopilot)
+        {
+            HoldReason = null;
             return null;
+        }
 
         // Plan from the standing configuration, not from the row, which any one-off rollout since
         // has overwritten with its own scope. A site upgrading into this has no snapshot yet: the
@@ -150,6 +197,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         if (active != null)
         {
             _lastCheckedAt = Now;
+            HoldReason = null;
             return null;
         }
 
@@ -166,6 +214,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         if (!RolloutPlanComposer.ConsoleReachable(inputs.Console) && inputs.Context.Devices.Count == 0)
         {
             _logger.LogDebug("Autopilot deferring on site {Site}: the console is not connected", _siteSlug);
+            HoldReason = "The UniFi Console didn't answer, so nothing could be planned yet. Autopilot tries again within a minute.";
             return null;
         }
 
@@ -190,6 +239,9 @@ public class RolloutAutopilot : IRolloutAutopilot
         {
             _logger.LogDebug(
                 "Autopilot found nothing to upgrade on site {Site} right now", _siteSlug);
+            HoldReason = ripeness.Notes.Count > 0
+                ? string.Join(" ", ripeness.Notes) + " Autopilot checks again every hour."
+                : "Everything is on the current firmware for its channel. Autopilot checks again every hour.";
             return null;
         }
 
@@ -200,6 +252,7 @@ public class RolloutAutopilot : IRolloutAutopilot
             _logger.LogDebug(
                 "Autopilot is holding off on site {Site}: the last unattended rollout was stopped and nothing new has been released since",
                 _siteSlug);
+            HoldReason = "The last Autopilot plan was stopped, so it's waiting for new firmware before proposing again. Save Autopilot Configuration to plan now.";
             return null;
         }
 
@@ -237,6 +290,7 @@ public class RolloutAutopilot : IRolloutAutopilot
         await _repositories.UseAsync((r, c) => r.AddStepsAsync(result.Steps, c), cancellationToken);
 
         await AnnounceAsync(result, window, startAtUtc, cancellationToken);
+        HoldReason = null;
 
         _logger.LogInformation(
             "Autopilot scheduled firmware rollout {Id} on site {Site} for {When} ({Devices} devices, {Waves} waves)",
