@@ -122,7 +122,7 @@
                     @if (_gatewayConnected && _status?.FirmwareSupported == false && !string.IsNullOrEmpty(_status?.FirmwareVersion))
                     {
                         <div class="alert alert-danger" style="margin-top: 1rem;">
-                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS 5.1.31. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
+                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS @_status.MaxSupportedFirmware. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
                         </div>
                     }
 
@@ -143,7 +143,7 @@
                     else if (_gatewayConnected && _status?.IsSupportedGateway == false)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
-                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber, UXG-Fiber, and UCG-Max gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
+                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber, UCG-Max, UXG-Fiber, and UXG-Max gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
                         </div>
                     }
 
@@ -1078,13 +1078,13 @@ ls -la /var/config/run-syslog.sh</code></pre>
         new("fan-control", "Fan Control Tuning",
             "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C).",
             ExtraNote: "These setpoints strike a good balance between thermals and fan noise - more conservative than most community fan control scripts, which tend to keep temps excessively low. If you'd like different setpoints, open an issue on GitHub and we'll be happy to add configurability.",
-            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax", "uxg-max", "uxgmax" }),
         new("mongodb-ssd", "MongoDB on SSD",
             "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. MongoDB's periodic bulk deletions hammer the eMMC flash controller, triggering garbage collection stalls that cause packet loss on CPU-attached ports. Moving the database to NVMe eliminates the I/O bottleneck entirely and improves the responsiveness of the UniFi Network app. Includes daily SSD backups with weekly eMMC failover copies.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
         new("journald-volatile", "Logging Offload",
             "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
-            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax", "uxg-max", "uxgmax" }),
         new("sfp-sgmiiplus-port6", "SFP+ 2.5 G SGMII+ Patch (Port 6)",
             "Loads a kernel module that forces the 1st SFP+ port (Port 6 / eth5) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy2 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
             MutuallyExclusiveWith: "sfp-sgmiiplus",
