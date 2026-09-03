@@ -24,7 +24,7 @@
       "alsoSelectors": ["[data-tour=\"wifi-channel-optimization\"]"],
       "title": "Measured Wi-Fi Optimizer",
       "listLabel": "Wi-Fi issues and channel plans graded by what the radios measure",
-      "body": "With **AP Telemetry** on, issues are graded by what the radios measure: **Raised Noise Floor**, **Sticky Clients**, **High Latency Despite Good Signal**, and whose airtime it is. Settings you chose yourself are noted, not corrected.\n\n**Channel Optimization** reads the real 320 MHz block off each radio and can propose a width change. **Pin** holds a radio where it is.\n\n**Acknowledge** hides an issue you have decided to live with. It stays in the score.",
+      "body": "With **AP Telemetry** on, issues are graded by what the radios measure: **Raised Noise Floor**, **Sticky Clients**, **High Latency Despite Good Signal**, and whose airtime it is. Settings you chose yourself are noted, not corrected.\n\n**Channel Optimization** reads the real 320 MHz block off each radio, can propose a width change, and after a move measures the new channel against the old one. **Pin** holds a radio where it is.\n\n**Acknowledge** hides an issue you have decided to live with. It stays in the score.",
       "placement": "top",
       "optional": true
     },
