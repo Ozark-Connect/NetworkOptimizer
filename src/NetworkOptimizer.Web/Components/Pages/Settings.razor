@@ -3794,10 +3794,20 @@
                                                             </label>
                                                             <div class="form-group site-config-override">
                                                                 <label class="form-label">Client speed test target override (optional)</label>
-                                                                <input type="text" class="form-control"
-                                                                       placeholder="@ClientSpeedTestPlaceholder(site)"
-                                                                       value="@ClientSpeedTestTarget(site.Id)"
-                                                                       @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                                <div style="position: relative;">
+                                                                    <input type="text" class="form-control"
+                                                                           placeholder="@ClientSpeedTestPlaceholder(site)"
+                                                                           value="@(ClientSpeedTestTargetPending(site.Id) ?? ClientSpeedTestTarget(site.Id))"
+                                                                           @oninput="e => OnClientSpeedTestTargetInput(site, e.Value?.ToString())" />
+                                                                    @if (_clientSpeedTestTargetSaving.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saving">Saving...</span>
+                                                                    }
+                                                                    else if (_clientSpeedTestTargetSaved.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saved">Saved</span>
+                                                                    }
+                                                                </div>
                                                                 @if (ClientSpeedTestTargetError(site.Id) is { } targetError)
                                                                 {
                                                                     <div class="alert alert-danger" style="margin-top: 0.5rem;">@targetError</div>
@@ -4276,6 +4286,8 @@
 
     public void Dispose()
     {
+        DisposeTimers(_clientSpeedTestTargetDebounce);
+        DisposeTimers(_clientSpeedTestTargetSavedTimers);
         SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
         _agentPollTimer?.Dispose();
     }
@@ -4675,6 +4687,48 @@
     private string? ClientSpeedTestTargetError(int siteId) =>
         _clientSpeedTestTargetError.TryGetValue(siteId, out var v) ? v : null;
 
+    // Debounced save with the same Saving... / Saved feedback as result notes. The pending value
+    // is what the input renders while typing, so a re-render never snaps it back to the saved one.
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetPending = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaving = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaved = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetDebounce = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetSavedTimers = new();
+
+    private string? ClientSpeedTestTargetPending(int siteId) =>
+        _clientSpeedTestTargetPending.TryGetValue(siteId, out var v) ? v : null;
+
+    private void OnClientSpeedTestTargetInput(Site site, string? value)
+    {
+        _clientSpeedTestTargetPending[site.Id] = value;
+        _clientSpeedTestTargetSaved.Remove(site.Id);
+        RestartTimer(_clientSpeedTestTargetDebounce, site.Id, 800,
+            () => InvokeAsync(() => SaveClientSpeedTestTarget(site, value)));
+    }
+
+    private static void RestartTimer(Dictionary<int, System.Timers.Timer> timers, int key, double ms, Func<Task> action)
+    {
+        if (timers.Remove(key, out var existing))
+        {
+            existing.Stop();
+            existing.Dispose();
+        }
+        var timer = new System.Timers.Timer(ms) { AutoReset = false };
+        timer.Elapsed += async (_, _) => await action();
+        timers[key] = timer;
+        timer.Start();
+    }
+
+    private static void DisposeTimers(Dictionary<int, System.Timers.Timer> timers)
+    {
+        foreach (var timer in timers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        timers.Clear();
+    }
+
     // An online agent reporting an older version than the manually-tracked
     // latest agent release gets an "Update agent" callout. Tracked manually
     // (AppVersionInfo.LatestAgentVersion) rather than compared to the server
@@ -4793,6 +4847,8 @@
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
+        _clientSpeedTestTargetSaving.Add(site.Id);
+        StateHasChanged();
         try
         {
             await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
@@ -4800,11 +4856,22 @@
         catch (ArgumentException ex)
         {
             _clientSpeedTestTargetError[site.Id] = ex.Message;
+            _clientSpeedTestTargetSaving.Remove(site.Id);
+            StateHasChanged();
             return;
         }
         _clientSpeedTestTargetError.Remove(site.Id);
         var trimmed = value?.Trim();
         _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        _clientSpeedTestTargetPending.Remove(site.Id);
+        _clientSpeedTestTargetSaving.Remove(site.Id);
+        _clientSpeedTestTargetSaved.Add(site.Id);
+        StateHasChanged();
+        RestartTimer(_clientSpeedTestTargetSavedTimers, site.Id, 2000, () => InvokeAsync(() =>
+        {
+            _clientSpeedTestTargetSaved.Remove(site.Id);
+            StateHasChanged();
+        }));
     }
 
     private async Task CreateAgent(Site site)
