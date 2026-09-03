@@ -21,9 +21,10 @@
       "badge": "improved",
       "url": "/wifi-optimizer?tab=overview",
       "selector": "[data-tour=\"wifi-health-issues\"]",
-      "title": "Measured Health Issues",
-      "listLabel": "Wi-Fi issues graded by what the radios measure, and Acknowledge for the ones you live with",
-      "body": "With **AP Telemetry** on, issues are graded by what the radios measure rather than what the Console reports: **Raised Noise Floor**, **Sticky Clients**, **High Latency Despite Good Signal**, and radio utilization that says whose airtime it is. A channel, TX power, or width you set yourself is noted, not corrected.\n\n**Acknowledge** hides an issue you have decided to live with. It stays in the score.",
+      "alsoSelectors": ["[data-tour=\"wifi-channel-optimization\"]"],
+      "title": "Measured Wi-Fi Optimizer",
+      "listLabel": "Wi-Fi issues and channel plans graded by what the radios measure",
+      "body": "With **AP Telemetry** on, issues are graded by what the radios measure rather than what the Console reports: **Raised Noise Floor**, **Sticky Clients**, **High Latency Despite Good Signal**, and radio utilization that says whose airtime it is. A channel, TX power, or width you set yourself is noted, not corrected.\n\n**Channel Optimization** reads the real 320 MHz block off each radio instead of guessing, can propose a narrower or wider width from what clients actually used this week, and **Pin** holds a radio where it is.\n\n**Acknowledge** hides an issue you have decided to live with. It stays in the score.",
       "placement": "top",
       "optional": true
     },
