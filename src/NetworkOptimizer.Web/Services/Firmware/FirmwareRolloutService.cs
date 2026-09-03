@@ -248,6 +248,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
+        // The wizard's "Autopilot on" lands here, not in SaveAutopilotSettingsAsync.
+        if (settings.Mode == FirmwareRolloutMode.Autopilot)
+            await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {

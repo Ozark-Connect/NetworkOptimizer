@@ -181,7 +181,8 @@ public class RolloutAutopilotTests
         (await harness.Autopilot.CreatePlanIfDueAsync()).Should().BeNull();
 
         // Saving autopilot is consent to be asked again, and the answer must not wait an hour.
-        await harness.Service.SaveAutopilotSettingsAsync(await harness.Repository.GetSettingsAsync());
+        // Through the plain save: that is the wizard's "Autopilot on" path.
+        await harness.Service.SaveSettingsAsync(await harness.Repository.GetSettingsAsync());
 
         (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
 
