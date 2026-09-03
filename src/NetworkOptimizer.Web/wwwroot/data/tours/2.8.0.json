@@ -92,7 +92,7 @@
       "selector": "[data-tour=\"bandwidth-hogs\"]",
       "title": "Bandwidth Hogs",
       "listLabel": "See who is using the WAN right now, and who used the most this week",
-      "body": "Who is using the WAN right now, and who used the most of it over the last day, week, or month. Every client holding a real share of the traffic, biggest first, each linking to its Client Performance page.\n\n**WAN** is a client's part of what the WAN is carrying, with the WAN's saturation above the list; **LAN + WAN** is everything through its radio or switch port. **Throughput** is live and follows the maps' playhead; **Data** ranks the last hour to 30 days.",
+      "body": "Who is using the WAN right now, and who used the most of it over the last day, week, or month. Every client holding a real share of the traffic, biggest first, each linking to its Client Performance page.\n\n**WAN** is a client's part of what the WAN is carrying, with the WAN's saturation above the list; **LAN + WAN** is everything through its radio or switch port. **Throughput** is live and follows the maps' playhead; **Data** ranks the last hour to 30 days.\n\nWith an On-Site Agent on your UniFi Gateway, every client's WAN figure is measured there, live and in history. Without one it is a best guess when clients are busy locally, and the card says so.",
       "placement": "top"
     }
   ]
