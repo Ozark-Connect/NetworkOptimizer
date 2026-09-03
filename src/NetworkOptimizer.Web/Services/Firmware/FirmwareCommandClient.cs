@@ -113,6 +113,17 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         }
     }
 
+    /// <summary>
+    /// Whether a firmware URL is safe to put on a device's command line: absolute http(s), and
+    /// free of whitespace or a single quote, which is all that could escape the quoting around it.
+    /// The URL comes from the console, and the app trusts the console's certificate by default, so
+    /// this is what stops a substituted href from carrying a second command to the gateway.
+    /// </summary>
+    private static bool IsSafeFirmwareUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+        && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)
+        && !url.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c == '\'');
+
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
         string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
@@ -122,10 +133,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware image URL for this device.");
 
+        if (!IsSafeFirmwareUrl(firmwareUrl))
+            return FirmwareCommandResult.Failed("The firmware image URL is not a usable http(s) URL.");
+
         try
         {
             // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool.
-            var command = isGateway ? $"ubnt-systool fwupdate {firmwareUrl}" : $"upgrade {firmwareUrl}";
+            var command = isGateway ? $"ubnt-systool fwupdate '{firmwareUrl}'" : $"upgrade '{firmwareUrl}'";
             var (success, output) = await _ssh.RunCommandAsync(host, command, null, TimeSpan.FromMinutes(5), cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
@@ -478,11 +492,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     {
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware URL for the SSH UniFi OS update.");
+        if (!IsSafeFirmwareUrl(firmwareUrl))
+            return FirmwareCommandResult.Failed("The firmware image URL is not a usable http(s) URL.");
 
         try
         {
             var (success, output) = await _gatewaySsh.RunCommandAsync(
-                $"ubnt-systool fwupdate {firmwareUrl}", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
+                $"ubnt-systool fwupdate '{firmwareUrl}'", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 

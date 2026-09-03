@@ -1,5 +1,6 @@
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
+using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -217,7 +218,25 @@ public class SshProbeExecutor : IProbeExecutor
     {
         var port = target.Port ?? 443;
         var timeoutSec = Math.Max(1, (int)timeout.TotalSeconds);
-        var addr = ShellEscape(target.Address);
+
+        // The address lands inside a nested `bash -c '...'`, where ShellEscape's own quotes
+        // close the outer one and hand everything after it to the login shell. Validate the
+        // address instead of escaping it: an IP or hostname is all this can ever be.
+        var (addressIsValid, addressError) = InputSanitizer.ValidatePingHost(target.Address);
+        if (!addressIsValid)
+        {
+            return new PingProbeResult
+            {
+                Target = target,
+                Vantage = Vantage,
+                Sent = count,
+                Received = 0,
+                ErrorMessage = addressError ?? "Invalid target address",
+                Timestamp = DateTime.UtcNow
+            };
+        }
+
+        var addr = target.Address;
 
         var cmd =
             $"n=0; while [ $n -lt {count} ]; do n=$((n+1)); " +
@@ -309,6 +328,11 @@ public class SshProbeExecutor : IProbeExecutor
         return TracerouteOutputParser.Parse(output ?? string.Empty, target, Vantage, target.Mode);
     }
 
+    /// <summary>
+    /// Quotes a value for one level of shell quoting. Never use it inside a nested
+    /// <c>bash -c '...'</c>: its quotes terminate the enclosing ones and the remainder runs in
+    /// the outer shell. Validate the value there instead (see TcpPingViaSshAsync, TcpProbeAsync).
+    /// </summary>
     private static string ShellEscape(string s)
     {
         if (string.IsNullOrEmpty(s)) return "''";

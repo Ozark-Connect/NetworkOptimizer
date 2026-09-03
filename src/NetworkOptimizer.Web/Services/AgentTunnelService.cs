@@ -179,13 +179,13 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.ProxyOpenResult:
-                        _proxy.OnProxyOpenResult(message.ProxyOpenResult);
+                        _proxy.OnProxyOpenResult(connection, message.ProxyOpenResult);
                         break;
                     case AgentMessage.PayloadOneofCase.ProxyData:
-                        await _proxy.OnProxyDataAsync(message.ProxyData, ct);
+                        await _proxy.OnProxyDataAsync(connection, message.ProxyData, ct);
                         break;
                     case AgentMessage.PayloadOneofCase.ProxyClose:
-                        _proxy.OnProxyClose(message.ProxyClose);
+                        _proxy.OnProxyClose(connection, message.ProxyClose);
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpResults:
                         // Same reasoning as the probe batch above.

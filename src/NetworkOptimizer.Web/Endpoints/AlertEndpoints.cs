@@ -52,8 +52,26 @@ public static class AlertEndpoints
         });
 
         // --- Delivery Channels ---
+        // ConfigJson never leaves here: a Slack, Discord or Teams webhook URL IS the credential,
+        // and a webhook's Headers carry whatever bearer token the user pasted. Encrypted fields
+        // (SMTP password, webhook secret, ntfy token) travel inside it too. The Settings UI edits
+        // channels through IAlertConfigService, not this route, so nothing needs the config here.
         read.MapGet("/api/alerts/channels", async (IAlertRepository repo) =>
-            Results.Ok(await repo.GetChannelsAsync()));
+        {
+            var channels = await repo.GetChannelsAsync();
+            return Results.Ok(channels.Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.IsEnabled,
+                c.ChannelType,
+                c.MinSeverity,
+                c.DigestEnabled,
+                c.DigestSchedule,
+                c.CreatedAt,
+                c.UpdatedAt
+            }));
+        });
 
         admin.MapPost("/api/alerts/channels", async (DeliveryChannel channel, IAlertConfigService config) =>
         {

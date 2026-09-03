@@ -15,9 +15,9 @@ public class AdminAuthCache
 {
     private static readonly TimeSpan CacheTimeout = TimeSpan.FromSeconds(30);
 
-    private sealed record Entry(string? Hash, AdminPasswordSource Source, DateTime RefreshedAt);
+    private sealed record Entry(string? Hash, AdminPasswordSource Source, DateTime RefreshedAt, bool Resolved);
 
-    private volatile Entry _entry = new(null, AdminPasswordSource.None, DateTime.MinValue);
+    private volatile Entry _entry = new(null, AdminPasswordSource.None, DateTime.MinValue, false);
 
     /// <summary>Serializes cache refreshes so a stale cache triggers one DB read, not one per request.</summary>
     internal SemaphoreSlim RefreshGate { get; } = new(1, 1);
@@ -31,9 +31,16 @@ public class AdminAuthCache
     /// <summary>True while the cached entry is still within the refresh window.</summary>
     public bool IsFresh => DateTime.UtcNow - _entry.RefreshedAt < CacheTimeout;
 
+    /// <summary>
+    /// Whether a refresh has ever resolved a source. False means the settings could not be read
+    /// at all, which is not the same as an install with no password - callers must not read an
+    /// unresolved cache as "authentication disabled".
+    /// </summary>
+    public bool HasResolved => _entry.Resolved;
+
     /// <summary>Atomically replaces the cached entry and stamps it fresh.</summary>
     public void Store(string? hash, AdminPasswordSource source)
-        => _entry = new Entry(hash, source, DateTime.UtcNow);
+        => _entry = new Entry(hash, source, DateTime.UtcNow, true);
 
     /// <summary>Forces the next access to refresh (e.g. after the password is changed).</summary>
     public void Invalidate()

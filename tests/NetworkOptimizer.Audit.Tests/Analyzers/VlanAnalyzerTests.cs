@@ -299,6 +299,170 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeNetworkIsolation_BlockAheadOfAllow_NoIssue()
+    {
+        // The block is evaluated first, so the network really is isolated.
+        var networkId = "security-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 42, networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net-id")
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-security-outbound",
+                Name = "Block Security Outbound",
+                Index = 1,
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            },
+            new()
+            {
+                Id = "allow-security-anything",
+                Name = "Allow Security Anywhere",
+                Index = 5000,
+                Enabled = true,
+                Action = "accept",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().NotContain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_AllowAheadOfBlock_ReturnsCriticalIssue()
+    {
+        // First-match wins on the console, so the allow at index 1 defeats the block at 5000
+        // and the network is not isolated at all.
+        var networkId = "security-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 42, networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net-id")
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "allow-security-anything",
+                Name = "Allow Security Anywhere",
+                Index = 1,
+                Enabled = true,
+                Action = "accept",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            },
+            new()
+            {
+                Id = "block-security-outbound",
+                Name = "Block Security Outbound",
+                Index = 5000,
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().Contain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_RespondOnlyAllowAheadOfBlock_NoIssue()
+    {
+        // A RESPOND_ONLY allow passes return traffic only, so it does not open the network
+        // and the block behind it still isolates.
+        var networkId = "security-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 42, networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net-id")
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "allow-security-return",
+                Name = "Allow Security Return Traffic",
+                Index = 1,
+                Enabled = true,
+                Action = "accept",
+                ConnectionStateType = "RESPOND_ONLY",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            },
+            new()
+            {
+                Id = "block-security-outbound",
+                Name = "Block Security Outbound",
+                Index = 5000,
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().NotContain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_PortSpecificBlockOnly_ReturnsCriticalIssue()
+    {
+        // A block on one port is not isolation, whatever its position.
+        var networkId = "security-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 42, networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net-id")
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-security-ssh",
+                Name = "Block Security SSH",
+                Index = 1,
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "22",
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().Contain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
     public void AnalyzeNetworkIsolation_FirewallRuleDisabled_StillFlagsIssue()
     {
         // Disabled firewall rule should not count as isolation

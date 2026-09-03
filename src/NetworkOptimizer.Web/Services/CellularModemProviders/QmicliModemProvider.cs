@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
@@ -14,6 +15,24 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// </summary>
 public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadioReset
 {
+    private const string DefaultQmiDevice = "/dev/wwan0qmi0";
+
+    /// <summary>
+    /// The QMI device node to command, defaulting when the configuration leaves it blank. The
+    /// path is interpolated into a root shell command, so it may only look like a device path -
+    /// same guard the GL transport puts on its own bus and device values.
+    /// </summary>
+    private static string QmiDevice(ModemPollContext context)
+    {
+        var path = string.IsNullOrWhiteSpace(context.TransportPath)
+            ? DefaultQmiDevice
+            : context.TransportPath;
+
+        return Regex.IsMatch(path, @"^/dev/[A-Za-z0-9_-]+$")
+            ? path
+            : throw new ArgumentException($"Invalid QMI device path: {path}");
+    }
+
     /// <inheritdoc/>
     public string ProviderKey => "qmicli";
 
@@ -124,12 +143,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     /// </summary>
     private async Task TryEnrichWithCellTowerInfoAsync(ModemPollContext context, CellularModemStats stats)
     {
-        var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
-            ? "/dev/wwan0qmi0"
-            : context.TransportPath;
-
         try
         {
+            var qmiDevice = QmiDevice(context);
             var combinedCommand =
                 "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
                 $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
@@ -167,21 +183,19 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
-            ? "/dev/wwan0qmi0"
-            : context.TransportPath;
-
-        // Six seconds of low-power, then back online. The modem watchdog needs two failed
-        // 60 s checks before it forces a reset, so this must stay well under a minute.
-        var command =
-            $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=low-power && " +
-            "sleep 6 && " +
-            $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=online";
-
         _logger.LogInformation("Resetting radio on modem {Name}", context.Name);
 
         try
         {
+            var qmiDevice = QmiDevice(context);
+
+            // Six seconds of low-power, then back online. The modem watchdog needs two failed
+            // 60 s checks before it forces a reset, so this must stay well under a minute.
+            var command =
+                $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=low-power && " +
+                "sleep 6 && " +
+                $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=online";
+
             var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
 
             if (!success)
@@ -270,12 +284,9 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     /// </summary>
     private async Task<PollResult<CellularModemStats>> PollViaQmicliAsync(ModemPollContext context)
     {
-        var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
-            ? "/dev/wwan0qmi0"
-            : context.TransportPath;
-
         try
         {
+            var qmiDevice = QmiDevice(context);
             var stats = new CellularModemStats
             {
                 ModemHost = context.ConfiguredHost ?? context.Host,

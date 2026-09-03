@@ -241,7 +241,9 @@ public class SqmDeploymentService : ISqmDeploymentService
             // Remove SQM data directory for this WAN
             await RunCommandAsync($"rm -rf {SqmDir}/{safeName}-*.sh {SqmDir}/{safeName}-*.txt");
 
-            // Remove cron entries for this specific WAN (match on connection name)
+            // Remove cron entries for this specific WAN (match on connection name). Deliberately
+            // an unanchored match, so cleaning up "wan" also takes "wan2": a deploy that failed
+            // this badly means Adaptive SQM comes off the box entirely, not partly.
             await RunCommandAsync(
                 $"crontab -l 2>/dev/null | grep -v '{safeName}' | crontab -");
 

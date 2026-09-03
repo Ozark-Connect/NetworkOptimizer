@@ -952,54 +952,53 @@ public class VlanAnalyzer
 
         var otherNetworks = allNetworks.Where(n => n.Id != network.Id).ToList();
 
-        // Collect all enabled block rules that apply to this network as source
-        // and block all protocols/ports (not port-specific)
-        var qualifyingBlockRules = new List<FirewallRule>();
-        foreach (var rule in firewallRules)
-        {
-            if (!rule.Enabled)
-                continue;
-            if (!rule.ActionType.IsBlockAction())
-                continue;
-            if (!rule.BlocksNewConnections())
-                continue;
-            if (!rule.AppliesToSourceNetwork(network))
-                continue;
+        // Isolation can only be claimed by a rule that blocks every protocol and port, so
+        // require one before asking what actually takes effect below.
+        var hasBroadBlock = firewallRules.Any(rule =>
+            rule.Enabled && IsBroadBlock(rule) && rule.AppliesToSourceNetwork(network));
 
-            // Must block all protocols
-            if (!string.IsNullOrEmpty(rule.Protocol) &&
-                !rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Must not be port-specific
-            if (!string.IsNullOrEmpty(rule.SourcePort) || !string.IsNullOrEmpty(rule.DestinationPort))
-                continue;
-
-            qualifyingBlockRules.Add(rule);
-        }
-
-        if (qualifyingBlockRules.Count == 0)
+        if (!hasBroadBlock)
             return false;
 
-        // Check if collectively these rules block traffic to ALL other networks
+        // UniFi is first-match by index, so a block isolates only when no allow for the same
+        // traffic sits ahead of it. Never collect the block rules alone and ask whether they
+        // cover every network: an allow at index 1 with a block at 5000 reads as isolated that
+        // way, and the audit then calls an open network secure.
         var allBlocked = otherNetworks.All(otherNet =>
-            qualifyingBlockRules.Any(rule => RuleBlocksToNetwork(rule, otherNet)));
+            FirewallRuleEvaluator.Evaluate(
+                firewallRules,
+                rule => rule.AppliesToSourceNetwork(network)
+                        && RuleTargetsNetwork(rule, otherNet)
+                        && (rule.ActionType.IsAllowAction() || IsBroadBlock(rule)),
+                forNewConnections: true).IsBlocked);
 
         if (allBlocked)
         {
             _logger.LogDebug(
-                "Network '{NetworkName}' is isolated via {Count} firewall rule(s)",
-                network.Name, qualifyingBlockRules.Count);
+                "Network '{NetworkName}' is isolated: the effective rule to every other network blocks it",
+                network.Name);
         }
 
         return allBlocked;
     }
 
     /// <summary>
-    /// Check if a single firewall rule blocks traffic to a specific destination network.
+    /// Whether a rule blocks new connections across every protocol and port - the only shape
+    /// that can stand in for the network isolation setting.
+    /// </summary>
+    private static bool IsBroadBlock(FirewallRule rule) =>
+        rule.ActionType.IsBlockAction()
+        && rule.BlocksNewConnections()
+        && (string.IsNullOrEmpty(rule.Protocol) || rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
+        && string.IsNullOrEmpty(rule.SourcePort)
+        && string.IsNullOrEmpty(rule.DestinationPort);
+
+    /// <summary>
+    /// Check whether a single firewall rule's destination covers a specific network - action
+    /// agnostic, so it answers the same question for an allow rule as for a block.
     /// Considers destination zone scoping, network ID matching (with Match Opposite), and IP/CIDR coverage.
     /// </summary>
-    private static bool RuleBlocksToNetwork(FirewallRule rule, NetworkInfo targetNetwork)
+    private static bool RuleTargetsNetwork(FirewallRule rule, NetworkInfo targetNetwork)
     {
         // If rule specifies a destination zone and target has a zone, they must match.
         // A zone-scoped rule only blocks traffic to networks within that zone.

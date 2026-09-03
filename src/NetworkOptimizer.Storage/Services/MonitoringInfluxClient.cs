@@ -5337,8 +5337,28 @@ from(bucket: ""{_longtermBucket}"")
         _rawQueryHttp = null;
     }
 
-    private static string NormalizeMac(string mac) =>
-        string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
+    /// <summary>
+    /// Lowercases and colon-separates a MAC, then drops every character a MAC cannot hold. Read
+    /// paths interpolate the result straight into a Flux predicate, so the strip is what keeps a
+    /// caller-supplied value from closing the filter and appending its own Flux - stripped, it can
+    /// only ever match nothing. The one non-MAC tag value written here
+    /// (<see cref="ClientWanCoverageMarker"/>) bypasses this by design.
+    /// </summary>
+    private static string NormalizeMac(string mac)
+    {
+        if (string.IsNullOrEmpty(mac)) return string.Empty;
+
+        var kept = new char[mac.Length];
+        var length = 0;
+        foreach (var c in mac)
+        {
+            var lowered = c == '-' ? ':' : char.ToLowerInvariant(c);
+            if (lowered is (>= '0' and <= '9') or (>= 'a' and <= 'f') or ':')
+                kept[length++] = lowered;
+        }
+
+        return new string(kept, 0, length);
+    }
 
     private static string? Truncate(string? s, int max) =>
         string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max];

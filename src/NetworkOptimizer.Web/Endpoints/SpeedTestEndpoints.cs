@@ -252,8 +252,13 @@ public static class SpeedTestEndpoints
                 }
             }
 
+            const int maxBodyBytes = 256 * 1024;
             using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
+            var buffer = new char[maxBodyBytes + 1];
+            var read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+            if (read > maxBodyBytes)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            var json = new string(buffer, 0, read);
             if (string.IsNullOrWhiteSpace(json))
                 return Results.BadRequest(new { error = "Missing iperf3 JSON body" });
 

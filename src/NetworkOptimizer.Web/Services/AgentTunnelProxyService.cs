@@ -267,10 +267,36 @@ public class AgentTunnelProxyService : IDisposable
         return failure.Reason;
     }
 
-    public void OnProxyOpenResult(ProxyOpenResult result)
+    public void OnProxyOpenResult(AgentTunnelConnection sender, ProxyOpenResult result)
     {
-        if (_connections.TryGetValue(result.ConnectionId, out var connection))
+        if (TryGetOwnedConnection(sender, result.ConnectionId, out var connection))
             connection.OpenResult.TrySetResult(result.Ok ? null : (string.IsNullOrEmpty(result.Error) ? "connect failed" : result.Error));
+    }
+
+    /// <summary>
+    /// Resolves a connection id only for the agent that owns it. Ids come from one counter
+    /// shared by every agent, so without the owner check an enrolled agent could write into or
+    /// close another site's proxied stream by naming its id.
+    /// </summary>
+    private bool TryGetOwnedConnection(AgentTunnelConnection sender, long connectionId, out ProxyConnection connection)
+    {
+        if (!_connections.TryGetValue(connectionId, out var found))
+        {
+            connection = null!;
+            return false;
+        }
+
+        if (!ReferenceEquals(found.Agent, sender))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} referenced proxy connection {ConnectionId}, which belongs to agent {OwnerAgentId}; ignoring",
+                sender.AgentId, connectionId, found.Agent.AgentId);
+            connection = null!;
+            return false;
+        }
+
+        connection = found;
+        return true;
     }
 
     /// <summary>
@@ -278,9 +304,9 @@ public class AgentTunnelProxyService : IDisposable
     /// writes stay ordered; a wedged local reader can stall that loop, which
     /// is the accepted trade-off of the single-stream design.
     /// </summary>
-    public async Task OnProxyDataAsync(ProxyData data, CancellationToken ct)
+    public async Task OnProxyDataAsync(AgentTunnelConnection sender, ProxyData data, CancellationToken ct)
     {
-        if (!_connections.TryGetValue(data.ConnectionId, out var connection)) return;
+        if (!TryGetOwnedConnection(sender, data.ConnectionId, out var connection)) return;
         try
         {
             await connection.Client.GetStream().WriteAsync(data.Data.Memory, ct);
@@ -292,9 +318,9 @@ public class AgentTunnelProxyService : IDisposable
     }
 
     /// <summary>Agent reports the site-side socket closed.</summary>
-    public void OnProxyClose(ProxyClose close)
+    public void OnProxyClose(AgentTunnelConnection sender, ProxyClose close)
     {
-        if (_connections.TryGetValue(close.ConnectionId, out var connection))
+        if (TryGetOwnedConnection(sender, close.ConnectionId, out var connection))
             CloseConnection(connection, notifyAgent: false);
     }
 
