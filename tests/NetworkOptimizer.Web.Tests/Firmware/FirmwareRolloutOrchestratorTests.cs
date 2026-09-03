@@ -1121,6 +1121,43 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task AGatewayStepOpensTheSiteWideAndWanWindows()
+    {
+        using var harness = new RolloutHarness();
+        var gatewayPlanStep = PlanStep(GatewayMac, model: "UDMA6A8", budgetSeconds: 1800);
+        gatewayPlanStep.DeviceType = "ugw";
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, gatewayPlanStep)),
+            Step(GatewayMac, name: "Gateway", model: "UDMA6A8", deviceType: "ugw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UDMA6A8", name: "Gateway");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        // Every device behind the gateway, not just the gateway itself.
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, now)
+            .Should().BeTrue();
+        harness.Suppression.IsOsCycling(SiteManagementService.DefaultSiteSlug, now).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ANonGatewayStepLeavesTheSiteWideAndWanWindowsShut()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Switch 1", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Switch 1");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, now)
+            .Should().BeFalse();
+        harness.Suppression.IsOsCycling(SiteManagementService.DefaultSiteSlug, now).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task SuppressionIsNotArmedWhenTheSiteTurnedItOff()
     {
         using var harness = new RolloutHarness();

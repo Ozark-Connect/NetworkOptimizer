@@ -813,7 +813,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in inFlightSteps)
         {
             if (settings.SuppressStandardAlerts)
-                _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+                OpenStepWindows(step);
 
             // Not gated on SuppressStandardAlerts: pushing a binary at a flashing AP is a hazard,
             // not a preference. Clear releases the hold once the step settles.
@@ -2061,7 +2061,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistStepAsync(step, cancellationToken);
 
         if (settings.SuppressStandardAlerts)
-            _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+            OpenStepWindows(step);
 
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
@@ -2137,7 +2137,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in steps.Where(IsInFlight).ToList())
         {
             if (settings.SuppressStandardAlerts)
-                _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+                OpenStepWindows(step);
 
             if (IsAccessPointStep(step))
                 _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
@@ -2704,6 +2704,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private static bool IsAccessPointStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.AccessPoint;
+
+    /// <summary>
+    /// Opens the alert windows an in-flight step needs. A gateway that is not the console (a UXG
+    /// behind a separate Console) upgrades as an ordinary device step, so the console-cycle and
+    /// OS-cycle windows only the console's own steps open never open for it - yet its reboot takes
+    /// every device reached through it dark, and WAN with it. Both are opened here instead.
+    /// </summary>
+    private void OpenStepWindows(FirmwareRolloutStep step)
+    {
+        _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+        if (!IsGatewayStep(step)) return;
+
+        _suppression.RefreshConsoleCycle(_siteSlug, Now);
+        _suppression.RefreshOsCycle(_siteSlug, Now);
+    }
 
     /// <summary>
     /// Stops the AP Agent on an access point about to flash, and opens the hold that keeps its
