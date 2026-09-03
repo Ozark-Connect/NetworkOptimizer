@@ -108,6 +108,48 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsync_DropsADeviceTheConsoleOffersAnOlderBuild()
+    {
+        // A console on a less aggressive channel than a device presents its older build as an
+        // update. That is a downgrade, and it never earns a step.
+        using var harness = HarnessWithTwoAps();
+        harness.Planning.Devices.Add(OlderOffer("aa:bb:cc:dd:ee:03"));
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings());
+
+        LiveMacs(preview).Should().BeEquivalentTo(new[] { ApMac, PeerMac });
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_ReadOnly_DropsADeviceTheConsoleOffersAnOlderBuild()
+    {
+        // The drift check previews read-only, without channel staging. That path used to keep the
+        // older offer, count the device as new firmware, and open Re-plan on a downgrade.
+        using var harness = HarnessWithTwoAps();
+        harness.Planning.Devices.Add(OlderOffer("aa:bb:cc:dd:ee:03"));
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(), readOnly: true);
+
+        LiveMacs(preview).Should().BeEquivalentTo(new[] { ApMac, PeerMac });
+    }
+
+    private static PlannerDevice OlderOffer(string mac) => new()
+    {
+        Mac = mac,
+        Name = "Bridge",
+        Model = "SKU-BRIDGE",
+        DisplayModel = "SKU-BRIDGE",
+        Type = DeviceType.AccessPoint,
+        Upgradable = true,
+        FromVersion = "6.5.89",
+        ToVersion = "6.5.87",
+        IpAddress = "192.0.2.11",
+    };
+
+    private static IEnumerable<string> LiveMacs(RolloutPreviewView preview) =>
+        preview.Steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac);
+
+    [Fact]
     public async Task BuildPreviewAsync_ShowsANetworkAppUpdateAdoptedFromTheSharedCatalog()
     {
         using var harness = HarnessWithTwoAps();

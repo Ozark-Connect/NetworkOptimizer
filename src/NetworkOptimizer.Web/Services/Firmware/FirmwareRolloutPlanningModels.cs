@@ -410,6 +410,13 @@ public class RolloutPlanDocument
     public DateTime? ReminderSentForStartAt { get; set; }
 
     /// <summary>
+    /// On an aborted autopilot plan: the admin saved autopilot again afterwards, so this plan no
+    /// longer counts as the site refusing its target set. Persisted here because the aborted plan
+    /// stays the newest in history and the refusal gate reads it on every check.
+    /// </summary>
+    public bool RefusalCleared { get; set; }
+
+    /// <summary>
     /// Image URLs for the versions devices were on BEFORE the rollout, resolved at plan time. The
     /// console catalog carries latest-only, so a rollback has nowhere else to read these from once
     /// the upgrade has happened. Entries with no URL record that the version was unresolvable.

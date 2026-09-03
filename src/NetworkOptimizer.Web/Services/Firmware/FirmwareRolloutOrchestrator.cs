@@ -361,6 +361,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public Task CreateAutopilotPlanIfDueAsync(CancellationToken cancellationToken = default) =>
         _autopilot.CreatePlanIfDueAsync(cancellationToken);
 
+    /// <summary>Autopilot was saved or re-enabled: see <see cref="IRolloutAutopilot.ReconsiderAsync"/>.</summary>
+    public Task ReconsiderAutopilotAsync(CancellationToken cancellationToken = default) =>
+        _autopilot.ReconsiderAsync(cancellationToken);
+
     /// <summary>Holds a running rollout. In-flight devices are still watched to the end of their cycle.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task PauseAsync(CancellationToken cancellationToken = default)

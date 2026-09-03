@@ -171,6 +171,26 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_ProposesAgainOnceAutopilotIsSavedAfterAStop()
+    {
+        using var harness = await AutopilotSiteAsync();
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+        await harness.Orchestrator.AbortAsync("an admin stopped it");
+
+        // Same firmware and the hour not up: refused, and inside the check interval anyway.
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().BeNull();
+
+        // Saving autopilot is consent to be asked again, and the answer must not wait an hour.
+        await harness.Service.SaveAutopilotSettingsAsync(await harness.Repository.GetSettingsAsync());
+
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+
+        // The consent lives on the stopped plan, so a restart does not bring the refusal back.
+        var history = await harness.Repository.GetPlanHistoryAsync(2);
+        history.Single(p => p.Status == FirmwareRolloutStatus.Aborted).PlanJson.Should().Contain("\"RefusalCleared\":true");
+    }
+
+    [Fact]
     public async Task RipenessGate_HoldsBackDevicesWhoseBuildIsStillTooNew()
     {
         using var harness = await AutopilotSiteAsync(s => s.MinReleaseAgeDays = 7);

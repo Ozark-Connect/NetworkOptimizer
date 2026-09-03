@@ -84,6 +84,11 @@ public static class RolloutPlanComposer
             await AdoptSharedNetworkAppAsync(sharedCatalog, console, logger, cancellationToken);
         }
 
+        // Last word on every path, the read-only preview included. It used to run only inside the
+        // channel staging above, so the drift check (which previews without staging) kept the
+        // console's offer of an older build and Re-plan opened the wizard on a downgrade.
+        DropDowngrades(context);
+
         return new RolloutPlanInputs(
             context,
             estimator,
@@ -167,7 +172,6 @@ public static class RolloutPlanComposer
             CaptureImages(images, context, settings, channel, channel, catalog);
         }
 
-        DropDowngrades(context);
         return currentChannel;
     }
 

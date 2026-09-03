@@ -16,6 +16,13 @@ public interface IRolloutAutopilot
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The new plan's id, or null when nothing was created.</returns>
     Task<int?> CreatePlanIfDueAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The admin just saved or re-enabled autopilot: check on the next tick rather than at the
+    /// hour, and stop treating the last stopped unattended plan as a standing refusal.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task ReconsiderAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -87,6 +94,31 @@ public class RolloutAutopilot : IRolloutAutopilot
     }
 
     private DateTime Now => _time.GetUtcNow().UtcDateTime;
+
+    /// <inheritdoc />
+    public async Task ReconsiderAsync(CancellationToken cancellationToken = default)
+    {
+        _lastCheckedAt = DateTime.MinValue;
+
+        // Saving autopilot after stopping its plan is consent to be asked again, and it has to
+        // outlive a restart: the aborted plan stays the newest in history, so the mark goes on it.
+        var history = await _repositories.UseAsync((r, c) => r.GetPlanHistoryAsync(1, c), cancellationToken);
+        var last = history.FirstOrDefault();
+        if (last is not { Status: FirmwareRolloutStatus.Aborted } ||
+            !string.Equals(last.CreatedBy, Actor, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var document = ParseDocument(last);
+        if (document.RefusalCleared) return;
+        document.RefusalCleared = true;
+        last.PlanJson = JsonSerializer.Serialize(document);
+        await _repositories.UseAsync((r, c) => r.UpdatePlanAsync(last, c), cancellationToken);
+        _logger.LogInformation(
+            "Autopilot on site {Site} will propose again: its settings were saved after rollout {Id} was stopped",
+            _siteSlug, last.Id);
+    }
 
     /// <inheritdoc />
     public async Task<int?> CreatePlanIfDueAsync(CancellationToken cancellationToken = default)
@@ -354,7 +386,11 @@ public class RolloutAutopilot : IRolloutAutopilot
             return false;
         }
 
-        var refused = TargetsOf(ParseDocument(last));
+        var refusedDocument = ParseDocument(last);
+        if (refusedDocument.RefusalCleared)
+            return false;
+
+        var refused = TargetsOf(refusedDocument);
         var proposed = TargetsOf(result.Document);
         return proposed.Count > 0 && proposed.IsSubsetOf(refused);
     }

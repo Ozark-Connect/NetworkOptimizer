@@ -274,6 +274,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         await _repository.SaveSettingsAsync(settings, cancellationToken);
         await _repository.SaveAutopilotSnapshotAsync(
             AutopilotSettingsSnapshot.Serialize(settings), cancellationToken);
+        // The wizard just showed a plan; without this the first real one is an hour away, and a
+        // plan the admin stopped to get here would keep it from ever being proposed again.
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -309,6 +312,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // reads that row live, and a rollout must run under what it was planned from.
         restored.Mode = FirmwareRolloutMode.Autopilot;
         await _repository.SaveSettingsAsync(restored, cancellationToken);
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
