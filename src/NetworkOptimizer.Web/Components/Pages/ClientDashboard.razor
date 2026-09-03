@@ -267,7 +267,7 @@
                         var sigLit = SignalClassification.GetSignalBars(_client.SignalDbm.Value, _client.Band);
                         <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)"
                              style="color: @sigColor"
-                             data-tooltip="@(HasMloLinks ? MloLinksTooltip() : null)">
+                             data-tooltip="@(HasMloLinks ? MloLinksTooltip() : null)" data-tooltip-html>
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
@@ -324,7 +324,7 @@
                 {
                     @if (HasMloLinks)
                     {
-                        <span class="mlo-pill" data-tooltip="@MloLinksTooltip()">
+                        <span class="mlo-pill" data-tooltip="@MloLinksTooltip()" data-tooltip-html>
                             <span class="mlo-pill-label">MLO</span>
                             @foreach (var link in MloLinksOrdered())
                             {
@@ -1809,7 +1809,7 @@
         try
         {
             var target = await SiteTarget.ResolveAsync();
-            if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
+            if (target.UsesAgent && UrlSafety.IsSafeHttpUrl(target.BaseUrl))
             {
                 ip = await JS.InvokeAsync<string?>("eval",
                     $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
@@ -2012,7 +2012,7 @@
             else
             {
                 var target = await SiteTarget.ResolveAsync();
-                if (!target.UsesAgent || string.IsNullOrEmpty(target.BaseUrl)) return null;
+                if (!target.UsesAgent || !UrlSafety.IsSafeHttpUrl(target.BaseUrl)) return null;
                 address = await JS.InvokeAsync<string?>("eval",
                     $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
                     ".then(r => r.json()).then(j => j.ip).catch(() => null)");

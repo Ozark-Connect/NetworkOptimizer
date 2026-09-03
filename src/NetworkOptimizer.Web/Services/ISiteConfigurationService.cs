@@ -152,6 +152,10 @@ public sealed class SiteConfigurationService : ISiteConfigurationService
     public Task SetClientSpeedTestTargetAsync(string siteSlug, string? target)
     {
         var trimmed = target?.Trim();
+        // The value ends up inside a JavaScript string on the client pages, so its shape is checked
+        // here rather than trusted there.
+        if (!string.IsNullOrEmpty(trimmed) && !NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHostOrHttpUrl(trimmed))
+            throw new ArgumentException("Enter a full http(s) URL or a bare host, with no spaces or quotes.");
         return WriteAsync(siteSlug, SystemSettingKeys.ClientSpeedTestTargetOverride,
             string.IsNullOrEmpty(trimmed) ? null : trimmed);
     }

@@ -406,7 +406,7 @@ See [`.env.example`](.env.example) for the full list of variables and detailed e
 ```env
 BIND_LOCALHOST_ONLY=true
 ```
-This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first.
+This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first. The On-Site Agent tunnel port (8043) is the exception: it always listens on all interfaces, because agents at other sites connect to it directly rather than through the proxy.
 
 #### Traefik (Recommended for Speed Testing)
 

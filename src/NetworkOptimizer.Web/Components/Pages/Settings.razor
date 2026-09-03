@@ -3798,6 +3798,10 @@
                                                                        placeholder="@ClientSpeedTestPlaceholder(site)"
                                                                        value="@ClientSpeedTestTarget(site.Id)"
                                                                        @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                                @if (ClientSpeedTestTargetError(site.Id) is { } targetError)
+                                                                {
+                                                                    <div class="alert alert-danger" style="margin-top: 0.5rem;">@targetError</div>
+                                                                }
                                                                 <small class="form-help">
                                                                     Where browsers reach this site's speed test pages. Blank = the
                                                                     agent's detected LAN IP over https. Enter a full URL for a reverse
@@ -4666,6 +4670,11 @@
     private string? ClientSpeedTestTarget(int siteId) =>
         _clientSpeedTestTarget.TryGetValue(siteId, out var v) ? v : null;
 
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetError = new();
+
+    private string? ClientSpeedTestTargetError(int siteId) =>
+        _clientSpeedTestTargetError.TryGetValue(siteId, out var v) ? v : null;
+
     // An online agent reporting an older version than the manually-tracked
     // latest agent release gets an "Update agent" callout. Tracked manually
     // (AppVersionInfo.LatestAgentVersion) rather than compared to the server
@@ -4784,7 +4793,16 @@
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
-        await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        try
+        {
+            await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        }
+        catch (ArgumentException ex)
+        {
+            _clientSpeedTestTargetError[site.Id] = ex.Message;
+            return;
+        }
+        _clientSpeedTestTargetError.Remove(site.Id);
         var trimmed = value?.Trim();
         _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }

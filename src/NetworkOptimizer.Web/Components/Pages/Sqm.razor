@@ -99,7 +99,7 @@
                         <div class="metric-label">SQM Monitor</div>
                         @if (sqmMonitorData == null && deploymentStatus?.TcMonitorDeployed == true)
                         {
-                            <div class="metric-value" data-tooltip="Check that the port is correct in <a href='/settings#sqm-monitor'>Settings</a>. Otherwise, try redeploying the SQM Monitor below." data-tooltip-interactive>
+                            <div class="metric-value" data-tooltip="Check that the port is correct in <a href='/settings#sqm-monitor'>Settings</a>. Otherwise, try redeploying the SQM Monitor below." data-tooltip-html data-tooltip-interactive>
                                 <span class="status-indicator status-danger"></span>
                                 Not Responding
                             </div>

@@ -155,6 +155,7 @@ export function createMarkLayer({ charts }) {
             target.setAttribute('data-tooltip',
                 c.marks.length === 1 ? singleTooltip(c.marks[0]) : foldedTooltip(c.marks));
             target.setAttribute('data-tooltip-interactive', '');
+            target.setAttribute('data-tooltip-html', '');
             target.style.cursor = 'help';
             label.setAttribute(TAGGED, '');
         });

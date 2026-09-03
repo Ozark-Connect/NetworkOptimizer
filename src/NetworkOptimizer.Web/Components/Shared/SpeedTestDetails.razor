@@ -267,7 +267,7 @@
                                     var isBottleneckLink = IsBottleneckLink(lastHop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var turnTooltip = GetConnectorTooltip(lastHop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(lastHop, nextHopGlobal)
@@ -298,7 +298,7 @@
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var connectorTooltip1 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -317,7 +317,7 @@
                                 @if (isClickableClient)
                                 {
                                     <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(clientLinkMac)" class="@hopClasses hop-clickable"
-                                       data-tooltip="@deviceTooltip"
+                                       data-tooltip="@deviceTooltip" data-tooltip-html
                                        data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
@@ -326,7 +326,7 @@
                                 else if (!string.IsNullOrEmpty(deviceTooltip))
                                 {
                                     <div class="@hopClasses"
-                                         data-tooltip="@deviceTooltip"
+                                         data-tooltip="@deviceTooltip" data-tooltip-html
                                          data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
@@ -350,7 +350,7 @@
                                     var needsTurn = isLastHopInRow && !isLastRow;
                                     var connectorTooltip2 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -862,11 +862,11 @@
         var lines = new List<string>();
 
         lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Type:</span> {deviceType}</div>");
-        lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Model:</span> {hop.DeviceModel}</div>");
+        lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Model:</span> {System.Net.WebUtility.HtmlEncode(hop.DeviceModel)}</div>");
 
         if (!string.IsNullOrEmpty(hop.DeviceFirmware))
         {
-            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Firmware:</span> {hop.DeviceFirmware}</div>");
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Firmware:</span> {System.Net.WebUtility.HtmlEncode(hop.DeviceFirmware)}</div>");
         }
 
         // Show MLO status for access points

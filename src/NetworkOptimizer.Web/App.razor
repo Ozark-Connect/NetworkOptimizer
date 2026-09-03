@@ -240,6 +240,17 @@
             }, 2000);
         }
 
+        // Tooltip text is data, not markup: a device name or firmware string from the console
+        // must never run on hover. Only a sibling .tooltip-content block or an explicit
+        // data-tooltip-html opt-in renders as HTML; everything else is escaped here, with
+        // newlines kept as line breaks.
+        function tooltipContent(el) {
+            var raw = el.dataset.tooltip || '';
+            if (el.hasAttribute('data-tooltip-html')) return raw;
+            return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
+        }
+
         // Initialize Tippy.js tooltips
         function initTooltips() {
             // Find all tooltip icons with content siblings
@@ -258,7 +269,7 @@
                     isWide = contentEl.classList.contains('tooltip-wide');
                     contentEl.style.display = 'none'; // Hide the original content element
                 } else if (icon.dataset.tooltip) {
-                    content = icon.dataset.tooltip;
+                    content = tooltipContent(icon);
                 } else {
                     return;
                 }
@@ -311,14 +322,14 @@
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
                 // Destroy existing tippy if content changed (Blazor may reuse elements)
                 if (el._tippy) {
-                    if (el._tippy.props.content === el.dataset.tooltip) {
+                    if (el._tippy.props.content === tooltipContent(el)) {
                         return; // Content unchanged, keep existing
                     }
                     el._tippy.destroy();
                 }
                 var isInteractive = el.hasAttribute('data-tooltip-interactive');
                 var opts = {
-                    content: el.dataset.tooltip,
+                    content: tooltipContent(el),
                     allowHTML: true,
                     trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
@@ -403,7 +414,7 @@
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
                 var isInteractive = el.hasAttribute('data-tooltip-interactive');
                 var opts = {
-                    content: el.dataset.tooltip,
+                    content: tooltipContent(el),
                     allowHTML: true,
                     trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
@@ -470,7 +481,7 @@
                 }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
-                    if (el._tippy.props.content !== el.dataset.tooltip) {
+                    if (el._tippy.props.content !== tooltipContent(el)) {
                         el._tippy.destroy();
                         tippy(el, opts);
                     }
