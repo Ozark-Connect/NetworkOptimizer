@@ -60,6 +60,25 @@ public class SiteSpeedTestTargetResolver
     }
 
     /// <summary>
+    /// Splits a bare target into the host as it goes into a URL and the port it carried, if any:
+    /// "host:3000" and "[2001:db8::1]:3000" yield the port; a bare IPv6 literal comes back
+    /// bracketed with no port; anything else is returned as it was.
+    /// </summary>
+    internal static (string Host, int? Port) SplitHostAndPort(string value)
+    {
+        if (System.Net.IPAddress.TryParse(value, out var ip)
+            && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            return ($"[{value}]", null);
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"^(?<host>\[[^\]]+\]|[^:]+):(?<port>\d{1,5})$");
+        return match.Success && int.TryParse(match.Groups["port"].Value, out var port)
+            ? (match.Groups["host"].Value, port)
+            : (value, null);
+    }
+
+    /// <summary>
     /// The port a bare-host override is served on: the selected agent's, else the first any
     /// connected agent announces, else the historic 3000.
     /// </summary>
@@ -117,8 +136,11 @@ public class SiteSpeedTestTargetResolver
         }
         else
         {
-            baseUrl = $"https://{effectiveTarget}:{AgentSpeedTestPortFor(_siteContext.Slug, selection)}";
-            host = effectiveTarget;
+            // A bare host, IP, or host:port. A port the operator wrote wins over the agent's, and
+            // an IPv6 literal needs brackets to sit in a URL at all.
+            var (bareHost, bareHostPort) = SplitHostAndPort(effectiveTarget);
+            baseUrl = $"https://{bareHost}:{bareHostPort ?? AgentSpeedTestPortFor(_siteContext.Slug, selection)}";
+            host = bareHost.Trim('[', ']');
         }
 
         return new Result(effectiveTarget, baseUrl, host, UsesAgent: true, AgentOffline: agentOffline);
