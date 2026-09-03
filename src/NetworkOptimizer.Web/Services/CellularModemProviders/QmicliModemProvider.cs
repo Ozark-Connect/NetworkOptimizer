@@ -18,17 +18,18 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private const string DefaultQmiDevice = "/dev/wwan0qmi0";
 
     /// <summary>
-    /// The QMI device node to command, defaulting when the configuration leaves it blank. The
-    /// path is interpolated into a root shell command, so it may only look like a device path -
-    /// same guard the GL transport puts on its own bus and device values.
+    /// The QMI device to command, defaulting when the configuration leaves it blank. The value
+    /// is interpolated into a root shell command, so it may only look like what qmicli -d takes:
+    /// a /dev node (LTE: /dev/cdc-wdm0, 5G-Max: /dev/wwan0qmi0) or a QRTR node (U5G-Backup:
+    /// qrtr://3) - same guard the GL transport puts on its own bus and device values.
     /// </summary>
-    private static string QmiDevice(ModemPollContext context)
+    internal static string QmiDevice(ModemPollContext context)
     {
         var path = string.IsNullOrWhiteSpace(context.TransportPath)
             ? DefaultQmiDevice
-            : context.TransportPath;
+            : context.TransportPath.Trim();
 
-        return Regex.IsMatch(path, @"^/dev/[A-Za-z0-9_-]+$")
+        return Regex.IsMatch(path, @"^(/dev/[A-Za-z0-9_-]+|qrtr://[0-9]+)$")
             ? path
             : throw new ArgumentException($"Invalid QMI device path: {path}");
     }

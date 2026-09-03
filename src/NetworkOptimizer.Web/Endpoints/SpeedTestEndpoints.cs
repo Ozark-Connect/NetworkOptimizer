@@ -252,7 +252,9 @@ public static class SpeedTestEndpoints
                 }
             }
 
-            const int maxBodyBytes = 256 * 1024;
+            // A long many-stream test (-P 32 -t 60) is about half a megabyte of -J JSON; this is
+            // a ceiling against an unbounded body, not a budget.
+            const int maxBodyBytes = 4 * 1024 * 1024;
             using var reader = new StreamReader(context.Request.Body);
             var buffer = new char[maxBodyBytes + 1];
             var read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
