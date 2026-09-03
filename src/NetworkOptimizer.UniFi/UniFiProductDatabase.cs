@@ -295,6 +295,7 @@ public static class UniFiProductDatabase
         { "USWF005", "ECS-24S" },
         { "USWF006", "ECS-48S-PoE" },
         { "USWF007", "ECS-48S" },
+        { "USWF07D", "ECS-Core" },
 
         // ----- Official: Enterprise AV Series -----
         { "USWF001", "EAV-24-PoE" },
