@@ -571,6 +571,12 @@ public static class UniFiProductDatabase
         { "ECSAGG", "ECS-Aggregation" },
         { "USWF064", "ECS-Aggregation" },
         { "ESWHS", "ECS-Aggregation" },
+        { "EAS24S", "ECS-24S" },
+        { "ECS24S", "ECS-24S" },
+        { "EAS48S", "ECS-48S" },
+        { "ECS48S", "ECS-48S" },
+        { "ECSCORE", "ECS-Core" },
+        { "ECS-Core", "ECS-Core" },
         { "USW-LEAF", "USW-Leaf" },
         { "S28150", "US-8-150W" },
         { "S216150", "US-16-150W" },
@@ -675,6 +681,8 @@ public static class UniFiProductDatabase
         { "USPPDUPROUK", "USP-PDU-Pro" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
+        { "ENAS", "ENAS" },
+        { "UTR-LR", "UTR-LR" },
     };
 
     /// <summary>
