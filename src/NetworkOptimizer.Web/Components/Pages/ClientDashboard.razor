@@ -1536,6 +1536,19 @@
         {
             try
             {
+                // On your own device identity resolves after first render, so a VPN client reaches
+                // this timer rather than the VPN branch above. Its stat/sta poll returns nothing,
+                // so without this the Speed tab never picks up new results.
+                if (_client?.IsVpn == true)
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshVpnSpeedAsync();
+                        StateHasChanged();
+                    });
+                    return;
+                }
+
                 _tickCount++;
                 var ticksPerFullPoll = _hasApAgentData ? 10 : 5;
                 var isFullPoll = !(_hasApAgentData || _hasWiFiManData) || _tickCount % ticksPerFullPoll == 0;
