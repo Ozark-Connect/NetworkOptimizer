@@ -1673,6 +1673,7 @@
             StateHasChanged();
 
         await LoadPickerClientsAsync();
+        StartPickerRefresh();
 
         // GPS watcher is started from the first poll cycle (after _client is identified)
         // so we can skip it for wired devices
@@ -1734,6 +1735,7 @@
     private bool _awaitingSiteIdentity;
     private bool _awaitingLocalIp;
     private System.Threading.Timer? _identityRetryTimer;
+    private System.Threading.Timer? _pickerRefreshTimer;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
     private string? _pickerSelection;
@@ -1925,6 +1927,29 @@
         // The header's "This device" jump needs the viewer's own address to know whether to show.
         if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
             StateHasChanged();
+    }
+
+    /// <summary>
+    /// Keeps the selector's roster and online dots current while the page sits open. One console
+    /// call a tick, and only the list is replaced - the selection, the search and an open dropdown
+    /// all live in the selector, which holds its highlight on the row rather than its index.
+    /// </summary>
+    private void StartPickerRefresh()
+    {
+        _pickerRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                if (_pickerClients.Count == 0) return;
+                var refreshed = await DashboardService.RefreshSelectableClientsAsync(_pickerClients);
+                await InvokeAsync(() =>
+                {
+                    _pickerClients = refreshed;
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
     }
 
     /// <summary>
@@ -3839,6 +3864,7 @@
         ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
+        _pickerRefreshTimer?.Dispose();
         if (_liveChartMounted) await DisposeLiveChartAsync();
 
         // Stop GPS watcher
