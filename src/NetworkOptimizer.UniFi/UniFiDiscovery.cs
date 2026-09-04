@@ -344,6 +344,31 @@ public class UniFiDiscovery
     }
 
     /// <summary>
+    /// Whether a contradicting claim should replace the child's own uplink. Only when that report
+    /// is unusable: empty, naming no device of ours, or closing a loop (a child naming a device
+    /// downstream of itself). A child naming another live parent has re-paired, and the claim is
+    /// the old parent's last downlink table - true of every device behind an AP mid-upgrade.
+    /// </summary>
+    /// <param name="childMac">The child, normalized.</param>
+    /// <param name="reportedUplinkMac">What the child's own uplink field names, normalized or empty.</param>
+    /// <param name="ownUplinkByMac">Every device's own reported uplink, normalized, keyed by device.</param>
+    public static bool ClaimOutranksReportedUplink(
+        string childMac, string? reportedUplinkMac, IReadOnlyDictionary<string, string?> ownUplinkByMac)
+    {
+        if (string.IsNullOrEmpty(reportedUplinkMac)) return true;
+        if (!ownUplinkByMac.ContainsKey(reportedUplinkMac)) return true;
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = reportedUplinkMac;
+        while (!string.IsNullOrEmpty(current) && visited.Add(current))
+        {
+            if (string.Equals(current, childMac, StringComparison.OrdinalIgnoreCase)) return true;
+            ownUplinkByMac.TryGetValue(current, out current);
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN
     /// uplink - the WAN currently carrying the default route. Selection order matches
     /// the counter-interface rules above: the gateway's live uplink object, then the

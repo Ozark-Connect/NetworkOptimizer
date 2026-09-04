@@ -113,6 +113,42 @@ public class MeshParentDerivationTests
         claim.Contradicts(reported).Should().Be(expected);
     }
 
+    // A contradicting claim only replaces the child's own uplink when that report is unusable.
+    // A child that names another live parent has re-paired; the claim is the old parent's stale
+    // downlink table, which is what every device behind an AP mid-upgrade reports.
+    private const string OtherParentMac = "aa:bb:cc:dd:ee:03";
+    private const string DownstreamSwitchMac = "aa:bb:cc:dd:ee:04";
+    private const string GatewayMac = "aa:bb:cc:dd:ee:00";
+
+    private static Dictionary<string, string?> Uplinks() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        [GatewayMac] = null,
+        [ParentMac] = GatewayMac,
+        [OtherParentMac] = GatewayMac,
+        [ChildMac] = OtherParentMac,
+        [DownstreamSwitchMac] = ChildMac,
+    };
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("aa:bb:cc:dd:ee:99", true)]
+    [InlineData(DownstreamSwitchMac, true)]
+    [InlineData(OtherParentMac, false)]
+    public void ClaimOutranksReportedUplink_OnlyWhenTheChildsOwnReportIsUnusable(string? reported, bool expected)
+    {
+        UniFiDiscovery.ClaimOutranksReportedUplink(ChildMac, reported, Uplinks()).Should().Be(expected);
+    }
+
+    [Fact]
+    public void ClaimOutranksReportedUplink_SurvivesACycleThatDoesNotReachTheChild()
+    {
+        var uplinks = Uplinks();
+        uplinks[GatewayMac] = ParentMac;
+
+        UniFiDiscovery.ClaimOutranksReportedUplink(ChildMac, OtherParentMac, uplinks).Should().BeFalse();
+    }
+
     // --- MLO: an MLO backhaul is one downlink entry PER LINK, all sharing the child's base MAC ---
 
     private static DownlinkTableEntry MloLink(string radio, long txRate, long rxRate, int? signal = null) => new()

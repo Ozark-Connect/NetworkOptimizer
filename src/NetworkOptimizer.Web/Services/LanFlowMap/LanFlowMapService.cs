@@ -1586,6 +1586,8 @@ public class LanFlowMapService
         // something no node exists for. The edge then hangs off nothing and the client drops it,
         // which is indistinguishable from having no uplink at all: the device draws isolated.
         var deviceMacs = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)));
+        var ownUplinkByMac = topology.Devices.ToDictionary(
+            x => NormalizeMac(x.Mac), x => (string?)NormalizeMac(x.UplinkMac), StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in topology.Devices)
         {
@@ -1594,13 +1596,13 @@ public class LanFlowMapService
             var fromDownlinkTable = false;
 
             // A parent naming this device in its downlink_table outranks the device's own uplink
-            // field ONLY when the two disagree. The field can be stale or plain wrong after a
-            // reboot - it has been seen naming a switch that actually hangs off the AP - and
-            // pointing a child at something downstream of itself closes a loop the layout cannot
-            // place, so the device ends up with no position at all: isolated on 3D, absent from
-            // 2D. When child and parent agree, the child's own report (capacity, band, uplink
-            // port) is authoritative and this path is inert.
-            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac))
+            // field only when that field is unusable: empty, or naming something downstream of
+            // itself (seen after a reboot - closing a loop the layout cannot place, so the device
+            // draws isolated on 3D and absent from 2D). A child naming a different live parent
+            // has re-paired, and the claim is the old parent's stale table - every device behind
+            // an AP mid-upgrade looks like this. Agreement leaves the child's own report in charge.
+            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac)
+                && NetworkOptimizer.UniFi.UniFiDiscovery.ClaimOutranksReportedUplink(mac, uplinkMac, ownUplinkByMac))
             {
                 _logger.LogDebug(
                     "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
