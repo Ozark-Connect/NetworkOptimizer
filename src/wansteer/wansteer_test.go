@@ -686,7 +686,7 @@ func TestFlushSFE_NoSysfs(t *testing.T) {
 
 func TestFlushSFE_Idempotent(t *testing.T) {
 	// Calling flushSFE multiple times should be safe (e.g. when
-	// flushAllSteeredConntrack calls flushConntrackForMark per-WAN).
+	// flushAllSteeredConntrack calls flushConntrackForWAN per-WAN).
 	flushSFE()
 	flushSFE()
 	// No panic, no error - global SFE flush is idempotent
@@ -1042,5 +1042,24 @@ func TestBuildStatus_BackoffFields(t *testing.T) {
 	}
 	if len(status.UnstableWANs) != 1 || status.UnstableWANs[0] != "backup" {
 		t.Errorf("expected unstable_wans=[backup], got %v", status.UnstableWANs)
+	}
+}
+
+func TestMarkMask_DefaultsToLegacyLayout(t *testing.T) {
+	// A config written before fwmask existed must keep marking the pre-6.0 way.
+	w := WANInterface{FWMark: "0x200000"}
+	if w.markMask() != "0x7e0000" {
+		t.Errorf("expected legacy mask 0x7e0000, got %s", w.markMask())
+	}
+	if w.markWithMask() != "0x200000/0x7e0000" {
+		t.Errorf("unexpected mark/mask: %s", w.markWithMask())
+	}
+}
+
+func TestMarkMask_UsesConfiguredMask(t *testing.T) {
+	// UniFi OS 6.0.5 layout as read off `ip rule`.
+	w := WANInterface{FWMark: "0x216e0000", FWMask: "0x3ffe0000"}
+	if w.markWithMask() != "0x216e0000/0x3ffe0000" {
+		t.Errorf("unexpected mark/mask: %s", w.markWithMask())
 	}
 }

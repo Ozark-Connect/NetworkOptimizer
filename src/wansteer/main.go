@@ -121,7 +121,7 @@ func main() {
 				slog.Info("suppressing conntrack flush (backoff active)", "wan", wan)
 			} else {
 				if w, ok := cfg.WANInterfaces[wan]; ok {
-					flushConntrackForMark(w.FWMark)
+					flushConntrackForWAN(&w)
 				}
 			}
 		}
@@ -161,7 +161,7 @@ func main() {
 					if !newTargets[wan] {
 						if w, ok := cfg.WANInterfaces[wan]; ok && w.FWMark != "" {
 							slog.Info("flushing conntrack for removed WAN target", "wan", wan)
-							flushConntrackForMark(w.FWMark)
+							flushConntrackForWAN(&w)
 						}
 					}
 				}
@@ -178,7 +178,7 @@ func main() {
 			default:
 				slog.Info("shutdown signal received", "signal", sig)
 				removeRules()
-				// SFE flush happens inside flushAllSteeredConntrack via flushConntrackForMark
+				// SFE flush happens inside flushAllSteeredConntrack via flushConntrackForWAN
 				flushAllSteeredConntrack(cfg)
 				// Write final status
 				status := buildStatus(cfg, startedAt, lastReconcile, reconcileCount, health, inBackoff)
