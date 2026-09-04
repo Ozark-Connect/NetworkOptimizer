@@ -1,0 +1,100 @@
+{
+  "id": "2.8.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.8.0",
+  "summary": "Network Optimizer can read Wi-Fi data from your access points directly now, providing live client data twice a second, real-time roaming data and AP / band switching while walk testing, and per-client Wi-Fi throughput UniFi Network never showed.",
+  "steps": [
+    {
+      "id": "ap-telemetry",
+      "level": "major",
+      "url": "/settings?tab=aptelemetry",
+      "selector": "[data-tour=\"ap-telemetry\"]",
+      "title": "AP Telemetry",
+      "listLabel": "Read Wi-Fi data straight from your access points",
+      "body": "Read Wi-Fi data from the access points themselves instead of only from the UniFi Console: faster live client data, per-client LAN throughput, roam records, and radio health. Switch it on and a small ephemeral agent is pushed to each access point over SSH.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "wifi-health-issues",
+      "level": "major",
+      "badge": "improved",
+      "url": "/wifi-optimizer?tab=overview",
+      "selector": "[data-tour=\"wifi-health-issues\"]",
+      "alsoSelectors": ["[data-tour=\"wifi-channel-optimization\"]"],
+      "title": "Measured Wi-Fi Optimizer",
+      "listLabel": "Wi-Fi issues and channel plans graded by what the radios measure",
+      "body": "With **AP Telemetry** on, issues are graded by what the radios measure: **Raised Noise Floor**, **Sticky Clients**, **High Latency Despite Good Signal**, and whose airtime it is. Settings you chose yourself are noted, not corrected.\n\n**Channel Optimization** reads the real 320 MHz block off each radio, can propose a width change, and after a move measures the new channel against the old one. **Pin** holds a radio where it is.\n\n**Acknowledge** hides an issue you have decided to live with. It stays in the score.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "client-live",
+      "level": "major",
+      "badge": "improved",
+      "url": "/client-dashboard?ip={wifi-client-ip}",
+      "selector": "[data-tour=\"client-live\"]",
+      "title": "Client Performance Upgrade",
+      "listLabel": "Live client data twice a second, and move a client between APs",
+      "body": "Deploying **AP Telemetry** enhances this page, and unlocks **Roam**.\n\nSignal, PHY rates, and throughput now come from the client's own AP twice a second, so they move as fast as the client does, and when it roams the stats follow to the new AP immediately instead of stalling.\n\nWired clients pick this up too from existing SNMP monitoring: their switch and port, link speed, live throughput rates, and port errors and drops.\n\n**Roam** is new: ask a client to move to the nearest AP besides the current one, or to a more optimal band. Useful on a walk test, when you need the device on the access point you are testing rather than wherever it is clinging.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "client-live-throughput",
+      "level": "minor",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=speed",
+      "selector": "[data-tour=\"client-live-throughput\"]",
+      "title": "Client Live Throughput",
+      "listLabel": "Watch a device's throughput move, five minutes at a time",
+      "body": "The Speed tab now opens with a five-minute live chart of the device's download and upload, in the same shape as the WAN live chart on Monitoring. Run a speed test and watch it climb; the result appears below it when the test finishes.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "client-data",
+      "level": "major",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=data",
+      "selector": "[data-tour=\"client-data\"]",
+      "scroll": "top",
+      "title": "Client Data Usage",
+      "listLabel": "See what a device actually used, on the WAN and on your LAN",
+      "body": "A fourth tab on Client Performance. **WAN** is the device's usage as UniFi Network counts it at the gateway. **LAN + WAN** is everything through its access point or switch port, so local traffic your Console never sees is in it, with the local share estimated underneath.\n\nBelow them, **Applications** breaks the WAN usage down by app the way UniFi Network identified it, largest first. Ranges up to 24 hours refresh every 30 seconds; the longer ones read from an hourly rollup, so 7 and 30 days open in a moment.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "nav-client-performance",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/client-dashboard?ip={wifi-client-ip}&tab=data",
+      "selector": "[data-tour=\"nav-client-performance\"]",
+      "title": "Client Performance in the menu",
+      "listLabel": "Client Performance moved to the main menu",
+      "body": "It covers wired clients as well as Wi-Fi, has grown its own tabs, and is where a walk test lives, so it now sits under **Monitoring** in the menu instead of inside Wi-Fi Optimizer.",
+      "placement": "right",
+      "menu": true
+    },
+    {
+      "id": "live-client-throughput",
+      "level": "minor",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"live-client-throughput\"]",
+      "title": "Per-client Wi-Fi Traffic",
+      "listLabel": "See Wi-Fi LAN traffic your Console never counted",
+      "body": "UniFi Network only counts WAN traffic per client, so a client copying to a NAS, streaming from your media server, or running a LAN speed test read as idle. Reading AP stats directly lets this view display and record actual Wi-Fi traffic on the air, so you can review and investigate traffic patterns later.\n\nThe map itself now lays out left to right on a portrait screen, so the tree stacks down a phone or rotated monitor instead of squeezing sideways.\n\n**Double-click** any client on the map to open it in Client Performance, or a switch or gateway to jump to its **Port Statistics**.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "bandwidth-hogs",
+      "level": "major",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"bandwidth-hogs\"]",
+      "title": "Bandwidth Hogs",
+      "listLabel": "See who is using the WAN right now, and who used the most this week",
+      "body": "Who is using the WAN right now, and who used the most of it over the last day, week, or month. Every client holding a real share of the traffic, biggest first, each linking to its Client Performance page.\n\n**WAN** is a client's part of what the WAN is carrying, with the WAN's saturation above the list; **LAN + WAN** is everything through its radio or switch port. **Throughput** is live and follows the maps' playhead; **Data** ranks the last hour to 30 days.\n\nWith an On-Site Agent on your UniFi Gateway, every client's WAN figure is measured there, live and in history. Without one it is a best guess when clients are busy locally.",
+      "placement": "top"
+    }
+  ]
+}

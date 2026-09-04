@@ -171,6 +171,45 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_ProposesAgainOnceAutopilotIsSavedAfterAStop()
+    {
+        using var harness = await AutopilotSiteAsync();
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+        await harness.Orchestrator.AbortAsync("an admin stopped it");
+
+        // Same firmware and the hour not up: refused, and inside the check interval anyway.
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().BeNull();
+
+        // Saving autopilot is consent to be asked again, and the plan lands with the save itself
+        // rather than on a later tick. Through the plain save: the wizard's "Autopilot on" path.
+        await harness.Service.SaveSettingsAsync(await harness.Repository.GetSettingsAsync());
+
+        var scheduled = await harness.Repository.GetActivePlanAsync();
+        scheduled.Should().NotBeNull();
+        scheduled!.CreatedBy.Should().Be(RolloutAutopilot.Actor);
+
+        // The consent lives on the stopped plan, so a restart does not bring the refusal back.
+        var history = await harness.Repository.GetPlanHistoryAsync(2);
+        history.Single(p => p.Status == FirmwareRolloutStatus.Aborted).PlanJson.Should().Contain("\"RefusalCleared\":true");
+    }
+
+    [Fact]
+    public async Task CreatePlanIfDue_SaysWhyItPlannedNothing()
+    {
+        using var harness = await AutopilotSiteAsync();
+        foreach (var device in harness.Planning.Devices) device.Upgradable = false;
+
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().BeNull();
+        harness.Autopilot.HoldReason.Should().Contain("current firmware");
+
+        // A plan clears it.
+        harness.Time.Advance(TimeSpan.FromHours(2));
+        harness.Planning.Devices[0] = Ap(ApMac, "AP 1");
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().NotBeNull();
+        harness.Autopilot.HoldReason.Should().BeNull();
+    }
+
+    [Fact]
     public async Task RipenessGate_HoldsBackDevicesWhoseBuildIsStillTooNew()
     {
         using var harness = await AutopilotSiteAsync(s => s.MinReleaseAgeDays = 7);

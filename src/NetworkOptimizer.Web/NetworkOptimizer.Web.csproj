@@ -36,6 +36,15 @@
     <EmbeddedResource Include="..\wansteer\binary-version">
       <LogicalName>wansteer.binary-version</LogicalName>
     </EmbeddedResource>
+    <!-- Same contract for the AP Agent (src/apagent/binary-version), plus the architecture-gating
+         wrapper the server writes onto each access point beside the binary. Both are embedded from
+         the Go module's own files so there is one source of truth. See ApAgentDeploymentService. -->
+    <EmbeddedResource Include="..\apagent\binary-version">
+      <LogicalName>apagent.binary-version</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\apagent\apagent.sh">
+      <LogicalName>apagent.apagent.sh</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

@@ -117,14 +117,42 @@ public class WanSteerDeploymentServiceTests
         }
 
         [Fact]
-        public void Ignores_non_matching_fwmark_masks()
+        public void Carries_legacy_mask_through()
         {
-            // Different mask than 0x7e0000 - should not match
-            var output = "32000:	from all fwmark 0x200000/0xffff00 lookup 201.eth4\n";
+            var output = "32000:	from all fwmark 0x200000/0x7e0000 lookup 201.eth4\n";
 
             var result = WanSteerDeploymentService.ParseIpRules(output);
 
-            result.Should().BeEmpty();
+            result["eth4"].FWMask.Should().Be("0x7e0000");
+        }
+
+        [Fact]
+        public void Parses_unifi_os_6_mark_layout()
+        {
+            // UniFi OS 6.0 (seen on 6.0.5): WAN bits moved to 0x3ffe0000, with iif skip rules interleaved.
+            var output = string.Join("\n",
+                "0:	from all lookup local",
+                "31999:	from all fwmark 0xe000000/0xff000000 lookup 234881024",
+                "32000:	from all lookup main",
+                "32504:	from all iif eth0 goto 32506",
+                "32505:	from all fwmark 0x21960000/0x3ffe0000 lookup 202.eth0",
+                "32506:	from all iif eth1 goto 32508",
+                "32507:	from all fwmark 0x216e0000/0x3ffe0000 lookup 182.eth1",
+                "32508:	from all iif eth6.228 goto 32510",
+                "32509:	from all fwmark 0x21940000/0x3ffe0000 lookup 201.eth6.228",
+                "32510:	from all iif gre1 goto 32512",
+                "32511:	from all fwmark 0x216a0000/0x3ffe0000 lookup 180.gre1",
+                "32520:	from 192.0.2.10 lookup 202.eth0",
+                "32766:	from all lookup 201.eth6.228",
+                "32767:	from all lookup default");
+
+            var result = WanSteerDeploymentService.ParseIpRules(output);
+
+            result.Should().ContainKeys("eth0", "eth1", "eth6.228", "gre1");
+            result["eth1"].FWMark.Should().Be("0x216e0000");
+            result["eth1"].FWMask.Should().Be("0x3ffe0000");
+            result["eth1"].RouteTable.Should().Be("182.eth1");
+            result["eth6.228"].FWMark.Should().Be("0x21940000");
         }
     }
 
@@ -310,7 +338,8 @@ public class WanSteerDeploymentServiceTests
         [Fact]
         public void No_warning_when_deployed_contract_version_matches()
         {
-            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 1 };
+            var expected = WanSteerDeploymentService.ExpectedBinaryVersion;
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = expected };
 
             WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
         }
@@ -318,7 +347,8 @@ public class WanSteerDeploymentServiceTests
         [Fact]
         public void Warns_when_deployed_contract_version_is_older()
         {
-            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 0 };
+            var expected = WanSteerDeploymentService.ExpectedBinaryVersion;
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = expected - 1 };
 
             WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
         }
@@ -327,7 +357,8 @@ public class WanSteerDeploymentServiceTests
         public void No_warning_when_deployed_contract_version_is_newer()
         {
             // Downgraded app vs a newer gateway binary: never nag the user to deploy an older daemon.
-            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 2 };
+            var expected = WanSteerDeploymentService.ExpectedBinaryVersion;
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = expected + 1 };
 
             WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
         }
@@ -337,10 +368,11 @@ public class WanSteerDeploymentServiceTests
         [InlineData("v1.14.7")]
         [InlineData("1.23.0")]
         [InlineData("1.23.0-alpha.0.2+abc123")]
-        public void No_warning_for_preflag_binary_at_or_above_floor(string releaseVersion)
+        public void Preflag_binary_at_or_above_floor_counts_as_contract_v1(string releaseVersion)
         {
             // Old binary without the -binary-version flag, but its release is >= v1.14.7 (the floor
-            // where the current daemon first shipped). It already runs the current daemon.
+            // where contract v1 first shipped). It is v1, so it is outdated exactly when the app
+            // ships a later contract.
             var status = new WanSteerStatus
             {
                 BinaryDeployed = true,
@@ -348,7 +380,8 @@ public class WanSteerDeploymentServiceTests
                 Version = releaseVersion
             };
 
-            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+            WanSteerDeploymentService.IsBinaryOutdated(status)
+                .Should().Be(WanSteerDeploymentService.ExpectedBinaryVersion > 1);
         }
 
         [Theory]

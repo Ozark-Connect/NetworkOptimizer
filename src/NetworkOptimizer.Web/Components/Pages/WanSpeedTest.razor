@@ -83,6 +83,16 @@
             <h2 class="card-title">Run a Speed Test</h2>
         </div>
         <div class="card-body">
+            @* The two options draw only once the agent/gateway availability has settled: the
+               resolve is in-memory and DB reads (milliseconds), while drawing first paints
+               "Unavailable" defaults that flip a beat later. A failed resolve still draws -
+               _vantageResolved is set in a finally. *@
+            @if (!_vantageResolved)
+            {
+                <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+            }
+            else
+            {
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -231,6 +241,7 @@
                 </div>
                 }
             </div>
+            }
 
             @if (!string.IsNullOrEmpty(_errorMessage))
             {
@@ -273,7 +284,7 @@
             </div>
             <div class="card-body">
                 <SpeedTestDetails Result="_latestResult"
-                                  UseWanLabels="true"
+                                  Perspective="SpeedPerspective.Wan"
                                   OnTestAgain="HandleTestAgain"
                                   OnNotesChanged="HandleNotesChanged"
                                   AvailableWans="_availableWans"
@@ -322,18 +333,18 @@
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.DownloadData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.DownloadData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} ↓")"
                                                  SeriesType="SeriesType.Area"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.UploadData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.UploadData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} ↑")"
                                                  SeriesType="SeriesType.Area"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
                         </ApexChart>
@@ -350,11 +361,11 @@
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.LatencyData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.LatencyData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName}")"
                                                  SeriesType="SeriesType.Line"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
                         </ApexChart>
@@ -382,25 +393,25 @@
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyBaseData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyBaseData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Base")"
                                                  SeriesType="SeriesType.Line"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyDownData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyDownData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↓")"
                                                  SeriesType="SeriesType.Line"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyUpData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyUpData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↑")"
                                                  SeriesType="SeriesType.Line"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
                         </ApexChart>
@@ -417,11 +428,11 @@
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
-                                                 Items="@(IsWanVisible(wan) ? wan.JitterData : _emptyChartData)"
+                                                 Items="@(IsWanVisible(wan) ? wan.JitterData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName}")"
                                                  SeriesType="SeriesType.Line"
                                                  XValue="e => e.Timestamp"
-                                                 YValue="e => e.Value"
+                                                 YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
                         </ApexChart>
@@ -582,7 +593,7 @@
                                                         }
                                                         <SpeedTestDetails Result="result"
                                                                           PathAnalysis="pathAnalysis"
-                                                                          UseWanLabels="true"
+                                                                          Perspective="SpeedPerspective.Wan"
                                                                           OnTestAgain="HandleTestAgain"
                                                                           OnDelete="HandleDeleteResult"
                                                                           OnNotesChanged="HandleNotesChanged"
@@ -785,7 +796,7 @@
     private ApexChart<WanChartDataPoint>? _jitterChart;
     private ApexChartOptions<WanChartDataPoint> _jitterChartOptions = new();
     private List<WanSeriesInfo> _wanSeries = new();
-    private List<WanChartDataPoint> _emptyChartData = new();
+    private List<WanChartDataPoint> _hiddenChartData = new();
 
     // History tab state
     private string _activeHistoryTab = "speed";
@@ -819,11 +830,35 @@
         public int ResultId { get; set; }
         public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
+        // A padding point at the chart's edge: no result behind it, drawn as nothing.
+        public bool IsGap { get; init; }
+        public decimal? Y => IsGap ? null : Value;
+
         public WanChartDataPoint(DateTime timestamp, double value, int resultId)
         {
             Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = (decimal)value;
             ResultId = resultId;
+        }
+
+        public static WanChartDataPoint Gap(DateTime timestamp) => new(timestamp, 0, 0) { IsGap = true };
+    }
+
+    // Every series on a chart must start and end at the same x, or ApexCharts hit-tests the hover in
+    // two dimensions (nearest point by pixel distance, any series) instead of by x alone, and on
+    // sparse test points the tooltip jumps and drops. Null edge points draw nothing, take no hover
+    // dot and get no tooltip row, so the padding is invisible. Empty series get both points too.
+    private static void PadToCommonSpan(IEnumerable<List<WanChartDataPoint>> seriesLists)
+    {
+        var lists = seriesLists.ToList();
+        var points = lists.SelectMany(l => l).Where(p => !p.IsGap).ToList();
+        if (points.Count == 0) return;
+        var min = points.Min(p => p.Timestamp);
+        var max = points.Max(p => p.Timestamp);
+        foreach (var list in lists)
+        {
+            if (list.Count == 0 || list[0].Timestamp > min) list.Insert(0, WanChartDataPoint.Gap(min));
+            if (list[^1].Timestamp < max) list.Add(WanChartDataPoint.Gap(max));
         }
     }
 
@@ -879,14 +914,25 @@
         // Gateway SSH availability is a DB read - determine it even when the console
         // (and, on an agent-backed site, the agent) is offline, so the Gateway (Direct)
         // option recovers on its own when the agent reconnects rather than needing a reload.
-        var gatewayTask = RefreshGatewaySshConfigAsync();
+        //
+        // Availability resolves BEFORE the slow history/WAN loads are awaited: it is
+        // in-memory and DB reads, and the run-test cards hold their spinner until it lands
+        // (see the _vantageResolved gate). The finally guarantees they draw even when the
+        // resolve throws - with the same defaults an early draw showed before the gate.
+        try
+        {
+            await RefreshGatewaySshConfigAsync();
+            await RefreshAgentAvailabilityAsync();
+        }
+        finally
+        {
+            _vantageResolved = true;
+        }
+        StartAgentStatusPolling();
+        StateHasChanged();
 
         await historyTask;
         if (wanTask != null) await wanTask;
-        await gatewayTask;
-
-        await RefreshAgentAvailabilityAsync();
-        StartAgentStatusPolling();
 
         BuildWanSelectorOptions();
 
@@ -1285,7 +1331,10 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                // The shared Monitoring tooltip, via its window hook (a serialized function string
+                // cannot import the module): rows ordered as the lines sit, and a dot on every one.
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }"
             },
             Markers = new Markers
             {
@@ -1363,7 +1412,8 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' " + unit + @"'; }, omitSeconds: true }) : ''; }"
             },
             Markers = new Markers
             {
@@ -1718,6 +1768,17 @@
                 ? DownsampleLttb(CollapseClusters(jitterRaw), MaxChartPoints)
                 : jitterRaw;
         }
+
+        // One span for every chart on the page, so a hidden WAN's stand-in series fits all of them.
+        var allSeries = _wanSeries.SelectMany(w => new[]
+        {
+            w.DownloadData, w.UploadData, w.LatencyData,
+            w.LoadedLatencyBaseData, w.LoadedLatencyDownData, w.LoadedLatencyUpData, w.JitterData
+        }).ToList();
+        PadToCommonSpan(allSeries);
+        _hiddenChartData = allSeries.FirstOrDefault(s => s.Count > 0) is { } spanned
+            ? new List<WanChartDataPoint> { WanChartDataPoint.Gap(spanned[0].Timestamp), WanChartDataPoint.Gap(spanned[^1].Timestamp) }
+            : new List<WanChartDataPoint>();
     }
 
     private static string GetWanKey(Iperf3Result result)
@@ -1974,7 +2035,7 @@
 
     private async Task OnChartClicked(SelectedData<WanChartDataPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is WanChartDataPoint point)
+        if (data?.DataPoint?.Items?.FirstOrDefault() is WanChartDataPoint { IsGap: false } point)
         {
             await ScrollToResult(point.ResultId);
         }

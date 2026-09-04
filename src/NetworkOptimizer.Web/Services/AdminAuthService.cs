@@ -135,6 +135,15 @@ public class AdminAuthService : IAdminAuthService
     public async Task<bool> IsAuthenticationRequiredAsync(CancellationToken cancellationToken = default)
     {
         await RefreshCacheIfNeededAsync(cancellationToken);
+
+        // Every gate that short-circuits on this treats false as "no authentication on this
+        // install", so an unresolved cache must not answer false: the refresh swallows its
+        // errors, and a database it could not read would otherwise open the whole app. A
+        // resolve always ends with a hash stored (generating one if needed), so unresolved
+        // means failed. Fail closed and let the retry settle it.
+        if (!_cache.HasResolved)
+            return true;
+
         return !string.IsNullOrEmpty(_cache.PasswordHash);
     }
 

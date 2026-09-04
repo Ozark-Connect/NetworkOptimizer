@@ -26,6 +26,10 @@ public interface IFirmwareRolloutService
     [RequireRole(Roles.Viewer)]
     Task<RolloutPlanView?> GetActivePlanAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Why Autopilot's last pass planned nothing, or null when it planned or is off.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<string?> GetAutopilotHoldReasonAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Past and present rollouts, newest first.</summary>
     /// <param name="limit">Most rows to return.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

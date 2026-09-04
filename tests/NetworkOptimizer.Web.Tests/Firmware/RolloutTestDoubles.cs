@@ -91,6 +91,13 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     };
     public List<UniFiFirmwareCatalogEntry> Catalog { get; } = [];
 
+    /// <summary>
+    /// Catalogs by the channel the console is on, so one channel can offer what another does not.
+    /// A channel with no entry here falls back to <see cref="Catalog"/>.
+    /// </summary>
+    public Dictionary<string, List<UniFiFirmwareCatalogEntry>> CatalogByChannel { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>What the console offers as a UniFi OS build; null means it is current.</summary>
     public UniFiConsoleFirmwareRelease? PendingUniFiOs { get; set; }
 
@@ -109,6 +116,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public List<string> Calls { get; } = [];
 
     public int CheckForUpdatesCalls { get; private set; }
+    public int DeviceFirmwareChecks { get; private set; }
     public int ApplicationUpdateChecks { get; private set; }
     public int BackupCalls { get; private set; }
     public int NetworkAppUpdateCalls { get; private set; }
@@ -135,7 +143,16 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
     {
         CheckForUpdatesCalls++;
-        return Task.FromResult<IReadOnlyList<UniFiFirmwareCatalogEntry>>(Catalog);
+        Calls.Add("list-available");
+        return Task.FromResult<IReadOnlyList<UniFiFirmwareCatalogEntry>>(
+            CatalogByChannel.TryGetValue(DeviceChannel, out var staged) ? staged : Catalog);
+    }
+
+    public Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        DeviceFirmwareChecks++;
+        Calls.Add("device-firmware-check");
+        return Task.FromResult(true);
     }
 
     public Task<string?> GetDeviceChannelAsync(CancellationToken cancellationToken = default) =>
@@ -245,7 +262,7 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
         Task.FromResult<IReadOnlyList<RolloutDeviceObservation>>(
             ConsoleDark ? [] : Devices.Values.ToList());
 
-    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1")
+    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1", string? uplinkMac = null)
     {
         Devices[mac] = new RolloutDeviceObservation
         {
@@ -257,6 +274,7 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
             State = state,
             Upgradable = upgradeTo != null,
             UpgradeToFirmware = upgradeTo,
+            UplinkMac = uplinkMac,
         };
     }
 }
@@ -454,6 +472,18 @@ internal sealed class FakeReleaseMetadataSource : IReleaseMetadataSource
 /// Everything one orchestrator test needs, wired to doubles: an in-memory database with a real
 /// repository behind it, so "persisted after every transition" is asserted against real rows.
 /// </summary>
+/// <summary>Recorded boots the offline path can settle a step from. Empty means nothing was recorded.</summary>
+internal sealed class ScriptedRebootWitness : IRolloutRebootWitness
+{
+    private readonly Dictionary<string, RolloutBootRecord> _boots = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Set(string mac, string firmware, DateTime bootedAt) =>
+        _boots[mac] = new RolloutBootRecord(firmware, bootedAt);
+
+    public Task<RolloutBootRecord?> FirstBootSinceAsync(string deviceMac, DateTime since, CancellationToken ct = default) =>
+        Task.FromResult(_boots.TryGetValue(deviceMac, out var b) && b.BootedAt >= since ? b : null);
+}
+
 internal sealed class RolloutHarness : IDisposable
 {
     public static readonly DateTime Start = new(2026, 8, 14, 3, 0, 0, DateTimeKind.Utc);
@@ -472,6 +502,7 @@ internal sealed class RolloutHarness : IDisposable
     public CapturingBus Bus { get; } = new();
     public FakeRolloutPlanningSource Planning { get; } = new();
     public FakeReleaseMetadataSource Releases { get; } = new();
+    public ScriptedRebootWitness Reboots { get; } = new();
     public AuditContext Audit { get; } = new();
     public CallerContext Caller { get; } = new();
     public RolloutAutopilot Autopilot { get; }
@@ -543,7 +574,8 @@ internal sealed class RolloutHarness : IDisposable
         Releases,
         Bus,
         Time,
-        NullLogger<FirmwareRolloutOrchestrator>.Instance);
+        NullLogger<FirmwareRolloutOrchestrator>.Instance,
+        rebootWitness: Reboots);
 
     public NetworkOptimizerDbContext NewContext()
     {

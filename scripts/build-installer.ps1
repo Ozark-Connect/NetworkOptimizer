@@ -1,4 +1,4 @@
-# Build Network Optimizer Windows Installer
+﻿# Build Network Optimizer Windows Installer
 # Creates a self-contained MSI package
 
 param(
@@ -120,8 +120,8 @@ if ($GoCmd) {
 }
 Write-Host ""
 
-# Step 3: Build wansteer binary (gateway-only, deployed via SSH to UniFi gateways)
-Write-Host "[3/5] Building wansteer binary..." -ForegroundColor Yellow
+# Step 3: Build the Go binaries deployed onto UniFi devices over SSH
+Write-Host "[3/5] Building wansteer and apagent binaries..." -ForegroundColor Yellow
 $WanSteerSrc = Join-Path $RepoRoot "src\wansteer"
 
 if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir | Out-Null }
@@ -146,6 +146,34 @@ if ($GoCmd) {
     Pop-Location
 } else {
     Write-Warning "Go not installed - wansteer binary will not be available in this installer"
+}
+
+# AP Agent, pushed into tmpfs on each access point. Every measured U7-class AP is armv7l and an
+# arm64 build will not exec on them, so there is deliberately no arm64 target.
+$ApAgentSrc = Join-Path $RepoRoot "src\apagent"
+
+if ($GoCmd) {
+    Push-Location $ApAgentSrc
+
+    $env:CGO_ENABLED = "0"
+    $env:GOOS = "linux"
+    $env:GOARCH = "arm"
+    $env:GOARM = "7"
+    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\apagent-linux-arm" .
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "apagent build failed for linux/arm/v7"
+    } else {
+        Write-Host "Built apagent for linux/arm/v7 (access point)" -ForegroundColor Green
+    }
+
+    $env:CGO_ENABLED = $null
+    $env:GOOS = $null
+    $env:GOARCH = $null
+    $env:GOARM = $null
+    Pop-Location
+} else {
+    Write-Warning "Go not installed - apagent binary will not be available in this installer"
 }
 Write-Host ""
 

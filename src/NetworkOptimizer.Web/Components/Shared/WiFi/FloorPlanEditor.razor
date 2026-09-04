@@ -3415,6 +3415,11 @@
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
 
+        // The heat surface and the cluster dots color on the same per-band ramp as the points.
+        await JS.InvokeVoidAsync("fpEditor.setSignalStops",
+            NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalGradient(_heatmapBand)
+                .Select(x => new { s = x.Dbm, hex = x.Hex }));
+
         // Build signal measurements for calibration adjustment when signal data is active
         object? signalMeasurements = null;
         if (_showSignalData)
@@ -3509,7 +3514,7 @@
                 key = $"st-{r.Id}",
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
-                color = GetSignalColor(r.WifiSignalDbm!.Value),
+                color = GetSignalColor(r.WifiSignalDbm!.Value, r.WifiRadio),
                 signalDbm = r.WifiSignalDbm!.Value,
                 popup = BuildSignalPopup(r)
             });
@@ -3521,7 +3526,7 @@
                 key = $"sl-{p.Timestamp.Ticks}-{i}",
                 lat = p.Latitude,
                 lng = p.Longitude,
-                color = GetSignalColor(p.SignalDbm),
+                color = GetSignalColor(p.SignalDbm, p.Band),
                 signalDbm = p.SignalDbm,
                 popup = BuildSignalLogPopup(p)
             });
@@ -3529,42 +3534,48 @@
         var allMarkers = speedTestMarkers.Concat(signalLogMarkers);
         var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
 
+        // Pushed here as well as before a heatmap pass: the cluster dots color from these stops
+        // whether or not the surface is on, and without this they hold the seeded 5 GHz ramp.
+        await JS.InvokeVoidAsync("fpEditor.setSignalStops",
+            NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalGradient(_heatmapBand)
+                .Select(x => new { s = x.Dbm, hex = x.Hex }));
+
         await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
 
         // Recompute heatmap with signal adjustment if heatmap is active
         if (_showHeatmap) await ComputeHeatmap();
     }
 
-    private static string GetSignalColor(int dbm)
+    // The per-band ramp SignalClassification owns, so a point is the color its own badge would be.
+    private static string GetSignalColor(int dbm, string? band = null)
     {
-        // Same gradient stops as heatmap lerpColor
-        (int s, int r, int g, int b)[] stops =
-        [
-            (-30, 0, 220, 0),
-            (-45, 34, 197, 94),
-            (-55, 180, 220, 40),
-            (-65, 250, 204, 21),
-            (-72, 251, 146, 60),
-            (-80, 239, 68, 68),
-            (-90, 107, 114, 128)
-        ];
+        var stops = NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalGradient(band)
+            .Select(x => (s: x.Dbm, rgb: HexRgb(x.Hex)))
+            .ToArray();
 
-        if (dbm >= stops[0].s) return $"rgb({stops[0].r},{stops[0].g},{stops[0].b})";
-        if (dbm <= stops[^1].s) return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+        if (dbm >= stops[0].s) return Rgb(stops[0].rgb);
+        if (dbm <= stops[^1].s) return Rgb(stops[^1].rgb);
 
         for (int i = 0; i < stops.Length - 1; i++)
         {
             if (dbm <= stops[i].s && dbm >= stops[i + 1].s)
             {
                 var t = (double)(dbm - stops[i + 1].s) / (stops[i].s - stops[i + 1].s);
-                var cr = (int)(stops[i].r * t + stops[i + 1].r * (1 - t));
-                var cg = (int)(stops[i].g * t + stops[i + 1].g * (1 - t));
-                var cb = (int)(stops[i].b * t + stops[i + 1].b * (1 - t));
-                return $"rgb({cr},{cg},{cb})";
+                return Rgb((
+                    (int)(stops[i].rgb.r * t + stops[i + 1].rgb.r * (1 - t)),
+                    (int)(stops[i].rgb.g * t + stops[i + 1].rgb.g * (1 - t)),
+                    (int)(stops[i].rgb.b * t + stops[i + 1].rgb.b * (1 - t))));
             }
         }
-        return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+        return Rgb(stops[^1].rgb);
     }
+
+    private static (int r, int g, int b) HexRgb(string hex) => (
+        Convert.ToInt32(hex.Substring(1, 2), 16),
+        Convert.ToInt32(hex.Substring(3, 2), 16),
+        Convert.ToInt32(hex.Substring(5, 2), 16));
+
+    private static string Rgb((int r, int g, int b) c) => $"rgb({c.r},{c.g},{c.b})";
 
     private string BuildSignalPopup(Iperf3Result result)
     {

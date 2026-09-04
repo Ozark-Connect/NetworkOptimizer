@@ -25,8 +25,8 @@ public class FirmwareTimingEstimatorTests
     };
 
     [Theory]
-    [InlineData(FirmwareDeviceClass.AccessPoint, 240)]
-    [InlineData(FirmwareDeviceClass.OlderAccessPoint, 420)]
+    [InlineData(FirmwareDeviceClass.AccessPoint, 180)]
+    [InlineData(FirmwareDeviceClass.OlderAccessPoint, 240)]
     [InlineData(FirmwareDeviceClass.Switch, 480)]
     [InlineData(FirmwareDeviceClass.GatewayNetworkOnly, 240)]
     [InlineData(FirmwareDeviceClass.CloudGatewayUniFiOs, 360)]
@@ -51,7 +51,7 @@ public class FirmwareTimingEstimatorTests
     {
         var estimator = new FirmwareTimingEstimator();
 
-        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(240);
+        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(180);
     }
 
     [Fact]
@@ -68,10 +68,10 @@ public class FirmwareTimingEstimatorTests
     public void EstimateDowntimeSeconds_BelowMinimumSampleCount_KeepsSeed()
     {
         var estimator = new FirmwareTimingEstimator([
-            new FirmwareModelTiming { Model = "SKU-AP1", SampleCount = 2, MedianDowntimeSeconds = 333 }
+            new FirmwareModelTiming { Model = "SKU-AP1", SampleCount = 0, MedianDowntimeSeconds = 333 }
         ]);
 
-        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(240);
+        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(180);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class FirmwareTimingEstimatorTests
             new FirmwareModelTiming { Model = "SKU-AP1", SampleCount = 25, MedianDowntimeSeconds = 0 }
         ]);
 
-        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(240);
+        estimator.EstimateDowntimeSeconds("SKU-AP1", FirmwareDeviceClass.AccessPoint).Should().Be(180);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class FirmwareTimingEstimatorTests
         var estimator = new FirmwareTimingEstimator();
 
         estimator.EstimateDowntimeSeconds(Device(DeviceType.AccessPoint, "U7PG2", "UAP-AC-Pro"))
-            .Should().Be(420);
+            .Should().Be(240);
     }
 
     [Theory]
@@ -175,10 +175,24 @@ public class FirmwareTimingEstimatorTests
     }
 
     [Fact]
-    public void Classify_UapModelCode_IsOlderEvenWithoutAMatchingDisplayName()
+    public void Classify_UapModelCode_IsOlderWhenNoProductNameResolved()
     {
-        FirmwareTimingEstimator.Classify(Device(DeviceType.AccessPoint, "UAPXYZ", "Unlisted AP"))
+        // GetBestProductName hands back the SKU itself when it knows nothing about it, which is
+        // the only case the SKU heuristic is allowed to speak for.
+        FirmwareTimingEstimator.Classify(Device(DeviceType.AccessPoint, "UAPXYZ", "UAPXYZ"))
             .Should().Be(FirmwareDeviceClass.OlderAccessPoint);
+    }
+
+    [Theory]
+    [InlineData("UAPA6A6", "U7-Pro-Outdoor")]
+    [InlineData("UAPA6AC", "U7-Pro-XGS-B")]
+    [InlineData("UAPA697", "E7")]
+    public void Classify_ModernApWhoseSkuStartsUap_IsNotOlder(string model, string displayModel)
+    {
+        // Every current AP SKU is spelled UAPxxxx. Letting the SKU override a resolved product
+        // name put U7 and E7 hardware on the older-generation seed.
+        FirmwareTimingEstimator.Classify(Device(DeviceType.AccessPoint, model, displayModel))
+            .Should().Be(FirmwareDeviceClass.AccessPoint);
     }
 
     [Fact]

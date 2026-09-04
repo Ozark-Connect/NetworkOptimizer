@@ -61,6 +61,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _ontAlertEvaluator;
     private readonly Dictionary<string, ISfpSupplementalOntProvider> _supplementalOntProviders;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly ApAgent.ApAgentTelemetryCollector _apAgentTelemetry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
     private readonly Licensing.LicenseStateService _licenseState;
@@ -167,6 +168,7 @@ public class MonitoringCollectionAgent : BackgroundService
         Licensing.LicenseStateService licenseState,
         IEnumerable<IOntProvider> ontProviders,
         SiteTunnelRouting tunnelRouting,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetryRegistry,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -195,6 +197,7 @@ public class MonitoringCollectionAgent : BackgroundService
             .OfType<ISfpSupplementalOntProvider>()
             .ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
         _tunnelRouting = tunnelRouting;
+        _apAgentTelemetry = apAgentTelemetryRegistry.GetFor(_siteSlug);
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -337,6 +340,22 @@ public class MonitoringCollectionAgent : BackgroundService
             WifiClientTierCollectAsync,
             TimeSpan.FromSeconds(30),
             stoppingToken);
+        // AP Agent telemetry, on a shorter cadence than it writes. The access point measures far
+        // faster than 30 s, so sampling here and folding min/max/avg gives a richer point without
+        // multiplying the write volume on wifi_client.
+        var apAgentTask = RunTierAsync("apagent",
+            _ => TimeSpan.FromSeconds(10),
+            (_, ct) => _apAgentTelemetry.SampleAsync(ct),
+            TimeSpan.FromSeconds(35),
+            stoppingToken);
+        // Membership on its own short cadence, because presence truth must not wait for the
+        // sampling pass: /clients serves the agent's in-memory table, so reading it often costs
+        // the access point a serialization and nothing else. Writes stay with the pass above.
+        var apAgentMembershipTask = RunTierAsync("apagent-membership",
+            _ => ApAgent.ApAgentTelemetryCollector.MembershipInterval,
+            (_, ct) => _apAgentTelemetry.SampleMembershipAsync(ct),
+            TimeSpan.FromSeconds(8),
+            stoppingToken);
         // SNMP credential self-heal on its own short cadence. It must NOT ride the fast
         // tier's cycle: when every SNMP call is timing out (the exact failure it exists to
         // detect), a fast cycle stretches to minutes of stacked timeouts and an end-of-cycle
@@ -348,7 +367,7 @@ public class MonitoringCollectionAgent : BackgroundService
             TimeSpan.FromSeconds(12),
             stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, selfHealTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, apAgentTask, apAgentMembershipTask, selfHealTask);
         _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 
@@ -533,8 +552,11 @@ public class MonitoringCollectionAgent : BackgroundService
                                 && iface.Description.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                                 && !iface.Description.Contains('.'))
                             {
-                                apMeshUplinkInBps = rateIn.Value;
-                                apMeshUplinkOutBps = rateOut.Value;
+                                // An MLO backhaul runs one vwiresta slave per link under the mld
+                                // master; the backhaul total is their sum. A classic backhaul has
+                                // one, so the sum is the old single read for it.
+                                apMeshUplinkInBps = (apMeshUplinkInBps ?? 0) + rateIn.Value;
+                                apMeshUplinkOutBps = (apMeshUplinkOutBps ?? 0) + rateOut.Value;
                             }
                         }
                     }
@@ -598,6 +620,12 @@ public class MonitoringCollectionAgent : BackgroundService
         });
         await Task.WhenAll(deviceTasks);
 
+        // A switch the loop above did not read (SNMP off on it, or excluded after failing) has
+        // its port_table counters recorded instead. The complement of the loop's own gate, so no
+        // port is ever written by both in one cycle.
+        PortTableCounterRecorder.Record(devices, WhySnmpSkips,
+            _counterCache, string.Empty, _influx, _liveStats, _logger, DateTime.UtcNow);
+
         // Post-process: override device aggregates with their parent-uplink-port
         // counters. For APs (spec 5.6) we already did this. For switches and gateways,
         // summing every interface counter on the device double-counts traffic that
@@ -616,6 +644,10 @@ public class MonitoringCollectionAgent : BackgroundService
         // resolver can re-derive them (the live path above is in-memory only, and a UDB has no
         // SNMP interface series). Shared verbatim with the agent-relayed path.
         BridgeInterfaceRecorder.Record(_fabric, devices, _influx, aggNow);
+
+        // Persist each mesh child's backhaul PHY so playback can scrub the maps' Link speed.
+        // Shared verbatim with the agent-relayed path.
+        MeshBackhaulPhyRecorder.Record(devices, _influx, aggNow);
     }
 
     /// <summary>
@@ -1228,6 +1260,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 NoteSnmpFailure(NormalizeMac(device.Mac));
             }
         }
+
+        // Name-map rows for the switches the walk above skipped, from their port tables, so their
+        // port_table series resolve from a port number as an SNMP switch's do.
+        if (!agentCovers)
+        {
+            foreach (var device in PortTableCounterRecorder.Uncovered(devices, WhySnmpSkips))
+                PortTableCounterRecorder.ReconcileNameMaps(device, existingMaps, db);
+        }
         await db.SaveChangesAsync(ct);
     }
 
@@ -1312,6 +1352,10 @@ public class MonitoringCollectionAgent : BackgroundService
             var apMac = NormalizeMac(c.ApMac ?? string.Empty);
             var clientMac = NormalizeMac(c.Mac);
 
+            // The -r rates are the gateway's (WAN only); the cumulative counters below are the
+            // access point's (LAN + WAN), so only the rates feed the WAN split's tie-break.
+            _liveStats.RecordConsoleWanRate(clientMac, c.TxBytesRate * 8.0, c.RxBytesRate * 8.0, now);
+
             // Throughput: prefer UniFi's rolling per-second fields when populated, else
             // compute from the cumulative byte counters' delta vs previous snapshot.
             double? txThroughputBps = null;
@@ -1358,12 +1402,47 @@ public class MonitoringCollectionAgent : BackgroundService
                 Satisfaction = c.Satisfaction,
                 Rssi = c.Rssi,
                 IsMlo = c.IsMlo ?? false,
+                IdleSeconds = c.IdleTime,
+                Source = WifiClientSource.Console,
                 Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
                 LastUpdate = now
             };
+            // Per AP, not per site: an access point served by its own AP Agent supplies both its
+            // live snapshot and its wifi_client points, and every other access point keeps the
+            // console's. One source per access point at a time, so a client's readings never
+            // alternate between two pollers on different clocks. Coverage expires on a missed poll,
+            // which hands the access point straight back here.
+            if (_apAgentTelemetry.CoversAp(apMac)) continue;
+
+            // A client the access point has not heard from in a long time is not connected NOW,
+            // whatever the association table still says. Leaving it out lets it age out of the
+            // cache, so Live View and the maps stop drawing a device that has physically left -
+            // the console goes on listing it, which is precisely the gap worth closing.
+            if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+
             _liveStats.RecordWifiClient(snapshot);
 
-            if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
+            if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
+            {
+                // Presence without a rate. An idle client that writes nothing is indistinguishable
+                // from a departed one when the series is read back.
+                //
+                // Unless the access point has not heard from it in a long time, which is what it
+                // looks like when it is holding a client that physically left. Presence for that
+                // draws a departed device forever.
+                if (c.IdleTime > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+                _ = _influx.WriteWifiClientThroughputAsync(
+                    apMac: apMac,
+                    band: band,
+                    clientMac: clientMac,
+                    txThroughputBps: null,
+                    rxThroughputBps: null,
+                    signalDbm: c.Signal,
+                    timestamp: now.AddTicks(tickOffset++),
+                    txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                    rxRateKbps: c.RxRate > 0 ? c.RxRate : null);
+            }
+            else
             {
                 _ = _influx.WriteWifiClientAsync(
                     apMac: apMac,
@@ -1382,7 +1461,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     txThroughputBps: txThroughputBps,
                     rxThroughputBps: rxThroughputBps,
                     isMlo: c.IsMlo,
-                    timestamp: now.AddTicks(tickOffset++));
+                    timestamp: now.AddTicks(tickOffset++),
+                    idleSeconds: c.IdleTime);
             }
         }
 
@@ -1393,6 +1473,7 @@ public class MonitoringCollectionAgent : BackgroundService
             if (!c.IsWired) continue;
             if (string.IsNullOrEmpty(c.Mac)) continue;
             var clientMac = NormalizeMac(c.Mac);
+            _liveStats.RecordConsoleWanRate(clientMac, c.WiredTxBytesRate * 8.0, c.WiredRxBytesRate * 8.0, now);
 
             double? txBps = null, rxBps = null;
             // Wired clients use wired-tx_bytes-r / wired-rx_bytes-r (not tx_bytes-r)
@@ -1476,7 +1557,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// the InfluxDB tag value to keep the wifi_client measurement's cardinality on
     /// 3 distinct values per AP.
     /// </summary>
-    private static string MapBand(string? radio) => radio switch
+    internal static string MapBand(string? radio) => radio switch
     {
         "ng" => "2.4ghz",
         "na" => "5ghz",
@@ -2081,8 +2162,13 @@ public class MonitoringCollectionAgent : BackgroundService
             // (UniFi PortTable lags ~30s).
             // Direction: rateOutBps = port TX = data toward the leaf (DownBps in
             // cache convention); rateInBps = port RX = data from the leaf (UpBps).
-            _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+            _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now, iface.PortId);
         }
+
+        // A read the calculator does not trust is not stored either: one zero or corrupt sample in
+        // the counter series reads as the whole counter's worth of traffic once differenced.
+        if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+            return (rateInBps, rateOutBps);
 
         _ = _influx.WriteInterfaceCountersAsync(
             deviceMac: mac,
@@ -2755,6 +2841,17 @@ public class MonitoringCollectionAgent : BackgroundService
         if (justExpired)
             _logger.LogInformation("SNMP exclusion expired for {Mac}, resuming polling", normalizedMac);
         return excluded;
+    }
+
+    /// <summary>
+    /// The fast and slow tiers' SNMP gate, for the port_table fallback: why the SNMP path skips
+    /// this device this cycle, or null when it polls it.
+    /// </summary>
+    private string? WhySnmpSkips(UniFiDeviceResponse device)
+    {
+        if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device)) return "SNMP is not enabled on the device";
+        if (_snmpFailures.IsExcluded(NormalizeMac(device.Mac), out _)) return "excluded from SNMP polling after repeated failures";
+        return null;
     }
 
     /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>

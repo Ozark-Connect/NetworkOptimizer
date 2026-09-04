@@ -32,6 +32,7 @@ public class AgentProbeResultSink
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly Monitoring.IspHealth.IspHealthRegistry _ispHealthRegistry;
+    private readonly ClientUsageRollupRegistry _usageRollupRegistry;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
     // Counter delta cache for agent-relayed interface samples. Key =
@@ -117,8 +118,10 @@ public class AgentProbeResultSink
         IAgentEnrollmentService enrollment,
         AgentTunnelRegistry tunnelRegistry,
         Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
+        ClientUsageRollupRegistry usageRollupRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
+        _usageRollupRegistry = usageRollupRegistry;
         _ispHealthRegistry = ispHealthRegistry;
         _tunnelRegistry = tunnelRegistry;
         _siteDbFactory = siteDbFactory;
@@ -149,9 +152,13 @@ public class AgentProbeResultSink
     /// </summary>
     public async Task OnAgentConnectedAsync(AgentTunnelConnection connection, CancellationToken ct, bool initialConnect = false)
     {
+        if (initialConnect)
+            await AdoptHelloFactsAsync(connection);
+
         await PushProbeConfigAsync(connection, ct);
         await PushSnmpConfigAsync(connection, ct);
         await PushWanSpeedTestConfigAsync(connection, ct);
+        await PushConntrackConfigAsync(connection, ct);
 
         // This site's console reaches the UniFi console THROUGH this agent tunnel.
         // On startup / after an agent restart the console auto-connect can run
@@ -1116,6 +1123,18 @@ public class AgentProbeResultSink
     /// reset confirmation, implausible-rate rejection) and land in the site's
     /// buckets; health samples map straight to the device_health measurement.
     /// </summary>
+    /// <summary>
+    /// Why the agent's SNMP is not reading this device, for the port_table fallback: never heard,
+    /// or not within the hand-over gap. Null while it is being read.
+    /// </summary>
+    private static string? WhySnmpUnheard(MonitoringLiveStats liveStats, UniFiDeviceResponse device, DateTime now)
+    {
+        var seen = liveStats.GetSnmpLastSeen(device.Mac);
+        if (seen == null) return "the agent has never streamed SNMP for it";
+        var gap = now - seen.Value;
+        return gap < PortTableCounterRecorder.HandoverGap ? null : $"the agent last streamed SNMP for it {gap.TotalMinutes:F0} min ago";
+    }
+
     public async Task RecordSnmpBatchAsync(AgentTunnelConnection connection, SnmpResultBatch batch, CancellationToken ct)
     {
         if (batch.Interfaces.Count == 0 && batch.Health.Count == 0) return;
@@ -1207,7 +1226,7 @@ public class AgentProbeResultSink
             // tier does, so the site's Live View port table and map refresh
             // from memory.
             if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue)
-                liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp);
+                liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp, sample.PortId);
 
             // Feed the shared fabric aggregator, mirroring the fast tier: SNMP
             // per-interface rate -> port_table PortIdx (the primary port rate), fabric-sum
@@ -1234,7 +1253,11 @@ public class AgentProbeResultSink
                          && sample.IfDescr.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                          && !sample.IfDescr.Contains('.'))
                 {
-                    meshUplink[NormalizeMac(sample.DeviceMac)] = (calc.RateInBps.Value, calc.RateOutBps.Value);
+                    // Summed, not assigned: an MLO backhaul has one vwiresta slave per link,
+                    // mirroring the fast tier's accumulation.
+                    var meshKey = NormalizeMac(sample.DeviceMac);
+                    var meshCur = meshUplink.TryGetValue(meshKey, out var mPrev) ? mPrev : (0.0, 0.0);
+                    meshUplink[meshKey] = (meshCur.Item1 + calc.RateInBps.Value, meshCur.Item2 + calc.RateOutBps.Value);
                 }
             }
 
@@ -1282,6 +1305,11 @@ public class AgentProbeResultSink
                 Time = timestamp,
             });
 
+            // A read the calculator does not trust is not stored: differenced, one bad sample
+            // reads as the whole counter's worth of traffic.
+            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+                continue;
+
             await influx.WriteInterfaceCountersAsync(
                 deviceMac: sample.DeviceMac,
                 ifName: sample.IfName,
@@ -1326,6 +1354,15 @@ public class AgentProbeResultSink
             // resolver - identical to the directly-monitored fast tier (in-memory-only live path,
             // and a UDB has no SNMP interface series to re-derive from during playback).
             BridgeInterfaceRecorder.Record(fabric, console.Devices, influx, aggNow);
+            // Mesh backhaul PHY, identical to the fast tier, so agent-relayed sites scrub the
+            // maps' Link speed the same as directly-monitored ones.
+            MeshBackhaulPhyRecorder.Record(console.Devices, influx, aggNow);
+            // A switch the agent's SNMP has not read within the hand-over gap has its port_table
+            // counters recorded instead, as the directly-monitored fast tier does for the switches
+            // it skips. The agent never streams a switch that does not answer, so unheard is the
+            // signal here; the gap keeps a momentary miss from switching sources.
+            PortTableCounterRecorder.Record(console.Devices, d => WhySnmpUnheard(liveStats, d, aggNow),
+                _counterCache, $"{connection.SiteSlug}/", influx, liveStats, _logger, aggNow);
         }
 
         // Reconcile the InterfaceNameMap (friendly name, negotiated speed, port number,
@@ -1421,6 +1458,11 @@ public class AgentProbeResultSink
                         liveStats.RecordInterfaceLabels(deviceGroup.Key,
                             InterfaceLabelResolver.BuildLabels(device, console.Networks, ifNames));
                     }
+                    // Name-map rows for the switches the agent is not reading, from their port
+                    // tables - the same switches the port_table recorder above writes.
+                    var heardAt = DateTime.UtcNow;
+                    foreach (var device in PortTableCounterRecorder.Uncovered(console.Devices, d => WhySnmpUnheard(liveStats, d, heardAt)))
+                        PortTableCounterRecorder.ReconcileNameMaps(device, existingMaps, db);
                     await db.SaveChangesAsync(ct);
                 }
             }
@@ -1655,6 +1697,202 @@ public class AgentProbeResultSink
             await influx.WriteCustomFieldsAsync(
                 "interface_counters", deviceMac, fields, null, ifName, null,
                 DateTimeOffset.FromUnixTimeMilliseconds(ts).UtcDateTime);
+    }
+
+    /// <summary>
+    /// Persists what the hello declared about the agent, so restarts answer before the tunnel is
+    /// back (the #1108 durability lesson: the tunnel is behind the thing being asked about). The
+    /// reported on-gateway flag is handed to the detector as the authoritative verdict; an
+    /// absent flag hands it NOTHING, which is what keeps pre-flag installs on the correlation
+    /// path unchanged.
+    /// </summary>
+    private async Task AdoptHelloFactsAsync(AgentTunnelConnection connection)
+    {
+        try
+        {
+            if (connection.OnGateway is { } reported)
+                await _onGatewayDetector.NoteReportedAsync(connection.SiteSlug, connection.AgentId, reported);
+
+            var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
+            var key = SystemSettingKeys.AgentCapabilitiesFor(connection.AgentId);
+            var value = string.Join(",", connection.Capabilities);
+            var setting = await db.SystemSettings.FindAsync(key);
+            if (setting == null)
+                db.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
+            else if (setting.Value != value)
+            {
+                setting.Value = value;
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+                return;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not persist hello facts for agent {Id} (site {Slug})",
+                connection.AgentId, connection.SiteSlug);
+        }
+    }
+
+    /// <summary>
+    /// Pushes the conntrack accounting config to a capable gateway agent: enabled whenever the
+    /// site's monitoring is (automatic - no setting of its own), with the site's WAN data-path
+    /// interfaces as classification hints. Enabled=false is the fleet-wide kill switch and is
+    /// pushed to a capable agent whenever monitoring is off, so a misbehaving runner stops on
+    /// the next refresh without an agent update.
+    /// </summary>
+    public async Task PushConntrackConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        if (!connection.HasCapability(AgentTunnelConnection.ConntrackCapability)) return;
+        try
+        {
+            var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+            await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefault);
+            var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            var config = new ConntrackConfig
+            {
+                Enabled = settings is { Enabled: true },
+                // 2s is the agent's floor: a measured pass is ~15 ms on a ~1k-flow table, so this
+                // costs under 1% of a gateway core and keeps the live split near-real-time. The
+                // agent persists ~6s aggregates (near the SNMP fast tier's grain), stamps every
+                // batch with the window it actually covered, and stretches its own cadence when
+                // a huge table runs over budget.
+                IntervalSeconds = 2,
+            };
+            if (config.Enabled)
+            {
+                var wanIfnames = await db.WanProfiles.AsNoTracking()
+                    .Where(p => p.DataPathInterface != null && p.DataPathInterface != "")
+                    .Select(p => p.DataPathInterface!)
+                    .ToListAsync(ct);
+                config.WanIfnames.AddRange(wanIfnames.Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+            connection.TrySend(new ServerMessage { ConntrackConfig = config });
+            _logger.LogDebug("Pushed conntrack config (enabled={Enabled}) to agent {Id} (site {Slug})",
+                config.Enabled, connection.AgentId, connection.SiteSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to push conntrack config to agent {Id} (site {Slug})",
+                connection.AgentId, connection.SiteSlug);
+        }
+    }
+
+    // Per-site raw-egress-interface -> UniFi WAN key map from WanProfiles, with the primary's
+    // key alongside so its points can omit the wan tag (additive-only for single-WAN installs).
+    private readonly ConcurrentDictionary<string, (DateTime At, Dictionary<string, string> ByIfname, string? PrimaryKey)> _wanKeyMaps = new();
+    private static readonly TimeSpan WanKeyMapTtl = TimeSpan.FromMinutes(5);
+
+    private async Task<(Dictionary<string, string> ByIfname, string? PrimaryKey)> WanKeyMapAsync(string slug, CancellationToken ct)
+    {
+        if (_wanKeyMaps.TryGetValue(slug, out var cached) && DateTime.UtcNow - cached.At < WanKeyMapTtl)
+            return (cached.ByIfname, cached.PrimaryKey);
+        var byIfname = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? primaryKey = null;
+        try
+        {
+            await using var db = _siteDbFactory.CreateForSite(slug, slug == SiteManagementService.DefaultSiteSlug);
+            foreach (var profile in await db.WanProfiles.AsNoTracking().ToListAsync(ct))
+            {
+                if (string.IsNullOrEmpty(profile.WanNetworkgroup)) continue;
+                var key = GatewayWanHelper.WanInterfaceKeyFromKey(profile.WanNetworkgroup);
+                if (profile.IsPrimary == true) primaryKey = key;
+                if (!string.IsNullOrEmpty(profile.DataPathInterface))
+                    byIfname[profile.DataPathInterface!] = key;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN key map load failed for site {Slug}", slug);
+        }
+        _wanKeyMaps[slug] = (DateTime.UtcNow, byIfname, primaryKey);
+        return (byIfname, primaryKey);
+    }
+
+    /// <summary>
+    /// Records a conntrack batch from a gateway agent. Live batches (every sample window) only
+    /// refresh the site's live per-client WAN cache - the measured figures Bandwidth Hogs and
+    /// Client Performance read. Aggregated (~6s) batches ride the store-and-forward buffer and
+    /// land in the client_wan time series, WAN-tagged via the WanProfiles interface map, plus
+    /// one coverage heartbeat point per batch so totals readers can tell measured-idle from
+    /// not-covered. An empty batch is a valid statement: the feed is alive and nothing moved.
+    /// </summary>
+    public async Task RecordConntrackBatchAsync(AgentTunnelConnection connection, ConntrackSampleBatch batch, CancellationToken ct)
+    {
+        var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(batch.TimestampUnixMs).UtcDateTime;
+        var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+
+        if (!batch.Aggregated)
+        {
+            var window = Math.Max(1, batch.WindowSeconds);
+            // Sum a client's WANs into one live rate; identity resolution mirrors the write path.
+            var rates = new Dictionary<string, (long Down, long Up)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var sample in batch.Clients)
+            {
+                var mac = ResolveConntrackIdentity(connection.SiteSlug, sample);
+                var sum = rates.TryGetValue(mac, out var r) ? r : (0L, 0L);
+                rates[mac] = (sum.Item1 + sample.WanDownBytes, sum.Item2 + sample.WanUpBytes);
+            }
+            foreach (var (mac, bytes) in rates)
+                liveStats.RecordClientWanRate(mac, bytes.Down * 8.0 / window, bytes.Up * 8.0 / window, timestamp);
+            liveStats.NoteConntrackBatch(timestamp, batch.WindowSeconds);
+            return;
+        }
+
+        var influx = _influxRegistry.GetFor(connection.SiteSlug);
+        if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
+        var (wanKeys, primaryKey) = await WanKeyMapAsync(connection.SiteSlug, ct);
+        // ONE point per (client, wan tag) per batch, samples summed first. Distinct raw egress
+        // interfaces can map to the same tag (the primary and an unknown interface both write
+        // untagged), and two points on one series at one timestamp silently overwrite in
+        // InfluxDB - which cost whole speed tests, whichever sample happened to write last.
+        var sums = new Dictionary<(string Mac, string? Tag), (long Down, long Up, int Flows, long ReconDown, long ReconUp)>();
+        foreach (var sample in batch.Clients)
+        {
+            var mac = ResolveConntrackIdentity(connection.SiteSlug, sample);
+            string? wanTag = null;
+            if (!string.IsNullOrEmpty(sample.WanIfname) && wanKeys.TryGetValue(sample.WanIfname, out var key)
+                && !string.Equals(key, primaryKey, StringComparison.OrdinalIgnoreCase))
+                wanTag = key;
+            var sum = sums.TryGetValue((mac, wanTag), out var s) ? s : (0L, 0L, 0, 0L, 0L);
+            sums[(mac, wanTag)] = (sum.Item1 + sample.WanDownBytes, sum.Item2 + sample.WanUpBytes, sum.Item3 + sample.Flows,
+                sum.Item4 + sample.ReconDownBytes, sum.Item5 + sample.ReconUpBytes);
+        }
+        foreach (var ((mac, wanTag), sum) in sums)
+            await influx.WriteClientWanUsageAsync(mac, wanTag,
+                sum.Down, sum.Up, batch.WindowSeconds, sum.Flows, timestamp, sum.ReconDown, sum.ReconUp);
+        // The coverage heartbeat: written for every aggregated batch, clients or none.
+        await influx.WriteClientWanUsageAsync(MonitoringInfluxClient.ClientWanCoverageMarker, null,
+            0, 0, batch.WindowSeconds, 0, timestamp);
+        // A batch stamped in a past hour is a spool replay (or extreme lag) landing behind the
+        // WAN rollup cursor; tell the rollup so the hour re-rolls instead of losing the bytes
+        // to the rolled/raw split in long-window reads.
+        var nowTicks = DateTime.UtcNow.Ticks;
+        if (timestamp.Ticks < nowTicks - nowTicks % TimeSpan.TicksPerHour)
+            _usageRollupRegistry.NoteLateClientWanBatch(connection.SiteSlug, timestamp);
+    }
+
+    /// <summary>
+    /// Who a conntrack sample belongs to. The agent's neighbor-table MAC when it sent one; an
+    /// IP-only sample is the gateway's own traffic (or an endpoint the agent could name but not
+    /// MAC), matched against the console's device list; anything unresolvable goes to the
+    /// explicit unattributed identity, never to a guessed client.
+    /// </summary>
+    private string ResolveConntrackIdentity(string slug, ConntrackClientSample sample)
+    {
+        if (!string.IsNullOrEmpty(sample.Mac)) return NormalizeMac(sample.Mac);
+        if (string.IsNullOrEmpty(sample.Ip)) return MonitoringInfluxClient.ClientWanUnattributed;
+        var console = GetConsoleData(slug);
+        foreach (var device in console.Devices)
+        {
+            if (string.IsNullOrEmpty(device.Mac)) continue;
+            if (string.Equals(device.Ip, sample.Ip, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(device.LanIp, sample.Ip, StringComparison.OrdinalIgnoreCase))
+                return NormalizeMac(device.Mac);
+        }
+        return MonitoringInfluxClient.ClientWanUnattributed;
     }
 
     /// <summary>Records a batch of probe results from an agent.</summary>

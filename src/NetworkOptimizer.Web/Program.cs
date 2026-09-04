@@ -268,12 +268,20 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(s
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
+// Which of a site's agents hosts the LAN speed test - one pick shared by the client target, the
+// Settings hint, and path analysis.
+builder.Services.AddSingleton<SiteSpeedTestHostSelector>();
 // The agent tunnel keeps using the concrete singleton (it authenticates with the agent scheme and
 // runs as system); the admin-facing enrollment surface is gated.
 builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequiredService<AgentEnrollmentService>());
 // Detects agents running on the site's UniFi gateway itself (monitoring-only
 // installs) so speed-test surfaces can gate accordingly.
-builder.Services.AddSingleton<AgentOnGatewayDetector>();
+builder.Services.AddSiteScopedRegistry<AgentOnGatewayDetector>();
+// "Run It for Me": executes the gateway agent install/upgrade one-liner over the site's
+// gateway SSH. Run state lives in the singleton state holder so a run outlives the circuit
+// that started it; the gated service stays scoped for audit-detail enrichment.
+builder.Services.AddSingleton<GatewayAgentInstallState>();
+builder.Services.AddMutatingService<IGatewayAgentInstallService, GatewayAgentInstallService>();
 
 // Licensing: singleton state machine, activation and phone-home loop. All
 // licensing data is instance-wide registry data in the main database.
@@ -395,6 +403,58 @@ builder.Services.AddMutatingService<IOntMonitorService>(sp => sp.GetRequiredServ
 
 builder.Services.AddMutatingService<ICellularModemService>(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Cellular);
+
+// AP Agent deployment is per site: one instance per site owns that site's access points, its
+// retry backoff, and its subscription to the site's reboot tracker. The registry doubles as the
+// supervision loop, so an enabled site is checked without anyone opening its Settings page.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentHealthClient>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryClient>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentClientReader,
+    NetworkOptimizer.Web.Services.ApAgent.ApAgentClientReader>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentClientLiveService>();
+// Built per request against the site in context. The directory it uses takes the slug per call, so
+// there is no per-site state to keep and no registry to own it.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService>(sp =>
+    new NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService(
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport>(),
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentTargetDirectory>(),
+        sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.IApAgentClientReader>(),
+        sp.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDbContextFactory>(),
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamService>>(),
+        sp.GetRequiredService<SiteContextService>().Slug));
+// Roam records and radio health ride the same tier pass as the telemetry collector rather than a
+// loop of their own, so the registry is a plain per-site holder with no hosted service behind it.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentEventsClient>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentInsightsRegistry>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamHistoryService>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ApAgent.ApAgentRoamHistoryService>(sp));
+// The telemetry collector is driven by the monitoring agent's tier loop rather than a loop of its
+// own, so the registry is a plain per-site holder with no hosted service behind it.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryRegistry>();
+// Wi-Fi Optimizer reads AP-measured client data out of the series the collector above already
+// writes, rather than polling the access points a second time. Scoped so it answers for the site
+// in context; the band cache is shared because its lookback is a day.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.MeasuredClientBandCache>();
+builder.Services.AddScoped<NetworkOptimizer.WiFi.Providers.IMeasuredWirelessClientSource,
+    NetworkOptimizer.Web.Services.ApAgent.InfluxMeasuredClientSource>();
+// The presence verdict the Console entry points consult, so an agent's association table beats
+// the Console's idle tolerance on the access points it covers.
+builder.Services.AddScoped<NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource,
+    NetworkOptimizer.Web.Services.ApAgent.ApAgentClientPresenceSource>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.SftpApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.ScpApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.IApAgentBinaryTransfer,
+    NetworkOptimizer.Web.Services.ApAgent.ExecApAgentBinaryTransfer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.ApAgent.ApAgentTransferSelector>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>());
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ApAgent.IApAgentDeploymentService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ApAgent.ApAgentRegistry>()
+        .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 builder.Services.AddMutatingService<IIperf3SpeedTestService>(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
@@ -529,6 +589,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageRegist
 builder.Services.AddScoped(sp => sp.GetRequiredService<WanDataUsageRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
+// Per-client usage rollup into the longterm bucket, one instance per site (its own buckets).
+builder.Services.AddSiteScopedRegistry<ClientUsageRollupRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ClientUsageRollupRegistry>());
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());
@@ -544,6 +608,7 @@ builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourDefinitionService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tours.TourStateService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourPredicateResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourUrlTokenResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Tours.TourService>();
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Tours.TourStartupService>();
 
@@ -645,6 +710,9 @@ builder.Services.AddMutatingService<ISiteInfluxProvisioningService>(
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
     sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
+// Site-vantage hostname resolution (agent or local server), cached; anchors speed test path
+// analysis at a hostname override the way the site's clients resolve it.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SiteVantageDnsResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
 // Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
 // the current site's gateway SSH service.
@@ -693,6 +761,7 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.LanFlowMap.
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.BandwidthHogsService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -700,8 +769,11 @@ builder.Services.AddScoped<DashboardLayoutService>();
 builder.Services.AddMutatingService<IDashboardLayoutAdminService>(
     sp => sp.GetRequiredService<DashboardLayoutService>());
 builder.Services.AddScoped<PullToRefreshState>();
+builder.Services.AddScoped<SidebarState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
+// Same instance by its interface, for components that may not inject the concrete type.
+builder.Services.AddSingleton<IIeeeOuiDatabase>(sp => sp.GetRequiredService<IeeeOuiDatabase>());
 builder.Services.AddScoped<PdfStorageService>(); // Scoped - namespaces PDF storage by the current site's slug
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
 // Running a scan and curating findings are gated separately from the audit read surface.
@@ -759,6 +831,9 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.NonStandardChannelRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighPowerOverlapRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.RaisedNoiseFloorRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.StickyClientRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.LatencyDespiteSignalRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddSingleton<ChannelPlanCache>();
 builder.Services.AddScoped<WiFiOptimizerService>();
@@ -774,6 +849,10 @@ builder.Services.AddMutatingService<IApMapAdminService>(sp => sp.GetRequiredServ
 // to remove, matching the card).
 builder.Services.AddScoped<UpnpNoteService>();
 builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredService<UpnpNoteService>());
+// Bandwidth Hogs' gateway-agent conntrack status (reads Viewer, dismissal Site Admin).
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.IConntrackStatusService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
@@ -803,6 +882,17 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRep
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddSiteScopedRegistry<ChannelMemoryRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryRegistry>());
+
+// What the operator told the Wi-Fi Optimizer: acknowledged issues and kept radios, per site.
+// The repository is ungated (the optimizer reads it while building a score or plan); the two
+// services are the UI's gates (reads Viewer, writes Site Admin).
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepository>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.WiFiInsightRepository>(
+        sp,
+        sp.GetRequiredService<SiteContextService>().Slug,
+        sp.GetRequiredService<SiteContextService>().IsDefault));
+builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
+builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

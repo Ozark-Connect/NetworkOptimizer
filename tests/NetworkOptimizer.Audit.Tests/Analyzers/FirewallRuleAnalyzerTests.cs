@@ -1635,22 +1635,15 @@ public class FirewallRuleAnalyzerTests
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
-    [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_FwDownloadSubdomain_SatisfiesFirmwareCheck()
+    // Firmware needs fw-download.ubnt.com AND fw-update.ubnt.com. Either both are named, or a rule
+    // covers ubnt.com itself, which is an effective wildcard over both.
+    private List<FirewallRule> FirmwareAccessRules(string mgmtNetworkId, params string[] ubntDomains)
     {
-        var mgmtNetworkId = "mgmt-network-123";
-        var networks = new List<NetworkInfo>
-        {
-            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
-        };
         var rules = new List<FirewallRule>
         {
             CreateFirewallRule("Allow UniFi Access", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "ui.com" }),
-            CreateFirewallRule("Allow FW Download", action: "allow",
-                sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "fw-download.ubnt.com" }),
             CreateFirewallRule("Allow AFC Traffic", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
@@ -1659,10 +1652,55 @@ public class FirewallRuleAnalyzerTests
                 destinationPort: "123",
                 protocol: "udp")
         };
+        rules.InsertRange(1, ubntDomains.Select(d => CreateFirewallRule($"Allow {d}", action: "allow",
+            sourceNetworkIds: new List<string> { mgmtNetworkId },
+            webDomains: new List<string> { d })));
+        return rules;
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_BothFirmwareSubdomains_SatisfiesFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = FirmwareAccessRules(mgmtNetworkId, "fw-download.ubnt.com", "fw-update.ubnt.com");
 
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_BareUbntDomain_SatisfiesFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = FirmwareAccessRules(mgmtNetworkId, "ubnt.com");
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_OnlyOneFirmwareSubdomain_FlagsFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = FirmwareAccessRules(mgmtNetworkId, "fw-download.ubnt.com");
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        issues.Should().ContainSingle(issue => issue.Type == IssueTypes.MgmtMissingFirmwareDownload);
     }
 
 #endregion

@@ -362,6 +362,7 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
                 if (fwmarkMap.TryGetValue(wan.Interface, out var ruleInfo))
                 {
                     wanInfo.FWMark = ruleInfo.FWMark;
+                    wanInfo.FWMask = ruleInfo.FWMask;
                     wanInfo.RouteTable = ruleInfo.RouteTable;
 
                     // Get gateway IP from route table
@@ -411,6 +412,7 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
                 gateway = wan.GatewayIp ?? "",
                 route_table = wan.RouteTable,
                 fwmark = wan.FWMark,
+                fwmask = wan.FWMask,
                 health_target = wan.HealthTarget
             };
             networkGroupToKey[wan.NetworkGroup] = key;
@@ -600,10 +602,15 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
         return Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
     }
 
-    internal static Dictionary<string, (string FWMark, string RouteTable)> ParseIpRules(string output)
+    /// <summary>
+    /// Maps each WAN interface to the fwmark, mask, and route table from its <c>ip rule</c> line.
+    /// The mask is carried, not assumed: UniFi OS 6.0 moved the WAN bits from 0x7e0000 to
+    /// 0x3ffe0000, and the daemon must mark with whatever layout the running firmware routes on.
+    /// </summary>
+    internal static Dictionary<string, (string FWMark, string FWMask, string RouteTable)> ParseIpRules(string output)
     {
-        var map = new Dictionary<string, (string FWMark, string RouteTable)>();
-        var regex = new Regex(@"fwmark\s+(0x[0-9a-f]+)/0x7e0000\s+lookup\s+(\d+\.([a-z][a-z0-9]*(?:\.\d+)?))");
+        var map = new Dictionary<string, (string FWMark, string FWMask, string RouteTable)>();
+        var regex = new Regex(@"fwmark\s+(0x[0-9a-f]+)/(0x[0-9a-f]+)\s+lookup\s+(\d+\.([a-z][a-z0-9]*(?:\.\d+)?))");
 
         foreach (var line in output.Split('\n'))
         {
@@ -611,9 +618,10 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
             if (match.Success)
             {
                 var fwmark = match.Groups[1].Value;
-                var routeTable = match.Groups[2].Value;
-                var iface = match.Groups[3].Value;
-                map[iface] = (fwmark, routeTable);
+                var fwmask = match.Groups[2].Value;
+                var routeTable = match.Groups[3].Value;
+                var iface = match.Groups[4].Value;
+                map[iface] = (fwmark, fwmask, routeTable);
             }
         }
 
@@ -678,6 +686,7 @@ public class WanSteerWanInfo
     public string Interface { get; set; } = "";
     public string NetworkGroup { get; set; } = "";
     public string FWMark { get; set; } = "";
+    public string FWMask { get; set; } = "";
     public string RouteTable { get; set; } = "";
     public string? GatewayIp { get; set; }
     public string HealthTarget { get; set; } = "1.1.1.1";

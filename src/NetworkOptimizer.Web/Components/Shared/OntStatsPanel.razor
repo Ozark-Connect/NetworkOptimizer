@@ -294,7 +294,7 @@ else
                 @if (hasErrCounts)
                 {
                     <div class="metric-row">
-                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")">@($"BIP/{midErrLabel}/Drops:")</span>
+                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")" @onclick:stopPropagation>@($"BIP/{midErrLabel}/Drops:")</span>
                         <span class="metric-value ont-err-counts">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
                     </div>
                 }

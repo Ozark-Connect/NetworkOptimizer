@@ -1,0 +1,63 @@
+namespace NetworkOptimizer.Web.Services.ApAgent;
+
+/// <summary>
+/// Where the AP Agent lives on an access point, and what the server calls it.
+///
+/// Everything here is in tmpfs by design. The config partition behind /etc/persistent is 1 MB, so a
+/// Go binary cannot live there, and controller provisioning wipes crontab, so there is no durable
+/// auto-run hook either. The server pushes the agent on every boot and the AP keeps zero footprint.
+/// </summary>
+public static class ApAgentPaths
+{
+    /// <summary>tmpfs install directory. Must match <c>defaultInstallDir</c> in src/apagent/config.go.</summary>
+    public const string RemoteDir = "/tmp/netopt-apagent";
+
+    /// <summary>The armv7 binary as the wrapper expects to find it (src/apagent/apagent.sh).</summary>
+    public const string RemoteBinaryPath = RemoteDir + "/apagent-linux-arm";
+
+    /// <summary>Architecture-gating wrapper, so a wrong-arch AP says why instead of "Exec format error".</summary>
+    public const string RemoteWrapperPath = RemoteDir + "/apagent.sh";
+
+    /// <summary>Signing token file, mode 0600. Used by the non-procd start path, which has no env to set.</summary>
+    public const string RemoteTokenPath = RemoteDir + "/token";
+
+    public const string RemoteLogPath = RemoteDir + "/apagent.log";
+
+    /// <summary>procd service definition. /etc is tmpfs on an AP, so this is as ephemeral as the binary.</summary>
+    public const string RemoteInitScriptPath = "/etc/init.d/netopt-apagent";
+
+    /// <summary>Presence of this file is how the server knows procd is available to supervise with.</summary>
+    public const string ProcdIncludePath = "/lib/functions/procd.sh";
+
+    /// <summary>
+    /// Where dropbear's sftp-server binary lives. It is a separate optional binary that only some
+    /// firmware ships, and dropbear serves the SFTP subsystem by exec'ing it - so its presence is
+    /// the same fact the SFTP transfer depends on.
+    /// </summary>
+    public const string SftpServerPath = "/usr/lib/sftp-server";
+
+    /// <summary>Alternate sftp-server location on firmware that puts it under libexec.</summary>
+    public const string SftpServerAltPath = "/usr/libexec/sftp-server";
+
+    /// <summary>Where scp lives. It comes free with dropbear as a multi-call symlink.</summary>
+    public const string ScpPath = "/usr/sbin/scp";
+
+    /// <summary>Alternate scp location.</summary>
+    public const string ScpAltPath = "/usr/bin/scp";
+
+    /// <summary>Listener port. Must match <c>defaultPort</c> in src/apagent/config.go.</summary>
+    public const int AgentPort = 8899;
+
+    /// <summary>Name of the binary staged in the server's own tools directory.</summary>
+    public const string LocalBinaryName = "apagent-linux-arm";
+
+    /// <summary>
+    /// Pattern that matches the running agent and nothing else. Two traps make the obvious forms
+    /// wrong: a plain -f pattern also matches the shell of the SSH command that carries it, so
+    /// pkill kills its own session and pgrep reports a running agent when none exists; and -x
+    /// cannot be used because Linux truncates comm to 15 characters, which clips the binary name.
+    /// The bracketed first character matches the process while the literal text here does not
+    /// match itself.
+    /// </summary>
+    public const string ProcessPattern = "[a]pagent-linux-arm";
+}

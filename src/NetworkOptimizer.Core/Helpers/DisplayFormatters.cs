@@ -288,6 +288,40 @@ public static class DisplayFormatters
     #region Port Status Display
 
     /// <summary>
+    /// Format a bit rate with the unit it is normally quoted in. Suits a live throughput reading or
+    /// a negotiated link speed. Sub-1 bps reads "-" rather than zero, so an idle port shows nothing
+    /// to read instead of a number.
+    /// </summary>
+    /// <summary>A byte count as a data size (1024-based, as Data Usage reads): "1.2 GB", "350 MB".</summary>
+    public static string FormatBytes(long bytes)
+    {
+        if (bytes < 0) bytes = 0;
+        const double k = 1024;
+        if (bytes >= k * k * k * k) return $"{bytes / (k * k * k * k):0.##} TB";
+        if (bytes >= k * k * k) return $"{bytes / (k * k * k):0.##} GB";
+        if (bytes >= k * k) return $"{bytes / (k * k):0.#} MB";
+        if (bytes >= k) return $"{bytes / k:0} KB";
+        return $"{bytes} B";
+    }
+
+    /// <summary>A share as a percentage to two significant digits, without the sign: "0.5", "1.2", "25", "94".</summary>
+    public static string FormatShare(double percent)
+    {
+        if (percent < 0) percent = 0;
+        return percent.ToString(percent < 10 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public static string FormatRate(double? bps)
+    {
+        if (!bps.HasValue || bps.Value < 1) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
+        return $"{v:0} bps";
+    }
+
+    /// <summary>
     /// Get link status display string for a port.
     /// </summary>
     public static string GetLinkStatus(bool isUp, int speed)

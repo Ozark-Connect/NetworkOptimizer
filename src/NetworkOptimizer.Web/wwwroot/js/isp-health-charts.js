@@ -1,9 +1,9 @@
-﻿// ISP Health per-ASN RTT chart - pure JS ApexCharts fed by
+// ISP Health per-ASN RTT chart - pure JS ApexCharts fed by
 // /api/monitoring/isp-health/asn-series. Fixed 24 h window; congestion events
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=17';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];

@@ -1,10 +1,11 @@
-﻿@using NetworkOptimizer.Web.Components.Shared.Monitoring
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using static NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Core.Helpers
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -875,15 +876,7 @@ else
         return (total.IngressBps, total.EgressBps);
     }
 
-    private static string FormatRate(double? bps)
-    {
-        if (!bps.HasValue || bps.Value < 1) return "-";
-        var v = bps.Value;
-        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
-        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
-        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
-        return $"{v:0} bps";
-    }
+    private static string FormatRate(double? bps) => DisplayFormatters.FormatRate(bps);
 
     /// <summary>
     /// Splits a formatted rate into its numeric value and unit so the unit can be styled separately.

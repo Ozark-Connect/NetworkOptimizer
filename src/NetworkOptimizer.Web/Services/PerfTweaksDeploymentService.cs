@@ -26,6 +26,20 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // 5.1.30->5.1.31 image diff showed all 361 kernel modules byte-identical (5.1.31
     // is a pure userland patch) (unifi-perf-tweaks docs/compat-5.1.31.md).
     private static readonly Version MaxSupportedFirmware = new(5, 1, 31);
+    // The UXG line moved to UniFi OS 6 while the UCGs did not, so one ceiling cannot gate both.
+    // 6.0.5 live-verified on UXG-Fiber: the trixie toolchain recompiled qca-ssdk.ko, ending the
+    // byte-identical streak, but vermagic, all 10 SGMII+ symbols and the 0x690/0x6d0 speed and
+    // duplex offsets are unchanged (unifi-perf-tweaks docs/compat-6.0.5.md).
+    private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 5);
+
+    /// <summary>
+    /// The verified firmware ceiling for a gateway, read off the same lowercased shortname the
+    /// supported-gateway check uses.
+    /// </summary>
+    private static Version MaxSupportedFirmwareFor(string modelLower) =>
+        modelLower is "uxg-fiber" or "uxgfiber" or "uxg-max" or "uxgmax" or "uxgb"
+            ? MaxSupportedFirmwareUxg
+            : MaxSupportedFirmware;
 
     private static readonly Dictionary<string, string> BootScriptFiles = new()
     {
@@ -170,13 +184,16 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             var modelLower = rawModel.ToLowerInvariant();
             status.IsSupportedGateway = modelLower is "ucg-fiber" or "ucgf" or "ucgfiber"
                 or "uxg-fiber" or "uxgfiber"
-                or "ucg-max" or "ucgmax";
+                or "ucg-max" or "ucgmax"
+                or "uxg-max" or "uxgmax" or "uxgb";
 
             // Firmware version
             var fwRaw = GetSection(sections, "FIRMWARE_VERSION").Trim();
             status.FirmwareVersion = fwRaw;
+            var maxFirmware = MaxSupportedFirmwareFor(modelLower);
+            status.MaxSupportedFirmware = maxFirmware.ToString();
             if (Version.TryParse(fwRaw, out var fwVersion))
-                status.FirmwareSupported = fwVersion <= MaxSupportedFirmware;
+                status.FirmwareSupported = fwVersion <= maxFirmware;
             else
                 status.FirmwareSupported = false;
 
@@ -893,6 +910,9 @@ public class PerfTweaksStatus
     public bool IsSupportedGateway { get; set; }
     public string? FirmwareVersion { get; set; }
     public bool FirmwareSupported { get; set; }
+
+    /// <summary>Verified firmware ceiling for this gateway's model, for the unsupported-firmware notice.</summary>
+    public string? MaxSupportedFirmware { get; set; }
     public bool SsdAvailable { get; set; }
     public string? SsdMountPath { get; set; }
     public bool SfpModuleAlreadyLoaded { get; set; }

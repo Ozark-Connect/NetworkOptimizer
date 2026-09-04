@@ -446,7 +446,14 @@ else
         <div class="card-body firmware-rollout-landing">
             @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
             {
-                <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. It picks up updates automatically, schedules them for the site's quietest window, and announces them before they run.</p>
+                @if (_autopilotHold != null)
+                {
+                    <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> @_autopilotHold</p>
+                }
+                else
+                {
+                    <p class="firmware-rollout-note"><strong>Autopilot is on.</strong> Nothing is scheduled right now. It picks up updates automatically, schedules them for the site's quietest window, and announces them before they run.</p>
+                }
             }
             else if (HasStoredAutopilotConfig)
             {
@@ -834,6 +841,9 @@ else
     private RolloutPreviewView? _driftPreview;
     private int _driftNewDevices;
     private int _driftNewerVersions;
+
+    /// <summary>Autopilot's own account of why nothing is scheduled; null when it has none.</summary>
+    private string? _autopilotHold;
     private bool _driftNetworkApp;
     private bool _driftOs;
     private List<RolloutPlanSummaryView> _history = [];
@@ -910,6 +920,9 @@ else
             LoadWorkingSets();
             _active = await RolloutService.GetActivePlanAsync();
             _history = await RolloutService.GetPlanHistoryAsync();
+            _autopilotHold = _active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot
+                ? await RolloutService.GetAutopilotHoldReasonAsync()
+                : null;
             if (_active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot)
                 _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
             // Any live plan polls, not just a running one. A scheduled or announced plan starts

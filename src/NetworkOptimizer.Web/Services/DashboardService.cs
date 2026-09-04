@@ -123,7 +123,7 @@ public class DashboardService : IDashboardService
                     }
                     return info;
                 })
-                .OrderBy(d => ParseIpForSorting(d.IpAddress))
+                .OrderBy(d => NetworkOptimizer.Core.Helpers.NetworkUtilities.IpSortKey(d.IpAddress), StringComparer.Ordinal)
                 .ToList();
 
                 // Count by type using enum
@@ -209,7 +209,7 @@ public class DashboardService : IDashboardService
                 data.WiFiHealthScore = healthScore.OverallScore;
                 data.WiFiHealthGrade = healthScore.Grade;
                 data.WiFiHealthIssues = healthScore.Issues
-                    .Where(i => i.ShowOnOverview)
+                    .Where(i => i.ShowOnOverview && !i.IsAcknowledged)
                     .OrderByDescending(i => i.Severity)
                     .Take(5)
                     .ToList();
@@ -232,28 +232,6 @@ public class DashboardService : IDashboardService
             return "Unknown";
 
         return TimeFormatHelper.FormatDuration(TimeSpan.FromSeconds(uptimeSeconds.Value));
-    }
-
-    /// <summary>
-    /// Parse IP address into a sortable long value for proper numeric sorting
-    /// </summary>
-    private static long ParseIpForSorting(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip))
-            return long.MaxValue; // Empty IPs sort last
-
-        var parts = ip.Split('.');
-        if (parts.Length != 4)
-            return long.MaxValue;
-
-        long result = 0;
-        foreach (var part in parts)
-        {
-            if (!int.TryParse(part, out var octet))
-                return long.MaxValue;
-            result = (result << 8) | (uint)(octet & 0xFF);
-        }
-        return result;
     }
 }
 

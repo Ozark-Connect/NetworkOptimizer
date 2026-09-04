@@ -10,6 +10,12 @@ public enum InterfaceDirection
     Wan = 3
 }
 
+/// <summary>
+/// One row per (DeviceMac, IfName), and a port legitimately holds several: its label, and the raw
+/// name a collector wrote while its alias walk was failing. History sits under every name a port
+/// has had, so readers gather all of a port's rows (PortIfNamesAsync, PortsByNumberAsync) and
+/// nothing may dedupe or delete them.
+/// </summary>
 public class InterfaceNameMap
 {
     [Key]

@@ -57,4 +57,32 @@ public class VersionUtilitiesTests
     {
         VersionUtilities.StripBuildMetadata(version).Should().Be(expected);
     }
+
+    [Theory]
+    [InlineData("2.8.0-preview5", "2.8.0")]
+    [InlineData("2.8.0-preview5.3+abc123", "2.8.0")]
+    [InlineData("2.0.1+ed2714ca", "2.0.1")]
+    [InlineData("2.0.1", "2.0.1")]
+    [InlineData("", "")]
+    [InlineData(null, null)]
+    public void CoreVersion_StripsPrereleaseAndMetadata(string? version, string? expected)
+    {
+        VersionUtilities.CoreVersion(version).Should().Be(expected);
+    }
+
+    [Theory]
+    // A from-source build stamped with raw "git describe" output keeps its prefix
+    [InlineData("v2.8.0-preview6-16-gc15f291a", "2.8.0-preview6-16-gc15f291a")]
+    [InlineData("V2.8.0-preview7", "2.8.0-preview7")]
+    // Everything else is left exactly as reported, build metadata included
+    [InlineData("2.0.0-beta.2+3449fbae", "2.0.0-beta.2+3449fbae")]
+    [InlineData("2.0.1", "2.0.1")]
+    [InlineData("0.0.0-dev", "0.0.0-dev")]
+    [InlineData("", "")]
+    [InlineData(null, null)]
+    public void TrimLeadingV_DropsOnlyThePrefix(string? version, string? expected)
+    {
+        VersionUtilities.TrimLeadingV(version).Should().Be(expected);
+    }
 }
+

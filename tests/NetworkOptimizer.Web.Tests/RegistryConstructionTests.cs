@@ -55,6 +55,8 @@ public class RegistryConstructionTests
         { typeof(StarlinkAlertEvaluator), new[] { typeof(string), typeof(SiteAlertEventBus) } },
         // MonitoringCollectionRegistry
         { typeof(MonitoringCollectionAgent), new[] { typeof(string) } },
+        // ApAgentTelemetryRegistry
+        { typeof(NetworkOptimizer.Web.Services.ApAgent.ApAgentTelemetryCollector), new[] { typeof(string) } },
         // MonitoringInfluxRegistry / MonitoringLiveStatsRegistry
         { typeof(NetworkOptimizer.Storage.Services.MonitoringInfluxClient), new[] { typeof(string) } },
         { typeof(MonitoringLiveStats), new[] { typeof(string) } },

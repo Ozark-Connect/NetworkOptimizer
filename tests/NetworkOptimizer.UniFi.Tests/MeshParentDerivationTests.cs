@@ -112,4 +112,192 @@ public class MeshParentDerivationTests
 
         claim.Contradicts(reported).Should().Be(expected);
     }
+
+    // A contradicting claim only replaces the child's own uplink when that report is unusable.
+    // A child that names another live parent has re-paired; the claim is the old parent's stale
+    // downlink table, which is what every device behind an AP mid-upgrade reports.
+    private const string OtherParentMac = "aa:bb:cc:dd:ee:03";
+    private const string DownstreamSwitchMac = "aa:bb:cc:dd:ee:04";
+    private const string GatewayMac = "aa:bb:cc:dd:ee:00";
+
+    private static Dictionary<string, string?> Uplinks() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        [GatewayMac] = null,
+        [ParentMac] = GatewayMac,
+        [OtherParentMac] = GatewayMac,
+        [ChildMac] = OtherParentMac,
+        [DownstreamSwitchMac] = ChildMac,
+    };
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("aa:bb:cc:dd:ee:99", true)]
+    [InlineData(DownstreamSwitchMac, true)]
+    [InlineData(OtherParentMac, false)]
+    public void ClaimOutranksReportedUplink_OnlyWhenTheChildsOwnReportIsUnusable(string? reported, bool expected)
+    {
+        UniFiDiscovery.ClaimOutranksReportedUplink(ChildMac, reported, Uplinks()).Should().Be(expected);
+    }
+
+    [Fact]
+    public void ClaimOutranksReportedUplink_SurvivesACycleThatDoesNotReachTheChild()
+    {
+        var uplinks = Uplinks();
+        uplinks[GatewayMac] = ParentMac;
+
+        UniFiDiscovery.ClaimOutranksReportedUplink(ChildMac, OtherParentMac, uplinks).Should().BeFalse();
+    }
+
+    // --- MLO: an MLO backhaul is one downlink entry PER LINK, all sharing the child's base MAC ---
+
+    private static DownlinkTableEntry MloLink(string radio, long txRate, long rxRate, int? signal = null) => new()
+    {
+        Mac = $"vwire-{radio}",
+        SerialNo = ChildMac,
+        MldMac = ChildMac,
+        IsMlo = true,
+        Radio = radio,
+        Signal = signal,
+        TxRate = txRate,
+        RxRate = rxRate,
+    };
+
+    [Fact]
+    public void BuildMeshParentByChild_MloLinks_AggregateIntoOneClaim()
+    {
+        // STR runs the links concurrently, so the pair's capacity is the sum, and each link
+        // is kept for per-band display.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable = [MloLink("6e", 2_594_200, 2_161_800, -62), MloLink("na", 2_161_800, 1_201_000, -50)];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.ParentMac.Should().Be(ParentMac);
+        claim.IsMlo.Should().BeTrue();
+        claim.TxRateKbps.Should().Be(2_594_200 + 2_161_800);
+        claim.RxRateKbps.Should().Be(2_161_800 + 1_201_000);
+        claim.Links.Should().HaveCount(2);
+        claim.Links.Select(l => l.Radio).Should().BeEquivalentTo(["6e", "na"]);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_MloEntriesOutrankAnUnflaggedRowForTheSameChild()
+    {
+        // A firmware that keeps a legacy combined row next to the per-link entries must not be
+        // double-counted: only is_mlo-flagged entries are ever aggregated.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable =
+        [
+            new DownlinkTableEntry { Mac = "vwire-combined", SerialNo = ChildMac, TxRate = 4_756_000, RxRate = 3_362_800 },
+            MloLink("6e", 2_594_200, 2_161_800),
+            MloLink("na", 2_161_800, 1_201_000),
+        ];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.TxRateKbps.Should().Be(2_594_200 + 2_161_800);
+        claim.Links.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_DuplicateUnflaggedEntries_KeepLastEntryWins()
+    {
+        // Pre-MLO behavior, preserved exactly: duplicate non-MLO listings are never summed.
+        var parent = Device(ParentMac);
+        parent.DownlinkTable =
+        [
+            new DownlinkTableEntry { Mac = "vwire-stale", SerialNo = ChildMac, TxRate = 866_000, RxRate = 585_000 },
+            new DownlinkTableEntry { Mac = "vwire-fresh", SerialNo = ChildMac, TxRate = 1_201_000, RxRate = 866_000 },
+        ];
+
+        var claim = UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)])[ChildMac];
+
+        claim.IsMlo.Should().BeFalse();
+        claim.TxRateKbps.Should().Be(1_201_000);
+        claim.RxRateKbps.Should().Be(866_000);
+        claim.Links.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void BuildMeshParentByChild_FallsBackToMldMacWhenSerialNoIsAbsent()
+    {
+        var parent = Device(ParentMac);
+        parent.DownlinkTable = [new DownlinkTableEntry { Mac = "vwire-bssid", MldMac = ChildMac, IsMlo = true, TxRate = 866_000 }];
+
+        UniFiDiscovery.BuildMeshParentByChild([parent, Device(ChildMac)]).Should().ContainKey(ChildMac);
+    }
+
+    [Fact]
+    public void MeshParentClaim_DefaultInstance_HasEmptyLinksNotNull()
+    {
+        default(UniFiDiscovery.MeshParentClaim).Links.Should().NotBeNull().And.BeEmpty();
+    }
+
+    // --- The child's own side: uplink.mlo_links, one entry per link, signal as the child measures it ---
+
+    private static UniFiDeviceResponse MloChild(params UplinkMloLink[] links) => new()
+    {
+        Mac = ChildMac,
+        Uplink = new UplinkInfo
+        {
+            Type = "wireless",
+            UplinkMac = ParentMac,
+            Name = "vwiresta7",
+            RadioBand = "na",
+            Channel = 40,
+            Signal = -36,
+            TxRate = links.Sum(l => l.TxRate),
+            RxRate = links.Sum(l => l.RxRate),
+            MloLinks = links.Length == 0 ? null : links.ToList(),
+        },
+        RadioTableStats =
+        [
+            new RadioTableStats { Name = "wifi1", Radio = "na", Bw = 160 },
+            new RadioTableStats { Name = "wifi2", Radio = "6e", Bw = 320 },
+        ],
+    };
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_KeepsTheChildsOwnReadingPerLink()
+    {
+        // The child measures both links itself; nothing here is the parent's reading, and the
+        // rates are not flipped - the child's TX is already toward the parent.
+        var child = MloChild(
+            new UplinkMloLink { Radio = "6e", Channel = 5, Name = "vwiresta4", Signal = -41, TxRate = 4_804_000, RxRate = 4_804_000 },
+            new UplinkMloLink { Radio = "na", Channel = 40, Name = "vwiresta7", Signal = -36, TxRate = 1_729_400, RxRate = 2_161_800 });
+
+        var links = UniFiDiscovery.BuildSelfReportedMloLinks(child);
+
+        links.Should().HaveCount(2);
+        var sixGhz = links.Single(l => l.Band == "6e");
+        sixGhz.SignalDbm.Should().Be(-41);
+        sixGhz.Channel.Should().Be(5);
+        sixGhz.TxRateMbps.Should().Be(4804);
+        sixGhz.RxRateMbps.Should().Be(4804);
+        var fiveGhz = links.Single(l => l.Band == "na");
+        fiveGhz.SignalDbm.Should().Be(-36);
+        fiveGhz.TxRateMbps.Should().Be(1729);
+        fiveGhz.RxRateMbps.Should().Be(2161);
+    }
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_WidthComesOffTheChildsOwnRadio()
+    {
+        var child = MloChild(
+            new UplinkMloLink { Radio = "6e", TxRate = 1 },
+            new UplinkMloLink { Radio = "na", TxRate = 1 });
+
+        var links = UniFiDiscovery.BuildSelfReportedMloLinks(child);
+
+        links.Single(l => l.Band == "6e").WidthMhz.Should().Be(320);
+        links.Single(l => l.Band == "na").WidthMhz.Should().Be(160);
+    }
+
+    [Fact]
+    public void BuildSelfReportedMloLinks_EmptyWhenTheUplinkReportsNoLinks()
+    {
+        UniFiDiscovery.BuildSelfReportedMloLinks(MloChild()).Should().BeEmpty();
+        UniFiDiscovery.BuildSelfReportedMloLinks(new UniFiDeviceResponse { Mac = ChildMac }).Should().BeEmpty();
+    }
 }

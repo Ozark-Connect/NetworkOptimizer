@@ -33,6 +33,9 @@ public static class RolloutAlerts
     /// <summary>An SKU's canary failed, so the rest of that SKU was dropped.</summary>
     public const string SkuAborted = "rollout.sku_aborted";
 
+    /// <summary>A device took its new firmware and then failed the post-upgrade check.</summary>
+    public const string PostUpgradeCheckFailed = "rollout.post_upgrade_check_failed";
+
     /// <summary>
     /// The UniFi Network application update did not bring the application back inside its budget.
     /// A warning rather than a stop: the device upgrades carry on regardless.

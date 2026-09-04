@@ -1,0 +1,632 @@
+using System.Text.Json.Serialization;
+
+namespace NetworkOptimizer.Web.Services.ApAgent;
+
+/// <summary>
+/// The AP Agent's GET /clients reply, reduced to what the collector consumes. The agent serves
+/// snake_case, so every name is declared rather than inferred.
+/// </summary>
+public sealed class ApAgentClientsPayload
+{
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>How each collection tier on the AP last fared.</summary>
+    [JsonPropertyName("sources")]
+    public ApAgentTierStatus? Sources { get; set; }
+
+    /// <summary>One entry per client, already resolved across MLO links by the agent.</summary>
+    [JsonPropertyName("clients")]
+    public List<ApAgentClient> Clients { get; set; } = new();
+}
+
+/// <summary>The three-tier collection health the agent reports on every payload.</summary>
+public sealed class ApAgentTierStatus
+{
+    /// <summary>The hostapd event stream.</summary>
+    [JsonPropertyName("events")]
+    public ApAgentTierInfo? Events { get; set; }
+
+    /// <summary>The wlanconfig sweep.</summary>
+    [JsonPropertyName("fast")]
+    public ApAgentTierInfo? Fast { get; set; }
+
+    /// <summary>
+    /// From binary version 10 this is the mca-dump pass, and it carries the quality fields as well
+    /// as the counters. Before that it read counters only.
+    /// </summary>
+    [JsonPropertyName("bytes")]
+    public ApAgentTierInfo? Bytes { get; set; }
+
+    /// <summary>
+    /// The quality-field pass on agents before binary version 10. From 10 it runs no mca-dump of its
+    /// own - the bytes tier does that for both - and covers the radio counters alone.
+    /// </summary>
+    [JsonPropertyName("slow")]
+    public ApAgentTierInfo? Slow { get; set; }
+}
+
+/// <summary>One collection tier's last outcome on the AP.</summary>
+public sealed class ApAgentTierInfo
+{
+    /// <summary>Whether the tier's underlying tool resolved at all.</summary>
+    [JsonPropertyName("available")]
+    public bool Available { get; set; }
+
+    /// <summary>When the tier last completed a pass.</summary>
+    [JsonPropertyName("last_collected_at")]
+    public DateTime? LastCollectedAt { get; set; }
+}
+
+/// <summary>Which access point a payload came from.</summary>
+public sealed class ApAgentApInfo
+{
+    /// <summary>The access point's own hostname.</summary>
+    [JsonPropertyName("hostname")]
+    public string? Hostname { get; set; }
+
+    /// <summary>Model token as the access point reports it.</summary>
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    /// <summary>The access point's MAC.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+}
+
+/// <summary>
+/// The AP Agent's GET /client/&lt;mac&gt; reply. The agent resolves a link MAC to its parent client,
+/// so a Wi-Fi 7 client is found by any of its link MACs and comes back as one record.
+/// </summary>
+public sealed class ApAgentClientPayload
+{
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>How each collection tier on the AP last fared.</summary>
+    [JsonPropertyName("sources")]
+    public ApAgentTierStatus? Sources { get; set; }
+
+    /// <summary>The client, already resolved across MLO links by the agent.</summary>
+    [JsonPropertyName("client")]
+    public ApAgentClient? Client { get; set; }
+}
+
+/// <summary>The membership event kinds the agent publishes. These strings are its contract.</summary>
+public static class ApAgentEventTypes
+{
+    /// <summary>A client joined this access point.</summary>
+    public const string Assoc = "assoc";
+
+    /// <summary>A client left this access point.</summary>
+    public const string Disassoc = "disassoc";
+
+    /// <summary>This access point announced that a client is moving to a peer.</summary>
+    public const string RoamBroadcast = "roam_broadcast";
+
+    /// <summary>A peer told this access point that a client moved.</summary>
+    public const string RoamToPeer = "roam_to_peer";
+
+    /// <summary>A serving radio moved channel, width, or block; about a radio, not a client.</summary>
+    public const string ChannelChange = "channel_change";
+}
+
+/// <summary>One membership fact from an access point's hostapd control socket.</summary>
+public sealed class ApAgentEvent
+{
+    /// <summary>Position in the agent's ring, which restarts at 1 when the agent restarts.</summary>
+    [JsonPropertyName("seq")]
+    public ulong Seq { get; set; }
+
+    /// <summary>One of <see cref="ApAgentEventTypes"/>, or a kind this server does not model.</summary>
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "";
+
+    /// <summary>
+    /// The VAP the event arrived on. It is the only thing that resolves an event to a BSSID, band,
+    /// and channel, none of which the event itself carries.
+    /// </summary>
+    [JsonPropertyName("vap")]
+    public string? Vap { get; set; }
+
+    /// <summary>The client the event is about. On an MLO client this is the link MAC, not the MLD MAC.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
+    /// <summary>The rest of the control-socket line, kept verbatim.</summary>
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
+
+    /// <summary>The source's own timestamp, where the source provides one. hostapd does not.</summary>
+    [JsonPropertyName("event_time")]
+    public DateTime? EventTime { get; set; }
+
+    /// <summary>The BSSID the client is moving to, on a roam event.</summary>
+    [JsonPropertyName("peer_bssid")]
+    public string? PeerBssid { get; set; }
+
+    /// <summary>The radio a channel_change event is about; null on client events.</summary>
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }
+
+    /// <summary>The before and after of a channel_change event; null on client events.</summary>
+    [JsonPropertyName("channel")]
+    public ApAgentChannelChange? Channel { get; set; }
+
+    /// <summary>When the agent recorded it.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>The access-point-side instant, preferring the source's own clock where it has one.</summary>
+    [JsonIgnore]
+    public DateTime At => (EventTime ?? CollectedAt).ToUniversalTime();
+}
+
+/// <summary>A radio move as the agent saw it, within one mca-dump pass of the radio moving.</summary>
+public sealed class ApAgentChannelChange
+{
+    /// <summary>Band token ("2.4", "5", "6").</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Primary channel before the move.</summary>
+    [JsonPropertyName("from_channel")]
+    public int FromChannel { get; set; }
+
+    /// <summary>Width in MHz before the move; 0 when unknown.</summary>
+    [JsonPropertyName("from_bw")]
+    public int FromBw { get; set; }
+
+    /// <summary>Block center in MHz before the move; 0 when unknown.</summary>
+    [JsonPropertyName("from_center_mhz")]
+    public int FromCenterMhz { get; set; }
+
+    /// <summary>Primary channel after the move.</summary>
+    [JsonPropertyName("to_channel")]
+    public int ToChannel { get; set; }
+
+    /// <summary>Width in MHz after the move; 0 when unknown.</summary>
+    [JsonPropertyName("to_bw")]
+    public int ToBw { get; set; }
+
+    /// <summary>Block center in MHz after the move; 0 when the agent had not read it yet.</summary>
+    [JsonPropertyName("to_center_mhz")]
+    public int ToCenterMhz { get; set; }
+}
+
+/// <summary>The AP Agent's GET /events?since= reply, a bounded replay window.</summary>
+public sealed class ApAgentEventsPayload
+{
+    /// <summary>Which access point answered.</summary>
+    [JsonPropertyName("ap")]
+    public ApAgentApInfo? Ap { get; set; }
+
+    /// <summary>True when the window the caller asked for had already been overwritten.</summary>
+    [JsonPropertyName("truncated")]
+    public bool Truncated { get; set; }
+
+    /// <summary>The retained events, oldest first.</summary>
+    [JsonPropertyName("events")]
+    public List<ApAgentEvent> Events { get; set; } = new();
+
+    /// <summary>
+    /// When the agent process started. The ring holds no state across a restart, so a change here
+    /// means sequence numbering began again at 1 and a stored cursor no longer applies to it.
+    /// </summary>
+    [JsonPropertyName("agent_started_at")]
+    public DateTime AgentStartedAt { get; set; }
+
+    /// <summary>The replay window's shape, which is how an undersized ring becomes visible.</summary>
+    [JsonPropertyName("ring")]
+    public ApAgentRingStats? Ring { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+}
+
+/// <summary>
+/// One client as the agent resolved it. An MLO client is ONE entry keyed on its MLD MAC, and the
+/// scalar fields describe the active link, so the collector must never re-derive either from
+/// <see cref="Links"/>.
+/// </summary>
+public sealed class ApAgentClient
+{
+    /// <summary>The MLD MAC for an MLO client, the station MAC otherwise.</summary>
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = "";
+
+    /// <summary>Same value as <see cref="Key"/>, in the agent's own client-facing spelling.</summary>
+    [JsonPropertyName("mac")]
+    public string Mac { get; set; } = "";
+
+    /// <summary>Present only on an MLO client.</summary>
+    [JsonPropertyName("mld_mac")]
+    public string? MldMac { get; set; }
+
+    /// <summary>The client's hostname, from the agent's identity poll. Empty until that poll runs.</summary>
+    [JsonPropertyName("hostname")]
+    public string? Hostname { get; set; }
+
+    /// <summary>The client's IPv4 address, from the agent's identity poll. Empty until that poll runs.</summary>
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
+    /// <summary>Whether the client negotiated multi-link operation.</summary>
+    [JsonPropertyName("is_mlo")]
+    public bool IsMlo { get; set; }
+
+    /// <summary>
+    /// Whether authentication completed, as opposed to merely being in the access point's station
+    /// table. False covers a client mid-handshake and one that abandoned the attempt.
+    /// </summary>
+    [JsonPropertyName("authorized")]
+    public bool Authorized { get; set; }
+
+    /// <summary>Active link's band, as the agent's "2.4" / "5" / "6" token.</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Active link's channel.</summary>
+    [JsonPropertyName("channel")]
+    public int Channel { get; set; }
+
+    /// <summary>Active link's channel width in MHz.</summary>
+    [JsonPropertyName("bw")]
+    public int Bandwidth { get; set; }
+
+    /// <summary>Active link's signal in dBm.</summary>
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }
+
+    /// <summary>Active link's noise floor in dBm.</summary>
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }
+
+    /// <summary>Active link's signal-to-noise ratio in dB.</summary>
+    [JsonPropertyName("snr")]
+    public int? Snr { get; set; }
+
+    /// <summary>Active link's transmit rate in kbps (AP to client).</summary>
+    [JsonPropertyName("tx_rate_kbps")]
+    public long TxRateKbps { get; set; }
+
+    /// <summary>Active link's receive rate in kbps (client to AP).</summary>
+    [JsonPropertyName("rx_rate_kbps")]
+    public long RxRateKbps { get; set; }
+
+    /// <summary>The AP's own satisfaction score for the client.</summary>
+    [JsonPropertyName("satisfaction")]
+    public int? Satisfaction { get; set; }
+
+    /// <summary>What the client can do, as opposed to what it is doing.</summary>
+    [JsonPropertyName("capabilities")]
+    public ApAgentClientCapabilities? Capabilities { get; set; }
+
+    /// <summary>Every association behind this client. One entry unless the client is MLO.</summary>
+    [JsonPropertyName("links")]
+    public List<ApAgentClientLink> Links { get; set; } = new();
+}
+
+/// <summary>The capability bits the AP reports for a client.</summary>
+public sealed class ApAgentClientCapabilities
+{
+    /// <summary>Maximum spatial streams the client advertises.</summary>
+    [JsonPropertyName("nss")]
+    public int Nss { get; set; }
+
+    /// <summary>Widest channel the client supports, in MHz; 0 when the AP did not report it.</summary>
+    [JsonPropertyName("bw_max_supp")]
+    public int BwMaxSupp { get; set; }
+}
+
+/// <summary>
+/// One association. The counters the additive fields come from live here rather than on the client,
+/// so the collector reads them off the active link.
+/// </summary>
+public sealed class ApAgentClientLink
+{
+    /// <summary>This link's own station MAC, which differs per link on an MLO client.</summary>
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
+    /// <summary>Whether this is the link carrying traffic.</summary>
+    [JsonPropertyName("active")]
+    public bool Active { get; set; }
+
+    /// <summary>This link's channel.</summary>
+    [JsonPropertyName("channel")]
+    public int Channel { get; set; }
+
+    /// <summary>This link's channel width in MHz.</summary>
+    [JsonPropertyName("bw")]
+    public int Bandwidth { get; set; }
+
+    /// <summary>This link's signal in dBm.</summary>
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }
+
+    /// <summary>This link's noise floor in dBm.</summary>
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }
+
+    /// <summary>This link's signal-to-noise ratio in dB.</summary>
+    [JsonPropertyName("snr")]
+    public int? Snr { get; set; }
+
+    /// <summary>This link's transmit rate in kbps (AP to client).</summary>
+    [JsonPropertyName("tx_rate_kbps")]
+    public long TxRateKbps { get; set; }
+
+    /// <summary>This link's receive rate in kbps (client to AP).</summary>
+    [JsonPropertyName("rx_rate_kbps")]
+    public long RxRateKbps { get; set; }
+
+    /// <summary>The driver's phy-mode token, e.g. "IEEE80211_MODE_11AXA_HE160".</summary>
+    [JsonPropertyName("mode")]
+    public string? Mode { get; set; }
+
+    /// <summary>The AP's satisfaction score for this link.</summary>
+    [JsonPropertyName("satisfaction")]
+    public int? Satisfaction { get; set; }
+
+    /// <summary>This link's band token.</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Operating spatial streams on this link.</summary>
+    [JsonPropertyName("nss")]
+    public int Nss { get; set; }
+
+    /// <summary>Client connection quality, as the AP scores it.</summary>
+    [JsonPropertyName("ccq")]
+    public int Ccq { get; set; }
+
+    /// <summary>Cumulative bytes the AP transmitted to the client.</summary>
+    [JsonPropertyName("tx_bytes")]
+    public long TxBytes { get; set; }
+
+    /// <summary>Cumulative bytes the AP received from the client.</summary>
+    [JsonPropertyName("rx_bytes")]
+    public long RxBytes { get; set; }
+
+    /// <summary>
+    /// Seconds since the access point last heard anything on this link. The direct measure of
+    /// whether a client is still there, and the only one that survives multi-link: a client is
+    /// present if ANY of its links has heard from it recently.
+    /// </summary>
+    [JsonPropertyName("idle_seconds")]
+    public long IdleSeconds { get; set; }
+
+    /// <summary>
+    /// This link negotiated and never carried traffic: its idle time covers its whole association.
+    /// An access point keeps such a link associated long after the client is gone, so it is the
+    /// difference between a client that is quiet and one that left without being torn down.
+    /// </summary>
+    [JsonPropertyName("negotiated_idle")]
+    public bool NegotiatedIdle { get; set; }
+
+    /// <summary>
+    /// When the byte counters were read, set only when they came from the agent's own counter tier
+    /// rather than its identity poll. Throughput is a counter delta over the gap between two of
+    /// these, so assuming the poll interval instead would misreport it whenever a poll ran late.
+    /// Null on an agent older than the counter tier, which falls back to the poll's own timing.
+    /// </summary>
+    [JsonPropertyName("bytes_at")]
+    public DateTime? BytesAt { get; set; }
+
+    /// <summary>Seconds since this link associated, from the AP's station table.</summary>
+    [JsonPropertyName("assoc_seconds")]
+    public int AssocSeconds { get; set; }
+
+    /// <summary>Signal at authentication in dBm, from stahtd. Null when the association predates the agent.</summary>
+    [JsonPropertyName("join_rssi")]
+    public int? JoinRssi { get; set; }
+
+    /// <summary>BSS transition requests this association answered, whoever sent them.</summary>
+    [JsonPropertyName("btm_requests")]
+    public int BtmRequests { get; set; }
+
+    /// <summary>Of <see cref="BtmRequests"/>, answers that accepted the transition.</summary>
+    [JsonPropertyName("btm_accepted")]
+    public int BtmAccepted { get; set; }
+
+    /// <summary>Cumulative transmit retries.</summary>
+    [JsonPropertyName("tx_retries")]
+    public long TxRetries { get; set; }
+
+    /// <summary>Cumulative transmit attempts.</summary>
+    [JsonPropertyName("wifi_tx_attempts")]
+    public long TxAttempts { get; set; }
+
+    /// <summary>Cumulative frames the AP gave up on.</summary>
+    [JsonPropertyName("wifi_tx_dropped")]
+    public long TxDropped { get; set; }
+
+    /// <summary>The AP's moving transmit latency, in microseconds.</summary>
+    [JsonPropertyName("wifi_tx_latency_mov")]
+    public ApAgentTxLatency? TxLatency { get; set; }
+
+    /// <summary>TCP quality on the AP-to-client direction.</summary>
+    [JsonPropertyName("tx_tcp_stats")]
+    public ApAgentTcpStats? TxTcpStats { get; set; }
+}
+
+/// <summary>The AP's moving transmit latency window, in microseconds.</summary>
+public sealed class ApAgentTxLatency
+{
+    /// <summary>Mean transmit latency over the window.</summary>
+    [JsonPropertyName("avg")]
+    public int Avg { get; set; }
+
+    /// <summary>Worst transmit latency over the window.</summary>
+    [JsonPropertyName("max")]
+    public int Max { get; set; }
+}
+
+/// <summary>The AP's TCP observations for one direction.</summary>
+public sealed class ApAgentTcpStats
+{
+    /// <summary>Mean round-trip latency in milliseconds.</summary>
+    [JsonPropertyName("lat_avg")]
+    public int LatAvg { get; set; }
+
+    /// <summary>Cumulative stalled-connection count.</summary>
+    [JsonPropertyName("stalls")]
+    public int Stalls { get; set; }
+}
+
+/// <summary>The AP Agent's GET /scan reply: what each radio hears, from the AP's own tables.</summary>
+public sealed class ApAgentScanPayload
+{
+    /// <summary>When the tables were read on the AP; an entry's age counts from here.</summary>
+    [JsonPropertyName("read_at")]
+    public DateTime ReadAt { get; set; }
+
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>One entry per radio, the dedicated scan radio included.</summary>
+    [JsonPropertyName("radios")]
+    public List<ApAgentRadioScan> Radios { get; set; } = new();
+}
+
+/// <summary>What one radio hears.</summary>
+public sealed class ApAgentRadioScan
+{
+    /// <summary>Interface name, e.g. "wifi1".</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    /// <summary>Band token ("2.4" / "5" / "6"); empty on the scan radio, which hears every band.</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Whether this is the dedicated scan radio.</summary>
+    [JsonPropertyName("scan_radio")]
+    public bool ScanRadio { get; set; }
+
+    /// <summary>When the spectrum table was taken, from the AP's spectrum_table_time.</summary>
+    [JsonPropertyName("spectrum_at")]
+    public DateTime? SpectrumAt { get; set; }
+
+    /// <summary>The neighbors this radio hears.</summary>
+    [JsonPropertyName("scan_table")]
+    public List<ApAgentScanEntry> Scan { get; set; } = new();
+
+    /// <summary>Per-channel occupancy as this radio measured it.</summary>
+    [JsonPropertyName("spectrum_table")]
+    public List<ApAgentSpectrumEntry> Spectrum { get; set; } = new();
+}
+
+/// <summary>One neighbor in a radio's scan table.</summary>
+public sealed class ApAgentScanEntry
+{
+    [JsonPropertyName("bssid")] public string Bssid { get; set; } = "";
+    [JsonPropertyName("essid")] public string? Essid { get; set; }
+    /// <summary>Band token ("2.4" / "5" / "6").</summary>
+    [JsonPropertyName("band")] public string? Band { get; set; }
+    [JsonPropertyName("channel")] public int Channel { get; set; }
+    [JsonPropertyName("bw")] public int Width { get; set; }
+    [JsonPropertyName("center_mhz")] public int CenterMhz { get; set; }
+    [JsonPropertyName("signal")] public int Signal { get; set; }
+    [JsonPropertyName("noise")] public int Noise { get; set; }
+    /// <summary>Seconds since the AP last heard it, as of <see cref="ApAgentScanPayload.ReadAt"/>.</summary>
+    [JsonPropertyName("age")] public int AgeSeconds { get; set; }
+    [JsonPropertyName("is_ubnt")] public bool IsUbnt { get; set; }
+}
+
+/// <summary>One channel in a radio's spectrum table.</summary>
+public sealed class ApAgentSpectrumEntry
+{
+    [JsonPropertyName("channel")] public int Channel { get; set; }
+    [JsonPropertyName("center_mhz")] public int CenterMhz { get; set; }
+    [JsonPropertyName("width")] public int Width { get; set; }
+    /// <summary>Percent busy.</summary>
+    [JsonPropertyName("utilization")] public int Utilization { get; set; }
+    /// <summary>dBm-like, as the console's spectrum scan reports it; stored as the channel's noise floor.</summary>
+    [JsonPropertyName("interference")] public int Interference { get; set; }
+    [JsonPropertyName("other_bss_count")] public int OtherBssCount { get; set; }
+    [JsonPropertyName("total_samples")] public int TotalSamples { get; set; }
+}
+
+/// <summary>The AP Agent's GET /radios reply, reduced to what the collector keeps.</summary>
+public sealed class ApAgentRadiosPayload
+{
+    /// <summary>The agent's clock when it built the reply.</summary>
+    [JsonPropertyName("collected_at")]
+    public DateTime CollectedAt { get; set; }
+
+    /// <summary>One entry per radio.</summary>
+    [JsonPropertyName("radios")]
+    public List<ApAgentRadio> Radios { get; set; } = new();
+}
+
+/// <summary>
+/// One radio. The counter maps arrive holding hundreds of entries; only the airtime and wedge
+/// counters are retained, and the rest are dropped on parse.
+/// </summary>
+public sealed class ApAgentRadio
+{
+    /// <summary>Interface name, e.g. "wifi0".</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    /// <summary>mca-dump's radio token.</summary>
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }
+
+    /// <summary>Band token.</summary>
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }
+
+    /// <summary>Operating channel.</summary>
+    [JsonPropertyName("channel")]
+    public int Channel { get; set; }
+
+    /// <summary>Operating width in MHz.</summary>
+    [JsonPropertyName("bw")]
+    public int Bandwidth { get; set; }
+
+    /// <summary>
+    /// Center frequency of the operating block in MHz, from the AP's own <c>iw dev</c>. Absent
+    /// when the agent could not read it. What identifies a 320 MHz radio's block.
+    /// </summary>
+    [JsonPropertyName("center_mhz")]
+    public int? CenterMhz { get; set; }
+
+    /// <summary>Measured noise floor in dBm.</summary>
+    [JsonPropertyName("noise_floor")]
+    public int? NoiseFloor { get; set; }
+
+    /// <summary>Whether this is the dedicated scan radio, which hops channels and serves no clients.</summary>
+    [JsonPropertyName("scan_radio")]
+    public bool ScanRadio { get; set; }
+
+    /// <summary>Whether this entry exists only to carry counters, with no radio state behind it.</summary>
+    [JsonPropertyName("counter_only")]
+    public bool CounterOnly { get; set; }
+
+    /// <summary>Raw counters, a union across the radio-stats tools.</summary>
+    [JsonPropertyName("counters")]
+    public Dictionary<string, long>? Counters { get; set; }
+
+    /// <summary>Counter movement since the agent's previous pass.</summary>
+    [JsonPropertyName("counter_deltas")]
+    public Dictionary<string, long>? Deltas { get; set; }
+
+    /// <summary>Seconds the deltas span.</summary>
+    [JsonPropertyName("delta_seconds")]
+    public double DeltaSeconds { get; set; }
+}

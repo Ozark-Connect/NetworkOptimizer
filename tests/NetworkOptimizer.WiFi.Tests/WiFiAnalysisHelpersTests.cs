@@ -215,6 +215,32 @@ public class WiFiAnalysisHelpersTests
             result.Should().HaveCount(2);
         }
 
+        [Fact]
+        public void FiltersMeshPairs_OnDerivedMloLinkBand()
+        {
+            // The child self-reports only its 5 GHz STA link; the 6 GHz MLO link is derived from
+            // the parent's downlink_table. Sharing the 6 GHz channel is the backhaul, not
+            // co-channel interference.
+            var parentMac = "aa:bb:cc:dd:ee:01";
+            var childMac = "aa:bb:cc:dd:ee:02";
+
+            var parent = CreateAp("Parent", parentMac);
+            var child = CreateMeshChild("Child", childMac, parentMac, RadioBand.Band5GHz, 40);
+            child.MeshUplinkIsMlo = true;
+            child.MeshUplinkLinks =
+            [
+                new MeshLinkInfo { Band = RadioBand.Band6GHz, Channel = 5 },
+                new MeshLinkInfo { Band = RadioBand.Band5GHz, Channel = 40 },
+            ];
+
+            var input = new List<AccessPointSnapshot> { parent, child };
+
+            WiFiAnalysisHelpers.FilterOutMeshPairs(input, RadioBand.Band6GHz, 5).Should().BeEmpty();
+            WiFiAnalysisHelpers.FilterOutMeshPairs(input, RadioBand.Band5GHz, 40).Should().BeEmpty();
+            // A 6 GHz channel the backhaul does not occupy still counts as interference.
+            WiFiAnalysisHelpers.FilterOutMeshPairs(input, RadioBand.Band6GHz, 37).Should().HaveCount(2);
+        }
+
         private static AccessPointSnapshot CreateAp(string name, string mac) => new()
         {
             Name = name,

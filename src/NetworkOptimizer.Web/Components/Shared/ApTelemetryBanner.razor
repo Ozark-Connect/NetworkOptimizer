@@ -1,0 +1,66 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.ApAgent
+@inject UiHintService UiHints
+@inject IApAgentDeploymentService ApAgents
+
+@if (_visible)
+{
+    <div class="connection-banner pwa-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong style="color: var(--info-color);">Did you know?</strong>
+                <span style="color: var(--text-secondary);">@Message</span>
+            </div>
+            <div class="banner-actions">
+                <a href="/settings?tab=aptelemetry" class="btn-pwa-action">Set It Up</a>
+                <button class="btn-pwa-dismiss" @onclick="DismissAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>What this page gains from AP Telemetry, so each one says something it can act on.</summary>
+    [Parameter] public string Message { get; set; } =
+        "AP Telemetry reads Wi-Fi data straight from your access points, for faster live client data and per-client Wi-Fi throughput.";
+
+    private bool _visible;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            if (await ApAgents.IsSiteEnabledAsync()) return;
+            if (!await UiHints.ShouldShowAsync(UiHintKeys.ApTelemetryOffer)) return;
+
+            _visible = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Non-critical: an offer nobody sees is better than a page that failed to load.
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        _visible = false;
+        try
+        {
+            await UiHints.DismissAsync(UiHintKeys.ApTelemetryOffer);
+        }
+        catch
+        {
+            // Still hide it for this visit.
+        }
+    }
+}

@@ -53,8 +53,8 @@
                         <p class="alert-message">@alert.Message</p>
                     </div>
                     <div class="alert-actions" @onclick:stopPropagation>
-                        <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
-                            Dismiss
+                        <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)" data-tooltip="Hide this issue - still scored">
+                            Acknowledge
                         </button>
                     </div>
                 </div>
@@ -92,8 +92,8 @@
                                             <p class="alert-message">@alert.Message</p>
                                         </div>
                                         <div class="alert-actions" @onclick:stopPropagation>
-                                            <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
-                                                Dismiss
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)" data-tooltip="Hide this issue - still scored">
+                                                Acknowledge
                                             </button>
                                         </div>
                                     </div>

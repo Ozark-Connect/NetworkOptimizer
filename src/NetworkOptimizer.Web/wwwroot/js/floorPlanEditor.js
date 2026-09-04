@@ -3117,6 +3117,37 @@ window.fpEditor = {
 
     // ── Heatmap ──────────────────────────────────────────────────────
 
+    // The per-band ramp, pushed from the server so points, the heat surface and the cluster dots
+    // all read on the curve SignalClassification owns. Seeded with the 5 GHz one for the first
+    // paint; three separate tables here is how they drifted apart before.
+    _signalStops: [
+        { s: -60, hex: '#10b981' }, { s: -70, hex: '#22c55e' }, { s: -78, hex: '#eab308' },
+        { s: -85, hex: '#f97316' }, { s: -95, hex: '#ef4444' }
+    ],
+
+    setSignalStops: function (stops) { if (stops && stops.length) this._signalStops = stops; },
+
+    _signalRamp: function (dbm) {
+        var st = this._signalStops;
+        var rgb = function (hex) {
+            return { r: parseInt(hex.substr(1, 2), 16), g: parseInt(hex.substr(3, 2), 16), b: parseInt(hex.substr(5, 2), 16) };
+        };
+        if (dbm >= st[0].s) return rgb(st[0].hex);
+        if (dbm <= st[st.length - 1].s) return rgb(st[st.length - 1].hex);
+        for (var j = 0; j < st.length - 1; j++) {
+            if (dbm <= st[j].s && dbm >= st[j + 1].s) {
+                var t = (dbm - st[j + 1].s) / (st[j].s - st[j + 1].s);
+                var a = rgb(st[j].hex), b = rgb(st[j + 1].hex);
+                return {
+                    r: Math.round(a.r * t + b.r * (1 - t)),
+                    g: Math.round(a.g * t + b.g * (1 - t)),
+                    b: Math.round(a.b * t + b.b * (1 - t))
+                };
+            }
+        }
+        return rgb(st[st.length - 1].hex);
+    },
+
     computeHeatmap: function (baseUrl, activeFloor, band, excludePlannedAps, signalMeasurements) {
         var m = this._map;
         if (!m) return;
@@ -3202,27 +3233,8 @@ window.fpEditor = {
             var imgData = ctx.createImageData(data.width, data.height);
 
             // Smooth color gradient function
-            function lerpColor(sig) {
-                var stops = [
-                    { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
-                    { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
-                    { s: -72, r: 251, g: 146, b: 60 }, { s: -80, r: 239, g: 68, b: 68 },
-                    { s: -90, r: 107, g: 114, b: 128 }
-                ];
-                if (sig >= stops[0].s) return stops[0];
-                if (sig <= stops[stops.length - 1].s) return stops[stops.length - 1];
-                for (var j = 0; j < stops.length - 1; j++) {
-                    if (sig <= stops[j].s && sig >= stops[j + 1].s) {
-                        var t = (sig - stops[j + 1].s) / (stops[j].s - stops[j + 1].s);
-                        return {
-                            r: Math.round(stops[j].r * t + stops[j + 1].r * (1 - t)),
-                            g: Math.round(stops[j].g * t + stops[j + 1].g * (1 - t)),
-                            b: Math.round(stops[j].b * t + stops[j + 1].b * (1 - t))
-                        };
-                    }
-                }
-                return stops[stops.length - 1];
-            }
+            // The heat surface reads the same per-band ramp as the points and the cluster dots.
+            function lerpColor(sig) { return fpEditor._signalRamp(sig); }
 
             for (var i = 0; i < data.data.length; i++) {
                 var sig = data.data[i];
@@ -3250,17 +3262,13 @@ window.fpEditor = {
             if (self._contourLayer) m.removeLayer(self._contourLayer);
             self._contourLayer = L.layerGroup().addTo(m);
 
-            var thresholds = [
-                { db: -45, color: '#22c55e', label: '-45' },
-                { db: -50, color: '#22c55e', label: '-50' },
-                { db: -55, color: '#16a34a', label: '-55' },
-                { db: -60, color: '#eab308', label: '-60' },
-                { db: -65, color: '#ca8a04', label: '-65' },
-                { db: -70, color: '#f97316', label: '-70' },
-                { db: -75, color: '#fb923c', label: '-75' },
-                { db: -80, color: '#ef4444', label: '-80' },
-                { db: -85, color: '#ef4444', label: '-85' }
-            ];
+            // Where the lines are drawn is fixed; their color is the ramp's at that dBm, so a
+            // contour sits in the shade it divides. The colors were hardcoded and band-blind:
+            // -60 drew yellow over a surface painting it excellent green.
+            var thresholds = [-45, -50, -55, -60, -65, -70, -75, -80, -85].map(function (db) {
+                var c = fpEditor._signalRamp(db);
+                return { db: db, color: 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')', label: String(db) };
+            });
             var latStep = (data.neLat - data.swLat) / data.height;
             var lngStep = (data.neLng - data.swLng) / data.width;
 
@@ -3342,24 +3350,10 @@ window.fpEditor = {
 
     // ── Signal Data Overlay ────────────────────────────────────────
 
+    // Cluster dots read the same ramp as the points they stand for.
     _signalColor: function (dbm) {
-        var stops = [
-            { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
-            { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
-            { s: -72, r: 251, g: 146, b: 60 }, { s: -80, r: 239, g: 68, b: 68 },
-            { s: -90, r: 107, g: 114, b: 128 }
-        ];
-        if (dbm >= stops[0].s) return 'rgb(' + stops[0].r + ',' + stops[0].g + ',' + stops[0].b + ')';
-        if (dbm <= stops[stops.length - 1].s) return 'rgb(' + stops[stops.length - 1].r + ',' + stops[stops.length - 1].g + ',' + stops[stops.length - 1].b + ')';
-        for (var j = 0; j < stops.length - 1; j++) {
-            if (dbm <= stops[j].s && dbm >= stops[j + 1].s) {
-                var t = (dbm - stops[j + 1].s) / (stops[j].s - stops[j + 1].s);
-                return 'rgb(' + Math.round(stops[j].r * t + stops[j + 1].r * (1 - t)) + ',' +
-                    Math.round(stops[j].g * t + stops[j + 1].g * (1 - t)) + ',' +
-                    Math.round(stops[j].b * t + stops[j + 1].b * (1 - t)) + ')';
-            }
-        }
-        return 'rgb(' + stops[stops.length - 1].r + ',' + stops[stops.length - 1].g + ',' + stops[stops.length - 1].b + ')';
+        var c = this._signalRamp(dbm);
+        return 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')';
     },
 
     updateSignalData: function (markersJson) {

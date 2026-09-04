@@ -40,47 +40,65 @@ public class SiteSpeedTestTargetResolver
         bool AgentOnGateway = false);
 
     private readonly SiteContextService _siteContext;
-    private readonly AgentEnrollmentService _agentEnrollment;
+    private readonly SiteSpeedTestHostSelector _hostSelector;
     private readonly ISystemSettingsService _settings;
-    private readonly AgentOnGatewayDetector _onGatewayDetector;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly SiteAgentCoverage _agentCoverage;
 
     public SiteSpeedTestTargetResolver(
         SiteContextService siteContext,
-        AgentEnrollmentService agentEnrollment,
+        SiteSpeedTestHostSelector hostSelector,
         ISystemSettingsService settings,
-        AgentOnGatewayDetector onGatewayDetector,
         SiteAgentCoverage agentCoverage,
         AgentTunnelRegistry tunnelRegistry)
     {
         _siteContext = siteContext;
-        _agentEnrollment = agentEnrollment;
+        _hostSelector = hostSelector;
         _settings = settings;
-        _onGatewayDetector = onGatewayDetector;
         _agentCoverage = agentCoverage;
         _tunnelRegistry = tunnelRegistry;
     }
 
     /// <summary>
-    /// The port the site's connected agent says it serves its speed test page on, or the historic
-    /// 3000 when it does not say. Several agents on one site are possible, so the first that
-    /// announces a port wins - they serve the same page and a site with two disagreeing agents has
-    /// a bigger problem than which one a link points at.
+    /// Splits a bare target into the host as it goes into a URL and the port it carried, if any:
+    /// "host:3000" and "[2001:db8::1]:3000" yield the port; a bare IPv6 literal comes back
+    /// bracketed with no port; anything else is returned as it was.
     /// </summary>
-    private int AgentSpeedTestPortFor(string slug)
+    internal static (string Host, int? Port) SplitHostAndPort(string value)
     {
+        if (System.Net.IPAddress.TryParse(value, out var ip)
+            && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            return ($"[{value}]", null);
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"^(?<host>\[[^\]]+\]|[^:]+):(?<port>\d{1,5})$");
+        return match.Success && int.TryParse(match.Groups["port"].Value, out var port)
+            ? (match.Groups["host"].Value, port)
+            : (value, null);
+    }
+
+    /// <summary>
+    /// The port a bare-host override is served on: the selected agent's, else the first any
+    /// connected agent announces, else the historic 3000.
+    /// </summary>
+    private int AgentSpeedTestPortFor(string slug, SiteSpeedTestHostSelector.Selection selection)
+    {
+        if (selection.Host != null)
+            return selection.Host.Port;
         var announced = _tunnelRegistry.GetForSite(slug).FirstOrDefault(c => c.SpeedTestPort > 0);
         return announced?.SpeedTestPort ?? AgentOpenSpeedTestPort;
     }
 
     /// <summary>
     /// Resolves the current site's client-facing speed-test target. A per-site
-    /// override (an IP/host or a full URL) wins over the auto-detected agent LAN
+    /// override (an IP/host or a full URL) wins over the selected agent's LAN
     /// IP - for agents whose reachable address isn't their detected LAN IP (e.g.
     /// behind a reverse proxy). An override that is a full URL is used as-is, so
     /// an operator can force http:// or a different host/port; a bare host/IP
-    /// defaults to https on the agent port.
+    /// defaults to https on the agent port. Which agent hosts the test is
+    /// <see cref="SiteSpeedTestHostSelector"/>'s call, shared with the Settings hint
+    /// and path analysis.
     /// </summary>
     public async Task<Result> ResolveAsync()
     {
@@ -91,33 +109,21 @@ public class SiteSpeedTestTargetResolver
             return new Result(null, null, null, UsesAgent: false, AgentOffline: false);
 
         var targetOverride = (await _settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
-        var agentLanIp = await _agentEnrollment.GetOnlineAgentLanIpAsync(_siteContext.Slug);
-        var agentOffline = agentLanIp == null;
+        // Saves are validated; a value stored before that was is treated as no override at all.
+        if (!NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHostOrHttpUrl(targetOverride))
+            targetOverride = null;
+        var selection = await _hostSelector.SelectAsync(_siteContext.Slug);
+        var agentOffline = !selection.AgentReachable;
 
-        // An agent on the gateway itself reports the gateway's IP (usually the WAN
-        // address) and hosts no speed-test listener, so there is nothing to point
-        // clients at - the "target" would be the router. An explicit override still
-        // wins (a separate box the operator knows about). When speed-test-capable
-        // gateway installs arrive, replace this location check with the agent's
-        // speed-test capability so the config can flow through.
-        // The agent's own word first, where it gives one: an agent that says it serves no speed test
-        // has nothing to point clients at, whatever host it runs on - and an agent that says it DOES
-        // serve one is taken at its word even on a gateway, which is what a speed-test-capable
-        // gateway install needs. Only an agent that says nothing falls back to deciding by location.
-        var servesSpeedTest = _tunnelRegistry.GetForSite(_siteContext.Slug)
-            .Select(c => c.ServesSpeedTest)
-            .FirstOrDefault(v => v.HasValue);
-        // Location is still asked separately, because it is what the copy reports. An agent that
-        // simply serves no speed test is not necessarily on a gateway, and saying so would be wrong.
-        var onGateway = await _onGatewayDetector.IsAgentOnGatewayAsync(_siteContext.Slug);
-        var noSpeedTestHost = servesSpeedTest.HasValue ? !servesSpeedTest.Value : onGateway;
-
-        if (string.IsNullOrEmpty(targetOverride) && agentLanIp != null && noSpeedTestHost)
+        // Agents reachable but none hosts a speed test (a gateway agent, or one that says it serves
+        // none): nothing to point clients at unless the operator named a box. AnyOnGateway is what
+        // the pages explain, so it only says gateway when one actually is.
+        if (string.IsNullOrEmpty(targetOverride) && selection.AgentReachable && selection.Host == null)
         {
-            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: onGateway);
+            return new Result(null, null, null, UsesAgent: false, AgentOffline: false, AgentOnGateway: selection.AnyOnGateway);
         }
 
-        var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : agentLanIp;
+        var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : selection.Host?.LanIp;
         if (string.IsNullOrEmpty(effectiveTarget))
             return new Result(null, null, null, UsesAgent: false, AgentOffline: agentOffline);
 
@@ -130,8 +136,11 @@ public class SiteSpeedTestTargetResolver
         }
         else
         {
-            baseUrl = $"https://{effectiveTarget}:{AgentSpeedTestPortFor(_siteContext.Slug)}";
-            host = effectiveTarget;
+            // A bare host, IP, or host:port. A port the operator wrote wins over the agent's, and
+            // an IPv6 literal needs brackets to sit in a URL at all.
+            var (bareHost, bareHostPort) = SplitHostAndPort(effectiveTarget);
+            baseUrl = $"https://{bareHost}:{bareHostPort ?? AgentSpeedTestPortFor(_siteContext.Slug, selection)}";
+            host = bareHost.Trim('[', ']');
         }
 
         return new Result(effectiveTarget, baseUrl, host, UsesAgent: true, AgentOffline: agentOffline);

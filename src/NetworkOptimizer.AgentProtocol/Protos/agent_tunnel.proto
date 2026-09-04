@@ -26,9 +26,11 @@ message AgentMessage {
     UwnResult uwn_result = 9;
     ProbeResponse probe_response = 10;
     SnmpOidResult snmp_oid_result = 11;
+    ConntrackSampleBatch conntrack_samples = 13;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
-  // probe_results / snmp_results frames only; 0 on control frames and on older
+  // probe_results / snmp_results / aggregated conntrack_samples frames only
+  // (live conntrack batches stay 0); 0 on control frames and on older
   // agents. The agent keeps the batch buffered until the server echoes this
   // number in a ResultAck (persisted), then trims it. Without this, a
   // black-holed tunnel - where TCP still "accepts" writes into a dead socket and
@@ -51,7 +53,66 @@ message ServerMessage {
     SnmpOidQuery snmp_oid_query = 10;
     WanSpeedTestConfig wan_speedtest_config = 11;
     ResultAck result_ack = 12;
+    ConntrackConfig conntrack_config = 13;
   }
+}
+
+// ---- Gateway conntrack accounting (per-client WAN from the source) ----
+// An on-gateway agent samples the kernel's conntrack table, differences byte
+// counters per flow at the source, and ships per-client WAN window deltas -
+// never per-flow records, destinations, or ports (the privacy line: this is
+// performance data, not client surveillance). The server pushes ConntrackConfig
+// after the hello exchange and on config refresh; enabled=false is the fleet-wide
+// kill switch and needs no agent update.
+
+message ConntrackConfig {
+  bool enabled = 1;
+  // Sampling cadence the server asks for. The agent may stretch it on its own
+  // when a sample pass runs over budget (huge tables) and says so via the
+  // batch's window_seconds; the server never has to know why.
+  int32 interval_seconds = 2;
+  // The site's WAN data-path interfaces (from WanProfiles), as classification
+  // hints. The agent may also classify by NAT / public-remote on its own.
+  repeated string wan_ifnames = 3;
+}
+
+message ConntrackSampleBatch {
+  int64 timestamp_unix_ms = 1;
+  // The delta window this batch covers. The wire carries WINDOW DELTAS differenced
+  // at the source per flow tuple (a counter that went backward is a new flow), so
+  // the server never differences anything and a rollup is a pure sum.
+  int32 window_seconds = 2;
+  repeated ConntrackClientSample clients = 3;
+  // True on the ~6s aggregated batches that ride the store-and-forward buffer
+  // into the time series (acked, replayed after an outage, an undercount never an
+  // inflation). False on the per-window live batches, which only refresh the live
+  // cache and are superseded by the next window - a lost one costs nothing.
+  bool aggregated = 4;
+}
+
+message ConntrackClientSample {
+  // Pre-NAT LAN address (the site-local end of the flow). Empty on the explicit
+  // unattributed remainder: an endpoint with no neighbor entry (a VPN road
+  // warrior, a rotated-away IPv6 privacy address) is never guessed to a client.
+  string ip = 1;
+  // From the gateway's neighbor table at sample time; empty = server maps ip->mac
+  // (the gateway's own addresses resolve to the gateway device server-side).
+  string mac = 2;
+  int64 wan_down_bytes = 3;  // toward the client over the window, WAN flows only
+  int64 wan_up_bytes = 4;    // from the client over the window, WAN flows only
+  int32 flows = 5;
+  // Raw egress interface of the WAN side (e.g. "eth4", "ppp0"), from the reply
+  // tuple's NAT address. The agent never learns UniFi WAN keys; the server maps
+  // interface -> key via WanProfiles. Empty = unknown, read as the default WAN.
+  string wan_ifname = 6;
+  // Destroy-event reconcile bytes (aggregated batches only): a dying flow's final
+  // counters minus what the sampled deltas already billed, plus its retained seed.
+  // Byte-exact totals for flows the 2s sampling under-billed (head of a brand-new
+  // flow, tail of an abrupt close, flows born and dead between passes). Kept apart
+  // from wan_down/up_bytes because they can land up to a TIME_WAIT (~2min) late:
+  // totals readers add them, rate and live readers must ignore them.
+  int64 recon_down_bytes = 7;
+  int64 recon_up_bytes = 8;
 }
 
 // Cumulative acknowledgement of store-and-forward result frames. Sent by the
@@ -157,6 +218,18 @@ message AgentHello {
   // treats as a gateway address. Empty from an agent that predates this, which
   // leaves the server on the single-address comparison it has always done.
   repeated string local_ips = 7;
+  // Whether this agent runs on the site's UniFi gateway, decided at INSTALL time
+  // and written into agent.json by the installer (the gateway installer writes
+  // true; install-native.sh writes false, or true under --force-native on a real
+  // gateway). Explicitly optional, and the distinction is load-bearing (#1108):
+  // absent means an agent - or an agent.json - that predates the key, and the
+  // server falls back to the IP-correlation detector exactly as before. A new
+  // binary on an old config MUST send absent, never false, or every pre-flag
+  // gateway install would be authoritatively misclassified by its own upgrade.
+  optional bool on_gateway = 8;
+  // Feature capabilities, e.g. "conntrack-accounting". Additive forever, so later
+  // capabilities need no proto change; absent/empty = an older agent with none.
+  repeated string capabilities = 9;
 }
 
 message ServerHello {

@@ -44,6 +44,7 @@
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
+@inject SiteSpeedTestHostSelector HostSelector
 @inject AgentProbeResultSink ProbeSink
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -84,6 +85,12 @@
         <button class="wifi-view-tab @(_activeTab == "monitoring" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("monitoring"))">
             Monitoring
+        </button>
+        @* After Monitoring because it configures monitoring telemetry: the AP Agent feeds the same
+           surfaces the Monitoring tab's cards do. *@
+        <button class="wifi-view-tab @(_activeTab == "aptelemetry" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("aptelemetry"))">
+            AP Telemetry
         </button>
         @* Speed Tests settings are global (instance-wide), but the tab stays on every
            site: it's deep-linked from the Client WAN Speed Test and LAN Speed Test pages
@@ -2147,6 +2154,10 @@
         </div>
     </div>
 
+    <!-- AP Telemetry -->
+    <ApTelemetryPanel Class="settings-tab-aptelemetry" Active="@(_activeTab == "aptelemetry")"
+                      OnConfigureDeviceSsh="GoToDeviceSshSettingsAsync" />
+
     <!-- 7. Speed Test Settings -->
     <div class="card settings-tab-speedtests" id="speed-test-settings">
         <div class="card-header">
@@ -3606,6 +3617,16 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
+                                                                    @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
+                                                                       address - so where it lives is said in words rather than shown as an address. *@
+                                                                    @if (AgentOnGateway(agent.Id))
+                                                                    {
+                                                                        <span class="text-muted">Gateway</span>
+                                                                    }
+                                                                    else if (!string.IsNullOrWhiteSpace(agent.LanIp))
+                                                                    {
+                                                                        <code>@agent.LanIp</code>
+                                                                    }
                                                                     @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
                                                                     {
                                                                         <span class="status-badge status-active"
@@ -3622,17 +3643,15 @@
                                                                         }
                                                                         else if (TunnelRegistry.IsAgentLive(agent))
                                                                         {
-                                                                            <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion)}" : "")</text>
+                                                                            <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion))}" : "")</text>
                                                                             @if (AgentVersionOutdated(agent))
                                                                             {
-                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(AppVersionInfo.LatestAgentVersion)) is available. Update agents whenever a release calls for it.">
-                                                                                    Update agent
+                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">
+                                                                                    Agent needs update
                                                                                 </span>
                                                                                 <button class="btn btn-sm btn-secondary"
-                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)"
-                                                                                        data-tooltip="Show the upgrade one-liner">
-                                                                                    <span class="btn-label-full">@(_upgradeCommandAgentId == agent.Id ? "Hide command" : "Upgrade command")</span>
-                                                                                    <span class="btn-label-compact">@(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")</span>
+                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)">
+                                                                                    @(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")
                                                                                 </button>
                                                                             }
                                                                         }
@@ -3655,6 +3674,7 @@
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
                                                                             <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
+                                                                            <GatewayAgentRunPanel SiteSlug="@site.Slug" IsUpgrade="true" />
                                                                         }
                                                                         else
                                                                         {
@@ -3712,7 +3732,7 @@
                                                                     <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                                                                     - lets the site's clients run speed tests against the agent.</span>
                                                             </label>
-                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" />
+                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
                                                     </div>
 
@@ -3731,7 +3751,9 @@
                                                                     : "probes, path discovery and SNMP") run there instead of on this
                                                                 server. Turn on if this server is off-site, or you want a separate
                                                                 agent.@if (_siteHasMultipleWans)
-                                                                {<text> Agent(s) can still probe for Multi-WAN monitoring with this off.</text>}
+                                                                {<text> Agent(s) can still probe for @(SiteHasGatewayAgent(site.Id) ? "Multi-WAN and WAN usage" : "Multi-WAN") monitoring with this off.</text>}
+                                                                else if (SiteHasGatewayAgent(site.Id))
+                                                                {<text> Agent(s) can still provide WAN usage monitoring with this off.</text>}
                                                             </label>
                                                             @if (AgentCoversSite(site.Id))
                                                             {
@@ -3772,15 +3794,29 @@
                                                             </label>
                                                             <div class="form-group site-config-override">
                                                                 <label class="form-label">Client speed test target override (optional)</label>
-                                                                <input type="text" class="form-control"
-                                                                       placeholder="@ClientSpeedTestPlaceholder(site)"
-                                                                       value="@ClientSpeedTestTarget(site.Id)"
-                                                                       @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                                <div style="position: relative;">
+                                                                    <input type="text" class="form-control"
+                                                                           placeholder="@ClientSpeedTestPlaceholder(site)"
+                                                                           value="@(ClientSpeedTestTargetPending(site.Id) ?? ClientSpeedTestTarget(site.Id))"
+                                                                           @oninput="e => OnClientSpeedTestTargetInput(site, e.Value?.ToString())" />
+                                                                    @if (_clientSpeedTestTargetSaving.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saving">Saving...</span>
+                                                                    }
+                                                                    else if (_clientSpeedTestTargetSaved.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saved">Saved</span>
+                                                                    }
+                                                                </div>
+                                                                @if (ClientSpeedTestTargetError(site.Id) is { } targetError)
+                                                                {
+                                                                    <div class="alert alert-danger" style="margin-top: 0.5rem;">@targetError</div>
+                                                                }
                                                                 <small class="form-help">
                                                                     Where browsers reach this site's speed test pages. Blank = the
                                                                     agent's detected LAN IP over https. Enter a full URL for a reverse
                                                                     proxy or an http agent (AGENT_SPEEDTEST_TLS=0); a bare host uses
-                                                                    https on the agent port.
+                                                                    https on the agent port, or on the port you add (host:port).
                                                                 </small>
                                                             </div>
                                                         </div>
@@ -3909,8 +3945,8 @@
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite",
-        "auditlog"
+        "connection", "monitoring", "aptelemetry", "speedtests", "security", "application", "identity",
+        "multisite", "auditlog"
     };
 
     // Maps card anchors (used by /settings#... deep links across the app) to their tab
@@ -3928,6 +3964,7 @@
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",
         ["security-audit"] = "security",
@@ -4008,7 +4045,7 @@
         _multiWanHintChecked = true;
         try
         {
-            var wans = await PathView.GetWansAsync();
+            var wans = await PathView.GetSelectableWansAsync();
             _siteHasMultipleWans = wans.Count > 1;
             if (!_siteHasMultipleWans) return;
 
@@ -4154,6 +4191,18 @@
             await ScrollToAndHighlightAsync(hit.Entry.Anchor);
     }
 
+    /// <summary>Takes the reader to the Device SSH card from the AP Telemetry tab's gate.</summary>
+    private async Task GoToDeviceSshSettingsAsync()
+    {
+        if (_activeTab != "connection")
+        {
+            _activeTab = "connection";
+            StateHasChanged();
+        }
+
+        await ScrollToAndHighlightAsync("device-ssh");
+    }
+
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
     private async Task ShowSshKeyPanel()
     {
@@ -4188,6 +4237,9 @@
             // Keep the Sites table's agent status current while the page is open -
             // without this the Status column is a page-load snapshot and disagrees
             // with the site dropdown / All Sites page after an agent comes or goes.
+            // The open panel's per-agent facts refresh with it: after a one-click Gateway
+            // install the new agent's row otherwise shows its WAN IP instead of Gateway
+            // until the panel is closed and reopened.
             _agentPollTimer ??= new System.Threading.Timer(async _ =>
             {
                 try
@@ -4195,6 +4247,11 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
+                        {
+                            await LoadAgentsOnGatewayAsync(openSite);
+                            await LoadSpeedTestHostAsync(openSite);
+                        }
                         StateHasChanged();
                     });
                 }
@@ -4229,6 +4286,8 @@
 
     public void Dispose()
     {
+        DisposeTimers(_clientSpeedTestTargetDebounce);
+        DisposeTimers(_clientSpeedTestTargetSavedTimers);
         SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
         _agentPollTimer?.Dispose();
     }
@@ -4550,6 +4609,7 @@
                 await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
                 await LoadAgentsOnGatewayAsync(site);
+                await LoadSpeedTestHostAsync(site);
                 _collectorAgentIds[site.Slug] = await ProbeSink.GetCollectorAgentIdAsync(site.Slug);
             }
         }
@@ -4573,6 +4633,7 @@
         await LoadSshViaAgentAsync(site);
         await LoadAgentCoversSiteAsync(site);
         await LoadClientSpeedTestTargetAsync(site);
+        await LoadSpeedTestHostAsync(site);
         StateHasChanged();
     }
 
@@ -4621,6 +4682,53 @@
     private string? ClientSpeedTestTarget(int siteId) =>
         _clientSpeedTestTarget.TryGetValue(siteId, out var v) ? v : null;
 
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetError = new();
+
+    private string? ClientSpeedTestTargetError(int siteId) =>
+        _clientSpeedTestTargetError.TryGetValue(siteId, out var v) ? v : null;
+
+    // Debounced save with the same Saving... / Saved feedback as result notes. The pending value
+    // is what the input renders while typing, so a re-render never snaps it back to the saved one.
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetPending = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaving = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaved = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetDebounce = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetSavedTimers = new();
+
+    private string? ClientSpeedTestTargetPending(int siteId) =>
+        _clientSpeedTestTargetPending.TryGetValue(siteId, out var v) ? v : null;
+
+    private void OnClientSpeedTestTargetInput(Site site, string? value)
+    {
+        _clientSpeedTestTargetPending[site.Id] = value;
+        _clientSpeedTestTargetSaved.Remove(site.Id);
+        RestartTimer(_clientSpeedTestTargetDebounce, site.Id, 800,
+            () => InvokeAsync(() => SaveClientSpeedTestTarget(site, value)));
+    }
+
+    private static void RestartTimer(Dictionary<int, System.Timers.Timer> timers, int key, double ms, Func<Task> action)
+    {
+        if (timers.Remove(key, out var existing))
+        {
+            existing.Stop();
+            existing.Dispose();
+        }
+        var timer = new System.Timers.Timer(ms) { AutoReset = false };
+        timer.Elapsed += async (_, _) => await action();
+        timers[key] = timer;
+        timer.Start();
+    }
+
+    private static void DisposeTimers(Dictionary<int, System.Timers.Timer> timers)
+    {
+        foreach (var timer in timers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        timers.Clear();
+    }
+
     // An online agent reporting an older version than the manually-tracked
     // latest agent release gets an "Update agent" callout. Tracked manually
     // (AppVersionInfo.LatestAgentVersion) rather than compared to the server
@@ -4641,8 +4749,9 @@
         string.IsNullOrWhiteSpace(AgentServerUrl.Url)
             ? "https://your-network-optimizer" : AgentServerUrl.Url!.TrimEnd('/');
 
+    // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: release/2.8 scripts fetch preview binaries.
     private string NativeUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
+        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-native.sh"
         + $" | sudo bash -s -- --server \"{AgentServerBase()}\"";
 
     // An agent in an LXC is the bare-metal agent with a container around it, so it
@@ -4651,35 +4760,39 @@
     private string ProxmoxUpgradeCommand() =>
         $"pct exec <CT_ID> -- bash -c '{NativeUpgradeCommand().Replace("sudo ", "")}'";
 
-    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
-    // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
-    private string GatewayUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh"
-        + $" | bash -s -- --server \"{AgentServerBase()}\"";
+    // Monitoring-only gateway installer, via the shared builder that also feeds the
+    // "Run It for Me" SSH run, so the displayed command and the executed one cannot drift.
+    private string GatewayUpgradeCommand() => GatewayAgentCommands.Upgrade(AgentServerUrl.Url);
 
-    // Placeholder shows what a blank override resolves to - the online agent's
-    // detected LAN IP on the agent's https port (same pick as
-    // SiteSpeedTestTargetResolver) - so the operator can see the auto value
-    // they'd be overriding. A gateway-resident agent hosts no speed test, so
-    // its "auto" is nothing (the resolver gates the target off) and the
-    // placeholder says so instead of advertising the gateway's IP. Generic
-    // example when no agent has reported in.
+    // Placeholder shows what a blank override resolves to - the agent SiteSpeedTestHostSelector
+    // picks, on its own https port, the same pick clients are sent to - so the operator can see
+    // the auto value they'd be overriding. When no agent qualifies and one sits on the gateway,
+    // say so instead of advertising the gateway's IP. Generic example when no agent has reported in.
+    private readonly Dictionary<int, SiteSpeedTestHostSelector.Selection> _speedTestHosts = new();
+
+    private async Task LoadSpeedTestHostAsync(Site site)
+    {
+        try
+        {
+            _speedTestHosts[site.Id] = await HostSelector.SelectAsync(site.Slug);
+        }
+        catch (Exception ex)
+        {
+            // The placeholder is a hint; the panel must still open.
+            Logger.LogDebug(ex, "Speed test host selection failed for site {Site}", site.Slug);
+            _speedTestHosts.Remove(site.Id);
+        }
+    }
+
     private string ClientSpeedTestPlaceholder(Site site)
     {
-        if (SiteHasGatewayAgent(site.Id))
-            return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
-        var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
-            .OrderByDescending(a => a.LastSeenAt)
-            .Select(a => a.LanIp)
-            .FirstOrDefault();
-        // The port the agent says it serves on, not an assumed one - otherwise the hint advertises a
-        // URL that differs from the one clients are actually sent to.
-        var port = TunnelRegistry.GetForSite(site.Slug).FirstOrDefault(c => c.SpeedTestPort > 0)?.SpeedTestPort
-            ?? SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
-        return lanIp != null
-            ? $"auto: https://{lanIp}:{port} (agent's detected LAN IP)"
-            : "e.g. 192.168.1.50 or https://speed.example.com";
+        if (!_speedTestHosts.TryGetValue(site.Id, out var selection) || selection.Host == null)
+        {
+            return selection is { AnyOnGateway: true }
+                ? "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test"
+                : "e.g. 192.168.1.50 or https://speed.example.com";
+        }
+        return $"auto: https://{selection.Host.LanIp}:{selection.Host.Port} (agent's detected LAN IP)";
     }
 
     // Which agents run on the UniFi gateway itself, keyed by AGENT id and loaded when the site's
@@ -4698,11 +4811,7 @@
         _agentOnGateway.TryGetValue(agentId, out var onGateway) && onGateway;
 
     // Any of the site's agents on the gateway - for the questions that are about the SITE rather
-    // than one agent row.
-    // TODO(#1106): its one caller wants a narrower question than ANY. The placeholder mirrors what a
-    // blank override resolves to, and SiteSpeedTestTargetResolver resolves against ONE agent, so a
-    // site with a gateway agent and a real-box agent makes the two disagree. Secondary sites only:
-    // the main site does not render the field.
+    // than one agent row (the speed test placeholder asks SiteSpeedTestHostSelector instead).
     private bool SiteHasGatewayAgent(int siteId) =>
         AgentsFor(siteId).Any(a => AgentOnGateway(a.Id));
 
@@ -4738,9 +4847,31 @@
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
-        await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        _clientSpeedTestTargetSaving.Add(site.Id);
+        StateHasChanged();
+        try
+        {
+            await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        }
+        catch (ArgumentException ex)
+        {
+            _clientSpeedTestTargetError[site.Id] = ex.Message;
+            _clientSpeedTestTargetSaving.Remove(site.Id);
+            StateHasChanged();
+            return;
+        }
+        _clientSpeedTestTargetError.Remove(site.Id);
         var trimmed = value?.Trim();
         _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        _clientSpeedTestTargetPending.Remove(site.Id);
+        _clientSpeedTestTargetSaving.Remove(site.Id);
+        _clientSpeedTestTargetSaved.Add(site.Id);
+        StateHasChanged();
+        RestartTimer(_clientSpeedTestTargetSavedTimers, site.Id, 2000, () => InvokeAsync(() =>
+        {
+            _clientSpeedTestTargetSaved.Remove(site.Id);
+            StateHasChanged();
+        }));
     }
 
     private async Task CreateAgent(Site site)
@@ -5979,32 +6110,15 @@
 
         try
         {
-            (bool success, string message) result;
-
-            // If user entered a new password or key path, test with form values
-            // Otherwise test with saved settings (which handles decryption internally)
-            if (!string.IsNullOrEmpty(gatewayPassword) || !string.IsNullOrEmpty(gatewayPrivateKeyPath))
-            {
-                // Test with form values (new password is plain text)
-                result = await GatewaySshService.TestConnectionAsync(
-                    gatewayHost,
-                    gatewayPort,
-                    gatewayUsername,
-                    gatewayPassword,
-                    gatewayPrivateKeyPath);
-            }
-            else if (hasGatewayPassword || GatewayKeyPathSet || _sshKey is not null)
-            {
-                // No new credentials entered, test with saved settings. The key-file and stored-key
-                // cases have to reach here too: below global Admin the path above is redacted, so
-                // passing form values would test with no credential at all and the branch that reports
-                // none configured would answer for a gateway that is perfectly well configured.
-                result = await GatewaySshService.TestConnectionAsync();
-            }
-            else
-            {
-                result = (false, "No credentials configured");
-            }
+            // Always the fields as they are on screen. A blank password or key path means the
+            // stored credential, so editing the host and testing it does not silently test the
+            // saved one instead.
+            var result = await GatewaySshService.TestConnectionAsync(
+                gatewayHost,
+                gatewayPort,
+                gatewayUsername,
+                gatewayPassword,
+                gatewayPrivateKeyPath);
 
             if (result.success)
             {

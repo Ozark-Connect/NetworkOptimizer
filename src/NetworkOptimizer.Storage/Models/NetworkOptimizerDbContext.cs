@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Threats.Models;
 
@@ -26,6 +26,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
     public DbSet<OutageAcknowledgement> OutageAcknowledgements { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
+    public DbSet<HogRowBaseline> HogRowBaselines { get; set; }
+    public DbSet<WiFiIssueAcknowledgment> WiFiIssueAcknowledgments { get; set; }
+    public DbSet<WiFiRadioPreference> WiFiRadioPreferences { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
@@ -64,6 +67,10 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<StarlinkConfiguration> StarlinkConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
+    public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
+    public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
+    public DbSet<ApRoamRecord> ApRoamRecords { get; set; }
+    public DbSet<ApRadioHealthSample> ApRadioHealthSamples { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
@@ -194,6 +201,39 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.Enabled);
         });
 
+        // ApAgentDeployment configuration. One row per access point; the MAC is the natural key
+        // the deployment service looks every AP up by.
+        modelBuilder.Entity<ApAgentDeployment>(entity =>
+        {
+            entity.ToTable("ApAgentDeployments");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // One cursor per access point, looked up by MAC on every event poll.
+        modelBuilder.Entity<ApAgentEventCursor>(entity =>
+        {
+            entity.ToTable("ApAgentEventCursors");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
+        });
+
+        // Roam records are read newest-first for a site and per client, so both are indexed.
+        modelBuilder.Entity<ApRoamRecord>(entity =>
+        {
+            entity.ToTable("ApRoamRecords");
+            entity.HasIndex(e => e.RoamedAt);
+            entity.HasIndex(e => new { e.ClientMac, e.RoamedAt });
+            entity.HasIndex(e => new { e.ToApMac, e.RoamedAt });
+        });
+
+        // Radio health is read per access point over a window, and pruned by age.
+        modelBuilder.Entity<ApRadioHealthSample>(entity =>
+        {
+            entity.ToTable("ApRadioHealthSamples");
+            entity.HasIndex(e => e.SampleAt);
+            entity.HasIndex(e => new { e.ApMac, e.Radio, e.SampleAt });
+        });
+
         // StarlinkConfiguration configuration
         modelBuilder.Entity<StarlinkConfiguration>(entity =>
         {
@@ -260,6 +300,18 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("DismissedIssues");
             entity.HasIndex(e => e.IssueKey).IsUnique();
+        });
+
+        // Wi-Fi Optimizer acknowledgments and per-radio preferences (Keep)
+        modelBuilder.Entity<WiFiIssueAcknowledgment>(entity =>
+        {
+            entity.ToTable("WiFiIssueAcknowledgments");
+            entity.HasIndex(e => e.IssueKey).IsUnique();
+        });
+        modelBuilder.Entity<WiFiRadioPreference>(entity =>
+        {
+            entity.ToTable("WiFiRadioPreferences");
+            entity.HasIndex(e => new { e.ApMac, e.Band }).IsUnique();
         });
 
         // OutageAcknowledgement configuration ("that was me" on ISP Health outages)

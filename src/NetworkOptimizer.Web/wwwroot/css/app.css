@@ -1,4 +1,4 @@
-﻿/* ============================================
+/* ============================================
    Network Optimizer - Main Stylesheet
    Modern, dark-mode friendly design
    ============================================ */
@@ -462,6 +462,7 @@ h1:focus {
 
 .settings-tabbed.active-connection > .settings-tab-connection,
 .settings-tabbed.active-monitoring > .settings-tab-monitoring,
+.settings-tabbed.active-aptelemetry > .settings-tab-aptelemetry,
 .settings-tabbed.active-speedtests > .settings-tab-speedtests,
 .settings-tabbed.active-security > .settings-tab-security,
 .settings-tabbed.active-application > .settings-tab-application,
@@ -785,8 +786,7 @@ h1:focus {
     }
 
     .card.wan-live-chart-card {
-        padding-top: 0;
-        padding-bottom: 0;
+        padding: 0;
     }
 }
 
@@ -3207,6 +3207,7 @@ select.form-control {
     display: flex;
     gap: 0.5rem;
     justify-content: center;
+    text-align: left;
 }
 
 .client-picker-row select {
@@ -6466,11 +6467,24 @@ tr:hover .snmp-row-chevron {
     gap: 0.4rem;
 }
 
+.wifi-tooltip-mlo-link + .wifi-tooltip-mlo-link {
+    margin-top: 0.35rem;
+}
+
 .wifi-tooltip-link-signal {
     font-size: 0.75rem;
     color: var(--text-muted);
     margin-bottom: 0.3rem;
     padding-left: 0.25rem;
+}
+
+/* The dBm reading is the payload of a signal line; only the SNR/channel context stays muted */
+.wifi-tooltip-signal-value {
+    color: var(--text-secondary);
+}
+
+.wifi-tooltip-ch {
+    color: var(--text-secondary);
 }
 
 .wifi-tooltip-link-speed {
@@ -7165,6 +7179,18 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Compact issue count for card headers */
+/* Wi-Fi Optimizer - Health Issues card, Acknowledged tab */
+.acknowledged-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Inside Security Audit's issues list the list's own gap spaces it; no margin on top of that. */
+.issues-list .acknowledged-note {
+    margin-bottom: 0;
+}
+
 .issue-count-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -9337,6 +9363,8 @@ a.path-hop.hop-clickable:hover {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
 }
 
 .ap-card.ap-offline {
@@ -9424,6 +9452,21 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
+/* MLO mesh cards only: the multi-row link block reads top-down, so the client stat
+   aligns top like non-mesh cards, the row tightens to make width for the grid, and
+   the mesh block hugs the right edge as one unit (the grid keeps columns aligned). */
+.ap-stats-mlo {
+    gap: 1.25rem;
+}
+
+.ap-stats-mlo .ap-stat {
+    justify-content: flex-start;
+}
+
+.ap-stats-mlo .ap-mesh-info {
+    align-items: flex-end;
+}
+
 .ap-stat {
     display: flex;
     flex-direction: column;
@@ -9480,12 +9523,38 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+/* MLO mesh backhaul: link rows share a 3-column grid (badge / signal / rates) so the
+   columns align across rows; each row div flattens into it via display: contents. */
+.mesh-mlo-links {
+    display: grid;
+    grid-template-columns: auto auto auto;
+    column-gap: 0.5rem;
+    row-gap: 0.3rem;
+    align-items: baseline;
+    justify-content: start;
+}
+
+.mesh-mlo-link {
+    display: contents;
+}
+
+.mesh-mlo-links .band-badge {
+    min-width: 54px;
+    text-align: center;
+}
+
+.mesh-mlo-signal {
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
 .mesh-rate {
     white-space: nowrap;
 }
 
 .ap-mesh-info .ap-stat-label {
     text-transform: none;
+    margin-top: 0.2rem;
 }
 
 .lock-icon {
@@ -9503,8 +9572,11 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    padding-top: 0.75rem;
+    padding-top: 0.4rem;
     border-top: 1px solid var(--border-color);
+    /* Sink to the card bottom so radio lists align across a row when a taller
+       MLO mesh card stretches its siblings. */
+    margin-top: auto;
 }
 
 .ap-radio {
@@ -10417,12 +10489,14 @@ a.path-hop.hop-clickable:hover {
     max-width: 400px;
 }
 
-@media (max-width: 768px) {
-    .filterable-select {
-        min-width: 80vw;
-        max-width: 80vw;
-    }
+/* The click-outside overlay is a sibling inside this control, so while the list is open it covers
+   the search box. Without this, every click on the box hits the overlay and closes the list.
+   Raising the control itself does not work: the overlay rises with it. */
+.filterable-select.open .filterable-select-input {
+    position: relative;
+    z-index: 1001;
 }
+
 
 .filterable-select-input {
     width: 100%;
@@ -10463,8 +10537,14 @@ a.path-hop.hop-clickable:hover {
     background-position: right 0.875rem center;
 }
 
-.filterable-select-display:hover {
+.filterable-select-display:hover,
+.filterable-select-display:focus-visible {
     border-color: var(--primary-color);
+}
+
+.filterable-select-display:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
 }
 
 .filterable-select-display .option-text {
@@ -10483,6 +10563,32 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Overlay for click-outside-to-close */
+.filterable-select-clear {
+    position: absolute;
+    right: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1002;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.filterable-select-clear:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
 .filterable-select-overlay {
     position: fixed;
     inset: 0;
@@ -10513,12 +10619,21 @@ a.path-hop.hop-clickable:hover {
     transition: background 0.1s ease;
 }
 
-.filterable-select-option:hover {
+.filterable-select-option.is-active {
     background: rgba(59, 130, 246, 0.15);
 }
 
 .filterable-select-option.offline {
     opacity: 0.7;
+}
+
+.filterable-select-option[data-selected="true"] {
+    background: rgba(59, 130, 246, 0.26);
+    box-shadow: inset 2px 0 0 var(--primary-color);
+}
+
+.filterable-select-option[data-selected="true"].is-active {
+    background: rgba(59, 130, 246, 0.4);
 }
 
 .filterable-select-option .option-text {
@@ -11513,7 +11628,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .channel-plan-age {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     white-space: nowrap;
 }
@@ -12353,6 +12468,38 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.5rem;
 }
 
+/* Channels recommendation row: pin toggle beside the AP name */
+.rec-pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.rec-pin-btn:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.rec-pin-btn.pinned {
+    opacity: 1;
+    color: var(--accent-color);
+}
+
+.rec-pin-btn:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+
 .soak-badge {
     font-size: 0.7rem;
     font-weight: 500;
@@ -12526,12 +12673,20 @@ a.path-hop.hop-clickable:hover {
 
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
+    /* Used twice on Channels: the four summary stats (2x2) and the per-band plan summary of two
+       or three cards. An odd last card takes the full row rather than sitting half-width alone. */
     .channel-stats-row {
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
     }
 
     .channel-stat-card {
         min-width: unset;
+    }
+
+    .channel-stat-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 
     .band-tabs {
@@ -13042,8 +13197,13 @@ a.path-hop.hop-clickable:hover {
 
 @media (max-width: 768px) {
     .filterable-select {
-        min-width: 250px;
-        max-width: 250px;
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .client-selector-combo {
+        width: 100%;
     }
 
     .client-selector {
@@ -15788,7 +15948,9 @@ a.affected-client:hover {
     margin-left: -0.75rem;
 }
 
-.wan-chart-container .apexcharts-tooltip,
+/* Never the tooltip: ApexCharts leaves it pointer-events none because a box that catches the
+   pointer steals it from the chart the instant it opens under the cursor, and the chart then hides
+   it on mouseout. Clicks reach the chart's own mouseup at the hovered point without it. */
 .wan-chart-container .apexcharts-marker {
     cursor: pointer;
     pointer-events: auto;
@@ -16339,7 +16501,7 @@ tr.stats-row-filtered {
     gap: 0.25rem;
 } 
 .lan-flow-map-panel-title {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
@@ -16395,7 +16557,7 @@ tr.stats-row-filtered {
     padding: 0.05rem 0.35rem;
     border-radius: 3px;
     font-family: var(--font-mono, monospace);
-    font-size: 0.72rem;
+    font-size: 0.825rem;
 }
 .lan-flow-map-status {
     bottom: 0.75rem;
@@ -16842,7 +17004,7 @@ tr.stats-row-filtered {
     color: var(--text-secondary);
     height: 1.75rem;
     border-radius: 0.25rem;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     padding: 0 0.2rem;
     cursor: pointer;
     flex-shrink: 0;
@@ -17013,7 +17175,7 @@ tr.stats-row-filtered {
     gap: 0.35rem;
     padding: 0.18rem 0.55rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     background: rgba(36, 188, 112, 0.15);
@@ -17184,7 +17346,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;
@@ -17203,6 +17365,11 @@ tr.stats-row-filtered {
     gap: 0.75rem;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+}
+
+/* Labels stay on one line ("Link speed (MLO)"); values may still wrap. */
+.lan-flow-map-tooltip-row span:first-child {
+    white-space: nowrap;
 }
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
@@ -17340,7 +17507,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    max-width: 260px;
+    max-width: 300px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease, visibility 0.15s ease;
@@ -17438,7 +17605,7 @@ tr.stats-row-filtered {
 .lan-flow-map-reposition-keys .kbd {
     display: inline-block;
     padding: 1px 5px;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 3px;
@@ -17644,7 +17811,7 @@ tr.stats-row-filtered {
     position: absolute;
     top: 0.6rem;
     right: 0.75rem;
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     z-index: 1;
 }
@@ -18199,7 +18366,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-asn-sub {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -18424,7 +18591,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-outage-ack {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
 }
 
@@ -18512,7 +18679,7 @@ a.isp-outage-ack:hover {
 }
 
 .isp-outage-hop-status {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-secondary);
     text-align: right;
     white-space: nowrap;
@@ -18602,7 +18769,7 @@ a.isp-outage-ack:hover {
     border-radius: 999px;
     background: var(--bg-card);
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     white-space: nowrap;
     transition: color 0.15s ease, border-color 0.15s ease;
 }
@@ -20534,12 +20701,12 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.25rem;
-    padding: 0.4rem 0.6rem;
+    gap: 0.17rem;
+    padding: 0.27rem 0.4rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
-    font-size: 0.72rem;
+    font-size: 0.55rem;
     color: var(--text-muted);
     pointer-events: none;
 }
@@ -20548,18 +20715,18 @@ body.kiosk-mode .status-indicators {
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 0.85rem;
+    gap: 0.57rem;
 }
 
 .firmware-rollout-legend-item {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.23rem;
 }
 
 .firmware-rollout-legend-dot {
-    width: 0.6rem;
-    height: 0.6rem;
+    width: 0.4rem;
+    height: 0.4rem;
     border-radius: 50%;
 }
 
@@ -20568,14 +20735,14 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     justify-content: center;
     line-height: 1;
-    padding-top: 0.06rem;
-    width: 1.1rem;
-    height: 1.1rem;
+    padding-top: 0.04rem;
+    width: 0.74rem;
+    height: 0.74rem;
     border-radius: 50%;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: 0.44rem;
     font-weight: 600;
 }
 
@@ -20986,7 +21153,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .firmware-rollout-stat .detail-label {
-    font-size: 0.72rem;
+    font-size: 0.825rem;
     color: var(--text-muted);
 }
 
@@ -21061,5 +21228,464 @@ a.firmware-rollout-version-badge:hover {
 
     .firmware-rollout-stats {
         gap: 1rem;
+    }
+}
+
+/* ===== MLO per-link breakdown (Wi-Fi Optimizer Client Stats + Client Performance) ===== */
+
+.mlo-links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    flex-basis: 100%;
+}
+
+.mlo-link-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+}
+
+.mlo-link-row .band-badge {
+    min-width: 54px;
+    text-align: center;
+}
+
+.mlo-link-meta {
+    color: var(--text-secondary);
+}
+
+/* Idle link signals are muted, not signal-graded, so a parked -95 dBm link
+   cannot read as a failing client. */
+.mlo-link-idle .mlo-link-meta,
+.mlo-link-idle .mlo-link-signal-muted {
+    color: var(--text-muted);
+}
+
+.mlo-dim {
+    opacity: 0.6;
+}
+
+.mlo-state {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.mlo-state.mlo-state-active {
+    background: rgba(36, 188, 112, 0.2);
+    color: var(--success-color);
+}
+
+.mlo-state.mlo-state-idle {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-muted);
+}
+
+/* Segmented multi-band pill: one compound badge, since the single-band
+   .band-badge cannot express several bands in one chip. */
+.mlo-pill {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 3px;
+    overflow: hidden;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.mlo-pill-label {
+    padding: 0.125rem 0.4rem;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.mlo-pill-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.125rem 0.4rem;
+}
+
+.mlo-pill-seg.band-2ghz {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.mlo-pill-seg.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.mlo-pill-seg.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.mlo-pill-seg.mlo-seg-idle {
+    opacity: 0.45;
+}
+
+.mlo-seg-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* ============================================
+   Settings - AP Telemetry (AP Agent fleet)
+   ============================================ */
+
+/* Muted second line under a status, name, or version: the cause or the next step. */
+.ap-agent-note {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.15rem;
+    white-space: normal;
+}
+
+/* Fixed layout for the same reason as .sites-table: the expanded panel row spans every column, so
+   under auto layout its content would resize the headers the moment it appears. */
+.ap-agent-table {
+    table-layout: fixed;
+}
+
+.ap-agent-table th:nth-child(1) { width: 20%; }
+.ap-agent-table th:nth-child(2) { width: 15%; }
+.ap-agent-table th:nth-child(3) { width: 27%; }
+.ap-agent-table th:nth-child(4) { width: 12%; }
+.ap-agent-table th:nth-child(5) { width: 26%; }
+
+/* Inset panel for the expanded capability report row; data-table cells have their own padding. */
+.ap-agent-cap-panel {
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 1rem;
+    margin: 0.25rem 0;
+}
+
+.ap-agent-cap-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 0.15rem;
+}
+
+.ap-agent-cap-list {
+    margin: 0.75rem 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.5rem 2rem;
+}
+
+.ap-agent-cap-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.ap-agent-cap-row .status-dot {
+    flex-shrink: 0;
+    position: relative;
+    top: -1px;
+}
+
+.ap-agent-cap-name {
+    color: var(--text-primary);
+}
+
+.ap-agent-cap-row.cap-unavailable .ap-agent-cap-name {
+    color: var(--text-secondary);
+}
+
+.ap-agent-cap-src {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    margin-left: auto;
+}
+
+/* Bordered footer inside the panel: the opt-out toggle at the start, actions at the end. */
+.ap-agent-cap-footer {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.ap-agent-cap-footer .checkbox-toggle {
+    margin-right: auto;
+}
+
+@media (max-width: 768px) {
+    .table-responsive:has(> .ap-agent-table) {
+        margin: 0 -0.25rem;
+    }
+
+    /* Same two-line phone layout as .sites-table: an AP's name and status, then its buttons across
+       the full width, with the header, the fixed layout, and the 500px floor all stopped. */
+    .ap-agent-table,
+    .ap-agent-table > tbody,
+    .ap-agent-table > tbody > tr.site-config-row,
+    .ap-agent-table > tbody > tr.site-config-row > td {
+        display: block;
+        min-width: 0;
+    }
+
+    .ap-agent-table > thead {
+        display: none;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td {
+        padding: 0.75rem 0.5rem;
+        border-bottom: 0;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:not(:last-child) {
+        flex: 1 1 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    /* The status cell carries the explanatory note, so it takes twice the name's share. */
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:nth-child(3) {
+        flex: 2 1 0;
+    }
+
+    .ap-agent-table > tbody > tr:not(.site-config-row) > td:last-child {
+        flex-basis: 100%;
+        padding-top: 0;
+    }
+}
+
+.ap-agent-guide .setup-guide-content {
+    font-size: 0.825rem;
+}
+
+.ap-agent-actions {
+    margin-bottom: 1rem;
+}
+
+.setup-guide-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.setup-guide-summary .site-row-caret {
+    margin-left: 0;
+    padding-left: 0;
+}
+
+/* Button that sizes to its label rather than the .btn 6rem floor, keeping roomy padding while the
+   row has space and tightening when it does not. For a control sharing a row with content it must
+   not push, where .btn-sm alone still holds the 6rem minimum. */
+.btn-fit {
+    min-width: auto;
+    padding-inline: 1.25rem;
+}
+
+/* Stepped, not scaled. The devices either side of this sit 37px apart, so a vw scale cannot give one
+   comfortable padding and the other a tight fit. Above 420 the row has room; at or below it the row
+   needs that space back to stay on one line. */
+@media (max-width: 420px) {
+    .btn-fit {
+        padding-inline: 0.5rem;
+    }
+}
+
+/* With the nav hidden the row runs full width, so the space it gave up can come back. The narrow
+   case needs it most; a wider phone only wants a touch. */
+body:has(.top-bar-hidden) .btn-fit {
+    padding-inline: 1.375rem;
+}
+
+@media (max-width: 420px) {
+    body:has(.top-bar-hidden) .btn-fit {
+        padding-inline: 0.875rem;
+    }
+}
+
+/* Bandwidth Hogs (Monitoring - Live View) */
+.bandwidth-hogs-card .card-header {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+}
+
+.bandwidth-hogs-controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.bandwidth-hogs-controls .time-btn {
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-window {
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.bandwidth-hogs-wan-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-detail {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Fixed proportions: the rates re-render every few seconds, and an auto-laid table let each
+   new figure nudge its column. Digits are tabular for the same reason. */
+.bandwidth-hogs-table {
+    min-width: 0;
+    table-layout: fixed;
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+}
+
+.bandwidth-hogs-table th,
+.bandwidth-hogs-table td {
+    padding: 0.5rem 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hogs-warmup {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.hogs-agent-notice {
+    margin-bottom: 1rem;
+}
+
+/* Holds the collapsed five-row list's footprint while an answer loads, spinner centered,
+   so a view or window switch doesn't collapse the card and jump the page. */
+.hogs-loading {
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hogs-show-more {
+    margin-top: 0.5rem;
+}
+
+.hogs-show-more-hidden {
+    visibility: hidden;
+}
+
+.bandwidth-hogs-table .hogs-col-rank { width: 2.6rem; }
+.bandwidth-hogs-table .hogs-col-via { width: 26%; }
+.bandwidth-hogs-table .hogs-col-rate { width: 14%; }
+.bandwidth-hogs-table .hogs-col-share { width: 17%; }
+
+.bandwidth-hogs-table .hogs-rank {
+    color: var(--text-muted);
+}
+
+.bandwidth-hogs-table .hogs-client a {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.bandwidth-hogs-table .hogs-client a:hover {
+    color: var(--primary-color);
+}
+
+.bandwidth-hogs-table .hogs-via {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.bandwidth-hogs-table .hogs-via .band-badge {
+    margin-right: 0.4rem;
+}
+
+.band-badge.hogs-port-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.bandwidth-hogs-table tr.hogs-fading td {
+    opacity: 0.55;
+}
+
+.bandwidth-hogs-table .hogs-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.hogs-share {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hogs-share .hogs-bar {
+    display: block;
+    width: 80px;
+    height: 6px;
+    border-radius: 0 3px 3px 0;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.hogs-share .hogs-fill {
+    display: block;
+    height: 100%;
+    border-radius: 0 3px 3px 0;
+    background: var(--speed-download-color);
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-controls {
+        margin-left: 0;
+    }
+
+    .bandwidth-hogs-table th,
+    .bandwidth-hogs-table td {
+        padding: 0.5rem 0.4rem;
+    }
+
+    .bandwidth-hogs-table .hogs-col-rate { width: 25%; }
+    .bandwidth-hogs-table .hogs-col-share { width: 16%; }
+
+    .hogs-share .hogs-bar {
+        display: none;
     }
 }

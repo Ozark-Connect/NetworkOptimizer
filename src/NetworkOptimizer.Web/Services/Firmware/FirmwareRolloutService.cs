@@ -94,6 +94,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public Task<string?> GetAutopilotHoldReasonAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(_orchestrator.AutopilotHoldReason);
+
+    /// <inheritdoc />
     public async Task<List<RolloutPlanSummaryView>> GetPlanHistoryAsync(
         int limit = 20, CancellationToken cancellationToken = default)
     {
@@ -248,6 +252,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
+        // The wizard's "Autopilot on" lands here, not in SaveAutopilotSettingsAsync.
+        if (settings.Mode == FirmwareRolloutMode.Autopilot)
+            await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -274,6 +281,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         await _repository.SaveSettingsAsync(settings, cancellationToken);
         await _repository.SaveAutopilotSnapshotAsync(
             AutopilotSettingsSnapshot.Serialize(settings), cancellationToken);
+        // The wizard just showed a plan; without this the first real one is an hour away, and a
+        // plan the admin stopped to get here would keep it from ever being proposed again.
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -309,6 +319,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // reads that row live, and a rollout must run under what it was planned from.
         restored.Mode = FirmwareRolloutMode.Autopilot;
         await _repository.SaveSettingsAsync(restored, cancellationToken);
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -642,7 +653,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             var alsoOs = preview.HasCloudGatewayHardware ? " and UniFi OS" : "";
             preview.Warnings.Add(
                 "This site is connected with a UniFi API key, which reaches the UniFi Network application " +
-                "but not the console itself, so only devices can be upgraded here. Connect with an account " +
+                "but not the Console itself, so only devices can be upgraded here. Connect with an account " +
                 $"to include the UniFi Network application{alsoOs}.");
         }
 

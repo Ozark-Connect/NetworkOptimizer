@@ -4,6 +4,7 @@
 @using System.Reflection
 @inject UniFiConnectionService ConnectionService
 @inject PullToRefreshState PullToRefreshState
+@inject SidebarState Sidebar
 @inject IJSRuntime JS
 
 <div class="app-container">
@@ -311,6 +312,9 @@
             var spinner = indicator.querySelector('.ptr-spinner');
 
             container.addEventListener('touchstart', function(e) {
+                // The client selector's list scrolls itself. Arming here would charge the refresh
+                // while someone is scrolling the options, since the page behind it is still at top.
+                if (e.target.closest && e.target.closest('.filterable-select-dropdown')) return;
                 if (container.scrollTop <= 0) {
                     startY = e.touches[0].pageY;
                     pulling = true;
@@ -397,6 +401,16 @@
         // (once the agent tunnel is up); without this subscription the header stays
         // "Console Disconnected" until the next navigation.
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        Sidebar.OpenRequested += OnSidebarRequested;
+    }
+
+    private void OnSidebarRequested(bool open)
+    {
+        _ = InvokeAsync(() =>
+        {
+            sidebarOpen = open;
+            StateHasChanged();
+        });
     }
 
     private async void OnConnectionChanged()
@@ -455,6 +469,8 @@
 
     public void Dispose()
     {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        Sidebar.OpenRequested -= OnSidebarRequested;
         _dotNetRef?.Dispose();
     }
 }

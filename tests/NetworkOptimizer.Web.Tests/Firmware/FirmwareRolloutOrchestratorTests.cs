@@ -184,6 +184,144 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task FullCycleOnTheWrongVersion_RetriesOverSshAndReEntersTheWatch()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://fw-download.example.net/u6pro.bin");
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Commanded);
+        step.BackAt.Should().BeNull();
+        step.DowntimeSeconds.Should().BeNull();
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.SkuAborted);
+
+        // The retry took: the second cycle runs the normal watch to a passed litmus.
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+    }
+
+    [Fact]
+    public async Task SecondCycleStillOnTheWrongVersion_FailsAndDropsTheModel()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
+    }
+
+    [Fact]
+    public async Task NothingHappensAfterTheWrongVersionRetry_FailsTheStep()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        // Still sitting there on the old version, never cycling again.
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CommandGraceWindow + TimeSpan.FromSeconds(10));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Failed);
+        step.Error.Should().Contain("never started the upgrade");
+    }
+
+    [Fact]
+    public async Task RollbackComingBackOnTheNewBuild_FailsWithoutASecondSshPush()
+    {
+        // A rollback stamps the escalation as spent on purpose: the catalog URL carries the NEW
+        // build, so a wrong-version retry here would undo the rollback it is meant to verify.
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/u6pro-new.bin",
+        });
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.PriorVersions.Add(new PlanPriorVersion
+        {
+            Mac = ApMac,
+            Version = FromVersion,
+            Url = "https://fw-download.example.net/u6pro-old.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunCanaryToLitmusAsync(harness, ApMac);
+        var passed = await harness.StepAsync(plan.Id, ApMac);
+        (await harness.Orchestrator.RollbackStepAsync(passed.Id)).Should().BeTrue();
+
+        // The rollback burns a cycle and the device returns still on the new build.
+        harness.Observer.Set(ApMac, Offline, ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Failed);
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://fw-download.example.net/u6pro-old.bin");
+    }
+
+    [Fact]
     public async Task BackOnTheTargetVersionReportedWithoutItsBuildNumber_Passes()
     {
         // The catalog names 7.5.10.17129; the switch that installed it reports 7.5.10. Comparing
@@ -329,6 +467,51 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task RecordedBootOnTheTargetSettlesTheStepInsteadOfFailingIt()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, budgetSeconds: 900)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        // Came up on the target just before the budget ran out, which the console never reported.
+        harness.Reboots.Set(ApMac, ToVersion, harness.Time.GetUtcNow().UtcDateTime.AddMinutes(14));
+        await harness.TickAsync(TimeSpan.FromMinutes(16));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.BackOnline);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().NotBe(FirmwareRolloutStepState.AbortedSku);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
+    public async Task RecordedBootOnTheOldVersionStillFailsTheStep()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, budgetSeconds: 900))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        // It booted, but onto the build it started on, so this is not evidence of an upgrade.
+        harness.Reboots.Set(ApMac, FromVersion, harness.Time.GetUtcNow().UtcDateTime.AddMinutes(14));
+        await harness.TickAsync(TimeSpan.FromMinutes(16));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
     public async Task CloudGatewayGetsItsLongerBudget()
     {
         using var harness = new RolloutHarness();
@@ -432,7 +615,16 @@ public class FirmwareRolloutOrchestratorTests
 
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
         (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
-        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
+
+        // A device that took its firmware and then failed a check is not a device that failed to
+        // upgrade, and the two do not call for the same response.
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.SkuAborted);
+        var alert = harness.Bus.Published.Should()
+            .ContainSingle(e => e.EventType == RolloutAlerts.PostUpgradeCheckFailed).Subject;
+        alert.Severity.Should().Be(AlertSeverity.Info);
+        alert.Message.Should().Contain("failed its post-upgrade check")
+            .And.Contain("CPU is pinned since the upgrade.")
+            .And.Contain("1 remaining");
 
         await harness.TickAsync(PastWaveGap);
         (await harness.StepAsync(plan.Id, SwitchMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
@@ -744,7 +936,7 @@ public class FirmwareRolloutOrchestratorTests
         var stored = await harness.PlanAsync(plan.Id);
         var persisted = JsonSerializer.Deserialize<RolloutPlanDocument>(stored!.PlanJson)!;
         persisted.IncludesUniFiOsUpdate.Should().BeFalse();
-        persisted.Notes.Should().Contain(n => n.Contains("UniFi OS is not updated on a self-hosted console"));
+        persisted.Notes.Should().Contain(n => n.Contains("UniFi OS is not updated on a self-hosted Console"));
     }
 
     [Fact]
@@ -929,6 +1121,76 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task AGatewayStepOpensTheSiteWideAndWanWindows()
+    {
+        using var harness = new RolloutHarness();
+        var gatewayPlanStep = PlanStep(GatewayMac, model: "UDMA6A8", budgetSeconds: 1800);
+        gatewayPlanStep.DeviceType = "ugw";
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, gatewayPlanStep)),
+            Step(GatewayMac, name: "Gateway", model: "UDMA6A8", deviceType: "ugw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, upgradeTo: ToVersion, model: "UDMA6A8", name: "Gateway");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        // Every device behind the gateway, not just the gateway itself.
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, now)
+            .Should().BeTrue();
+        harness.Suppression.IsOsCycling(SiteManagementService.DefaultSiteSlug, now).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AStepOpensWindowsForTheDevicesBehindItAndClosesThemWhenItSettles()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        // Switch behind the AP, and a second AP behind that switch; a third device elsewhere.
+        harness.Observer.Set(SwitchMac, Online, FromVersion, name: "Switch 1", model: "USW-PRO-24", uplinkMac: ApMac);
+        harness.Observer.Set(PeerMac, Online, FromVersion, name: "AP 2", uplinkMac: SwitchMac);
+        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UDMA6A8");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, GatewayMac, now).Should().BeFalse();
+
+        // A child the console stops listing mid-cycle stays covered.
+        harness.Observer.Devices.Remove(SwitchMac);
+        await harness.TickAsync();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ANonGatewayStepLeavesTheSiteWideAndWanWindowsShut()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Switch 1", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Switch 1");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, now)
+            .Should().BeFalse();
+        harness.Suppression.IsOsCycling(SiteManagementService.DefaultSiteSlug, now).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task SuppressionIsNotArmedWhenTheSiteTurnedItOff()
     {
         using var harness = new RolloutHarness();
@@ -941,6 +1203,56 @@ public class FirmwareRolloutOrchestratorTests
         await harness.TickAsync();
 
         harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApAgentHoldOpensWhenAnApIsCommandedAndReleasesWhenItSettles()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApAgentHoldIsArmedEvenWithAlertSuppressionOff()
+    {
+        using var harness = new RolloutHarness();
+        await harness.WithSettingsAsync(s => s.SuppressStandardAlerts = false);
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ApAgentHoldIsNotArmedForASwitchStep()
+    {
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Switch 1", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Switch 1");
+
+        await harness.TickAsync();
+
+        harness.Suppression.IsAgentHeld(SiteManagementService.DefaultSiteSlug, SwitchMac, harness.Time.GetUtcNow().UtcDateTime)
             .Should().BeFalse();
     }
 

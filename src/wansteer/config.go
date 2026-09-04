@@ -46,7 +46,26 @@ type WANInterface struct {
 	Gateway      string `json:"gateway"`
 	RouteTable   string `json:"route_table"`
 	FWMark       string `json:"fwmark"`
+	FWMask       string `json:"fwmask"`
 	HealthTarget string `json:"health_target"`
+}
+
+// legacyFWMask is the WAN-bits mask UniFi OS used before 6.0 (the 6.0 line moved the WAN id to
+// 0x3ffe0000). Configs written by older app versions carry no fwmask, so it stays the default.
+const legacyFWMask = "0x7e0000"
+
+// markMask returns the fwmark mask for this WAN: the one the app read off `ip rule`,
+// or the pre-6.0 layout when the config predates the field.
+func (w *WANInterface) markMask() string {
+	if w.FWMask == "" {
+		return legacyFWMask
+	}
+	return w.FWMask
+}
+
+// markWithMask returns "mark/mask" as iptables and conntrack accept it.
+func (w *WANInterface) markWithMask() string {
+	return w.FWMark + "/" + w.markMask()
 }
 
 // TrafficClass describes a set of traffic to load-balance across WANs.

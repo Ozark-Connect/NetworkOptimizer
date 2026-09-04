@@ -37,6 +37,8 @@ public class WeakSignalPopulationRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.SignalQuality },
             Title = "Significant Weak Signal Population",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId),
             Description = $"{weakClients} clients ({weakPct:F0}% of total) have weak signal for their band. " +
                 "This indicates coverage gaps in your deployment.",
             Recommendation = "Review AP placement and consider adding access points in areas with weak coverage.",

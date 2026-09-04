@@ -22,3 +22,9 @@
     window.Apex = window.Apex || {};
     window.Apex.colors = palette;
 })();
+
+// Installs window.netoptValueSortedTooltip. Blazor-rendered charts are handed tooltip.custom as a
+// serialized function string, which cannot import a module, so the shared tooltip has to already
+// stand at a window hook by the time one is hovered. The ?v= matches the other importers so this
+// is the same module instance, not a second copy.
+import('/js/chart-tooltip.js?v=17');

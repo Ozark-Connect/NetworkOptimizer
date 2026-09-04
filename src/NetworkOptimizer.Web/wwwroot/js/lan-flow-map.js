@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=10';
+import * as flowData from './lan-flow-data.js?v=16';
 
 const COLORS = {
     background: 0x202023,
@@ -58,6 +58,10 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
+// How long the arrival focus glow shows once its node exists (mount option focusClient), and
+// how long to wait for the node before giving up.
+const FOCUS_MS = 5000;
+const FOCUS_GIVE_UP_MS = 30000;
 
 // Deterministic PRNG (mulberry32) seeded off a node id. Lets a roamed client scatter
 // near its AP using the same distribution as a freshly-added client, while staying
@@ -219,6 +223,16 @@ export class LanFlowMap {
         // Deep-link entry point (e.g. from a speed-test result): an absolute epoch-ms
         // instant to open in historic playback, paused. Applied once at the end of start().
         this._initialAtMs = Number.isFinite(options.initialAt) ? options.initialAt : null;
+        // A node to glow for a moment on arrival (Client Performance's Live View link, or a
+        // speed-test result's). Held as the MAC, not a node id: the target is a client or a
+        // UniFi device, and which prefix it carries is only known once the snapshot is in.
+        this._focusMac = options.focusClient
+            ? String(options.focusClient).toLowerCase().replaceAll('-', ':') : null;
+        this._focusClientId = null;
+        // The clock starts when the node first exists, not here: the scene builds after the fetch.
+        this._focusUntil = 0;
+        this._focusGiveUp = this._focusMac ? performance.now() + FOCUS_GIVE_UP_MS : 0;
+        this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
         this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
@@ -405,6 +419,20 @@ export class LanFlowMap {
         this.canvas.addEventListener('pointerdown', (e) => {
             if (this._repositionMode) return;
             this._dismissContextMenu();
+            this._tapStart = e.pointerType === 'mouse' ? null : { id: e.pointerId, x: e.clientX, y: e.clientY };
+        });
+        // Touch never synthesizes dblclick on every browser, so pair the taps here.
+        this.canvas.addEventListener('pointerup', (e) => {
+            const start = this._tapStart;
+            this._tapStart = null;
+            if (this._repositionMode || !start || start.id !== e.pointerId
+                || Math.hypot(e.clientX - start.x, e.clientY - start.y) >= 8) return;
+            const last = this._lastTap, now = performance.now();
+            this._lastTap = { t: now, x: e.clientX, y: e.clientY };
+            if (last && now - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24) {
+                this._lastTap = null;
+                this._onDoubleClick(e);
+            }
         });
 
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
@@ -682,6 +710,9 @@ export class LanFlowMap {
             if (!res.ok) return;
             const update = await res.json();
             flowData.publishLive(update);
+            // The tick was computed against a snapshot generation the store does not hold: its
+            // patch was withheld, and the rebuilt snapshot is what carries the change - get it.
+            if (flowData.snapshotIsStale()) this._refreshSnapshot();
             // Live ticks carry no historic clients, so this drops any still on the scene.
             this._applyHistoricClients(update);
             this._currentBadges = update.nodeBadges || {};
@@ -1497,11 +1528,26 @@ export class LanFlowMap {
         const nodes = update.addedClientNodes || [];
         const links = update.addedClientLinks || [];
         if (!this._historicClientIds) this._historicClientIds = new Set();
-        if (nodes.length === 0 && this._historicClientIds.size === 0) return;
+
+        // Clients their access point reports gone. The server snapshot still lists them until the
+        // console notices, so they are removed explicitly rather than by the sweep below. The
+        // snapshot diff will not re-add them: they are in both its previous and current snapshots.
+        const departed = update.removedClientIds || [];
+        for (const id of departed) {
+            if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
+            this._historicClientIds.delete(id);
+        }
+
+        if (nodes.length === 0 && departed.length === 0 && this._historicClientIds.size === 0) return;
 
         const wanted = new Set(nodes.map(n => n.id));
+        // Ids the server snapshot already carries. The overlay stops emitting a client the moment
+        // the console catches up and the snapshot includes it, so without this the handoff removes
+        // a CONNECTED client and it stays gone until the next snapshot poll re-adds it.
+        const inSnapshot = new Set((this._snapshot?.nodes || []).map(n => n.id));
         for (const id of [...this._historicClientIds]) {
             if (wanted.has(id)) continue;
+            if (inSnapshot.has(id)) { this._historicClientIds.delete(id); continue; }
             if (this._nodeMeshes.has(id)) this._removeNodeIncremental(id);
             this._historicClientIds.delete(id);
         }
@@ -1608,7 +1654,20 @@ export class LanFlowMap {
 
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el, kind }] of this._linkLabels) {
+        for (const [linkId, { el, kind, link }] of this._linkLabels) {
+            // The negotiated-speed hover follows the tick for a mesh backhaul, as the node
+            // tooltips do: the scrubbed PHY for the child node wins over the snapshot
+            // capacities. The app's tooltip sweep rebinds when the attribute changes.
+            if (kind === LINK_KIND.MeshBackhaul && link) {
+                const mcs = this._currentClientStats?.[link.toNodeId];
+                const capDown = mcs?.phyRxKbps > 0 ? mcs.phyRxKbps * 1000 : link.capacityDownBps;
+                const capUp = mcs?.phyTxKbps > 0 ? mcs.phyTxKbps * 1000 : link.capacityUpBps;
+                const capLabel = link.isMloMesh ? 'Link speed (MLO)' : 'Link speed';
+                let tip = null;
+                if (capDown > 0 && capUp > 0) tip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+                else if (capDown > 0 || capUp > 0) tip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+                if (tip) el.setAttribute('data-tooltip', tip);
+            }
             const r = this._currentRates?.[linkId];
             const down = r?.downstreamBps || 0;
             const up = r?.upstreamBps || 0;
@@ -1672,6 +1731,7 @@ export class LanFlowMap {
             this.controls.target.set(cx, cy, cz);
         }
         this._flyInStartCam = this.camera.position.clone();
+        this._flyInStartLookAt = new THREE.Vector3(0, 0, 0);
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
         // entry point (also required for WebXR). We accumulate elapsed time
@@ -1712,7 +1772,7 @@ export class LanFlowMap {
                 const eased = 1 - Math.pow(1 - t, 3);
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
                 if (this._flyInTargetLookAt) {
-                    this.controls.target.lerpVectors(new THREE.Vector3(0, 0, 0), this._flyInTargetLookAt, eased);
+                    this.controls.target.lerpVectors(this._flyInStartLookAt ?? new THREE.Vector3(0, 0, 0), this._flyInTargetLookAt, eased);
                 }
                 this.camera.lookAt(this.controls.target);
             } else if (this._repositionMode && this._repositionGroup) {
@@ -1852,6 +1912,7 @@ export class LanFlowMap {
             if (!core || base == null) continue;
             core.material.emissiveIntensity = base * factor;
         }
+        this._pulseFocus(nowMs);
         // Ramp opacity back up on clients that just roamed to a new AP so they fade in
         // rather than pop. _applyOnlineState re-asserts the correct opacity afterwards.
         if (this._roamFade3D && this._roamFade3D.size) {
@@ -1864,6 +1925,83 @@ export class LanFlowMap {
                 if (t >= 1) this._roamFade3D.delete(id);
             }
         }
+    }
+
+    // Glide the camera to a node along its current viewing direction, reusing the mount
+    // fly-in's lerp (start/target/until). The orbit target ends on the node, so the viewer
+    // is left orbiting what they came to see.
+    _flyToGroup(group) {
+        const p = group.position;
+        const dir = this.camera.position.clone().sub(p);
+        if (dir.lengthSq() < 1) dir.set(1, 0.7, 1);
+        dir.normalize();
+        const dist = 30 * (this._deviceScale || 1);
+        this._flyInStartCam = this.camera.position.clone();
+        this._flyInStartLookAt = this.controls.target.clone();
+        this._flyInTargetCam = p.clone().add(dir.multiplyScalar(dist)).add(new THREE.Vector3(0, dist * 0.25, 0));
+        this._flyInTargetLookAt = p.clone();
+        this._flyInUntil = performance.now() + 1300;
+    }
+
+    // Arrival focus: the focused client's core and halo take the download blue and breathe
+    // bright for FOCUS_MS, then go back to exactly what they were. The bloom pass turns the
+    // raised emissive into the glow.
+    _pulseFocus(nowMs) {
+        if (!this._focusMac) return;
+        // Meshes first, as the lookup always was: a client that pops back in mid-playback gets a
+        // mesh with no snapshot entry, and a speed-test link lands in playback.
+        this._focusClientId ||= ['cli-' + this._focusMac, 'dev-' + this._focusMac]
+            .find(id => this._nodeMeshes.has(id) || (this._snapshot?.nodes ?? []).some(n => n.id === id)) ?? null;
+        if (!this._focusClientId) {
+            if (nowMs >= this._focusGiveUp) this._focusMac = null;
+            return;
+        }
+        let group = this._nodeMeshes.get(this._focusClientId);
+        // A VirtualHub member can be missing or hidden while the hub stands in for it on
+        // screen; glow the hub, or the arrival focus breathes on nothing.
+        if (!group || !group.visible) {
+            const node = (this._snapshot?.nodes ?? []).find(n => n.id === this._focusClientId);
+            const parent = node?.parentId ? this._nodeMeshes.get(node.parentId) : null;
+            if (parent?.userData?.node?.kind === NODE_KIND.VirtualHub) group = parent;
+        }
+        const { core, halo, baseEmissive } = group?.userData ?? {};
+        if (!this._focusUntil) {
+            if (core) {
+                this._focusUntil = nowMs + FOCUS_MS;
+                // Fly the camera to the focused node, riding the mount fly-in's own animation
+                // slot - re-aiming it also settles "the initial zoom-in wins": whichever fly
+                // starts later owns the remaining 1.3s.
+                this._flyToGroup(group);
+            }
+            else if (nowMs >= this._focusGiveUp) { this._focusMac = null; this._focusClientId = null; }
+            if (!this._focusUntil) return;
+        }
+        // A rebuilt scene hands the client a new mesh: put the old one back and glow the new.
+        const stale = this._focusGlowing && this._focusGlowing.core !== core;
+        if (nowMs >= this._focusUntil || !core || stale) {
+            if (this._focusGlowing) {
+                const g = this._focusGlowing;
+                g.core.material.emissive.setHex(g.emissive);
+                g.core.material.emissiveIntensity = g.baseEmissive;
+                if (g.halo) { g.halo.material.color.setHex(g.haloColor); g.halo.material.opacity = g.haloOpacity; }
+                this._focusGlowing = null;
+            }
+            if (nowMs >= this._focusUntil) { this._focusMac = null; this._focusClientId = null; }
+            if (!stale || nowMs >= this._focusUntil) return;
+        }
+        if (!this._focusGlowing) {
+            this._focusGlowing = {
+                core, halo, baseEmissive,
+                emissive: core.material.emissive.getHex(),
+                haloColor: halo?.material.color.getHex(),
+                haloOpacity: halo?.material.opacity,
+            };
+            core.material.emissive.setHex(COLORS.downstream);
+            halo?.material.color.setHex(COLORS.downstream);
+        }
+        const t = (nowMs % 1500) / 1500;
+        core.material.emissiveIntensity = baseEmissive * (2.5 + 1.5 * Math.sin(t * Math.PI * 2));
+        if (halo) halo.material.opacity = 0.35 + 0.25 * Math.sin(t * Math.PI * 2);
     }
 
     // Scale device cores/halos with camera distance: up toward a ceiling when
@@ -1924,53 +2062,64 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
-        // Periodic light snapshot refresh (30s) to pick up data changes
-        // (mesh PHY rates, online status, ISP speeds) without re-running
-        // force layout or resetting the camera.
+        // Periodic light snapshot refresh to pick up data changes (mesh PHY rates, online
+        // status, ISP speeds) without re-running force layout or resetting the camera.
+        // The endpoint serves a cached snapshot and only rebuilds on its own slow interval, so
+        // asking often costs a serialize, not a rebuild. Polling at the rebuild interval was
+        // the mistake: two unaligned 30s timers stacked, and a reconnecting client could wait a
+        // minute to appear.
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
-        this._snapshotTimer = setInterval(async () => {
-            if (this._mode === 'live' && !this._paused && !this._destroyed) {
-                try {
-                    const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
-                    if (!res.ok) return;
-                    const snap = await res.json();
-                    const prev = this._snapshot;
-                    this._snapshot = snap;
-                    flowData.publishSnapshot(snap);
+        this._snapshotTimer = setInterval(() => this._refreshSnapshot(), 5000);
+    }
 
-                    // Diff: infrastructure change = full rebuild; client churn = incremental
-                    const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
-                    const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
-                    const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
-                    const infraChanged = prevInfraIds.size !== newInfraIds.size
-                        || [...prevInfraIds].some(id => !newInfraIds.has(id));
+    // One snapshot refresh pass. Runs on the 5s timer, and immediately when a live tick reports
+    // a snapshot generation the data store does not hold - a server rebuild that dropped or
+    // gained clients, which must reach the scene now rather than at the next timer beat.
+    async _refreshSnapshot() {
+        if (this._snapshotFetchInFlight) return;
+        if (this._mode === 'live' && !this._paused && !this._destroyed) {
+            this._snapshotFetchInFlight = true;
+            try {
+                const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const snap = await res.json();
+                const prev = this._snapshot;
+                this._snapshot = snap;
+                flowData.publishSnapshot(snap);
 
-                    if (infraChanged) {
-                        // Rebuilt from the snapshot, which carries no historic-only clients.
-                        this._historicClientIds = new Set();
-                        await this._reloadSnapshot();
-                    } else {
-                        // Incremental client add/remove
-                        const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
-                        const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
-                        const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
-                        const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
-                        for (const id of removed) this._removeNodeIncremental(id);
-                        for (const node of added) this._addNodeIncremental(node, snap);
-                        // Seamless roam keeps the client's node id, so add/remove misses
-                        // it - re-attach any persisting client whose parent AP changed.
-                        this._applyLiveRoam(prev, snap);
-                        // Don't apply snapshot liveRates - they're stale vs the 1s
-                        // live poll and would clobber fresh rates momentarily.
-                        this._refreshCloudRttLabels();
-                    }
-                    // Anchor count can flip (e.g. user just placed APs on the
-                    // Signal Map) without infra membership changing, so refresh
-                    // the discovery hint on every snapshot poll.
-                    this._updateSignalMapHint();
-                } catch { /* transient */ }
-            }
-        }, 30000);
+                // Diff: infrastructure change = full rebuild; client churn = incremental
+                const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
+                const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                const infraChanged = prevInfraIds.size !== newInfraIds.size
+                    || [...prevInfraIds].some(id => !newInfraIds.has(id));
+
+                if (infraChanged) {
+                    // Rebuilt from the snapshot, which carries no historic-only clients.
+                    this._historicClientIds = new Set();
+                    await this._reloadSnapshot();
+                } else {
+                    // Incremental client add/remove
+                    const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
+                    const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
+                    const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
+                    const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
+                    for (const id of removed) this._removeNodeIncremental(id);
+                    for (const node of added) this._addNodeIncremental(node, snap);
+                    // Seamless roam keeps the client's node id, so add/remove misses
+                    // it - re-attach any persisting client whose parent AP changed.
+                    this._applyLiveRoam(prev, snap);
+                    // Don't apply snapshot liveRates - they're stale vs the 1s
+                    // live poll and would clobber fresh rates momentarily.
+                    this._refreshCloudRttLabels();
+                }
+                // Anchor count can flip (e.g. user just placed APs on the
+                // Signal Map) without infra membership changing, so refresh
+                // the discovery hint on every snapshot poll.
+                this._updateSignalMapHint();
+            } catch { /* transient */ }
+            finally { this._snapshotFetchInFlight = false; }
+        }
     }
 
 
@@ -2118,6 +2267,10 @@ export class LanFlowMap {
     // Incremental client add: create mesh near parent, create link pipe + particles.
     _addNodeIncremental(node, snap) {
         if (node.kind === NODE_KIND.Cloud) return;
+        // Adding a node that already has a mesh overwrites its map entry and orphans the old mesh
+        // and pipe in the scene forever, while the live sweep then removes the tracked copy. The
+        // overlay path checks this; the snapshot diff path did not.
+        if (this._nodeMeshes.has(node.id)) return;
         // Position near parent: find the link to this node
         const link = (snap.links ?? []).find(l => l.toNodeId === node.id || l.fromNodeId === node.id);
         if (!link) return;
@@ -3232,13 +3385,14 @@ export class LanFlowMap {
             // Directional capacities always win over the symmetric PHY figure -
             // a symmetric ISP plan must still show the plan, not the port speed.
             const capDown = link.capacityDownBps, capUp = link.capacityUpBps;
+            const capLabel = link.isMloMesh ? 'Link speed (MLO)' : 'Link speed';
             let capTip = null;
             if (capDown > 0 && capUp > 0) {
-                capTip = `Link speed: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
+                capTip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
             } else if (capDown > 0 || capUp > 0) {
-                capTip = `Link speed: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
+                capTip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
             } else if (Number.isFinite(link.capacityBps) && link.capacityBps > 0) {
-                capTip = `Link speed: ${formatCapacity(link.capacityBps)}`;
+                capTip = `${capLabel}: ${formatCapacity(link.capacityBps)}`;
             }
             if (capTip) {
                 el.setAttribute('data-tooltip', capTip);
@@ -3252,7 +3406,7 @@ export class LanFlowMap {
                 this.canvas.dispatchEvent(new WheelEvent('wheel', e));
             }, { passive: false });
             this._labelsLayer.appendChild(el);
-            this._linkLabels.set(link.id, { el, kind: link.kind });
+            this._linkLabels.set(link.id, { el, kind: link.kind, link });
         }
 
         // Device labels: infrastructure devices (gateway, switch, AP) get DOM labels.
@@ -3688,12 +3842,15 @@ export class LanFlowMap {
         // Switches and gateways scroll to the port stats table and isolate that device.
         if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
             if (node.mac && window.__portStatsTable) {
+                // The table is under the map, so fullscreen would hide the jump.
+                if (this.stage?.classList.contains('lan-flow-map-fullscreen')) this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(node.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
             return;
         }
-        if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) return;
+        // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
+        if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.VirtualHub) return;
         const ip = node.ip;
         if (!ip) return;
         // Wi-Fi clients land on the Signal tab; wired clients have no signal data,
@@ -3816,7 +3973,7 @@ export class LanFlowMap {
             const upKbps = isMeshUplink ? pTx : pRx;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
-            rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
+            rows.push([node.isMloMesh ? 'Link speed (MLO)' : 'Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
         }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {

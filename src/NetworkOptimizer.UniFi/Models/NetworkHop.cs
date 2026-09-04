@@ -98,6 +98,20 @@ public class NetworkHop
     /// <summary>RX rate in Mbps for wireless link (from uplink to device)</summary>
     public int? WirelessRxRateMbps { get; set; }
 
+    /// <summary>
+    /// Whether the wireless mesh backhaul at this hop is an MLO (Wi-Fi 7 multi-link) pairing.
+    /// The Wireless*RateMbps fields then carry the AGGREGATE across links (STR runs them
+    /// concurrently), and <see cref="MeshMloLinks"/> carries the per-link breakdown.
+    /// </summary>
+    public bool IsMloMeshBackhaul { get; set; }
+
+    /// <summary>
+    /// Per-link detail of an MLO mesh backhaul, child AP's perspective (TX toward the parent).
+    /// From the child's own uplink.mlo_links when it reports them, else the parent's
+    /// downlink_table flipped.
+    /// </summary>
+    public List<MeshBackhaulLink>? MeshMloLinks { get; set; }
+
     /// <summary>Whether the ingress port is part of a Link Aggregation Group</summary>
     public bool IsLagIngress { get; set; }
 
@@ -118,6 +132,30 @@ public class NetworkHop
 
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// One radio link of an MLO mesh backhaul on a <see cref="NetworkHop"/>, child AP's perspective
+/// (TX toward the parent). Signal is the child's own reading when it reports its links
+/// (uplink.mlo_links), else the parent's.
+/// </summary>
+public class MeshBackhaulLink
+{
+    /// <summary>Radio band (ng=2.4GHz, na=5GHz, 6e=6GHz), matching Wireless*Band conventions</summary>
+    public string? Band { get; set; }
+
+    public int? Channel { get; set; }
+
+    /// <summary>Channel width in MHz, from the parent's radio for this band</summary>
+    public int? WidthMhz { get; set; }
+
+    public int? SignalDbm { get; set; }
+
+    /// <summary>Link rate in Mbps, child toward parent</summary>
+    public int? TxRateMbps { get; set; }
+
+    /// <summary>Link rate in Mbps, parent toward child</summary>
+    public int? RxRateMbps { get; set; }
 }
 
 /// <summary>

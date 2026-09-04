@@ -13,7 +13,7 @@ public sealed record RolloutResourceStats
     public int SampleCount { get; init; }
 
     /// <summary>
-    /// Mean probe loss over the window when the device is itself a monitored latency target;
+    /// Median probe loss over the window when the device is itself a monitored latency target;
     /// null when it is not probed, or was not probed over this window.
     /// </summary>
     public double? LossPercent { get; init; }
@@ -67,7 +67,7 @@ public static class LitmusThresholds
     public const double LossRelativeFraction = 0.25;
 
     /// <summary>
-    /// Mean loss over the litmus window that fails a device that is a monitored latency target.
+    /// Median loss over the litmus window that fails a device that is a monitored latency target.
     /// A floor, not a verdict: a target already losing this much before the upgrade has to have got
     /// appreciably worse to fail, or every rollout past a flaky target would abort that whole model.
     /// </summary>
@@ -78,8 +78,8 @@ public static class LitmusThresholds
     /// beforehand. Absolute floor first, then - when there was a baseline to beat - a relative rise
     /// on top of it, the same pairing CPU and memory use and for the same reason.
     /// </summary>
-    /// <param name="beforeLossPercent">Mean loss before the upgrade; null when there was no baseline.</param>
-    /// <param name="afterLossPercent">Mean loss over the litmus window; null when the device is not probed.</param>
+    /// <param name="beforeLossPercent">Median loss before the upgrade; null when there was no baseline.</param>
+    /// <param name="afterLossPercent">Median loss over the litmus window; null when the device is not probed.</param>
     public static bool IsAppreciableLoss(double? beforeLossPercent, double? afterLossPercent)
     {
         if (afterLossPercent is not double after || after < LossFailPercent) return false;

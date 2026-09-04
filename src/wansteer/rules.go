@@ -71,7 +71,7 @@ func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
 			markArgs = append(markArgs, src...)
 			markArgs = append(markArgs, dst...)
 			markArgs = append(markArgs, sharedArgs...)
-			markArgs = append(markArgs, "-j", "MARK", "--set-xmark", wan.FWMark+"/0x7e0000")
+			markArgs = append(markArgs, "-j", "MARK", "--set-xmark", wan.markWithMask())
 			if err := run("iptables", markArgs...); err != nil {
 				return fmt.Errorf("add mark rule: %w", err)
 			}
@@ -83,9 +83,10 @@ func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
 			connmarkArgs = append(connmarkArgs, src...)
 			connmarkArgs = append(connmarkArgs, dst...)
 			connmarkArgs = append(connmarkArgs, connmarkSharedArgs(tc)...)
-			connmarkArgs = append(connmarkArgs, "-m", "mark", "--mark", wan.FWMark+"/0x7e0000")
+			mask := wan.markMask()
+			connmarkArgs = append(connmarkArgs, "-m", "mark", "--mark", wan.markWithMask())
 			connmarkArgs = append(connmarkArgs, "-j", "CONNMARK", "--save-mark",
-				"--nfmask", "0x7e0000", "--ctmask", "0x7e0000")
+				"--nfmask", mask, "--ctmask", mask)
 			if err := run("iptables", connmarkArgs...); err != nil {
 				return fmt.Errorf("add connmark rule: %w", err)
 			}
@@ -318,7 +319,7 @@ func flushAllSteeredConntrack(cfg *Config) {
 		if name == cfg.DefaultWAN || wan.FWMark == "" {
 			continue
 		}
-		flushConntrackForMark(wan.FWMark)
+		flushConntrackForWAN(&wan)
 	}
 }
 
@@ -393,19 +394,19 @@ func doFlushSFE() {
 	}
 }
 
-// flushConntrackForMark deletes all conntrack entries with the given WAN fwmark.
+// flushConntrackForWAN deletes all conntrack entries carrying the WAN's fwmark.
 // This forces existing connections to be re-routed through the default WAN
 // when their assigned WAN goes down.
 // Order is critical: SFE flush must happen before conntrack delete to avoid
 // the SFE double-free race on IPQ9574.
-func flushConntrackForMark(fwmark string) {
+func flushConntrackForWAN(wan *WANInterface) {
 	// Flush SFE first: SFE must release offloaded connections before conntrack
 	// deletes the tracking entry, otherwise SFE tries to clean up a path whose
 	// conntrack entry is already gone.
 	flushSFE()
 
-	// conntrack -D -m <mark> deletes entries matching the mark
-	// The mark includes the WAN bits in 0x7e0000, so we match on those
+	// Match on the WAN bits only: UniFi keeps QoS and other state in the rest of the mark.
+	fwmark := wan.markWithMask()
 	err := run("conntrack", "-D", "-m", fwmark)
 	if err != nil {
 		// Not an error if there are no matching entries

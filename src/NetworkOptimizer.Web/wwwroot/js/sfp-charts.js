@@ -3,12 +3,12 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=17';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=4';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -369,7 +369,13 @@ async function updatePonCharts(data) {
 function renderPonDetails(container, withPon) {
     const el = container.querySelector('.sfp-pon-details');
     if (!el) return;
-    el.innerHTML = ponDetailsHtml(withPon, 'Module');
+    const html = ponDetailsHtml(withPon, 'Module');
+    el.innerHTML = html ? `<div class="chart-header"><h3 class="chart-title">PON Status</h3></div>${html}` : '';
+
+    const totalsEl = container.querySelector('.sfp-pon-error-totals');
+    if (!totalsEl) return;
+    const totalsHtml = ponErrorTotalsHtml(withPon, 'Module');
+    totalsEl.innerHTML = totalsHtml ? `<div class="chart-header"><h3 class="chart-title">PON Error Totals</h3></div>${totalsHtml}` : '';
 }
 
 function renderStatsTable(container, showAll) {

@@ -22,6 +22,7 @@ using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.WiFi.Models;
+using Microsoft.Extensions.Caching.Memory;
 using Serilog;
 using Serilog.Events;
 
@@ -48,6 +49,25 @@ public static class ClientDashboardEndpoints
         // for it here instead, where the request carries the real address.
         read.MapGet("/api/client-dashboard/address", (HttpContext context) =>
             Results.Ok(new { address = EndpointHelpers.GetClientIp(context) }));
+
+        // The favicon the Network app shows for a DPI application, fetched from the site's own
+        // console and held here so each is asked for once - nothing about a household's apps goes
+        // to the apps themselves. Only domains the catalog names, so this is not a proxy.
+        read.MapGet("/api/client-dashboard/app-icon/{domain}", async (string domain, HttpContext context,
+            UniFiConnectionService connection, SiteContextService siteContext,
+            IMemoryCache cache, CancellationToken ct) =>
+        {
+            if (!DpiCatalog.IsIconDomain(domain)) return Results.NotFound();
+            var key = $"dpi-icon:{siteContext.Slug}:{domain.ToLowerInvariant()}";
+            if (!cache.TryGetValue<(byte[] Bytes, string ContentType)?>(key, out var icon))
+            {
+                icon = connection.Client == null ? null : await connection.Client.GetDpiIconAsync(domain, ct);
+                cache.Set(key, icon, icon == null ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24));
+            }
+            if (icon is not { } found) return Results.NotFound();
+            context.Response.Headers.CacheControl = "private, max-age=86400";
+            return Results.File(found.Bytes, found.ContentType);
+        });
 
         read.MapGet("/api/client-dashboard/client", async (HttpContext context, ClientDashboardService service) =>
         {

@@ -23,7 +23,9 @@ public class LanFlowMapService
     // singleton) so the map's device/topology source is the current site's console,
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
+    private readonly ClientDashboardService _dashboard;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringPathView _pathView;
     private readonly ApMapService _apMap;
@@ -33,10 +35,12 @@ public class LanFlowMapService
     private readonly SiteContextService _siteContext;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
+    private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
 
     public LanFlowMapService(
         UniFiConnectionService connection,
         MonitoringLiveStats liveStats,
+        ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         MonitoringInfluxClient influx,
         MonitoringPathView pathView,
         ApMapService apMap,
@@ -44,11 +48,16 @@ public class LanFlowMapService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
+        ClientDashboardService dashboard,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
     {
+        _dashboard = dashboard;
         _connection = connection;
         _liveStats = liveStats;
+        _apAgentTelemetry = apAgentTelemetry;
+        _agentPresence = agentPresence;
         _influx = influx;
         _pathView = pathView;
         _apMap = apMap;
@@ -74,7 +83,15 @@ public class LanFlowMapService
     /// rates on top of the cached snapshot.
     /// </summary>
     public Task<LanFlowMapSnapshot> BuildSnapshotAsync(CancellationToken ct = default)
-        => _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    {
+        // An agent-observed association change marks the cached topology stale about ten seconds
+        // later, so the map converges on the Console's fresh roster without waiting out the TTL.
+        var nudge = _apAgentTelemetry.GetFor(_siteContext.Slug).RosterNudge;
+        if (_cache.Current is { } current && nudge.ShouldRefresh(current.GeneratedAt, DateTime.UtcNow))
+            _cache.MarkStale();
+
+        return _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+    }
 
     /// <summary>Force the next snapshot read to rebuild (e.g. on controller reconnect).</summary>
     public void InvalidateCache() => _cache.Invalidate();
@@ -88,7 +105,7 @@ public class LanFlowMapService
             return snapshot;
         }
 
-        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>());
+        var discovery = new UniFiDiscovery(_connection.Client, _loggerFactory.CreateLogger<UniFiDiscovery>(), _agentPresence);
         var topology = await discovery.DiscoverTopologyAsync(ct);
 
         var markers = await _apMap.GetApMapMarkersAsync();
@@ -149,6 +166,24 @@ public class LanFlowMapService
         {
             rawDevices = new List<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse>();
         }
+
+        // The console nests the second unit of a Building Bridge pair inside the first, so it is
+        // on no device list - yet it is the device the far building's switch uplinks to. Without
+        // it the pair's wireless link has one end and everything behind it draws isolated.
+        var bridgePeers = UniFiDiscovery.BuildingBridgePeers(rawDevices);
+        if (bridgePeers.Count > 0)
+        {
+            var listed = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)), StringComparer.OrdinalIgnoreCase);
+            rawDevices.AddRange(bridgePeers);
+            foreach (var peer in bridgePeers)
+            {
+                if (listed.Add(NormalizeMac(peer.Mac)))
+                    topology.Devices.Add(UniFiDiscovery.MapBuildingBridgePeer(peer));
+            }
+            _logger.LogDebug("LAN map [{Site}]: {Count} Building Bridge peer unit(s) added from peer_ubb",
+                _siteContext.Slug, bridgePeers.Count);
+        }
+
         var rawByMac = rawDevices
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
@@ -218,7 +253,7 @@ public class LanFlowMapService
         }
 
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
-        GroupMultiClientPorts(snapshot);
+        GroupMultiClientPorts(snapshot, await WanBytesByMacAsync(ct));
         await BuildWanAndClouds(topology, snapshot, ct);
 
         // WAN interface names for InfluxDB rate queries, one per WAN (ppp* tunnel
@@ -266,7 +301,13 @@ public class LanFlowMapService
     /// leaving a client on the map one sample too long is a smaller error than blinking one out
     /// that was really there.
     /// </summary>
-    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// How long after its last point a client is still drawn as present. Three times the write
+    /// cadence: enough to ride out one missed write (an agent restart, a slow poll) without a
+    /// connected client blinking out, and no more. It was three minutes only because points were
+    /// traffic-driven and a quiet client left real gaps; presence is written every window now.
+    /// </summary>
+    private static readonly TimeSpan ClientPresenceTolerance = TimeSpan.FromSeconds(90);
 
     /// <summary>
     /// Instants within this many seconds of now are the "live edge". The historic cache
@@ -297,6 +338,11 @@ public class LanFlowMapService
         // Read the cached snapshot or trigger its first build. Subsequent live ticks
         // will short-circuit on the freshness check inside the cache.
         var snapshot = await BuildSnapshotAsync(ct);
+        update.SnapshotGeneratedAt = snapshot.GeneratedAt;
+
+        ApplyLiveClientStats(snapshot, update);
+        AddLiveOnlyClients(snapshot, update);
+        MarkDepartedClients(snapshot, update);
 
         // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
         // so this is cheap).
@@ -655,7 +701,17 @@ public class LanFlowMapService
             // fall inside that stale window and keep reading empty (the "test didn't show for
             // minutes, then appeared once the window rolled" symptom). Live-edge fetches are
             // used for this response only and always re-fetched fresh next time.
-            if (!atLiveEdge) _cache.HistoricData = cached;
+            if (!atLiveEdge)
+            {
+                // The window runs 5 min ahead of `at`, which for a recent instant reaches past the
+                // settle line: that stretch was fetched before its points were written, and serving
+                // it later showed a roam's first half and never its second. Keep only what had
+                // settled at fetch time; anything beyond misses the cache and reads fresh. The 30 s
+                // is the reuse test's own margin, so the miss lands on the settle line itself and
+                // playback just behind the live edge is not refetching every tick.
+                var usableTo = DateTime.UtcNow - TimeSpan.FromSeconds(HistoricLiveEdgeSettleSeconds - 30);
+                _cache.HistoricData = cached.To > usableTo ? cached with { To = usableTo } : cached;
+            }
         }
 
         var ratesByDevice = cached.RatesByDevice;
@@ -664,13 +720,54 @@ public class LanFlowMapService
 
         // Resolve closest client throughput points from cached data.
         var wifiClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        // How a client is connected is written once per write window, while its throughput is
+        // written every time it is measured - so the point nearest an instant usually carries a
+        // rate and nothing else. Tracked separately and merged below, or a client would lose its
+        // band and signal at most instants and only regain them on a window boundary.
+        var wifiClientConnection = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WifiClients)
         {
             if (string.IsNullOrEmpty(p.ClientMac)) continue;
             if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wifiClientRates[p.ClientMac] = p;
+
+            // PHY rate is the discriminator: it is written only on a full point. Band is a tag on
+            // every point and signal rides on the thin ones too, so neither can tell them apart.
+            if (p.TxRateKbps == null && p.RxRateKbps == null) continue;
+            if (!wifiClientConnection.TryGetValue(p.ClientMac, out var describedBy)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((describedBy.Time - at).TotalMilliseconds))
+                wifiClientConnection[p.ClientMac] = p;
         }
+        foreach (var (mac, described) in wifiClientConnection)
+        {
+            // Copy rather than mutate: these points are cached and re-read for every other instant
+            // in the window.
+            var nearest = wifiClientRates[mac];
+            if (nearest.TxRateKbps != null || nearest.RxRateKbps != null) continue;
+            wifiClientRates[mac] = nearest with
+            {
+                SignalDbm = described.SignalDbm,
+                Band = described.Band,
+                TxRateKbps = described.TxRateKbps,
+                RxRateKbps = described.RxRateKbps,
+            };
+        }
+        // Points whose MAC is an infrastructure node are the fast tier's mesh backhaul PHY
+        // readings, recorded per mesh child under its base MAC. They feed the DEVICE node's
+        // scrub stats below and must not read as clients (presence, measured sets, or
+        // rebuilt historic-only leaves).
+        var deviceNodeMacs = snapshot.Nodes
+            .Where(n => n.Id.StartsWith("dev-", StringComparison.Ordinal) && !string.IsNullOrEmpty(n.Mac))
+            .Select(n => NormalizeMac(n.Mac))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var meshDevRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in wifiClientRates.Keys.Where(deviceNodeMacs.Contains).ToList())
+        {
+            meshDevRates[mac] = wifiClientRates[mac];
+            wifiClientRates.Remove(mac);
+        }
+
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
         {
@@ -684,13 +781,19 @@ public class LanFlowMapService
         // outside it write no telemetry, so their absence proves nothing and playback leaves them be.
         foreach (var p in cached.WifiClients)
         {
-            if (!string.IsNullOrEmpty(p.ClientMac))
+            if (!string.IsNullOrEmpty(p.ClientMac) && !deviceNodeMacs.Contains(NormalizeMac(p.ClientMac)))
                 update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
         }
         foreach (var p in cached.WiredClients)
         {
             if (!string.IsNullOrEmpty(p.ClientMac))
                 update.MeasuredClientIds.Add("cli-" + NormalizeMac(p.ClientMac));
+        }
+        // The window is minutes wide; a client gone longer than that has no point in it. One the
+        // collector writes every pass is measured whether or not the window caught it.
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.WritesTelemetry) update.MeasuredClientIds.Add(node.Id);
         }
 
         // Who was connected at this instant, wired and wireless alike. A point far from `at` is
@@ -723,6 +826,19 @@ public class LanFlowMapService
                 PhyTxKbps = p.TxRateKbps,
                 PhyRxKbps = p.RxRateKbps,
                 ApNodeId = apNodeId,
+            };
+        }
+
+        // Mesh backhaul PHY at the scrub instant, keyed by the device node so the maps'
+        // Link speed rows follow the playhead like a client's connection stats do.
+        foreach (var (mac, p) in meshDevRates)
+        {
+            update.ClientStats["dev-" + NormalizeMac(mac)] = new NodeClientStats
+            {
+                Band = NormalizeBand(p.Band),
+                SignalDbm = p.SignalDbm,
+                PhyTxKbps = p.TxRateKbps,
+                PhyRxKbps = p.RxRateKbps,
             };
         }
 
@@ -771,12 +887,7 @@ public class LanFlowMapService
                     {
                         var (pMac, pIf) = ParsePortKey(link.PortKey);
                         if (ratesByDevice.TryGetValue(pMac, out var pPts))
-                        {
-                            resolved = pPts
-                                .Where(p => string.Equals(p.IfName, pIf, StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                .FirstOrDefault();
-                        }
+                            resolved = ClosestPortPoint(pPts, pIf, at);
                     }
 
                     // Fallback: child device's own interface. Covers mesh APs
@@ -790,15 +901,33 @@ public class LanFlowMapService
                         {
                             if (link.Kind == LanLinkKind.MeshBackhaul)
                             {
-                                resolved = cPts
+                                // One vwiresta series per MLO link; the backhaul is their sum at
+                                // the scrub instant (nearest point per series). A classic backhaul
+                                // has one series, so this is the old single read for it.
+                                var meshPts = cPts
                                     .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
                                         && !p.IfName.Contains('.'))
-                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                    .FirstOrDefault();
-                                // UDB single-port bridge: no vwiresta interface. Its downlink
-                                // port_table rate is persisted under a synthetic "bridge-downlink"
-                                // series (BridgeInterfaceRecorder), stored in the same rateIn =
-                                // downstream convention, so it maps through the block below.
+                                    .GroupBy(p => p.IfName, StringComparer.OrdinalIgnoreCase)
+                                    .Select(g => g.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).First())
+                                    .ToList();
+                                if (meshPts.Count == 1)
+                                {
+                                    resolved = meshPts[0];
+                                }
+                                else if (meshPts.Count > 1)
+                                {
+                                    resolved = new MonitoringInfluxClient.InterfaceRatePoint
+                                    {
+                                        Time = meshPts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).First().Time,
+                                        IfName = "vwiresta",
+                                        RateInBps = meshPts.Sum(p => p.RateInBps ?? 0),
+                                        RateOutBps = meshPts.Sum(p => p.RateOutBps ?? 0),
+                                    };
+                                }
+                                // UDB and UBB: no vwiresta interface. Their bridged flow is persisted
+                                // under a synthetic "bridge-downlink" series (BridgeInterfaceRecorder),
+                                // stored in the same rateIn = downstream convention, so it maps
+                                // through the block below.
                                 resolved ??= cPts
                                     .Where(p => string.Equals(p.IfName, BridgeInterfaceRecorder.DownlinkIfName, StringComparison.OrdinalIgnoreCase))
                                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
@@ -815,10 +944,7 @@ public class LanFlowMapService
                                     string.Equals(n.Mac, childMac, StringComparison.OrdinalIgnoreCase));
                                 if (childNode?.UplinkIfName != null)
                                 {
-                                    resolved = cPts
-                                        .Where(p => string.Equals(p.IfName, childNode.UplinkIfName, StringComparison.OrdinalIgnoreCase))
-                                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                        .FirstOrDefault();
+                                    resolved = ClosestPortPoint(cPts, childNode.UplinkIfName, at);
                                     fromChildSide = true;
                                 }
                             }
@@ -864,10 +990,7 @@ public class LanFlowMapService
                         var (deviceMac, ifName) = ParsePortKey(link.PortKey);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
-                            var closest = pts
-                                .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                .FirstOrDefault();
+                            var closest = ClosestPortPoint(pts, ifName, at);
                             if (closest != null)
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
@@ -1409,6 +1532,11 @@ public class LanFlowMapService
         LanFlowMapSnapshot snapshot,
         Dictionary<(string mac, int port), InterfaceNameMap> nameMaps)
     {
+        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
+        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
+        // Built before the node pass because MLO node rates read it too.
+        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
         // First pass: emit nodes for every device.
         foreach (var d in topology.Devices)
         {
@@ -1431,6 +1559,17 @@ public class LanFlowMapService
                 node.PhyTxKbps = d.UplinkTxRateKbps > 0 ? d.UplinkTxRateKbps : null;
                 node.PhyRxKbps = d.UplinkRxRateKbps > 0 ? d.UplinkRxRateKbps : null;
                 node.Band = NormalizeBand(d.UplinkRadioBand);
+                node.IsMloMesh = d.UplinkIsMlo;
+                // The child's uplink rates already sum its MLO links. The parent's claim is the
+                // same aggregate from the other end (its perspective, so inverted) and only ever
+                // raises what the child reported: a floor for a child that reports no links.
+                if (meshParentByChild.TryGetValue(mac, out var mloClaim)
+                    && mloClaim.IsMlo && !mloClaim.Contradicts(d.UplinkMac))
+                {
+                    node.IsMloMesh = true;
+                    if (mloClaim.RxRateKbps > 0) node.PhyTxKbps = Math.Max(node.PhyTxKbps ?? 0, mloClaim.RxRateKbps);
+                    if (mloClaim.TxRateKbps > 0) node.PhyRxKbps = Math.Max(node.PhyRxKbps ?? 0, mloClaim.TxRateKbps);
+                }
             }
             snapshot.Nodes.Add(node);
         }
@@ -1442,15 +1581,13 @@ public class LanFlowMapService
         // Second pass: uplink edges. Build them as (child -> parent), so on the wire the
         // FromNodeId is the leaf side and the data flowing toward it (DownstreamBps) is
         // gateway -> device per spec 5.7.1.
-        // A mesh child whose own uplink UniFi did not report still has a parent that named it.
-        // Without this the device gets no edge at all: gone from the 2D map, isolated on the 3D one.
-        var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
-
         // An uplink is only useful if it names a device that is actually on the map. UniFi has been
         // seen reporting a stale one after a reboot - present, so nothing looked wrong, but naming
         // something no node exists for. The edge then hangs off nothing and the client drops it,
         // which is indistinguishable from having no uplink at all: the device draws isolated.
         var deviceMacs = new HashSet<string>(topology.Devices.Select(x => NormalizeMac(x.Mac)));
+        var ownUplinkByMac = topology.Devices.ToDictionary(
+            x => NormalizeMac(x.Mac), x => (string?)NormalizeMac(x.UplinkMac), StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in topology.Devices)
         {
@@ -1459,13 +1596,13 @@ public class LanFlowMapService
             var fromDownlinkTable = false;
 
             // A parent naming this device in its downlink_table outranks the device's own uplink
-            // field ONLY when the two disagree. The field can be stale or plain wrong after a
-            // reboot - it has been seen naming a switch that actually hangs off the AP - and
-            // pointing a child at something downstream of itself closes a loop the layout cannot
-            // place, so the device ends up with no position at all: isolated on 3D, absent from
-            // 2D. When child and parent agree, the child's own report (capacity, band, uplink
-            // port) is authoritative and this path is inert.
-            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac))
+            // field only when that field is unusable: empty, or naming something downstream of
+            // itself (seen after a reboot - closing a loop the layout cannot place, so the device
+            // draws isolated on 3D and absent from 2D). A child naming a different live parent
+            // has re-paired, and the claim is the old parent's stale table - every device behind
+            // an AP mid-upgrade looks like this. Agreement leaves the child's own report in charge.
+            if (meshParentByChild.TryGetValue(mac, out var claim) && claim.Contradicts(uplinkMac)
+                && NetworkOptimizer.UniFi.UniFiDiscovery.ClaimOutranksReportedUplink(mac, uplinkMac, ownUplinkByMac))
             {
                 _logger.LogDebug(
                     "[LanFlowMap] {Mac} reports its uplink as {Reported}, but {Parent} claims it as a mesh child; using the parent",
@@ -1512,11 +1649,27 @@ public class LanFlowMapService
                 {
                     if (claim.TxRateKbps > 0) link.CapacityDownBps = claim.TxRateKbps * 1_000L;
                     if (claim.RxRateKbps > 0) link.CapacityUpBps = claim.RxRateKbps * 1_000L;
+                    link.IsMloMesh = claim.IsMlo;
                 }
                 else
                 {
                     if (d.UplinkRxRateKbps > 0) link.CapacityDownBps = d.UplinkRxRateKbps * 1_000L;
                     if (d.UplinkTxRateKbps > 0) link.CapacityUpBps = d.UplinkTxRateKbps * 1_000L;
+                    link.IsMloMesh = d.UplinkIsMlo;
+                    // The child's rates already sum its MLO links; the parent's claim is the same
+                    // aggregate from the other end and only ever raises them (a floor for a child
+                    // that reports no links). claim holds the agreeing parent claim here - a
+                    // contradicting one took the fromDownlinkTable branch above. CapacityBps
+                    // drives the pipes' saturation ramp, so it takes the aggregate too or MLO
+                    // throughput reads oversaturated.
+                    if (claim.IsMlo)
+                    {
+                        link.IsMloMesh = true;
+                        if (claim.TxRateKbps > 0) link.CapacityDownBps = Math.Max(link.CapacityDownBps ?? 0, claim.TxRateKbps * 1_000L);
+                        if (claim.RxRateKbps > 0) link.CapacityUpBps = Math.Max(link.CapacityUpBps ?? 0, claim.RxRateKbps * 1_000L);
+                        var aggPeak = Math.Max(claim.TxRateKbps, claim.RxRateKbps) * 1_000L;
+                        if (aggPeak > 0) link.CapacityBps = Math.Max(link.CapacityBps ?? 0, aggPeak);
+                    }
                 }
             }
 
@@ -1653,6 +1806,19 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>
+    /// How old a cached client reading may be before the console's own value is preferred. Keeps
+    /// the overlay strictly an improvement: past this it is no fresher than what it would replace.
+    /// </summary>
+    private static readonly TimeSpan LiveClientMaxAge = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How recently the cache must have been refreshed for a client to be ADDED back to the map.
+    /// Bounds how long a client that left can be resurrected: the agent drops it from its own
+    /// table within seconds, after which nothing refreshes its entry.
+    /// </summary>
+    private static readonly TimeSpan LiveClientAddMaxAge = TimeSpan.FromSeconds(15);
+
     private void BuildClientLeaves(
         NetworkTopology topology,
         Dictionary<string, LanPlacement> anchors,
@@ -1666,6 +1832,23 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(clientMac)) continue;
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
+
+            // The live cache is fed far faster than the console client list: every 500 ms while
+            // Client Performance is watching a client, every 10 s from an AP Agent otherwise,
+            // against the console's 30 s. Prefer it so a roam and a signal change reach the map at
+            // that rate. Bounded by age so it can only ever be fresher than what it replaces.
+            var live = c.IsWired ? null : _liveStats.GetWifiClient(clientMac);
+            // A Console-sourced entry is the same wifi tier data this build already holds, only on
+            // an independent clock, so preferring it is as often staler as fresher.
+            if (live is { Source: WifiClientSource.Console }) live = null;
+            if (live != null && DateTime.UtcNow - live.LastUpdate > LiveClientMaxAge) live = null;
+
+            // Deliberately NOT re-parenting from the cache here. The snapshot is built from one
+            // console topology and is internally consistent; pointing a client at an access point
+            // this build did not draw leaves its node and link referencing a parent that does not
+            // exist, and the renderers drop it - a returning client vanishes rather than pops in.
+            // Fast roam re-attach belongs on the live tick (ApplyLiveClientStats), which validates
+            // the candidate against the nodes actually in the snapshot.
 
             anchors.TryGetValue(clientMac, out var anchor);
             var nodeId = "cli-" + clientMac;
@@ -1684,10 +1867,14 @@ public class LanFlowMapService
             };
             if (!c.IsWired)
             {
-                node.Band = NormalizeBand(c.Radio);
-                node.SignalDbm = c.SignalStrength ?? c.Rssi;
-                node.PhyTxKbps = c.TxRate > 0 ? c.TxRate : null;
-                node.PhyRxKbps = c.RxRate > 0 ? c.RxRate : null;
+                node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
+                // Every associated Wi-Fi client is written each pass - the writer skips one with no band.
+                node.WritesTelemetry = node.Band != null;
+                node.SignalDbm = live?.SignalDbm is { } dbm
+                    ? (int)Math.Round(dbm)
+                    : c.SignalStrength ?? c.Rssi;
+                node.PhyTxKbps = live?.TxRateKbps > 0 ? live.TxRateKbps : (c.TxRate > 0 ? c.TxRate : null);
+                node.PhyRxKbps = live?.RxRateKbps > 0 ? live.RxRateKbps : (c.RxRate > 0 ? c.RxRate : null);
             }
 
             var link = new LanLink
@@ -1696,7 +1883,7 @@ public class LanFlowMapService
                 FromNodeId = "dev-" + parentMac,
                 ToNodeId = nodeId,
                 Kind = c.IsWired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
-                Band = c.IsWired ? null : NormalizeBand(c.Radio),
+                Band = c.IsWired ? null : (NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio)),
             };
 
             if (c.IsWired && c.SwitchPort.HasValue)
@@ -1739,6 +1926,8 @@ public class LanFlowMapService
                     if (parentDev.DeviceType == DeviceType.DeviceBridge)
                         link.BridgeParentMac = parentMac;
                 }
+                // The wired writer's gate: a ported client is written every pass, a bridged one never.
+                node.WritesTelemetry = string.IsNullOrEmpty(link.BridgeParentMac);
             }
             else if (!c.IsWired)
             {
@@ -1766,7 +1955,36 @@ public class LanFlowMapService
     /// hub (carrying the real port rate) and the members hang off the hub
     /// as zero-rate logical leaves.
     /// </summary>
-    private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot)
+    /// <summary>
+    /// Each connected client's WAN bytes over the last day, from the site-wide DPI report IF a
+    /// reader has it cached. Never fetched from here: this runs inside the topology rebuild that
+    /// every live tick waits on, and a console can take seconds over a day of DPI. Decides which
+    /// interface a shared port's hub stands in for; empty means the lowest IP stands in instead.
+    /// </summary>
+    private Task<Dictionary<string, long>> WanBytesByMacAsync(CancellationToken ct)
+    {
+        var bytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var traffic = _dashboard.PeekSiteTraffic(now - TimeSpan.FromHours(24), now);
+            foreach (var c in traffic?.ClientUsageByApp ?? new())
+            {
+                var mac = NormalizeMac(c.Client?.Mac ?? "");
+                if (mac.Length == 0) continue;
+                long total = 0;
+                foreach (var u in c.UsageByApp) total += u.BytesReceived + u.BytesTransmitted;
+                bytes[mac] = total;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN bytes by client unavailable; shared ports link to their first interface");
+        }
+        return Task.FromResult(bytes);
+    }
+
+    private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot, Dictionary<string, long> wanBytesByMac)
     {
         var leafLinkByNodeId = snapshot.Links
             .Where(l => l.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(l.PortKey))
@@ -1794,6 +2012,15 @@ public class LanFlowMapService
             // is left null - the hub is synthetic, not a real device.
             var hubId = $"hub-{parentId}-{portKey}";
             var portName = members.Select(m => m.Node.SwitchPortName).FirstOrDefault(s => !string.IsNullOrEmpty(s));
+            // The hub stands in for the interface behind it with the most WAN traffic lately, so a
+            // click on the port lands on the client someone most likely means; with no traffic to
+            // go on, the lowest IP, which is usually the host's own interface rather than a
+            // sub-interface. A wrong guess is one pick away in Client Performance's own selector.
+            var representative = members
+                .Where(m => !string.IsNullOrEmpty(m.Node.Ip) && !string.IsNullOrEmpty(m.Node.Mac))
+                .OrderByDescending(m => wanBytesByMac.TryGetValue(m.Node.Mac!, out var b) ? b : 0)
+                .ThenBy(m => NetworkUtilities.IpSortKey(m.Node.Ip!))
+                .FirstOrDefault();
             var hubNode = new LanNode
             {
                 Id = hubId,
@@ -1801,6 +2028,7 @@ public class LanFlowMapService
                 Name = string.IsNullOrEmpty(portName)
                     ? $"{members.Count} interfaces"
                     : $"{portName} ({members.Count})",
+                Ip = representative.Node?.Ip,
                 ParentId = parentId,
                 SwitchPortName = portName,
                 WiredLinkSpeedMbps = representativeLink.CapacityBps.HasValue
@@ -1852,7 +2080,7 @@ public class LanFlowMapService
         // Only WANs that pass the activity gate (up, or still holding an IP) render a
         // globe; base the "tag with WAN number" decision on that visible count so a lone
         // globe isn't labelled "(WAN1)" even when other WANs are configured but hidden.
-        var shownWanCount = wans.Count(w => w.Up || !string.IsNullOrEmpty(w.IpAddress));
+        var shownWanCount = wans.Count(w => w.IsActive);
 
         foreach (var wan in wans)
         {
@@ -1867,7 +2095,7 @@ public class LanFlowMapService
             // holding an IP) renders greyed like a discovery-pending cloud; an
             // effectively-unused WAN (down, no IP) is not shown at all.
             var hasIp = !string.IsNullOrEmpty(wan.IpAddress);
-            if (!wan.Up && !hasIp) continue;
+            if (!wan.IsActive) continue;
             var inactiveGrey = wan.Up != hasIp;
 
             UpstreamPathSnapshot? upstream = null;
@@ -2354,6 +2582,24 @@ public class LanFlowMapService
     // Internal helpers
     // ---------------------------------------------------------------------------------
 
+    /// <summary>
+    /// The point a port key names, nearest <paramref name="at"/>. Matches the raw port_id tag as
+    /// well as if_name: a switch can hold two InterfaceNameMap rows for one port - the user's
+    /// alias and the raw "0/N" - and which one a PortKey carries is decided by whichever row the
+    /// map loaded last, while Influx keys the series on the alias. Matching either end makes the
+    /// lookup indifferent to that. Live is unaffected: it reads the console's port stats by index.
+    /// </summary>
+    private static MonitoringInfluxClient.InterfaceRatePoint? ClosestPortPoint(
+        IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string? ifName, DateTime at)
+    {
+        if (string.IsNullOrEmpty(ifName)) return null;
+        return points
+            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p.PortId, ifName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+            .FirstOrDefault();
+    }
+
     private async Task<Dictionary<(string mac, int port), InterfaceNameMap>> LoadInterfaceNameMaps(CancellationToken ct)
     {
         await using var db = CreateSiteDb();
@@ -2362,7 +2608,12 @@ public class LanFlowMapService
         foreach (var m in maps)
         {
             if (!m.PortNumber.HasValue) continue;
-            dict[(NormalizeMac(m.DeviceMac), m.PortNumber.Value)] = m;
+            // A port can hold several rows - the label, and the raw name a failed alias walk once
+            // wrote. The active collector refreshes its row every metadata pass, so the freshest
+            // one is the name the series are being written under now.
+            var key = (NormalizeMac(m.DeviceMac), m.PortNumber.Value);
+            if (!dict.TryGetValue(key, out var current) || m.LastUpdated > current.LastUpdated)
+                dict[key] = m;
         }
         return dict;
     }
@@ -2373,6 +2624,8 @@ public class LanFlowMapService
         DeviceType.Switch => LanNodeKind.Switch,
         DeviceType.SmartPower => LanNodeKind.Switch,
         DeviceType.AccessPoint => LanNodeKind.AccessPoint,
+        // A bridge unit (UDB, or either half of a UBB pair) is a one-port switch to the map.
+        DeviceType.DeviceBridge or DeviceType.BuildingBridge => LanNodeKind.Switch,
         _ => LanNodeKind.Switch,
     };
 
@@ -2412,11 +2665,165 @@ public class LanFlowMapService
         return (key.Substring(0, idx), key.Substring(idx + 1));
     }
 
+    /// <summary>
+    /// Emits client leaves the live cache holds but the cached snapshot does not, so a client that
+    /// reconnects appears without waiting for the next topology rebuild. The cache learns of an
+    /// association from the AP Agent within a poll, where the console client list the snapshot is
+    /// built from can take considerably longer.
+    ///
+    /// Console-sourced entries are skipped: those came from the same client list the snapshot was
+    /// built from, so anything they could add is already either in it or about to be.
+    /// </summary>
+    private void AddLiveOnlyClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
+        var nodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var live in _liveStats.AllWifiClients())
+        {
+            if (live.Source == WifiClientSource.Console) continue;
+            // Tighter than the overlay's window on purpose. Overlaying RF onto a client the
+            // snapshot still lists is harmless when slightly stale; ADDING one back after the
+            // snapshot dropped it resurrects a client that left. A still-associated client is
+            // refreshed every agent poll, so anything staler than that is one that went away.
+            if (now - live.LastUpdate > LiveClientAddMaxAge) continue;
+
+            var clientMac = NormalizeMac(live.ClientMac);
+            var nodeId = "cli-" + clientMac;
+            if (string.IsNullOrEmpty(clientMac) || nodeIds.Contains(nodeId)) continue;
+
+            // Never accelerate a client the agent says has gone: MarkDepartedClients is removing
+            // this same id on this same tick, and the age window above cannot tell a departure
+            // from a quiet moment. The verdict can.
+            if (collector.PresenceFor(live.ApMac, clientMac) == AgentClientPresence.Absent) continue;
+
+            // A client whose access point this build did not draw is skipped rather than parented
+            // to a guess: a node pointing at a parent that does not exist is dropped by the
+            // renderers, which is worse than waiting for the rebuild.
+            if (string.IsNullOrEmpty(live.ApMac)) continue;
+            var parentId = "dev-" + NormalizeMac(live.ApMac);
+            if (!nodeIds.Contains(parentId)) continue;
+
+            // Only ever ACCELERATE a client the console can corroborate, never invent one. An
+            // access point reports per-link randomized MACs for an MLO client, and any that does
+            // not fold onto its MLD MAC is a station the console will never list - so it read as
+            // "missing from the snapshot" on every tick and became a permanent nameless node.
+            // Requiring a known name is also what keeps a raw MAC off the map.
+            if (!snapshot.RecentClientNames.ContainsKey(clientMac)) continue;
+
+            var band = NormalizeBand(live.Band);
+            update.AddedClientNodes.Add(new LanNode
+            {
+                Id = nodeId,
+                Kind = LanNodeKind.WifiClient,
+                Mac = clientMac,
+                Name = snapshot.RecentClientNames[clientMac],
+                ParentId = parentId,
+                Band = band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : null,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : null,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : null,
+                Placement = snapshot.AnchorsByMac.GetValueOrDefault(clientMac),
+            });
+
+            var linkId = $"cli-link-{clientMac}";
+            update.AddedClientLinks.Add(new LanLink
+            {
+                Id = linkId,
+                FromNodeId = parentId,
+                ToNodeId = nodeId,
+                Kind = LanLinkKind.WifiClient,
+                Band = band,
+            });
+
+            // The rate pass walks the snapshot's links and this one is not in it, so without this
+            // the new leaf draws a dead line while its throughput sits right here.
+            update.LinkRates[linkId] = new LinkLiveRates
+            {
+                DownstreamBps = live.TxThroughputBps ?? 0,
+                UpstreamBps = live.RxThroughputBps ?? 0,
+                AsOf = live.LastUpdate,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Marks clients the snapshot still lists that the access point serving them says are gone.
+    /// The console can take a while to notice a client left; an AP Agent knows within seconds,
+    /// because a disassociation reaches it on the hostapd control socket.
+    ///
+    /// The judge is the same presence verdict the Console entry points use, so this tick-rate
+    /// accelerator can never disagree with the next topology rebuild - and it inherits the
+    /// verdict's guards: an agent that stopped answering, or answered empty, says Unknown rather
+    /// than departure, and a client another covered access point holds is Present mid-roam.
+    /// </summary>
+    private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
+            if (string.IsNullOrEmpty(node.ParentId) || !node.ParentId.StartsWith("dev-", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var apMac = node.ParentId["dev-".Length..];
+            if (collector.PresenceFor(apMac, node.Mac) == AgentClientPresence.Absent)
+                update.RemovedClientIds.Add(node.Id);
+        }
+    }
+
+    /// <summary>
+    /// Carries per-client RF onto the live tick for clients whose cache entry beats the snapshot.
+    /// The snapshot rebuilds on its own slow cadence, which used to be fresh enough because the
+    /// console was the only source; an AP Agent updates a client every 10 s and Client Performance
+    /// drives it to 500 ms, so waiting for a rebuild strands the map minutes behind what the same
+    /// client's page is showing.
+    ///
+    /// Console-sourced entries are skipped: that is the very data the snapshot was built from, so
+    /// emitting it would cost payload to say nothing. A site with no AP Agent and nobody watching a
+    /// client therefore sends exactly what it sent before.
+    /// </summary>
+    private void ApplyLiveClientStats(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
+    {
+        var now = DateTime.UtcNow;
+        HashSet<string>? nodeIds = null;
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind != LanNodeKind.WifiClient || string.IsNullOrEmpty(node.Mac)) continue;
+
+            var live = _liveStats.GetWifiClient(node.Mac);
+            if (live == null || live.Source == WifiClientSource.Console) continue;
+            if (now - live.LastUpdate > LiveClientMaxAge) continue;
+
+            // Re-attaching to an access point the map never drew would strand the client's link.
+            string? apNodeId = null;
+            if (!string.IsNullOrEmpty(live.ApMac))
+            {
+                nodeIds ??= snapshot.Nodes.Select(n => n.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var candidate = "dev-" + NormalizeMac(live.ApMac);
+                if (nodeIds.Contains(candidate)) apNodeId = candidate;
+            }
+
+            update.ClientStats[node.Id] = new NodeClientStats
+            {
+                Band = NormalizeBand(live.Band) ?? node.Band,
+                SignalDbm = live.SignalDbm is { } dbm ? (int)Math.Round(dbm) : node.SignalDbm,
+                PhyTxKbps = live.TxRateKbps > 0 ? live.TxRateKbps : node.PhyTxKbps,
+                PhyRxKbps = live.RxRateKbps > 0 ? live.RxRateKbps : node.PhyRxKbps,
+                ApNodeId = apNodeId,
+            };
+        }
+    }
+
     private static string? NormalizeBand(string? radio) => radio switch
     {
         "ng" or "2.4ghz" or "2.4 GHz" or "2.4" => "2.4",
         "na" or "5ghz" or "5 GHz" or "5" => "5",
         "6e" or "6ghz" or "6 GHz" or "6" => "6",
+        // 802.11ad: the Building Bridge's 60 GHz link.
+        "ad" or "60ghz" or "60 GHz" or "60" => "60",
         _ => null,
     };
 
@@ -2449,6 +2856,7 @@ public class LanFlowMapService
             StringComparer.OrdinalIgnoreCase);
         foreach (var mac in deviceMacs)
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
                 ratesByDevice[mac] = await _influx.QueryInterfaceRatesRawAsync(mac, from, to, ct);
@@ -2512,6 +2920,10 @@ public class LanFlowMapService
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
 
+        // Every catch above swallows a cancelled query as a per-item miss, so a fetch a scrub cut
+        // off comes out with holes. Never return one: the caller caches it as the window, and
+        // every instant inside it then reads those links as idle until the window rolls.
+        ct.ThrowIfCancellationRequested();
         return new HistoricDataCache(
             from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
     }

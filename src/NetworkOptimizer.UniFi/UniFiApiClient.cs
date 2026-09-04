@@ -705,6 +705,13 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Builds a path under the Network app's own root - what it serves outside /api, such as the
+    /// DPI favicons - on either console kind.
+    /// </summary>
+    private string BuildNetworkAppPath(string path) =>
+        _isUniFiOs ? $"{_controllerUrl}/proxy/network/{path}" : $"{_controllerUrl}/{path}";
+
+    /// <summary>
     /// GET v2/api/info - the console's display name (system.name), e.g. "[Console] Home".
     /// Uses the shared V2 path builder so it is correct for UniFi OS and self-hosted alike.
     /// </summary>
@@ -2494,6 +2501,108 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/traffic - every client's WAN usage by DPI application over a window, in
+    /// the client's frame. Site-wide: callers pick their MAC. Gateway-side for every client, so a
+    /// Wi-Fi client's local traffic is not in it. includeUnidentified is required: without it the
+    /// console drops the traffic its DPI could not name (category 255), which a speed test to an
+    /// unknown server is entirely, and the totals no longer match the Network app's.
+    /// </summary>
+    public async Task<UniFiClientTrafficResponse?> GetClientTrafficByAppAsync(
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var startMs = new DateTimeOffset(from.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var endMs = new DateTimeOffset(to.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var url = BuildV2ApiPath($"site/{_site}/traffic?start={startMs}&end={endMs}&includeUnidentified=true");
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Client traffic request failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<UniFiClientTrafficResponse>(cancellationToken: cancellationToken);
+        });
+    }
+
+    /// <summary>
+    /// POST v2/api/site/{site}/app-traffic-rate - a client's WAN traffic over a window in 5-minute
+    /// buckets, from the same DPI tally as <see cref="GetClientTrafficByAppAsync"/> (the Network
+    /// app's Internet Activity graph). The buckets sum to that call's totals. Empty when the
+    /// console cannot answer. The endpoint also takes several MACs (rows concatenated, unlabeled)
+    /// or none (the whole site, each bucket with a top_app); neither is modelled here.
+    /// </summary>
+    public async Task<List<UniFiTrafficRateBucket>> GetClientTrafficRateAsync(
+        string clientMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return new List<UniFiTrafficRateBucket>();
+        }
+
+        var startMs = new DateTimeOffset(from.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var endMs = new DateTimeOffset(to.ToUniversalTime()).ToUnixTimeMilliseconds();
+        var url = BuildV2ApiPath($"site/{_site}/app-traffic-rate?start={startMs}&end={endMs}&includeUnidentified=true");
+
+        var buckets = await ExecuteRequestAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(new { client_macs = new[] { clientMac } }),
+                Encoding.UTF8,
+                "application/json");
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Client traffic rate request failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<List<UniFiTrafficRateBucket>>(cancellationToken: cancellationToken);
+        });
+        return buckets ?? new List<UniFiTrafficRateBucket>();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =
+        new("^[a-z0-9][a-z0-9.-]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// GET dpi_icons/{domain}/favicon.ico - the favicon the Network app shows for a DPI application,
+    /// served by the console itself. Null when the console has none.
+    /// </summary>
+    public async Task<(byte[] Bytes, string ContentType)?> GetDpiIconAsync(string domain, CancellationToken cancellationToken = default)
+    {
+        if (!DpiIconDomainPattern.IsMatch(domain)) return null;
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = BuildNetworkAppPath($"dpi_icons/{domain}/favicon.ico");
+        return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            var type = response.Content.Headers.ContentType?.MediaType ?? "";
+            if (!response.IsSuccessStatusCode || !type.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("DPI icon for {Domain}: {StatusCode} {ContentType}", domain, (int)response.StatusCode, type);
+                return null;
+            }
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            return bytes.Length == 0 ? null : (bytes, type);
+        });
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/wlan/enriched-configuration - Get WLAN configurations with stats
     /// </summary>
     public async Task<JsonElement> GetWlanEnrichedConfigurationAsync(CancellationToken cancellationToken = default)
@@ -2852,6 +2961,34 @@ public class UniFiApiClient : IDisposable
         }
 
         _logger.LogWarning("Failed to set the device firmware channel for site {Site} to {Channel}", _site, channel);
+        return false;
+    }
+
+    /// <summary>
+    /// POST cmd/productinfo {"cmd":"check-firmware-update"} - the half of the console's "Check for
+    /// Updates" that re-derives each device's pending target against the channel in force.
+    /// Accepted immediately and worked in the background, so rc:ok says nothing about it finishing.
+    /// </summary>
+    [VendorSpecific("UniFi", "cmd/productinfo check-firmware-update")]
+    public async Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object> { ["cmd"] = "check-firmware-update" };
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/productinfo"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Asked site {Site} to re-check device firmware", _site);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to trigger the device firmware check for site {Site}", _site);
         return false;
     }
 

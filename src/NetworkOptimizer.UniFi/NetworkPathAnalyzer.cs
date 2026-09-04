@@ -36,7 +36,7 @@ public interface INetworkPathAnalyzer
     /// Calculates the network path from the server to a target device or client.
     /// Uses the provided snapshot to compare wireless rates and pick the highest values.
     /// </summary>
-    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default, string? forceApMac = null);
 
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 
@@ -415,7 +415,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         WirelessRateSnapshot? priorSnapshot,
         string? wanIp = null,
         string? resolvedWanGroup = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? forceApMac = null)
     {
         var path = new NetworkPath
         {
@@ -561,7 +562,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
             // Build the hop list
-            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot, wanIp, resolvedWanGroup);
+            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot, wanIp, resolvedWanGroup, forceApMac);
 
             // Check if BuildHopList marked the path invalid due to stale data (retry if enabled)
             if (!path.IsValid && retryOnFailure &&
@@ -880,6 +881,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     var rxKbps = FilterIdleRate(targetDevice.UplinkRxRateKbps);
                     deviceHop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
                     deviceHop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
+                    var mloAggregate = ApplySelfReportedMloOverlay(deviceHop, targetDevice, meshParents);
+                    if (mloAggregate.HasValue)
+                    {
+                        deviceHop.IngressSpeedMbps = mloAggregate.Value;
+                        deviceHop.EgressSpeedMbps = mloAggregate.Value;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
@@ -981,6 +988,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         var uplinkRx = FilterIdleRate(device.UplinkRxRateKbps);
                         hop.WirelessTxRateMbps = uplinkTx > 0 ? (int)(uplinkTx / 1000) : null;
                         hop.WirelessRxRateMbps = uplinkRx > 0 ? (int)(uplinkRx / 1000) : null;
+                        var mloAggregate = ApplySelfReportedMloOverlay(hop, device, meshParents);
+                        if (mloAggregate.HasValue)
+                        {
+                            hop.EgressSpeedMbps = mloAggregate.Value;
+                        }
                     }
                     else
                     {
@@ -1537,6 +1549,81 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         hop.EgressSpeedMbps = txKbps > 0 ? (int)(txKbps / 1000) : 0;
         hop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
         hop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
+        ApplyMloBackhaulDetail(hop, claim);
+    }
+
+    /// <summary>
+    /// Attaches the per-link MLO breakdown of a parent claim to a hop, flipped to the child's
+    /// perspective (the parent transmitting is the child receiving). Signal stays the parent's
+    /// reading. Rates on the hop itself are the caller's concern; this only records the flag
+    /// and the links for display.
+    /// </summary>
+    private static void ApplyMloBackhaulDetail(NetworkHop hop, UniFiDiscovery.MeshParentClaim claim)
+    {
+        if (!claim.IsMlo || claim.Links.Count == 0) return;
+        hop.IsMloMeshBackhaul = true;
+        hop.MeshMloLinks = claim.Links.Select(l => new MeshBackhaulLink
+        {
+            Band = l.Radio,
+            Channel = l.Channel,
+            WidthMhz = l.WidthMhz,
+            SignalDbm = l.Signal,
+            TxRateMbps = l.RxRateKbps > 0 ? (int)(l.RxRateKbps / 1000) : null,
+            RxRateMbps = l.TxRateKbps > 0 ? (int)(l.TxRateKbps / 1000) : null,
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Marks a mesh hop the child described itself as MLO and attaches its per-link breakdown.
+    /// The child's own uplink.mlo_links is the source: each link with the signal as the child
+    /// measures it, and the hop's rates (the uplink's top-level tx/rx) already sum those links.
+    /// A child that reports no links falls back to the agreeing parent's claim: its links,
+    /// flipped, and its per-link sum overlaid without lowering a rate already on the hop.
+    /// Returns the aggregate child-toward-parent Mbps (the hop's egress), or null when the hop
+    /// is not MLO.
+    /// </summary>
+    private static int? ApplySelfReportedMloOverlay(
+        NetworkHop hop,
+        DiscoveredDevice device,
+        IReadOnlyDictionary<string, UniFiDiscovery.MeshParentClaim> meshParents)
+    {
+        var claimIsMlo = meshParents.TryGetValue(device.Mac, out var claim)
+            && !claim.Contradicts(device.UplinkMac)
+            && claim.IsMlo && claim.Links.Count > 0;
+
+        if (device.UplinkMloLinks.Count > 0 && (device.UplinkIsMlo || claimIsMlo))
+        {
+            hop.IsMloMeshBackhaul = true;
+            hop.MeshMloLinks = device.UplinkMloLinks.Select(l => new MeshBackhaulLink
+            {
+                Band = l.Band,
+                Channel = l.Channel,
+                WidthMhz = l.WidthMhz,
+                SignalDbm = l.SignalDbm,
+                TxRateMbps = l.TxRateMbps,
+                RxRateMbps = l.RxRateMbps,
+            }).ToList();
+            return hop.WirelessTxRateMbps;
+        }
+
+        if (!claimIsMlo) return null;
+
+        ApplyMloBackhaulDetail(hop, claim);
+        // The child measures its own STA link, so its signal outranks the parent's for
+        // that link; the other links are only reported by the parent.
+        if (hop.MeshMloLinks != null && device.UplinkSignalDbm.HasValue)
+        {
+            var ownLink = hop.MeshMloLinks.FirstOrDefault(l =>
+                string.Equals(l.Band, device.UplinkRadioBand, StringComparison.OrdinalIgnoreCase));
+            if (ownLink != null) ownLink.SignalDbm = device.UplinkSignalDbm;
+        }
+        // Never lower a rate already on the hop: a load-time snapshot may have caught a link
+        // negotiated higher than the parent's table shows.
+        var txKbps = FilterIdleRate(claim.RxRateKbps);
+        var rxKbps = FilterIdleRate(claim.TxRateKbps);
+        if (txKbps > 0) hop.WirelessTxRateMbps = Math.Max(hop.WirelessTxRateMbps ?? 0, (int)(txKbps / 1000));
+        if (rxKbps > 0) hop.WirelessRxRateMbps = Math.Max(hop.WirelessRxRateMbps ?? 0, (int)(rxKbps / 1000));
+        return txKbps > 0 ? hop.WirelessTxRateMbps : null;
     }
 
     /// <summary>
@@ -1806,11 +1893,27 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         Dictionary<string, UniFiDeviceResponse> rawDevices,
         WirelessRateSnapshot? priorSnapshot = null,
         string? wanIp = null,
-        string? resolvedWanGroup = null)
+        string? resolvedWanGroup = null,
+        string? forceApMac = null)
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
         var meshParents = UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
+
+        // Stands in for what topology reported the client was on. The walk uses it exactly as it
+        // would the real value, so the whole path above the access point is built normally.
+        // Ignored unless it names a wireless client's access point this topology actually knows,
+        // so a stale or unknown override can only fall back to today's behavior.
+        var targetApMac = targetClient?.ConnectedToDeviceMac;
+        if (!string.IsNullOrEmpty(forceApMac)
+            && targetClient is { IsWired: false }
+            && deviceDict.ContainsKey(forceApMac)
+            && !string.Equals(forceApMac, targetApMac, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Tracing {Name} through {Forced} instead of {Topology}",
+                targetClient.Name ?? targetClient.IpAddress, forceApMac, targetApMac ?? "(none)");
+            targetApMac = forceApMac;
+        }
 
         // Start from target and trace back to server's switch
         string? currentMac;
@@ -1884,6 +1987,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.WirelessTxRateMbps = currentTxKbps > 0 ? (int)(currentTxKbps / 1000) : null;
                 deviceHop.WirelessRxRateMbps = currentRxKbps > 0 ? (int)(currentRxKbps / 1000) : null;
 
+                var mloAggregate = ApplySelfReportedMloOverlay(deviceHop, targetDevice, meshParents);
+                if (mloAggregate.HasValue)
+                {
+                    deviceHop.IngressSpeedMbps = mloAggregate.Value;
+                    deviceHop.EgressSpeedMbps = mloAggregate.Value;
+                }
+
                 _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, TxRate={Tx}Mbps, RxRate={Rx}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
                     targetDevice.Name, targetDevice.UplinkType,
                     deviceHop.WirelessTxRateMbps, deviceHop.WirelessRxRateMbps,
@@ -1916,7 +2026,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         else if (targetClient != null)
         {
             // Target is a client - start from its connected device
-            currentMac = targetClient.ConnectedToDeviceMac;
+            currentMac = targetApMac;
             currentPort = targetClient.SwitchPort;
 
             // Warn if wireless client has no AP MAC - indicates stale data from UniFi API
@@ -1968,10 +2078,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     // For site surveys, the current AP is where the user IS, so current rates
                     // are the accurate representation of their actual position.
                     if (!string.IsNullOrEmpty(snapshotRates.ApMac) &&
-                        !string.Equals(snapshotRates.ApMac, targetClient.ConnectedToDeviceMac, StringComparison.OrdinalIgnoreCase))
+                        !string.Equals(snapshotRates.ApMac, targetApMac, StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogDebug("Wireless client {Name}: Skipping snapshot - client roamed from {SnapAp} to {CurAp}",
-                            targetClient.Name ?? targetClient.IpAddress, snapshotRates.ApMac, targetClient.ConnectedToDeviceMac);
+                            targetClient.Name ?? targetClient.IpAddress, snapshotRates.ApMac, targetApMac);
                     }
                     else
                     {
@@ -2273,6 +2383,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         }
                         hop.WirelessTxRateMbps = hopTxKbps > 0 ? (int)(hopTxKbps / 1000) : null;
                         hop.WirelessRxRateMbps = hopRxKbps > 0 ? (int)(hopRxKbps / 1000) : null;
+                        var hopMloAggregate = ApplySelfReportedMloOverlay(hop, device, meshParents);
+                        if (hopMloAggregate.HasValue)
+                        {
+                            hop.EgressSpeedMbps = hopMloAggregate.Value;
+                        }
                     }
                     else
                     {
@@ -3037,7 +3152,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         return (int)(theoreticalMbps * FallbackOverheadFactor);
     }
 
-    private void CalculateBottleneck(NetworkPath path)
+    /// <summary>
+    /// Re-derives the path's bottleneck, max, and realistic max from its hops as they stand now.
+    /// For a caller that re-rates a hop after the trace (the client Wi-Fi fit): without this the
+    /// stored max, realistic max, and description keep describing the trace-time rate.
+    /// </summary>
+    public static void RecalculateBottleneck(NetworkPath path)
+    {
+        foreach (var hop in path.Hops)
+            hop.IsBottleneck = false;
+        CalculateBottleneck(path);
+    }
+
+    private static void CalculateBottleneck(NetworkPath path)
     {
         if (path.Hops.Count == 0)
         {

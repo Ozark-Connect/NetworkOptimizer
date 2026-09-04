@@ -176,18 +176,18 @@
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
-                                                     Items="@(IsSeriesVisible(series) ? series.DownloadData : _emptyChartData)"
+                                                     Items="@(IsSeriesVisible(series) ? series.DownloadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↓")"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
-                                                     YValue="e => e.Value"
+                                                     YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="ChartPoint"
-                                                     Items="@(IsSeriesVisible(series) ? series.UploadData : _emptyChartData)"
+                                                     Items="@(IsSeriesVisible(series) ? series.UploadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↑")"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
-                                                     YValue="e => e.Value"
+                                                     YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
                             </ApexChart>
@@ -204,11 +204,11 @@
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
-                                                     Items="@(IsSeriesVisible(series) ? series.LatencyData : _emptyChartData)"
+                                                     Items="@(IsSeriesVisible(series) ? series.LatencyData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
                                                      XValue="e => e.Timestamp"
-                                                     YValue="e => e.Value"
+                                                     YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
                             </ApexChart>
@@ -225,11 +225,11 @@
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
-                                                     Items="@(IsSeriesVisible(series) ? series.JitterData : _emptyChartData)"
+                                                     Items="@(IsSeriesVisible(series) ? series.JitterData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
                                                      XValue="e => e.Timestamp"
-                                                     YValue="e => e.Value"
+                                                     YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
                             </ApexChart>
@@ -385,7 +385,7 @@
                                                 <div class="expand-content">
                                                     <div class="history-details">
                                                         <SpeedTestDetails Result="result"
-                                                                          UseWanLabels="true"
+                                                                          Perspective="SpeedPerspective.Wan"
                                                                           OnDelete="HandleDelete"
                                                                           OnNotesChanged="HandleNotesChanged"
                                                                           IsInTableRow="true"
@@ -740,7 +740,7 @@
     private ApexChart<ChartPoint>? _jitterChart;
     private ApexChartOptions<ChartPoint> _jitterChartOptions = new();
     private List<ServerSeriesInfo> _chartSeries = new();
-    private List<ChartPoint> _emptyChartData = new();
+    private List<ChartPoint> _hiddenChartData = new();
     private string _activeTab = "speed";
 
     // Time slider
@@ -762,11 +762,35 @@
         public int ResultId { get; set; }
         public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
+        // A padding point at the chart's edge: no result behind it, drawn as nothing.
+        public bool IsGap { get; init; }
+        public decimal? Y => IsGap ? null : Value;
+
         public ChartPoint(DateTime timestamp, double value, int resultId)
         {
             Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = (decimal)value;
             ResultId = resultId;
+        }
+
+        public static ChartPoint Gap(DateTime timestamp) => new(timestamp, 0, 0) { IsGap = true };
+    }
+
+    // Every series on a chart must start and end at the same x, or ApexCharts hit-tests the hover in
+    // two dimensions (nearest point by pixel distance, any series) instead of by x alone, and on
+    // sparse test points the tooltip jumps and drops. Null edge points draw nothing, take no hover
+    // dot and get no tooltip row, so the padding is invisible. Empty series get both points too.
+    private static void PadToCommonSpan(IEnumerable<List<ChartPoint>> seriesLists)
+    {
+        var lists = seriesLists.ToList();
+        var points = lists.SelectMany(l => l).Where(p => !p.IsGap).ToList();
+        if (points.Count == 0) return;
+        var min = points.Min(p => p.Timestamp);
+        var max = points.Max(p => p.Timestamp);
+        foreach (var list in lists)
+        {
+            if (list.Count == 0 || list[0].Timestamp > min) list.Insert(0, ChartPoint.Gap(min));
+            if (list[^1].Timestamp < max) list.Add(ChartPoint.Gap(max));
         }
     }
 
@@ -983,7 +1007,16 @@
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
             Legend = new Legend { Show = false },
-            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                // The shared Monitoring tooltip, via its window hook (a serialized function string
+                // cannot import the module): rows ordered as the lines sit, and a dot on every one.
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }"
+            },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } },
             Fill = new Fill
             {
@@ -1036,7 +1069,14 @@
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
             Legend = new Legend { Show = false },
-            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' " + unit + @"'; }, omitSeconds: true }) : ''; }"
+            },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }
         };
     }
@@ -1159,6 +1199,13 @@
                 .ToList();
             series.JitterData = shouldDownsample ? DownsampleLttb(CollapseClusters(jitterRaw), MaxChartPoints) : jitterRaw;
         }
+
+        // One span for every chart on the page, so a hidden server's stand-in series fits all of them.
+        var allSeries = _chartSeries.SelectMany(s => new[] { s.DownloadData, s.UploadData, s.LatencyData, s.JitterData }).ToList();
+        PadToCommonSpan(allSeries);
+        _hiddenChartData = allSeries.FirstOrDefault(s => s.Count > 0) is { } spanned
+            ? new List<ChartPoint> { ChartPoint.Gap(spanned[0].Timestamp), ChartPoint.Gap(spanned[^1].Timestamp) }
+            : new List<ChartPoint>();
     }
 
     private static List<ChartPoint> CollapseClusters(List<ChartPoint> data)
@@ -1263,7 +1310,7 @@
 
     private async Task OnChartClicked(SelectedData<ChartPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is ChartPoint point)
+        if (data?.DataPoint?.Items?.FirstOrDefault() is ChartPoint { IsGap: false } point)
             await ScrollToResult(point.ResultId);
     }
 

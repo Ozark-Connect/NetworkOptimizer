@@ -1,0 +1,110 @@
+namespace NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
+
+/// <summary>
+/// Splits a WAN's measured rate across the clients that could have produced it. There is no
+/// per-client WAN counter at second resolution, so this is a reconciliation, per direction. The
+/// caller hands each client's rate with its baseline local traffic already subtracted (a constant
+/// flow such as a camera feed is not a WAN candidate), so what arrives here is the rate that
+/// could have been WAN:
+/// <list type="number">
+/// <item>The clients' rates add up to the WAN rate within <see cref="Threshold"/>: the WAN explains
+/// the whole load, nothing is local, every client's WAN rate is its rate, scaled together to the
+/// WAN rate when the slack (counters read seconds apart) puts the total over it. A leftover the
+/// capped rates cannot cover - a burst shorter than the corroborating sources' lag - is released
+/// against the clients' headroom (their rate above the cap), proportionally, marked estimated.</item>
+/// <item>They exceed it: some traffic never left the site. The WAN rate is water-filled across
+/// clients in proportion to their recent DPI WAN bytes, each capped by its rate and by what its
+/// uplink chain carried. A client with no recent DPI bytes gets none; when nobody has any (DPI
+/// unavailable) the rates weight it instead.</item>
+/// </list>
+/// </summary>
+public static class WanShareReconciler
+{
+    /// <summary>How far past the WAN rate the clients' total may run before some of it is called local.</summary>
+    public const double Threshold = 0.15;
+
+    /// <summary>One client's rate (baseline local traffic already out), its DPI WAN bytes over the
+    /// recent window, the least its uplink chain carried (null when no hop had a rate), and how far
+    /// above the corroborated cap its measured rate runs - spendable only against a WAN deficit.</summary>
+    public readonly record struct Load(double RateBps, double DpiBytes, double? ChainCapBps, double HeadroomBps = 0);
+
+    /// <summary>A leftover smaller than this is counter slack, not a deficit worth estimating over.</summary>
+    private const double ReleaseFloorBps = 1_000_000;
+
+    /// <summary>Per-client WAN rates in input order, and whether they are an estimate (case 2).</summary>
+    public readonly record struct Split(double[] WanBps, bool Estimated);
+
+    public static Split Allocate(double wanRateBps, IReadOnlyList<Load> loads, double threshold = Threshold)
+    {
+        var n = loads.Count;
+        var wan = new double[n];
+        if (n == 0 || wanRateBps <= 0) return new Split(wan, false);
+
+        var caps = new double[n];
+        double sum = 0;
+        for (var i = 0; i < n; i++)
+        {
+            var rate = Math.Max(0, loads[i].RateBps);
+            caps[i] = loads[i].ChainCapBps is { } chain ? Math.Min(rate, Math.Max(0, chain)) : rate;
+            sum += rate;
+        }
+
+        if (sum <= wanRateBps * (1 + threshold))
+        {
+            var scale = sum > wanRateBps ? wanRateBps / sum : 1;
+            double allocated = 0;
+            for (var i = 0; i < n; i++) { wan[i] = caps[i] * scale; allocated += wan[i]; }
+            // A deficit the capped rates cannot explain is a burst the corroborating sources have
+            // not caught up to; whoever holds uncapped headroom spends it, proportionally.
+            var leftover = wanRateBps - allocated;
+            double headroom = 0;
+            for (var i = 0; i < n; i++) headroom += Math.Max(0, loads[i].HeadroomBps);
+            if (leftover < ReleaseFloorBps || headroom <= 0) return new Split(wan, false);
+            var factor = Math.Min(1, leftover / headroom);
+            for (var i = 0; i < n; i++) wan[i] += Math.Max(0, loads[i].HeadroomBps) * factor;
+            return new Split(wan, true);
+        }
+
+        var weights = new double[n];
+        var anyDpi = false;
+        for (var i = 0; i < n; i++)
+        {
+            weights[i] = Math.Max(0, loads[i].DpiBytes);
+            anyDpi |= weights[i] > 0;
+        }
+        if (!anyDpi)
+            for (var i = 0; i < n; i++) weights[i] = caps[i];
+
+        var active = new List<int>();
+        for (var i = 0; i < n; i++)
+            if (weights[i] > 0 && caps[i] > 0) active.Add(i);
+
+        var remaining = wanRateBps;
+        while (active.Count > 0 && remaining > 0)
+        {
+            double totalWeight = 0;
+            foreach (var i in active) totalWeight += weights[i];
+            if (totalWeight <= 0) break;
+
+            // Anyone whose share overflows their cap takes the cap; the rest is re-shared.
+            var saturated = new List<int>();
+            foreach (var i in active)
+            {
+                var share = remaining * weights[i] / totalWeight;
+                if (share >= caps[i]) saturated.Add(i);
+            }
+            if (saturated.Count == 0)
+            {
+                foreach (var i in active) wan[i] = remaining * weights[i] / totalWeight;
+                break;
+            }
+            foreach (var i in saturated)
+            {
+                wan[i] = caps[i];
+                remaining -= caps[i];
+                active.Remove(i);
+            }
+        }
+        return new Split(wan, true);
+    }
+}

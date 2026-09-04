@@ -466,7 +466,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
                 // Brief delay to let link rates stabilize, then capture snapshot
                 await Task.Delay(1000);
-                _ = _snapshotService.CaptureSnapshotAsync(host);
+                _ = _snapshotService.CaptureSnapshotAsync(_siteSlug, host);
 
                 // Brief delay before Phase 2 (upload test)
                 await Task.Delay(500);
@@ -847,7 +847,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         try
         {
             // Get snapshot if available (captured between Phase 1 and Phase 2)
-            var snapshot = _snapshotService.GetSnapshot(targetHost);
+            var snapshot = _snapshotService.GetSnapshot(_siteSlug, targetHost);
 
             _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}{Snapshot}",
                 targetHost, result.LocalIp ?? "auto",
@@ -894,7 +894,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
             // Clean up snapshot after use
             if (snapshot != null)
-                _snapshotService.RemoveSnapshot(targetHost);
+                _snapshotService.RemoveSnapshot(_siteSlug, targetHost);
 
             if (analysis.Path.IsValid)
             {

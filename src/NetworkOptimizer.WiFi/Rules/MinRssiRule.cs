@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -39,6 +40,8 @@ public class MinRssiRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.RoamingPerformance, HealthDimension.ChannelHealth },
             Title = "Consider Minimum RSSI (With Caution)",
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId),
             Description = "Minimum RSSI can help sticky clients roam by hard-disconnecting them when signal drops. " +
                 "Use cautiously as it can cause issues with some clients.",
             Recommendation = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). " +

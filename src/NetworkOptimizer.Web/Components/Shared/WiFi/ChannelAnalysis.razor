@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ISystemSettingsService SettingsService
+@inject IWiFiRadioKeepService RadioKeep
 @implements IDisposable
 
 <div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
@@ -274,11 +275,27 @@
                                         {
                                             <span class="soak-badge" data-tooltip="@GetSoakTooltip(rec)">Soaking</span>
                                         }
+                                        @if (rec.IsKept)
+                                        {
+                                            <span class="mesh-link-badge" data-tooltip="Pinned - Channel Recommendation leaves this radio where it is">Pinned</span>
+                                        }
                                         @if (rec.IsUnplaced)
                                         {
                                             <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
                                         }
                                     </span>
+                                    @* A mesh child follows its parent, so the pin sits on the parent. *@
+                                    @if (!rec.IsMeshConstrained)
+                                    {
+                                        <SiteAdminOnly>
+                                            <button class="rec-pin-btn @(rec.IsKept ? "pinned" : "")" disabled="@_keepBusy"
+                                                    data-tooltip="@(rec.IsKept ? "Unpin Channel - let Channel Recommendation move this radio again" : "Pin Channel - Channel Recommendation will leave this radio where it is")"
+                                                    aria-label="@(rec.IsKept ? "Unpin Channel" : "Pin Channel")"
+                                                    @onclick="() => ToggleKeepAsync(rec)">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                                            </button>
+                                        </SiteAdminOnly>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
@@ -307,6 +324,24 @@
                                         }
                                         <span class="rec-no-change">(No change)</span>
                                     }
+                                    @if (!string.IsNullOrEmpty(rec.WidthReason))
+                                    {
+                                        <div class="rec-move-note"><span>@rec.WidthReason</span></div>
+                                    }
+                                    @* A move the AP Agent saw within the last day. *@
+                                    @if (rec.MovedAt.HasValue)
+                                    {
+                                        <div class="rec-move-note">
+                                            @if (rec.MoveInterferenceBefore.HasValue && rec.MoveInterferenceAfter.HasValue)
+                                            {
+                                                <span>Measured since the move: interference @rec.MoveInterferenceBefore.Value.ToString("F0")% before, @rec.MoveInterferenceAfter.Value.ToString("F0")% after.</span>
+                                            }
+                                            else if (rec.MoveVerdictDueAt.HasValue)
+                                            {
+                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime().ToString("t").</span>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
@@ -322,6 +357,10 @@
                             No floor plan or building data found. Build out your property in Signal Map for propagation-modeled recommendations
                             that account for wall materials, antenna patterns, and AP placement.
                         </div>
+                    }
+                    @if (plan.KeptRadioCount > 0)
+                    {
+                        <div class="recommendation-notice">@plan.KeptRadioCount radio(s) pinned.</div>
                     }
                     else if (plan.UnplacedApCount > 0)
                     {
@@ -366,21 +405,22 @@
                         <summary>How This Works</summary>
                         <div class="recommendation-explainer-content">
                             <p>
-                                Most channel pickers just count nearby networks. This builds a physical model of your
-                                RF environment, measures what's actually on each channel, and solves for the channel
-                                plan that minimizes real interference:
+                                Most channel pickers count nearby networks. This builds a physical model of your RF
+                                environment, measures what is actually on each channel, and solves for the plan with
+                                the least real interference:
                             </p>
                             <ul>
-                                <li><strong>Signal propagation</strong> - models how far each AP's signal actually reaches using your floor plan, wall materials, and per-radio antenna patterns, not distance alone.</li>
-                                <li><strong>Transmit-power aware</strong> - each AP's real EIRP is applied directionally, so a low-power AP correctly counts as a gentler neighbor than a full-power one.</li>
-                                <li><strong>Real contention, not raw signal</strong> - interference is measured against the CCA threshold (where radios actually defer), so barely-audible signals aren't over-counted.</li>
-                                <li><strong>Measured airtime and noise floor</strong> - reads each channel's actual utilization and RF noise floor from the radios' spectrum scans, so congestion and non-Wi-Fi interference (radar, microwaves, a noisy neighbor's gear) count even when no Wi-Fi network is visible there. An AP is never moved onto a channel that measures worse than where it sits.</li>
-                                <li><strong>Neighboring networks</strong> - folds in UniFi's RF scan of networks you don't control, triangulated across all your APs for a fuller picture than any single AP sees. Neighbors are also remembered for weeks (counting for less as a sighting ages, and less still if it was only seen briefly rather than cycle after cycle), so an AP without a dedicated scan radio keeps what it learned about a channel's neighborhood even after moving off that channel.</li>
-                                <li><strong>Recent measured trends</strong> - per-channel utilization, interference, and TX-retry from the console's own recent history, so the plan reflects how a channel behaves over time, not one noisy snapshot.</li>
-                                <li><strong>Long-term outcome memory</strong> - how channels you've actually run performed (utilization, interference, TX retries) is recorded and kept for months, well beyond the console's short retention, so a previously-tried channel is judged on its own measured record instead of estimates. Older evidence counts for less, so the picture tracks how a channel behaves now. After a channel change, the abandoned channel isn't re-suggested during a @(ChannelMemoryHelper.SoakPeriod.TotalHours.ToString("0"))-hour soak while the new one proves itself.</li>
-                                <li><strong>Honest about the unknown</strong> - channels with no scan data are penalized for that uncertainty, so it won't push you onto an unseen channel unless your known channels are clearly worse.</li>
-                                <li><strong>Whole-network and per-AP</strong> - minimizes total interference across the site, then checks each AP individually, only suggesting a move that genuinely helps and never wrecking one AP to slightly help another.</li>
-                                <li><strong>Mesh and DFS aware</strong> - mesh APs stay on their parent's channel; DFS channels are handled per your preference.</li>
+                                <li><strong>Signal propagation</strong> - how far each AP's signal reaches, from your floor plan, wall materials, and per-radio antenna patterns, not distance alone.</li>
+                                <li><strong>Transmit-power aware</strong> - each AP's real EIRP is applied directionally, so a low-power AP counts as a gentler neighbor.</li>
+                                <li><strong>Real contention, not raw signal</strong> - interference is measured against the CCA threshold, where radios actually defer, so barely-audible signals are not over-counted.</li>
+                                <li><strong>Measured airtime and noise floor</strong> - each channel's utilization and RF noise floor from the radios' spectrum scans, so congestion and non-Wi-Fi interference (radar, microwaves, a neighbor's gear) count even with no network visible. An AP Agent access point is read every 30 seconds, so its neighbor data is seconds old and its per-channel measurement continuous. An AP is never moved onto a channel that measures worse than where it sits.</li>
+                                <li><strong>Neighboring networks</strong> - UniFi's RF scan of networks you don't control, triangulated across all your APs. Neighbors are remembered for weeks, counting for less as a sighting ages or if it was only seen briefly, so an AP without a scan radio keeps what it learned about a channel after moving off it.</li>
+                                <li><strong>Recent measured trends</strong> - per-channel utilization, interference, and TX retry from the console's recent history, so the plan reflects a channel over time, not one snapshot. Client rates are compared per spatial stream per 20 MHz, so a channel full of 1x1 phones does not read as slow.</li>
+                                <li><strong>Long-term outcome memory</strong> - how channels you have actually run performed, kept for months beyond the console's retention, with older evidence counting for less. After a change, the old channel is not re-suggested during a @(ChannelMemoryHelper.SoakPeriod.TotalHours.ToString("0"))-hour soak. With the AP Agent the memory is keyed by the measured channel block (which matters at 320 MHz, where the channel number alone does not say which block), a move is noticed the moment it happens (UniFi Network logs nothing for a Channel AI move), and an hour on the new channel is measured against the old one; a move that measured worse ends the soak early.</li>
+                                <li><strong>Honest about the unknown</strong> - channels with no scan data are penalized for the uncertainty, so you are not pushed onto an unseen channel unless your known ones are clearly worse.</li>
+                                <li><strong>Whole-network and per-AP</strong> - minimizes total interference across the site, then checks each AP on its own, never wrecking one AP to slightly help another.</li>
+                                <li><strong>Mesh, DFS, and pin aware</strong> - mesh APs stay on their parent's channel, a Wi-Fi 7 MLO backhaul is a mesh pair on every band it runs on, DFS channels follow your preference, and a pinned radio is never moved.</li>
+                                <li><strong>Width recommendations</strong> - with AP Agent data, a narrower width when no roaming client used more than half of it this week, or a wider one when clients can use it and the air is quiet. Never on 2.4 GHz or a backhaul radio.</li>
                             </ul>
                             <p>Lower scores mean less interference.</p>
                         </div>
@@ -450,7 +490,11 @@
         @if (_selectedChannel != null)
         {
             var apsOnChannel = GetApsOnChannel(_selectedBand, _selectedChannel.Value);
-            var hasActualOverlap = IsChannelOverlapped(_selectedBand, _selectedChannel.Value);
+            var coChannelIssue = CoChannelIssueFor(_selectedBand, _selectedChannel.Value);
+            var hasActualOverlap = coChannelIssue != null;
+            // Same primary keeps the count sentence; an overlap between different primaries
+            // reaches past this channel, so the issue's own description names the blocks.
+            var overlapReachesOtherChannels = coChannelIssue != null && coChannelIssue.AffectedChannels.Count > 1;
             var hasMeshPair = IsChannelMesh(_selectedBand, _selectedChannel.Value);
             <div class="channel-details-section">
                 <div class="section-header">
@@ -462,7 +506,14 @@
                 {
                     <div class="overlap-warning">
                         <span class="warning-icon">!</span>
-                        <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                        @if (overlapReachesOtherChannels)
+                        {
+                            <span>@coChannelIssue!.Description</span>
+                        }
+                        else
+                        {
+                            <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                        }
                     </div>
                 }
                 else if (hasMeshPair)
@@ -491,7 +542,7 @@
                                     </div>
                                     @if (radio.ChannelWidth >= 40)
                                     {
-                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel);
+                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel, radio.CenterChannel);
                                         var spanOrdered = span.OrderBy(c => c).ToList();
                                         <div class="detail-item">
                                             <span class="detail-label">Bonded:</span>
@@ -569,7 +620,7 @@
                                 <div class="ap-col ap-name-col">
                                     <span class="ap-name">
                                         <DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name
-                                        @if (ap.IsMeshChild && ap.MeshUplinkBand == _selectedBand)
+                                        @if (ap.IsMeshChild && ap.MeshUplinkUsesBand(_selectedBand))
                                         {
                                             <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
                                         }
@@ -672,6 +723,31 @@
     public void Dispose() => _ageTimer?.Dispose();
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
+    private bool _keepBusy;
+
+    /// <summary>
+    /// Keep or release one radio, then rebuild the plan: the kept set is part of the plan's
+    /// cache key, so the rebuild is a different question rather than a stale answer.
+    /// </summary>
+    private async Task ToggleKeepAsync(ApChannelRecommendation rec)
+    {
+        if (_keepBusy) return;
+        _keepBusy = true;
+        try
+        {
+            if (rec.IsKept)
+                await RadioKeep.ReleaseAsync(rec.ApMac, rec.Band);
+            else
+                await RadioKeep.KeepAsync(rec.ApMac, rec.Band);
+
+            var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options, forceRefresh: true);
+        }
+        finally
+        {
+            _keepBusy = false;
+        }
+    }
     private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
     private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 
@@ -881,13 +957,19 @@
     {
         if (!channel.HasValue) return false;
 
-        // Use the health engine's co-channel issues which apply propagation filtering
-        // to avoid false positives from APs that are too far apart to interfere
+        return CoChannelIssueFor(band, channel.Value) != null;
+    }
+
+    // The health engine's co-channel issues apply propagation filtering, which avoids false
+    // positives from APs too far apart to interfere. An issue can span several primaries, so
+    // it is matched on its channel set rather than its title.
+    private HealthIssue? CoChannelIssueFor(RadioBand band, int channel)
+    {
         var bandStr = band.ToDisplayString();
-        return _channelIssues.Any(i =>
+        return _channelIssues.FirstOrDefault(i =>
             i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase) &&
             i.Title.Contains(bandStr) &&
-            i.Title.Contains($"Channel {channel.Value}"));
+            i.AffectedChannels.Contains(channel));
     }
 
     private bool IsChannelMesh(RadioBand band, int? channel)
@@ -900,8 +982,7 @@
         return apsOnChannel.Any(ap =>
             ap.IsMeshChild &&
             !string.IsNullOrEmpty(ap.MeshParentMac) &&
-            ap.MeshUplinkBand == band &&
-            ap.MeshUplinkChannel == channel.Value &&
+            ap.MeshUplinkUsesChannel(band, channel.Value) &&
             apsOnChannel.Any(parent => parent.Mac.Equals(ap.MeshParentMac, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -1236,7 +1317,7 @@
             var width = radio.ChannelWidth!.Value;
             var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
 
-            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel);
+            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel, radio.CenterChannel);
             var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
 
             // De-duplicate by primary channel - same primary = same group
@@ -1308,8 +1389,8 @@
         }
     }
 
-    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null) =>
-        ChannelSpanHelper.GetChannelWidthSpan(band, primaryChannel, width, extChannel);
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null, int? centerChannel = null) =>
+        ChannelSpanHelper.GetChannelWidthSpan(band, primaryChannel, width, extChannel, centerChannel);
 
     private string GetChannelGroupClass(RadioBand band, int channel)
     {

@@ -174,6 +174,17 @@
     [Parameter]
     public bool AllowApEditing { get; set; } = true;
 
+    /// <summary>
+    /// Whose download the popups read: the server's pair as stored, or the tested device's, which
+    /// is that pair swapped. Client Performance passes Device; the speed test pages keep Server.
+    /// </summary>
+    [Parameter]
+    public SpeedPerspective Perspective { get; set; }
+
+    /// <summary>A result's (download, upload) in the mounted perspective.</summary>
+    private (double Down, double Up) Pair(Iperf3Result r) =>
+        Perspective == SpeedPerspective.Device ? (r.UploadMbps, r.DownloadMbps) : (r.DownloadMbps, r.UploadMbps);
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     /// <summary>
@@ -1347,16 +1358,17 @@
             foreach (var test in recentTests)
             {
                 var testTime = test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
-                var dlColor = GetSpeedColor(test.DownloadMbps);
-                var ulColor = GetSpeedColor(test.UploadMbps);
+                var (down, up) = Pair(test);
+                var dlColor = GetSpeedColor(down);
+                var ulColor = GetSpeedColor(up);
                 var clickAttr = OnResultClick.HasDelegate
                     ? $" onclick='window._speedTestMapClick({test.Id})' style='cursor:pointer'"
                     : "";
                 html += $"<div class='ap-popup-test-row'{clickAttr}>";
                 html += $"<span class='ap-popup-test-time'>{testTime}</span>";
                 html += $"<span class='ap-popup-test-speeds'>";
-                html += $"<span style='color:{dlColor}'>↓ {test.DownloadMbps:F0}</span>";
-                html += $"<span style='color:{ulColor}'>↑ {test.UploadMbps:F0}</span>";
+                html += $"<span style='color:{dlColor}'>↓ {down:F0}</span>";
+                html += $"<span style='color:{ulColor}'>↑ {up:F0}</span>";
                 html += " Mbps</span>";
                 html += "</div>";
             }
@@ -1611,6 +1623,31 @@
         return false;
     }
 
+    /// <summary>Channel and its width, or nothing when the channel is unknown.</summary>
+    private static string FormatChannelForTooltip(int? channel, int? widthMhz)
+    {
+        if (channel is not > 0) return "";
+        return widthMhz is > 0
+            ? $"<span class='wifi-tooltip-ch'>Ch {channel}</span> {widthMhz} MHz"
+            : $"<span class='wifi-tooltip-ch'>Ch {channel}</span>";
+    }
+
+    /// <summary>An MLO result's per-link detail, or an empty list when it is not one.</summary>
+    private static List<MapMloLink> ParseMloLinks(Iperf3Result result)
+    {
+        if (string.IsNullOrEmpty(result.WifiMloLinksJson)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<MapMloLink>>(result.WifiMloLinksJson) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private record MapMloLink(string? radio, int? channel, int? channelWidth, int? signal);
+
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
         var deviceName = result.DeviceName ?? result.DeviceHost;
@@ -1648,8 +1685,9 @@
 
         // Speed row
         html += $"<div class='wifi-tooltip-row wifi-tooltip-speed'>";
-        html += $"<span class='wifi-speed-rx'>↓ {result.DownloadMbps:F0}</span> · ";
-        html += $"<span class='wifi-speed-tx'>↑ {result.UploadMbps:F0}</span> Mbps";
+        var (popupDown, popupUp) = Pair(result);
+        html += $"<span class='speed-down'>↓ {popupDown:F0}</span> · ";
+        html += $"<span class='speed-up'>↑ {popupUp:F0}</span> Mbps";
         html += "</div>";
 
         // AP name if available (clickable to filter + open AP popup)
@@ -1661,8 +1699,25 @@
                 html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
         }
 
-        // Band and signal if available
-        if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
+        // An MLO client is several links at once; one band badge cannot describe it.
+        var mloLinks = ParseMloLinks(result);
+        if (mloLinks.Count > 0)
+        {
+            foreach (var link in mloLinks.OrderByDescending(l => l.channelWidth ?? 0))
+            {
+                html += "<div class='wifi-tooltip-link-signal'>";
+                if (!string.IsNullOrEmpty(link.radio))
+                {
+                    var linkRadio = link.radio.ToLowerInvariant();
+                    html += $"<span class='wifi-band-badge wifi-band-{linkRadio}'>{RadioFormatHelper.FormatBand(linkRadio)}</span> ";
+                }
+                html += FormatChannelForTooltip(link.channel, link.channelWidth);
+                if (link.signal.HasValue)
+                    html += $"{(link.channel is > 0 ? " " : "")}<span class='wifi-tooltip-signal-value'>{link.signal} dBm</span>";
+                html += "</div>";
+            }
+        }
+        else if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio) || result.WifiChannel.HasValue)
         {
             html += "<div class='wifi-tooltip-link-signal'>";
             if (!string.IsNullOrEmpty(result.WifiRadio))
@@ -1670,9 +1725,10 @@
                 var radio = result.WifiRadio.ToLowerInvariant();
                 html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
             }
+            html += FormatChannelForTooltip(result.WifiChannel, result.WifiChannelWidthMhz);
             if (result.WifiSignalDbm.HasValue)
             {
-                html += $"{result.WifiSignalDbm} dBm";
+                html += $"{(result.WifiChannel is > 0 ? " " : "")}<span class='wifi-tooltip-signal-value'>{result.WifiSignalDbm} dBm</span>";
             }
             html += "</div>";
         }

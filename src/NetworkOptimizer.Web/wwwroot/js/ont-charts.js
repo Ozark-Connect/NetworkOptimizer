@@ -3,11 +3,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=8';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=15';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=17';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=5';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
-import { ponSeriesFor, ponDetailsHtml, updatePonCard } from './pon-section.js?v=3';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=4';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -314,7 +314,16 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
 
     const el = container.querySelector('.ont-pon-details');
-    if (el) el.innerHTML = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
+    if (el) {
+        const html = ponDetailsHtml(withErrors, 'ONT', DETAIL_EXTRAS);
+        el.innerHTML = html ? `<div class="chart-header"><h3 class="chart-title">PON Status</h3></div>${html}` : '';
+    }
+
+    const totalsEl = container.querySelector('.ont-pon-error-totals');
+    if (totalsEl) {
+        const totalsHtml = ponErrorTotalsHtml(withErrors, 'ONT');
+        totalsEl.innerHTML = totalsHtml ? `<div class="chart-header"><h3 class="chart-title">PON Error Totals</h3></div>${totalsHtml}` : '';
+    }
 }
 
 // Columns this tab adds to the shared table. Ones no ONT fills are dropped by the renderer.

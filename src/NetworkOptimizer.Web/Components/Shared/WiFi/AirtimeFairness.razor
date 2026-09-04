@@ -213,7 +213,7 @@
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">Signal</span>
-                                    <span class="detail-value @SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.Signal ?? 0) dBm</span>
+                                    <span class="detail-value @SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.Signal ?? 0) dBm</span>
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">AP</span>

@@ -5,6 +5,84 @@ namespace NetworkOptimizer.Web.Models;
 /// <summary>
 /// Identified client device information from UniFi controller.
 /// </summary>
+/// <summary>
+/// What the switch or gateway port a wired client is plugged into reports about itself.
+///
+/// Directions are stated from the CLIENT's point of view, not the port's: a port receives what the
+/// client uploads, so the port's inbound counters are the client's upload. Callers render these as
+/// they read them.
+///
+/// These are the port's counters, not the client's. Anything else behind the same port - an
+/// unmanaged switch, a daisy chain - is counted here too.
+/// </summary>
+public class WiredPortStats
+{
+    public string? SwitchName { get; set; }
+    public int? Port { get; set; }
+    public bool? LinkUp { get; set; }
+    public long? LinkSpeedBps { get; set; }
+
+    public double? DownloadBps { get; set; }
+    public double? UploadBps { get; set; }
+
+    public long? ErrorsToClient { get; set; }
+    public long? ErrorsFromClient { get; set; }
+    public long? DropsToClient { get; set; }
+    public long? DropsFromClient { get; set; }
+
+    public long? PacketsToClient { get; set; }
+    public long? PacketsFromClient { get; set; }
+
+    /// <summary>When the port was last polled, so a stale reading can say so.</summary>
+    public DateTime? At { get; set; }
+}
+
+/// <summary>One throughput reading, as download and upload from the client's point of view.</summary>
+/// <summary>WanDownloadBps/WanUploadBps: the conntrack-measured WAN share of the rate, carried
+/// only while the gateway feed covers the site - null means "not measured", never "zero".</summary>
+public record ThroughputSample(
+    DateTime Time, double? DownloadBps, double? UploadBps,
+    double? WanDownloadBps = null, double? WanUploadBps = null);
+
+/// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
+public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
+
+/// <summary>
+/// One application's share of a client's WAN traffic, as UniFi Network identified it.
+/// <paramref name="Note"/> explains a name that is not an application's: traffic UniFi Network
+/// could not identify, or an application our catalog has no name for.
+/// </summary>
+public record AppUsageRow(string Name, string Category, string? IconDomain, string? IconClass, long DownloadBytes, long UploadBytes, long ActivitySeconds, string? Note = null)
+{
+    public long TotalBytes => DownloadBytes + UploadBytes;
+}
+
+/// <summary>
+/// A client's data usage over a window. WAN and LAN answer different questions and are never added:
+/// WAN is what left the site, LAN includes traffic that never did.
+/// </summary>
+public class ClientDataUsage
+{
+    /// <summary>The window actually covered; "All" is capped to what the sources keep.</summary>
+    public DateTime From { get; set; }
+    public DateTime To { get; set; }
+    public TimeSpan Bucket { get; set; }
+
+    /// <summary>Per client, from UniFi Network's own reports.</summary>
+    public IReadOnlyList<UsageBucket> Wan { get; set; } = Array.Empty<UsageBucket>();
+
+    /// <summary>From our own counters: the switch port's for a wired client, the access point's for wireless.</summary>
+    public IReadOnlyList<UsageBucket> Lan { get; set; } = Array.Empty<UsageBucket>();
+
+    /// <summary>The LAN figure is a switch port's total, so anything else behind that port is in it.</summary>
+    public bool LanIsPortTotal { get; set; }
+
+    public long WanDownloadBytes => Wan.Sum(b => b.DownloadBytes);
+    public long WanUploadBytes => Wan.Sum(b => b.UploadBytes);
+    public long LanDownloadBytes => Lan.Sum(b => b.DownloadBytes);
+    public long LanUploadBytes => Lan.Sum(b => b.UploadBytes);
+}
+
 public class ClientIdentity
 {
     public string Mac { get; set; } = "";
@@ -40,6 +118,11 @@ public class ClientIdentity
     public string? FixedApMac { get; set; }
     public string? FixedApName { get; set; }
 
+    // Wired uplink: which switch or gateway port this client is plugged into
+    public string? SwitchMac { get; set; }
+    public string? SwitchName { get; set; }
+    public int? SwitchPort { get; set; }
+
     // Device metadata
     public string? Oui { get; set; }
     public string? NetworkName { get; set; }
@@ -51,6 +134,12 @@ public class ClientIdentity
 
     /// <summary>True when signal data was sourced from the WiFiman realtime endpoint</summary>
     public bool HasWiFiManData { get; set; }
+
+    /// <summary>
+    /// True when signal data came from the access point's own AP Agent rather than the console.
+    /// Optional accelerator: false is the normal state and means the WiFiman path is in use.
+    /// </summary>
+    public bool HasApAgentData { get; set; }
 
     /// <summary>
     /// VPN hop type when this client connects through Tailscale, Teleport, or a UniFi

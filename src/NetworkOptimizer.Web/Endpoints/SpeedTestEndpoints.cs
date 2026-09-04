@@ -252,8 +252,15 @@ public static class SpeedTestEndpoints
                 }
             }
 
+            // A long many-stream test (-P 32 -t 60) is about half a megabyte of -J JSON; this is
+            // a ceiling against an unbounded body, not a budget.
+            const int maxBodyBytes = 4 * 1024 * 1024;
             using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
+            var buffer = new char[maxBodyBytes + 1];
+            var read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+            if (read > maxBodyBytes)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            var json = new string(buffer, 0, read);
             if (string.IsNullOrWhiteSpace(json))
                 return Results.BadRequest(new { error = "Missing iperf3 JSON body" });
 
@@ -321,7 +328,7 @@ public static class SpeedTestEndpoints
             var snapshotService = speedTestRegistry.GetFor(siteSlug).Snapshots;
 
             // Fire-and-forget - capture snapshot asynchronously, don't block response
-            _ = snapshotService.CaptureSnapshotAsync(clientIp);
+            _ = snapshotService.CaptureSnapshotAsync(siteSlug, clientIp);
 
             return Results.Ok(new { success = true });
         }).RequireCors("SpeedTestCors").RequireRateLimiting("PublicSpeedTest");

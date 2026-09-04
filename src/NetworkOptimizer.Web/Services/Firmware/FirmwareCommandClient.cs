@@ -122,10 +122,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware image URL for this device.");
 
+        if (!NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHttpUrl(firmwareUrl))
+            return FirmwareCommandResult.Failed("The firmware image URL is not a usable http(s) URL.");
+
         try
         {
             // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool.
-            var command = isGateway ? $"ubnt-systool fwupdate {firmwareUrl}" : $"upgrade {firmwareUrl}";
+            var command = isGateway ? $"ubnt-systool fwupdate '{firmwareUrl}'" : $"upgrade '{firmwareUrl}'";
             var (success, output) = await _ssh.RunCommandAsync(host, command, null, TimeSpan.FromMinutes(5), cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
@@ -158,6 +161,23 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         {
             _logger.LogWarning(ex, "Firmware check failed for site {Site}", _siteSlug);
             return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await ConnectedClientAsync(cancellationToken);
+        if (client == null) return false;
+
+        try
+        {
+            return await client.TriggerDeviceFirmwareCheckAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Triggering the device firmware check failed for site {Site}", _siteSlug);
+            return false;
         }
     }
 
@@ -361,7 +381,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     public static FirmwareCommandResult MapBackupResult(UniFiConsoleBackupResult? result)
     {
         if (result == null)
-            return FirmwareCommandResult.Failed("the console did not answer the backup request");
+            return FirmwareCommandResult.Failed("the Console did not answer the backup request");
 
         if (result.Success)
             return FirmwareCommandResult.Ok();
@@ -373,8 +393,8 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             .ToList();
 
         return FirmwareCommandResult.Failed(failed.Count == 0
-            ? "the console reported the backup as unsuccessful"
-            : $"the console could not back up {string.Join(", ", failed)}");
+            ? "the Console reported the backup as unsuccessful"
+            : $"the Console could not back up {string.Join(", ", failed)}");
     }
 
     /// <inheritdoc />
@@ -461,11 +481,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     {
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware URL for the SSH UniFi OS update.");
+        if (!NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHttpUrl(firmwareUrl))
+            return FirmwareCommandResult.Failed("The firmware image URL is not a usable http(s) URL.");
 
         try
         {
             var (success, output) = await _gatewaySsh.RunCommandAsync(
-                $"ubnt-systool fwupdate {firmwareUrl}", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
+                $"ubnt-systool fwupdate '{firmwareUrl}'", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 
