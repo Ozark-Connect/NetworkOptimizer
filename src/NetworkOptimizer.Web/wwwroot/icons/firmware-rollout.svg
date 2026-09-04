@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <!-- userSpaceOnUse: a bounding-box gradient paints nothing on a straight vertical or horizontal line -->
+    <linearGradient id="fr-blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="256">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="fr-orange" gradientUnits="userSpaceOnUse" x1="0" y1="170" x2="0" y2="90">
+      <stop offset="0" stop-color="#ea580c"/>
+      <stop offset="1" stop-color="#fb923c"/>
+    </linearGradient>
+  </defs>
+  <!-- chip body -->
+  <rect x="62" y="62" width="132" height="132" rx="20" ry="20" fill="none" stroke="url(#fr-blue)" stroke-width="20"/>
+  <!-- pins, two per side -->
+  <g stroke="url(#fr-blue)" stroke-width="22" stroke-linecap="round">
+    <line x1="102" y1="50" x2="102" y2="16"/>
+    <line x1="154" y1="50" x2="154" y2="16"/>
+    <line x1="102" y1="206" x2="102" y2="240"/>
+    <line x1="154" y1="206" x2="154" y2="240"/>
+    <line x1="50" y1="102" x2="16" y2="102"/>
+    <line x1="50" y1="154" x2="16" y2="154"/>
+    <line x1="206" y1="102" x2="240" y2="102"/>
+    <line x1="206" y1="154" x2="240" y2="154"/>
+  </g>
+  <!-- upgrade arrow -->
+  <g fill="none" stroke="url(#fr-orange)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="128" y1="166" x2="128" y2="100"/>
+    <polyline points="100,126 128,96 156,126"/>
+  </g>
+</svg>
