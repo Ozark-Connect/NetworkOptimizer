@@ -1,4 +1,3 @@
-using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -66,7 +65,9 @@ public class SiteSpeedTestTargetResolver
     /// </summary>
     internal static (string Host, int? Port) SplitHostAndPort(string value)
     {
-        if (System.Net.IPAddress.TryParse(value, out var ip)
+        // The parser accepts "[addr]" and "[addr]:port" as well, so only a bare literal is wrapped.
+        if (!value.StartsWith('[')
+            && System.Net.IPAddress.TryParse(value, out var ip)
             && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
             return ($"[{value}]", null);
