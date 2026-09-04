@@ -96,6 +96,13 @@ public class UniFiClientResponse
     [JsonPropertyName("sw_depth")]
     public int? SwDepth { get; set; }
 
+    /// <summary>
+    /// Seconds since the access point last heard from this client. Compared against uptime it
+    /// separates a quiet client from one that negotiated and left without being torn down.
+    /// </summary>
+    [JsonPropertyName("idletime")]
+    public long IdleTime { get; set; }
+
     [JsonPropertyName("uptime")]
     public long Uptime { get; set; }
 
@@ -330,4 +337,11 @@ public class MloLinkDetail
 
     [JsonPropertyName("satisfaction")]
     public int? Satisfaction { get; set; }
+
+    /// <summary>
+    /// Whether this is the link carrying traffic, when the source states it outright. The console
+    /// does not, so it stays null there and the reader infers activity from the rates.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ActiveLink { get; set; }
 }

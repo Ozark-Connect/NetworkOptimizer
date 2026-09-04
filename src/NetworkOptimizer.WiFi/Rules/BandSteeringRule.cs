@@ -1,3 +1,5 @@
+using NetworkOptimizer.WiFi.Helpers;
+
 namespace NetworkOptimizer.WiFi.Rules;
 
 /// <summary>
@@ -36,6 +38,8 @@ public class BandSteeringRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.BandSteering, HealthDimension.AirtimeEfficiency },
             Title = "Enable or Strengthen Band Steering",
+            Class = HealthIssueClass.Advisory,
+            Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Names(mainSsidsWithoutSteering.Select(w => w.Name))),
             Description = $"{steerablePct:F0}% of clients ({ctx.SteerableClients.Count}) are on a lower band than they support. " +
                 "Enable band steering to push capable devices to faster bands.",
             AffectedEntity = string.Join(", ", mainSsidsWithoutSteering.Select(w => w.Name)),

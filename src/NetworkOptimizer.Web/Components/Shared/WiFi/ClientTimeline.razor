@@ -29,51 +29,10 @@
         }
 
         <!-- Client Selector -->
-        <div class="client-selector-combo">
-            <div class="filterable-select @(_dropdownOpen ? "open" : "")">
-                @if (_selectedClient != null && !_dropdownOpen)
-                {
-                    <!-- Display mode: show selected client -->
-                    <div class="filterable-select-display" @onclick="OpenDropdownForEdit">
-                        <span class="status-dot @(_selectedClient.IsOnline ? "online" : "offline")"></span>
-                        <span class="option-text">@_selectedClient.Name</span>
-                        <span class="option-mac">@_selectedClient.Mac</span>
-                    </div>
-                }
-                else
-                {
-                    <!-- Edit mode: text input for filtering -->
-                    <input @ref="_filterInput"
-                           type="text" class="form-select filterable-select-input"
-                           placeholder="Select a client..."
-                           @bind="_clientSearchText"
-                           @bind:event="oninput"
-                           @onclick="OpenDropdown"
-                           @onfocus="OpenDropdown"
-                           @onblur="CloseDropdownDelayed" />
-                }
-                @if (_dropdownOpen)
-                {
-                    <div class="filterable-select-overlay" @onclick="CloseDropdown"></div>
-                    <div class="filterable-select-dropdown">
-                        @foreach (var client in GetDropdownClients().Take(50))
-                        {
-                            <div class="filterable-select-option @(client.IsOnline ? "" : "offline")"
-                                 @onmousedown="() => SelectClientFromDropdown(client)"
-                                 @onmousedown:preventDefault>
-                                <span class="status-dot @(client.IsOnline ? "online" : "offline")"></span>
-                                <span class="option-text">@client.Name</span>
-                                <span class="option-mac">@client.Mac</span>
-                            </div>
-                        }
-                        @if (!GetDropdownClients().Any())
-                        {
-                            <div class="filterable-select-empty">No clients found</div>
-                        }
-                    </div>
-                }
-            </div>
-        </div>
+        <ClientSelector @ref="_selector"
+                        Items="SelectorItems()"
+                        SelectedKey="@_selectedClientMac"
+                        SelectedKeyChanged="SelectClient" />
 
         <!-- AP & Band Filters (only show on list view) -->
         @if (string.IsNullOrEmpty(_selectedClientMac))
@@ -170,7 +129,7 @@
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
                                 <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
-                                <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
+                                <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
                         }
                     </tbody>
@@ -245,25 +204,43 @@
                 </div>
                 <div class="client-info-details">
                     <div class="info-item">
-                        <span class="info-label">Connected To:</span>
+                        <span class="info-label">@(_selectedClient.IsOnline ? "Connected To:" : "Last Connected To:")</span>
                         <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
                     </div>
-                    <div class="info-item">
-                        <span class="info-label">Band:</span>
-                        <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
-                            @_selectedClient.Band.ToDisplayString()
-                        </span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Channel:</span>
-                        <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")@(_selectedClient.ChannelWidth.HasValue ? $" - {_selectedClient.ChannelWidth} MHz" : "")</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Signal:</span>
-                        <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)">
-                            @(_selectedClient.Signal?.ToString() ?? "-") dBm
-                        </span>
-                    </div>
+                    @if (!_selectedClient.IsOnline)
+                    {
+                        <div class="info-item">
+                            <span class="info-value signal-poor">@GetOfflineTooltip(_selectedClient)</span>
+                        </div>
+                    }
+                    @if (HasMloLinks(_selectedClient))
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Signal:</span>
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)"
+                                  data-tooltip="Signal of the active MLO link">@(_selectedClient.Signal?.ToString() ?? "-") dBm</span>
+                            <span class="band-badge @GetBandCssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Band:</span>
+                            <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
+                                @_selectedClient.Band.ToDisplayString()
+                            </span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Channel:</span>
+                            <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")@(_selectedClient.ChannelWidth.HasValue ? $" - {_selectedClient.ChannelWidth} MHz" : "")</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Signal:</span>
+                            <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)">
+                                @(_selectedClient.Signal?.ToString() ?? "-") dBm
+                            </span>
+                        </div>
+                    }
                     <div class="info-item">
                         <span class="info-label">AP TX/RX Rate:</span>
                         <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
@@ -276,6 +253,31 @@
                         </div>
                     }
                 </div>
+                @if (HasMloLinks(_selectedClient))
+                {
+                    <div class="mlo-links" style="margin-top: 0.75rem;">
+                        <span class="info-label">MLO Links:</span>
+                        @foreach (var link in _selectedClient.MloLinks.OrderByDescending(l => l.Band))
+                        {
+                            var active = IsMloLinkActive(link);
+                            <div class="mlo-link-row @(active ? "" : "mlo-link-idle")">
+                                <span class="band-badge @GetBandCssClass(link.Band)">@link.Band.ToDisplayString()</span>
+                                <span class="mlo-link-meta">Ch @(link.Channel?.ToString() ?? "-")@(link.ChannelWidth.HasValue ? $" - {link.ChannelWidth} MHz" : "")</span>
+                                @if (active)
+                                {
+                                    <span class="@SignalClassification.GetSignalClass(link.Signal, link.Band)" style="color: @SignalClassification.GetSignalColor(link.Signal, link.Band)">@(link.Signal?.ToString() ?? "-") dBm</span>
+                                    <span><span class="wifi-speed-tx">TX @FormatRate(link.TxRate)</span> <span class="mlo-dim">/</span> <span class="wifi-speed-rx">RX @FormatRate(link.RxRate)</span></span>
+                                    <span class="mlo-state mlo-state-active">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="mlo-link-signal-muted">@(link.Signal?.ToString() ?? "-") dBm</span>
+                                    <span class="mlo-state mlo-state-idle" data-tooltip="Negotiated but not carrying traffic. Normal and healthy for MLO.">Idle</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         }
 
@@ -292,6 +294,10 @@
                         <input type="checkbox" @bind="_showTxRetries" @bind:after="OnChartFilterChanged" />
                         <span class="checkbox-label retries">TX Retries</span>
                     </label>
+                    @if (_chartZoomed)
+                    {
+                        <button type="button" class="btn btn-sm btn-secondary" @onclick="ResetZoomAsync">Reset zoom</button>
+                    }
                 </div>
             </div>
 
@@ -301,6 +307,7 @@
                 <ApexChart @ref="_signalChart" TItem="ClientChartPoint"
                            @key="_chartKey"
                            Options="_signalChartOptions"
+                           OnZoomed="OnChartZoomed"
                            Height="200">
 
                     @if (_showSignal)
@@ -389,12 +396,11 @@
 
     // Search/Filter
     private string _clientSearchText = "";
+    private ClientSelector? _selector;
     private string _statusFilter = "all"; // "all", "online", "offline"
     private string _apFilter = "";  // Empty = all APs
     private RadioBand? _bandFilter;  // null = all bands
-    private bool _dropdownOpen = false;
     private bool _refreshing = false;
-    private ElementReference _filterInput;
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -404,6 +410,29 @@
     // Chart data
     private ApexChart<ClientChartPoint>? _signalChart;
     private ApexChartOptions<ClientChartPoint> _signalChartOptions = new();
+
+    private bool _chartZoomed;
+
+    private void OnChartZoomed(ZoomedData<ClientChartPoint> data)
+    {
+        _chartZoomed = data.IsZoomed;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Zooming to the full extent is the reset: the wrapper can set an x range but not clear one.
+    /// </summary>
+    private async Task ResetZoomAsync()
+    {
+        _chartZoomed = false;
+        if (_signalChart == null) return;
+
+        var points = _signalData.Concat(_txRetryData).ToList();
+        if (points.Count == 0) return;
+
+        await _signalChart.ZoomXAsync(points.Min(p => p.X), points.Max(p => p.X));
+    }
+    private List<AnnotationsXAxis> _roamAnnotations = new();
     private List<ClientChartPoint> _signalData = new();
     private List<ClientChartPoint> _txRetryData = new();
 
@@ -563,6 +592,12 @@
                 .ToList();
 
             Logger.LogInformation("Loaded {Count} connection events", _connectionEvents.Count);
+
+            // The chart is transformed before this point, so the annotations built there saw no
+            // events at all. Rebuild now that they exist, or they only appear once something else
+            // rebuilds the chart.
+            BuildRoamAnnotations();
+            UpdateChartOptionsForVisibleSeries();
         }
         finally
         {
@@ -592,8 +627,49 @@
         _signalData = newSignalData;
         _txRetryData = newTxRetryData;
 
+        BuildRoamAnnotations();
+
         // Ensure chart options match current filter state
         UpdateChartOptionsForVisibleSeries();
+    }
+
+    /// <summary>
+    /// Marks where the client changed access point. The roam events already loaded for the timeline
+    /// carry both the moment and the destination name, so the chart says which AP a signal step
+    /// belongs to rather than leaving a reader to guess.
+    /// </summary>
+    private void BuildRoamAnnotations()
+    {
+        var annotations = new List<AnnotationsXAxis>();
+
+        // Past a day the markers outnumber what they explain and bury the trace they sit on, so the
+        // wider ranges carry none. Client Performance draws the same line at 24 hours.
+        if (_timeRanges[_selectedRange] > TimeSpan.FromDays(1))
+        {
+            _roamAnnotations = annotations;
+            return;
+        }
+
+        foreach (var evt in _connectionEvents.Where(e => e.Type == ClientConnectionEventType.Roamed))
+        {
+            var to = evt.ToApName ?? evt.ApName;
+            if (string.IsNullOrEmpty(to)) continue;
+
+            annotations.Add(new AnnotationsXAxis
+            {
+                X = evt.Timestamp.ToUnixTimeMilliseconds(),
+                BorderColor = "#64748b",
+                Label = new Label
+                {
+                    Text = to,
+                    Style = new Style { Background = "#64748b", Color = "#ffffff", FontSize = "11px" },
+                    Orientation = Orientation.Horizontal,
+                    OffsetY = -5
+                }
+            });
+        }
+
+        _roamAnnotations = annotations;
     }
 
     private Task OnChartFilterChanged()
@@ -651,6 +727,11 @@
         // Update chart options
         _signalChartOptions.Yaxis = yAxes;
         _signalChartOptions.Colors = colors;
+        // Only meaningful against the signal trace; on a retry-only view they mark nothing.
+        _signalChartOptions.Annotations = new Annotations
+        {
+            Xaxis = _showSignal ? _roamAnnotations : new List<AnnotationsXAxis>()
+        };
         _signalChartOptions.Fill = new Fill
         {
             Type = fillTypes,
@@ -703,6 +784,11 @@
         RadioBand.Band6GHz => "band-6ghz",
         _ => ""
     };
+
+    private static bool HasMloLinks(WirelessClientSnapshot client) => client.IsMlo && client.MloLinks.Count > 0;
+
+    // A link carrying traffic is active, matching UniFiLiveDataProvider.SelectActiveMloLink.
+    private static bool IsMloLinkActive(MloLinkSnapshot link) => (link.TxRate ?? 0) > 0 || (link.RxRate ?? 0) > 0;
 
 
     private string GetOfflineTooltip(WirelessClientSnapshot client)
@@ -862,28 +948,6 @@
     private string GetSortClass(string column)
         => _sortColumn != column ? "" : (_sortDescending ? "sort-desc" : "sort-asc");
 
-    // Dropdown methods
-    private void OpenDropdown() => _dropdownOpen = true;
-
-    private async Task OpenDropdownForEdit()
-    {
-        _clientSearchText = "";
-        _dropdownOpen = true;
-        StateHasChanged();
-        await Task.Delay(1); // Allow render to complete
-        await _filterInput.FocusAsync();
-    }
-
-    private void CloseDropdown() => _dropdownOpen = false;
-
-    private async Task CloseDropdownDelayed()
-    {
-        // Small delay to allow click on option to register before closing
-        await Task.Delay(150);
-        _dropdownOpen = false;
-        StateHasChanged();
-    }
-
     private IEnumerable<WirelessClientSnapshot> GetDropdownClients()
     {
         var clients = _clients.AsEnumerable();
@@ -896,31 +960,26 @@
             _ => clients
         };
 
-        // Apply search text filter
-        if (!string.IsNullOrWhiteSpace(_clientSearchText))
-        {
-            var filter = _clientSearchText.Trim();
-            clients = clients.Where(c =>
-                (c.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
+        // No search filter here: the selector does its own, and _clientSearchText holds the
+        // selected client's name, which would narrow the list to just that client.
 
         // Sort: online first, then by name
         return clients.OrderByDescending(c => c.IsOnline).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
     }
 
-    private void SelectClientFromDropdown(WirelessClientSnapshot client)
-    {
-        _dropdownOpen = false;
-        SelectClient(client.Mac);
-    }
+    /// <summary>The selector's choices, carrying the status pills' filter.</summary>
+    private IReadOnlyList<ClientSelector.Item> SelectorItems() =>
+        GetDropdownClients()
+            .Select(c => new ClientSelector.Item(c.Mac, c.Name, c.Mac, c.IsOnline, c.Ip))
+            .ToList();
 
     private void ViewAllClients()
     {
         _selectedClientMac = "";
         _clientSearchText = "";
-        _dropdownOpen = false;
+        // Going back to the whole list means start over, so a search left in the picker would
+        // contradict the list it sits above.
+        _selector?.ClearSearch();
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
@@ -929,6 +988,11 @@
 
     private void SelectClient(string mac)
     {
+        // Re-picking the client already shown would reload its detail for the same answer.
+        if (!string.IsNullOrEmpty(_selectedClientMac)
+            && string.Equals(mac, _selectedClientMac, StringComparison.OrdinalIgnoreCase))
+            return;
+
         _selectedClientMac = mac;
         var client = _clients.FirstOrDefault(c => c.Mac == mac);
         _clientSearchText = client?.Name ?? mac;

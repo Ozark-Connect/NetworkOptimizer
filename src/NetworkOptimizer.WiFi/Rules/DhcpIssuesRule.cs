@@ -1,3 +1,5 @@
+using NetworkOptimizer.WiFi.Helpers;
+
 namespace NetworkOptimizer.WiFi.Rules;
 
 /// <summary>
@@ -26,6 +28,8 @@ public class DhcpIssuesRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.ClientSatisfaction },
             Title = "DHCP Issues Detected",
+            Class = HealthIssueClass.Measured,
+            Key = HealthIssueKeys.For(RuleId),
             Description = $"{clientsWithoutIp.Count} client(s) connected but failed to get an IP address. " +
                 "This typically indicates connectivity issues such as weak signal or interference.",
             AffectedEntity = clientsWithoutIp.Count <= 5

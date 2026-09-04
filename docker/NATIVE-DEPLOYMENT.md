@@ -299,8 +299,12 @@ sudo chown $USER:$USER /opt/network-optimizer
 # Build for your architecture (x64)
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
 
-# For ARM64, use:
-# dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
+# For ARM64 (Raspberry Pi, etc.), the protoc bundled with Grpc.Tools segfaults (exit code 139)
+# on native arm64 Linux, so build with the distro's protoc instead. It must be 3.15 or newer
+# (check with protoc --version): Debian 12, Raspberry Pi OS Bookworm, and Ubuntu 24.04 qualify;
+# older releases need a protoc from https://github.com/protocolbuffers/protobuf/releases.
+# sudo apt install -y protobuf-compiler
+# PROTOBUF_PROTOC=/usr/bin/protoc dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
 
 # Make executable
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
@@ -313,21 +317,38 @@ UniFi gateway over SSH. It is not produced by `dotnet publish`, so build it
 separately into the `tools/` directory next to the app. Requires [Go](https://go.dev/dl/).
 
 ```bash
+# Stamp the binaries with the version you are building, so the app can report
+# which build each one is running. The leading "v" is stripped deliberately -
+# the UI adds its own.
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+VERSION="${VERSION#v}"
+
 # Gateways are always ARM64 - build for linux/arm64 regardless of your host arch
 cd src/uwnspeedtest
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w" -o /opt/network-optimizer/tools/uwnspeedtest-linux-arm64 .
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/uwnspeedtest-linux-arm64 .
 cd ../..
 
 # Optional: WAN Steering daemon (only if you use multi-WAN steering)
 cd src/wansteer
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w" -o /opt/network-optimizer/tools/wansteer-linux-arm64 .
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/wansteer-linux-arm64 .
+cd ../..
+
+# Optional: AP Agent (only if you want on-AP Wi-Fi telemetry)
+# Access points are armv7l, not arm64, whatever your gateway or host is.
+cd src/apagent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/apagent-linux-arm .
 cd ../..
 ```
 
 Without this, the app runs fine but the gateway WAN speed test reports
 "Gateway speed test binary not found."
+
+Without the AP Agent binary, Settings - AP Telemetry loads but has nothing to
+deploy. Everything else keeps working on UniFi Console data, which is what the
+feature falls back to anyway.
 
 ### Create Startup Script
 
@@ -428,7 +449,8 @@ cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.b
 # Update the .NET SDK (picks up runtime stability and security fixes)
 ./dotnet-install.sh --channel 10.0
 
-# Pull latest from main and rebuild (use linux-arm64 on ARM64 hardware)
+# Pull latest from main and rebuild (on ARM64 hardware use -r linux-arm64 and prefix with
+# PROTOBUF_PROTOC=/usr/bin/protoc, as in Build from Source above)
 cd ~/NetworkOptimizer
 git fetch origin && git checkout main && git pull
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
@@ -438,7 +460,7 @@ chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 sudo systemctl start network-optimizer
 ```
 
-Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them when a release changes them.
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional helpers (`uwnspeedtest`, `wansteer`, `apagent`), rebuild them when a release changes them.
 
 ---
 

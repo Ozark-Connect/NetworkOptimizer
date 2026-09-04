@@ -39,6 +39,11 @@ public sealed class LanFabricAggregator
     // fallback when no parent switch port rate is available.
     private readonly ConcurrentDictionary<string, PortByteSnapshot> _deviceBytePrev = new();
     private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _deviceByteRateLatest = new();
+    // Byte counters of a Building Bridge unit's wireless uplink block (uplink.tx_bytes /
+    // rx_bytes). A UBB has no port_table and no vwiresta interface, so the only account of
+    // its bridged flow is this block on the wirelessly-uplinked unit. Keyed by device MAC.
+    private readonly ConcurrentDictionary<string, PortByteSnapshot> _uplinkBytePrev = new();
+    private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _uplinkRateLatest = new();
 
     /// <summary>Latest computed rate for a switch port, or null.</summary>
     public (double DownBps, double UpBps)? PortRate(string switchMac, int portIdx) =>
@@ -47,6 +52,31 @@ public sealed class LanFabricAggregator
     /// <summary>UniFi device-level byte-counter delta. Fallback for mesh-uplinked APs.</summary>
     public (double DownBps, double UpBps)? DeviceRate(string deviceMac) =>
         _deviceByteRateLatest.TryGetValue(deviceMac, out var v) ? v : null;
+
+    /// <summary>
+    /// Byte-counter delta of a Building Bridge unit's wireless uplink, the unit's own perspective:
+    /// DownBps is what it received from its peer (downloads), UpBps what it sent (uploads).
+    /// </summary>
+    public (double DownBps, double UpBps)? UplinkRate(string deviceMac) =>
+        _uplinkRateLatest.TryGetValue(deviceMac, out var v) ? v : null;
+
+    /// <summary>
+    /// A Building Bridge unit whose uplink is the wireless span to its peer: the unit that
+    /// carries the pair's flow in its uplink counters, and the child end of the map's link.
+    /// </summary>
+    public static bool IsWirelessBridgeUnit(UniFiDeviceResponse d) =>
+        d.DeviceType == DeviceType.BuildingBridge
+        && string.Equals(d.Uplink?.Type, "wireless", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <paramref name="devices"/> plus the nested second unit of every Building Bridge pair,
+    /// which the console lists only inside its listed sibling's peer_ubb.
+    /// </summary>
+    private static IReadOnlyList<UniFiDeviceResponse> WithBridgePeers(IReadOnlyList<UniFiDeviceResponse> devices)
+    {
+        var peers = UniFiDiscovery.BuildingBridgePeers(devices);
+        return peers.Count == 0 ? devices : devices.Concat(peers).ToList();
+    }
 
     /// <summary>
     /// Sets the SNMP-derived rate for a port (the primary, 5s-cadence source). The
@@ -64,8 +94,11 @@ public sealed class LanFabricAggregator
     /// </summary>
     public void UpdateUnifiPortRates(IReadOnlyList<UniFiDeviceResponse> devices, DateTime now)
     {
-        foreach (var device in devices)
+        foreach (var device in WithBridgePeers(devices))
         {
+            if (IsWirelessBridgeUnit(device) && device.Uplink != null)
+                UpdateBridgeUplinkRate(NormalizeMac(device.Mac), device.Uplink, now);
+
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
             var mac = NormalizeMac(device.Mac);
             foreach (var port in device.PortTable)
@@ -147,14 +180,48 @@ public sealed class LanFabricAggregator
     }
 
     /// <summary>
+    /// Diff a Building Bridge unit's wireless uplink byte counters against the previous
+    /// reading. Same unchanged-counter handling as the port_table path: the console refreshes
+    /// these ~30 s, so a repeated sample keeps the previous snapshot rather than reading as zero.
+    /// </summary>
+    private void UpdateBridgeUplinkRate(string mac, UplinkInfo uplink, DateTime now)
+    {
+        var current = new PortByteSnapshot(now, uplink.TxBytes, uplink.RxBytes);
+        if (current.TxBytes == 0 && current.RxBytes == 0) return;
+        if (_uplinkBytePrev.TryGetValue(mac, out var prev))
+        {
+            var elapsed = (now - prev.Timestamp).TotalSeconds;
+            long deltaTx = current.TxBytes - prev.TxBytes;
+            long deltaRx = current.RxBytes - prev.RxBytes;
+            if (elapsed > 0.5 && deltaTx >= 0 && deltaRx >= 0 && (deltaTx > 0 || deltaRx > 0))
+            {
+                // Unit perspective: rx = from the peer = downloads, tx = toward it = uploads.
+                _uplinkRateLatest[mac] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                _uplinkBytePrev[mac] = current;
+            }
+            else if (deltaTx < 0 || deltaRx < 0)
+            {
+                // Counter reset (unit rebooted): restart the baseline.
+                _uplinkBytePrev[mac] = current;
+            }
+        }
+        else
+        {
+            _uplinkBytePrev[mac] = current;
+        }
+    }
+
+    /// <summary>
     /// Writes each device's topology-boundary aggregate to live stats: AP/switch
-    /// uplink-port rates, mesh-AP synthesis, and gateway WAN rates, with the exact
-    /// fallbacks the directly-monitored fast tier uses. Call after the per-interface
-    /// loop has fed in SNMP port rates and UpdateUnifiPortRates has run. Fabric sums
-    /// (sum of physical interface rates) are written by the caller from its loop.
+    /// uplink-port rates, mesh-AP synthesis, Building Bridge spans, and gateway WAN rates,
+    /// with the exact fallbacks the directly-monitored fast tier uses. Call after the
+    /// per-interface loop has fed in SNMP port rates and UpdateUnifiPortRates has run.
+    /// Fabric sums (sum of physical interface rates) are written by the caller from its loop.
     /// </summary>
     public void WriteAggregates(IReadOnlyList<UniFiDeviceResponse> devices, MonitoringLiveStats liveStats, DateTime now)
     {
+        devices = WithBridgePeers(devices);
+
         // A parent's downlink_table claim contradicting a device's own uplink field means that
         // uplink block is stale and describes the wrong link - reading the port it names reports
         // the mesh backhaul backwards (and repeatedly overwrites the correct vwiresta aggregate).
@@ -173,10 +240,13 @@ public sealed class LanFabricAggregator
         // the topology cares about. The trunk/uplink port is the boundary between
         // the device and the rest of the network, which is what the topology pipe
         // actually carries.
+        // A Building Bridge unit wired to a switch is bounded by that port like any switch is;
+        // the wirelessly-uplinked unit of the pair names no port and is handled below.
         foreach (var dev in devices.Where(d => d.Uplink != null
                                                && !string.IsNullOrEmpty(d.Uplink.UplinkMac)
                                                && (d.DeviceType == DeviceType.AccessPoint
-                                                   || d.DeviceType == DeviceType.Switch)
+                                                   || d.DeviceType == DeviceType.Switch
+                                                   || d.DeviceType == DeviceType.BuildingBridge)
                                                && !HasContradictedUplink(d)))
         {
             var devMac = NormalizeMac(dev.Mac);
@@ -326,6 +396,17 @@ public sealed class LanFabricAggregator
                     liveStats.RecordInterfaceAggregate(dev.Mac, sumIn, sumOut, now);
                 }
             }
+        }
+
+        // Building Bridge span: the wirelessly-uplinked unit's own uplink counters are the one
+        // account of everything crossing the pair (no port_table, no vwiresta, and nothing else
+        // writes this unit). Uploads land in RateInBps and downloads in RateOutBps, as every
+        // other aggregate writer stores them.
+        foreach (var dev in devices.Where(IsWirelessBridgeUnit))
+        {
+            var rate = UplinkRate(NormalizeMac(dev.Mac));
+            if (rate.HasValue)
+                liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.UpBps, rate.Value.DownBps, now);
         }
 
         // Gateways are the top of the topology - no parent switch to read their

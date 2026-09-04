@@ -155,7 +155,7 @@ public static class RebootReasonParser
             return new DeviceRebootReason(
                 RebootCategory.CommandedReboot,
                 "Restarted",
-                "The device shut down cleanly, so something asked it to restart",
+                "The device shut down cleanly, this was a planned restart",
                 RebootReasonSource.PstoreConsole);
         }
 

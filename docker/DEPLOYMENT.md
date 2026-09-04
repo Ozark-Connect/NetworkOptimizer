@@ -406,7 +406,7 @@ See [`.env.example`](.env.example) for the full list of variables and detailed e
 ```env
 BIND_LOCALHOST_ONLY=true
 ```
-This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first.
+This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first. The On-Site Agent tunnel port (8043) is the exception: it always listens on all interfaces, because agents at other sites connect to it directly rather than through the proxy.
 
 #### Traefik (Recommended for Speed Testing)
 
@@ -829,9 +829,9 @@ chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 sudo systemctl start network-optimizer
 ```
 
-On ARM64 hardware, publish with `-r linux-arm64` instead.
+On ARM64 hardware, publish with `-r linux-arm64` and prefix the command with `PROTOBUF_PROTOC=/usr/bin/protoc`, using the distro's protoc as described in the [Native Deployment Guide](NATIVE-DEPLOYMENT.md#build-from-source).
 
-Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional gateway helpers (`uwnspeedtest`, `wansteer`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional helpers (`uwnspeedtest`, `wansteer`, `apagent`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
 
 ### Verify Update
 

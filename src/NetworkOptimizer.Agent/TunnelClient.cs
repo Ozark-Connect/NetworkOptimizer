@@ -64,6 +64,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes a new SNMP monitoring configuration.</summary>
     public Action<SnmpConfig>? OnSnmpConfig { get; set; }
 
+    /// <summary>Invoked whenever the server pushes a new conntrack accounting configuration.</summary>
+    public Action<ConntrackConfig>? OnConntrackConfig { get; set; }
+
     /// <summary>Server pushes the WAN speed-test server list for the /wan/ redirect router.</summary>
     public Action<WanSpeedTestConfig>? OnWanSpeedTestConfig { get; set; }
 
@@ -116,7 +119,7 @@ public sealed class TunnelClient
     /// Connects and runs the tunnel until it drops or <paramref name="ct"/> is
     /// cancelled. Throws on connection failure so the caller can back off and retry.
     /// </summary>
-    public async Task RunAsync(string tunnelUrl, string agentKey, string version, string? lanIp, IReadOnlyList<string> localIps, int speedTestPort, bool servesSpeedTest, bool supportsSourceBind, bool ignoreSslErrors, CancellationToken ct)
+    public async Task RunAsync(string tunnelUrl, string agentKey, string version, string? lanIp, IReadOnlyList<string> localIps, int speedTestPort, bool servesSpeedTest, bool supportsSourceBind, bool? onGateway, IReadOnlyList<string> capabilities, bool ignoreSslErrors, CancellationToken ct)
     {
         // Belt-and-braces with the startup config validation: the tunnel carries
         // SNMP credentials and proxied console traffic, so cleartext is never OK.
@@ -166,19 +169,21 @@ public sealed class TunnelClient
             using var helloCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
             helloCts.CancelAfter(HelloTimeout);
 
-            await call.RequestStream.WriteAsync(new AgentMessage
+            var agentHello = new AgentHello
             {
-                Hello = new AgentHello
-                {
-                    AgentKey = agentKey,
-                    Version = version,
-                    LanIp = lanIp ?? "",
-                    SpeedTestPort = speedTestPort,
-                    ServesSpeedTest = servesSpeedTest,
-                    SupportsSourceBind = supportsSourceBind,
-                    LocalIps = { localIps }
-                }
-            }, helloCts.Token);
+                AgentKey = agentKey,
+                Version = version,
+                LanIp = lanIp ?? "",
+                SpeedTestPort = speedTestPort,
+                ServesSpeedTest = servesSpeedTest,
+                SupportsSourceBind = supportsSourceBind,
+                LocalIps = { localIps },
+                Capabilities = { capabilities }
+            };
+            // Absent, not false, when agent.json predates the key: absence keeps the server on
+            // its IP-correlation path for pre-flag gateway installs (#1108).
+            if (onGateway is { } reported) agentHello.OnGateway = reported;
+            await call.RequestStream.WriteAsync(new AgentMessage { Hello = agentHello }, helloCts.Token);
 
             if (!await call.ResponseStream.MoveNext(helloCts.Token) || call.ResponseStream.Current.Hello is not { } hello)
                 throw new IOException("Tunnel closed before server hello");
@@ -213,6 +218,9 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.SnmpConfig:
                         OnSnmpConfig?.Invoke(message.SnmpConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ConntrackConfig:
+                        OnConntrackConfig?.Invoke(message.ConntrackConfig);
                         break;
                     case ServerMessage.PayloadOneofCase.WanSpeedtestConfig:
                         OnWanSpeedTestConfig?.Invoke(message.WanSpeedtestConfig);

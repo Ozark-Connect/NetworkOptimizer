@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -85,15 +86,6 @@ public class LitmusService : IRolloutLitmusService
         _logger = logger;
     }
 
-    /// <summary>
-    /// A window bound as the Influx client expects it. Half of these come from the clock and half
-    /// from a step's own record, and SQLite hands a DateTime back Unspecified - which the client
-    /// reads as LOCAL and converts, so a post-upgrade window asked for hours that had not happened
-    /// yet and came back with nothing. Every timestamp this app stores is UTC.
-    /// </summary>
-    internal static DateTime AsUtc(DateTime t) =>
-        t.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : t.ToUniversalTime();
-
     /// <inheritdoc />
     public async Task<RolloutResourceStats> CaptureStatsAsync(
         string deviceMac, DateTime from, DateTime to, CancellationToken cancellationToken = default)
@@ -101,8 +93,8 @@ public class LitmusService : IRolloutLitmusService
         if (string.IsNullOrWhiteSpace(deviceMac) || to <= from)
             return new RolloutResourceStats();
 
-        from = AsUtc(from);
-        to = AsUtc(to);
+        from = DateTimeUtilities.AsUtc(from);
+        to = DateTimeUtilities.AsUtc(to);
 
         try
         {
@@ -170,8 +162,21 @@ public class LitmusService : IRolloutLitmusService
     }
 
     /// <summary>
-    /// Mean loss over the window when this device is itself a monitored latency target, else null.
+    /// Probes are sparse and quantized - three pings a sample makes every sample 0, 33, 67 or 100 -
+    /// so the window needs enough of them to say anything, and one bad sample must not carry it.
+    /// Below this the loss check returns no reading and the other checks decide, which is the same
+    /// path a device that is not probed at all already takes.
+    /// </summary>
+    public const int MinLossSamples = 10;
+
+    /// <summary>
+    /// Median loss over the window when this device is itself a monitored latency target, else null.
     /// Loss is only evidence for devices we probe; every other device has nothing to read.
+    /// <para>
+    /// Median, not mean: a single blip inside a short window drags a mean over the fail threshold
+    /// while every sample either side of it is clean. Two dropped pings in a two-minute window was
+    /// enough to fail a healthy access point.
+    /// </para>
     /// </summary>
     private async Task<double?> MeasureTargetLossAsync(
         string deviceMac, DateTime from, DateTime to, CancellationToken cancellationToken)
@@ -187,9 +192,18 @@ public class LitmusService : IRolloutLitmusService
             {
                 var points = await _influx.QueryLatencyAsync(targetId, from, to, ct: cancellationToken);
                 var losses = points.Where(p => p.LossPercent.HasValue).Select(p => p.LossPercent!.Value).ToList();
-                if (losses.Count == 0) continue;
+                if (losses.Count < MinLossSamples)
+                {
+                    if (losses.Count > 0)
+                    {
+                        _logger.LogDebug(
+                            "Not judging probe loss for {Mac} on site {Site}: {Count} sample(s) over the window, {Min} needed",
+                            deviceMac, _siteSlug, losses.Count, MinLossSamples);
+                    }
+                    continue;
+                }
                 sawAny = true;
-                worst = Math.Max(worst, losses.Average());
+                worst = Math.Max(worst, Median(losses));
             }
 
             return sawAny ? worst : null;
@@ -199,6 +213,13 @@ public class LitmusService : IRolloutLitmusService
             _logger.LogWarning(ex, "Reading probe loss for {Mac} on site {Site} failed", deviceMac, _siteSlug);
             return null;
         }
+    }
+
+    private static double Median(List<double> values)
+    {
+        values.Sort();
+        var mid = values.Count / 2;
+        return values.Count % 2 == 1 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
     }
 
     private async Task<List<string>> ResolveLatencyTargetIdsAsync(string deviceMac, CancellationToken cancellationToken)

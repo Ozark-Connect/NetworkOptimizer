@@ -82,6 +82,18 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /wansteer-gateway .
 
+# Stage 2.6: Build apagent Go binary (access-point-only, always linux/arm/v7)
+# AP Agent - on-AP Wi-Fi telemetry. Every measured U7-class AP is armv7l, so there is
+# deliberately no arm64 target; unsupported hardware gets an honest "unsupported" row.
+FROM golang:1.22-alpine AS apagent-build
+ARG VERSION=""
+WORKDIR /src
+COPY src/apagent/ apagent/
+WORKDIR /src/apagent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
+    -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
+    -o /apagent-ap .
+
 # Stage 3: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
 
@@ -144,6 +156,9 @@ COPY --from=uwnspeedtest-build /uwnspeedtest-gateway /app/tools/uwnspeedtest-lin
 
 # Copy wansteer binary (gateway-only, deployed via SSH to UniFi gateways)
 COPY --from=wansteer-build /wansteer-gateway /app/tools/wansteer-linux-arm64
+
+# Copy apagent binary (access-point-only, pushed via SSH into tmpfs on each AP)
+COPY --from=apagent-build /apagent-ap /app/tools/apagent-linux-arm
 
 # Create directories for volumes
 RUN mkdir -p /app/data /app/ssh-keys /app/logs

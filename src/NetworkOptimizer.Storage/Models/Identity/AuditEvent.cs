@@ -1,4 +1,4 @@
-namespace NetworkOptimizer.Storage.Models.Identity;
+﻿namespace NetworkOptimizer.Storage.Models.Identity;
 
 /// <summary>
 /// A single append-only audit record. Stored in the main DB (not per-site DBs) with
@@ -153,6 +153,21 @@ public static class AuditActions
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
 
+    // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)
+    public const string ApAgentDeployed = "ap_agent.deployed";
+    public const string ApAgentRemoved = "ap_agent.removed";
+    public const string ApAgentRestarted = "ap_agent.restarted";
+    public const string ApAgentSettingsChanged = "ap_agent.settings.changed";
+
+    /// <summary>A client was asked to move to a different access point over 802.11v.</summary>
+    public const string ApAgentClientSteered = "ap_agent.client.steered";
+
+    // Wi-Fi Optimizer: the operator's answers to what it reports
+    public const string WiFiIssueAcknowledged = "wifi.issue.acknowledged";
+    public const string WiFiIssueRestored = "wifi.issue.restored";
+    public const string WiFiRadioKept = "wifi.radio.kept";
+    public const string WiFiRadioReleased = "wifi.radio.released";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 
@@ -160,6 +175,7 @@ public static class AuditActions
     public const string LicenseChanged = "license.changed";
     public const string AgentEnrolled = "agent.enrolled";
     public const string AgentRemoved = "agent.removed";
+    public const string AgentGatewayInstallRun = "agent.gateway_install.run";
 
     // Meta
     public const string MigrationPerformed = "audit.migration";

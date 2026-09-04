@@ -34,13 +34,16 @@ public interface IGatewaySshService
     Task<bool> IsAwaitingAgentTunnelAsync();
 
     /// <summary>
-    /// Test SSH connection to the gateway using provided settings (for testing form values before save)
+    /// Test SSH connection to the gateway using provided settings (for testing form values before save).
+    /// With no password and no key path, the stored credential is used against the given host, port
+    /// and username - the saved password never reaches the browser, so a page editing the host has
+    /// nothing else to send.
     /// </summary>
     /// <param name="host">Gateway hostname or IP</param>
     /// <param name="port">SSH port</param>
     /// <param name="username">SSH username</param>
-    /// <param name="password">Plain text password (not encrypted)</param>
-    /// <param name="privateKeyPath">Path to private key file</param>
+    /// <param name="password">Plain text password (not encrypted), or null to use the stored credential</param>
+    /// <param name="privateKeyPath">Path to private key file, or null to use the stored credential</param>
     Task<(bool success, string message)> TestConnectionAsync(
         string host,
         int port,
@@ -57,6 +60,23 @@ public interface IGatewaySshService
     Task<(bool success, string output)> RunCommandAsync(
         string command,
         TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Run an SSH command on the gateway, streaming its stdout/stderr to
+    /// <paramref name="onOutput"/> as it arrives. For long-running commands whose progress
+    /// the UI shows live (the gateway agent installer). The result carries the exit code but
+    /// no output; a precondition failure (SSH disabled, unconfigured, agent tunnel down)
+    /// comes back as a failed result whose Error says why.
+    /// </summary>
+    /// <param name="command">Command to execute</param>
+    /// <param name="onOutput">Receives output chunks; may be called on any thread</param>
+    /// <param name="timeout">Overall command timeout</param>
+    /// <param name="cancellationToken">Cancels the run (kills the channel)</param>
+    Task<SshCommandResult> RunCommandStreamingAsync(
+        string command,
+        Action<string> onOutput,
+        TimeSpan timeout,
         CancellationToken cancellationToken = default);
 
     /// <summary>

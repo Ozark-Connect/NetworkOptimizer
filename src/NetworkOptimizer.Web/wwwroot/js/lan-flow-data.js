@@ -57,46 +57,98 @@ function _notify(event) {
     }
 }
 
+
+// Diagnostic tracing for client presence flapping. Enable with localStorage.mapTrace = '1'
+// (or window.__mapTrace = true) and watch the console; off, it costs one boolean per tick.
+let _traceOn = null;
+function _trace(...args) {
+    if (_traceOn === null) {
+        try { _traceOn = window.__mapTrace === true || localStorage.getItem('mapTrace') === '1'; }
+        catch { _traceOn = false; }
+    }
+    if (!_traceOn) return;
+    console.log('[map ' + new Date().toLocaleTimeString() + ']', ...args);
+}
+
+function _clientIds(snap) {
+    return (snap?.nodes || []).filter(n => n.kind === 'WifiClient' || n.kind === 4).map(n => n.id);
+}
+
 export function publishSnapshot(snap) {
-    const firstLoad = !_snapshot;
-    _snapshot = snap;
-    // New object: any transient historic leaves are gone with the old one.
-    _addedClientIds = new Set();
-    _addedClientLinkIds = new Set();
-    _addedClientKey = '';
+    const firstLoad = !_serverSnapshot;
+    // Kept pristine. The 3D map keeps the object it passed in as the baseline it diffs the next
+    // poll against, so merging into it would write our overlay into its baseline.
+    _serverSnapshot = snap;
+    _snapshotStale = false;
+    _trace('SNAPSHOT arrived gen=', snap?.generatedAt, 'clients=', _clientIds(snap).length,
+        'removedOverlay=', [..._removedIds]);
+    _rebuildMerged();
     // Only seed rates on first load. Subsequent refreshes must not clobber
     // the fresh 1s-polled rates with stale snapshot-time values.
     if (firstLoad) _liveRates = snap.liveRates || {};
     _notify('snapshot');
 }
 
-// Transient client leaves the historic pass rebuilt for the scrub instant. They are merged
-// into the local snapshot so both maps pick them up through their normal snapshot rebuild
-// rather than needing their own node-insertion path, and are stripped again the moment the
-// instant no longer has them - so live mode always renders the pristine snapshot.
-let _addedClientIds = new Set();
-let _addedClientLinkIds = new Set();
-let _addedClientKey = '';
+// True while a live tick has reported a snapshot generation this store does not hold yet. The
+// fetch owners (the 3D map, or the standalone poller below) re-fetch the snapshot on seeing it.
+let _snapshotStale = false;
 
-function _applyHistoricClients(update) {
+export function snapshotIsStale() { return _snapshotStale; }
+
+// Client leaves that are not in the server snapshot: rebuilt by the historic pass for a scrub
+// instant, and emitted on a live tick for a client an AP Agent knows about before the console
+// does. Held across snapshot publishes rather than cleared by them - clearing meant the leaf
+// vanished until the next tick re-added it, so every snapshot poll blinked the client, and the
+// blink swapped its name between the console's and the MAC-only one the agent can offer.
+let _serverSnapshot = null;
+let _addedNodes = [];
+let _addedLinks = [];
+let _addedClientKey = '';
+// Clients an access point reports gone while the console still lists them. Held with the overlay
+// and applied the same way, so a departure shows at the agent's speed rather than the console's.
+let _removedIds = new Set();
+
+// Rebuilds the published snapshot from the pristine server one plus the overlay. Always from
+// scratch, so an overlay entry that goes away actually goes away rather than accumulating.
+function _rebuildMerged() {
+    if (!_serverSnapshot) { _snapshot = null; return; }
+
+    const nodes = (_serverSnapshot.nodes || []).filter(n => !_removedIds.has(n.id));
+    _trace('RENDER clients=', nodes.filter(n => n.kind === 'WifiClient' || n.kind === 4).length,
+        'of', _clientIds(_serverSnapshot).length, 'suppressed=', [..._removedIds]);
+    const links = (_serverSnapshot.links || []).filter(
+        l => !_removedIds.has(l.toNodeId) && !_removedIds.has(l.fromNodeId));
+    // The server's own node wins for an id it already carries: it has the console's identity for
+    // the client, where an added leaf may only have the MAC.
+    const haveNodes = new Set(nodes.map(n => n.id));
+    const haveLinks = new Set(links.map(l => l.id));
+
+    // Removal outranks addition for the same id. Filtering the snapshot drops the id out of
+    // haveNodes, so without this an added leaf carrying it walks straight back in and defeats
+    // its own removal.
+    _snapshot = {
+        ..._serverSnapshot,
+        nodes: nodes.concat(_addedNodes.filter(n => !haveNodes.has(n.id) && !_removedIds.has(n.id))),
+        links: links.concat(_addedLinks.filter(l => !haveLinks.has(l.id)
+            && !_removedIds.has(l.toNodeId) && !_removedIds.has(l.fromNodeId))),
+    };
+}
+
+function _applyAddedClients(update) {
     const nodes = update.addedClientNodes || [];
     const links = update.addedClientLinks || [];
-    const key = nodes.map(n => n.id).sort().join(',');
-    // Steady playback over a stable set costs nothing; only a change reshapes the graph.
-    if (key === _addedClientKey) return false;
-    if (!_snapshot || !_snapshot.nodes) return false;
+    const removed = update.removedClientIds || [];
+    const key = nodes.map(n => n.id).sort().join(',') + '|' + [...removed].sort().join(',');
+    // Steady state over a stable set costs nothing; only a change reshapes the graph.
+    if (key === _addedClientKey) { _trace('patch UNCHANGED removed=', removed, 'added=', nodes.map(n => n.id)); return false; }
+    _trace('patch APPLIED removed=', removed, 'added=', nodes.map(n => n.id),
+        'previousRemoved=', [..._removedIds]);
 
-    if (_addedClientIds.size) {
-        _snapshot.nodes = _snapshot.nodes.filter(n => !_addedClientIds.has(n.id));
-        if (_snapshot.links) _snapshot.links = _snapshot.links.filter(l => !_addedClientLinkIds.has(l.id));
-    }
-    _addedClientIds = new Set(nodes.map(n => n.id));
-    _addedClientLinkIds = new Set(links.map(l => l.id));
-    if (nodes.length) {
-        _snapshot.nodes = _snapshot.nodes.concat(nodes);
-        if (_snapshot.links) _snapshot.links = _snapshot.links.concat(links);
-    }
+    _addedNodes = nodes;
+    _addedLinks = links;
+    _removedIds = new Set(removed);
     _addedClientKey = key;
+    _rebuildMerged();
     return true;
 }
 
@@ -121,9 +173,24 @@ export function publishLive(update) {
     _measuredClients = _mode === 'historic' && update.measuredClientIds
         ? new Set(update.measuredClientIds)
         : null;
+    // The add/remove patch only means something relative to the snapshot it was computed
+    // against. When the server has rebuilt past the one held here, applying it would clear
+    // _removedIds and resurrect a departed client out of our stale copy - hold the current
+    // overlay untouched and flag for a re-fetch instead. Historic ticks patch by telemetry,
+    // not by presence, so they apply regardless.
+    const gen = update.snapshotGeneratedAt;
+    const held = _serverSnapshot?.generatedAt;
+    _trace('TICK updGen=', gen, 'heldGen=', held, 'match=', gen === held,
+        'guardArmed=', !!(gen && held), 'removed=', update.removedClientIds || [],
+        'added=', (update.addedClientNodes || []).map(n => n.id));
+    if (_mode === 'live' && gen && held && gen !== held) {
+        _trace('patch SKIPPED - stale snapshot, resync requested');
+        _snapshotStale = true;
+        _notify('snapshot-stale');
+    }
     // Rebuild first when the client set changed, so the rates below land on a graph that
     // already contains the leaves they belong to.
-    if (_applyHistoricClients(update)) _notify('snapshot');
+    else if (_applyAddedClients(update)) _notify('snapshot');
     _notify('live');
 }
 
@@ -221,10 +288,10 @@ export function startPolling(intervalMs = 3000) {
     const signal = _pollAbort.signal;
     _fetchSnapshot(signal).catch(() => {});
     _pollTimer = setInterval(() => {
-        // The topology snapshot is fetched once at start. If it wasn't ready then (e.g. the
-        // site's console connection came up after the map mounted), keep retrying it until it
-        // has nodes - otherwise the map has no topology to draw and stays blank indefinitely.
-        if (!_snapshot || !_snapshot.nodes || _snapshot.nodes.length === 0)
+        // The topology snapshot is fetched once at start, then again whenever it wasn't ready
+        // (console connection came up after the mount) or a live tick reported a generation the
+        // store does not hold - a rebuild that dropped or gained clients server-side.
+        if (!_snapshot || !_snapshot.nodes || _snapshot.nodes.length === 0 || _snapshotStale)
             _fetchSnapshot(signal).catch(() => {});
         _fetchLive(signal).catch(() => {});
     }, intervalMs);

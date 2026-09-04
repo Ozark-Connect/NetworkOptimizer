@@ -108,6 +108,13 @@ public sealed class LiveWanScope
     /// </summary>
     public bool HasChoice => Options.Count > 1;
 
+    /// <summary>
+    /// True once a load saw the console name a WAN and the option list is settled. False means
+    /// the list may be running on context fallback alone (missing the console-only primary), and
+    /// the page's periodic refresh should call <see cref="LoadAsync"/> again.
+    /// </summary>
+    public bool Loaded => _loaded;
+
     private string StorageKey => _siteContext.ScopeStorageKey("liveWanScope");
 
     /// <summary>
@@ -125,7 +132,6 @@ public sealed class LiveWanScope
         if (_loaded) return;
 
         var options = new List<Option>();
-        var consoleAnswered = false;
 
         // Read first: a live WAN needs to know whether a context names it, and the answer decides
         // where a "fix my monitoring" link can usefully send someone.
@@ -143,7 +149,7 @@ public sealed class LiveWanScope
 
         try
         {
-            foreach (var wan in await _pathView.GetWansAsync())
+            foreach (var wan in await _pathView.GetSelectableWansAsync())
             {
                 var key = wan.WanInterface.ToLowerInvariant();
                 options.Add(new Option(
@@ -154,9 +160,9 @@ public sealed class LiveWanScope
                     NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName),
                     keysWithContext.Contains(key)));
             }
-            consoleAnswered = true;
         }
         catch { /* console unreachable - contexts below still describe the WANs we know of */ }
+        var consoleWanCount = options.Count;
 
         try
         {
@@ -185,11 +191,11 @@ public sealed class LiveWanScope
         if (_selected.Count == 0 && options.Count > 0)
             _selected.Add(ResolveDefaultKey(options));
 
-        // Only a load that actually saw something settles the list. Right after a restart the
-        // console has not connected yet, so it answers nothing and the WANs it alone knows about
-        // are missing - latching on that left the filter short one WAN until the page was
-        // reloaded, since a new circuit gets a new instance and tries again.
-        _loaded = consoleAnswered || options.Count > 0;
+        // Only a load where the CONSOLE named a WAN settles the list. An agent-routed console is
+        // down or answering empty for its first moments while the context fallback still fills
+        // the secondaries, and latching on that froze the scope without the console-only primary
+        // until a page refresh. Fallback options render meanwhile; the periodic reload retries.
+        _loaded = consoleWanCount > 0;
     }
 
     /// <summary>
@@ -295,6 +301,20 @@ public sealed class LiveWanScope
         _pinned = false;
     }
 
+    /// <summary>
+    /// Forgets a visit's claim on the selection when the user LEAVES the live surface (a tab
+    /// change): clears the pin and re-arms the restore, so returning to the tab re-reads the
+    /// stored selection - the Network Performance filter's leave-and-return behavior. Distinct
+    /// from <see cref="ReleaseLink"/> on purpose: the URL also drops its ?wan= mid-look (time
+    /// filter changes, resuming Live), where re-reading storage would yank the view off the WAN
+    /// being watched.
+    /// </summary>
+    public void ForgetVisitClaim()
+    {
+        _pinned = false;
+        _restored = false;
+    }
+
     public async Task<bool> SelectFromLinkAsync(string? wanParam)
     {
         if (string.IsNullOrWhiteSpace(wanParam) || Options.Count == 0) return false;
@@ -360,14 +380,22 @@ public sealed class LiveWanScope
             // Stored as a comma list since the selection became a set. A single key is still a
             // valid list of one, so a value written before comparison mode existed restores fine.
             var stored = await _js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            var keys = (stored ?? "")
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var storedKeys = (stored ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var keys = storedKeys
                 .Where(k => Options.Any(o => string.Equals(o.Key, k, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
             // A link chose while this read was in flight - it outranks what was stored.
             if (_pinned) return;
+            // A stored WAN missing from a list the console has not settled yet is not stale - it
+            // is the console-only WAN still loading. Retry on a later render instead of latching
+            // the fallback default in for the session.
+            if (!_loaded && keys.Count < storedKeys.Length)
+                _restored = false;
             // Every stored WAN gone (renamed, removed) leaves the default rather than nothing.
-            if (keys.Count > 0)
+            // Apply only on a real change: a partial match re-applied on every retry render
+            // would notify, re-render, and retry again - a render loop.
+            if (keys.Count > 0 && !(_selected.Count == keys.Count && keys.All(_selected.Contains)))
             {
                 _selected.Clear();
                 foreach (var k in keys) _selected.Add(k);

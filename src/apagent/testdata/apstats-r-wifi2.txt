@@ -1,0 +1,59 @@
+Radio Level Stats: wifi2
+Tx Data Packets                 = 2388872
+Tx Data Bytes                   = 2940182956
+Rx Data Packets                 = 1385321
+Rx Data Bytes                   = 1868338280
+Tx Unicast Data Packets         = 2256292
+Tx Multi/Broadcast Data Packets = 132580
+Tx Data Packets per AC:
+ Best effort                    = 2244122
+ Background                     = 0
+ Video                          = 10746
+ Voice                          = 977
+Rx Data Packets per AC:
+ Best effort                    = 1381561
+ Background                     = 9585
+ Video                          = 450
+ Voice                          = 3984
+Channel Utilization (0-255)     = <DISABLED>
+Tx Beacon Frames                = 207505
+Tx Mgmt Frames                  = 125
+Rx Mgmt Frames                  = 17
+Rx Mgmt Frames dropped(RSSI too low) = 0
+Tx Ctl Frames                   = 0
+Rx Ctl Frames                   = 0
+Rx RSSI                         = 38
+Rx PHY errors                   = 0
+Rx CRC errors                   = 0
+Rx MIC errors                   = 0
+Rx Decryption errors            = 0
+Rx PN errors                    = 0
+Rx errors                       = 0
+Tx failures                     = 8419
+Tx Dropped                      = 0
+Connections refuse Radio limit  = 0
+Connections refuse Vap limit    = 0
+802.11 Auth Attempts            = 3
+802.11 Auth Success             = 3
+MLME Authorize Attempts         = 2
+MLME Authorize Success          = 1
+Self BSS chan util              = 0
+OBSS chan util                  = 0
+lithium_cycle_counts:
+lithium_cycle_cnt: Chan NF (BDF averaged NF_dBm) = -92
+lithium_cycle_cnt: Tx Frame Cnt = 2021750386
+lithium_cycle_cnt: Rx Frame Cnt = 0
+lithium_cycle_cnt: Rx Clear Cnt = 2964923986
+lithium_cycle_cnt: Cycle Cnt    = 3788682907
+lithium_cycle_cnt: Phy Err Cnt  = 0
+lithium_cycle_cnt: Chan Tx Pwr  = 42
+Number of Active Vaps           = 1
+Throughput (kbps)               = <DISABLED>
+PER over configured period (%)  = <DISABLED>
+Total PER (%)                   = 0
+Co-located RNR stats:
+ Created vap:                   = 1
+ Active vap:                    = 1
+ RNR count:                     = 1
+ 6GHz SoC status:               = 0
+

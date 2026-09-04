@@ -38,6 +38,7 @@ public class MonitoringAlertEvaluator
     private readonly ILogger<MonitoringAlertEvaluator> _logger;
     private readonly DeviceTransitionTracker _transitions;
     private readonly WanOutageEvaluator _wanOutages;
+    private readonly DeviceOfflineDeduplicator _dedup;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     private readonly string _siteSuffix;
@@ -51,6 +52,7 @@ public class MonitoringAlertEvaluator
     /// </param>
     public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger,
         DeviceTransitionTracker transitions, WanOutageEvaluator wanOutages,
+        DeviceOfflineDeduplicator dedup,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
     {
@@ -58,6 +60,7 @@ public class MonitoringAlertEvaluator
         _logger = logger;
         _transitions = transitions;
         _wanOutages = wanOutages;
+        _dedup = dedup;
         _rolloutWindows = rolloutWindows;
         _siteSlug = siteSlug ?? SiteManagementService.DefaultSiteSlug;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
@@ -93,7 +96,19 @@ public class MonitoringAlertEvaluator
             {
                 state.IsOffline = false;
                 if (publishPerTarget)
-                    await _eventBus.PublishAsync(BuildRecoveredEvent(target, result), ct);
+                {
+                    if (target.TargetType == MonitoringTargetType.Fabric
+                        && !_dedup.TryClaimSlot(target.DeviceMac, isRecovery: true, DateTime.UtcNow))
+                    {
+                        _logger.LogDebug(
+                            "Suppressing target_recovered for {Target}: device.recovered already fired for the same device",
+                            target.Name);
+                    }
+                    else
+                    {
+                        await _eventBus.PublishAsync(BuildRecoveredEvent(target, result), ct);
+                    }
+                }
             }
 
             // Sustained-loss detection only matters while the target is nominally up.
@@ -151,7 +166,19 @@ public class MonitoringAlertEvaluator
                 state.LossWindow.Clear();
                 state.TransitionSuppressionLogged = false;
                 if (publishPerTarget)
-                    await _eventBus.PublishAsync(BuildOfflineEvent(target), ct);
+                {
+                    if (target.TargetType == MonitoringTargetType.Fabric
+                        && !_dedup.TryClaimSlot(target.DeviceMac, isRecovery: false, DateTime.UtcNow))
+                    {
+                        _logger.LogDebug(
+                            "Suppressing target_offline for {Target}: device.offline already fired for the same device",
+                            target.Name);
+                    }
+                    else
+                    {
+                        await _eventBus.PublishAsync(BuildOfflineEvent(target), ct);
+                    }
+                }
             }
         }
     }

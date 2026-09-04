@@ -210,6 +210,67 @@ public class RolloutSuppressionRegistryTests
         registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
     }
 
+    // --- AP Agent hold (keeps the agent's supervisor off a device mid-upgrade) -----------------
+
+    [Fact]
+    public void AgentHoldIsSeparateFromTheAlertWindows()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AlertWindowAloneDoesNotHoldTheAgent()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.Refresh(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AgentHoldNobodyRefreshesLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness).Should().BeTrue();
+        registry.IsAgentHeld(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearReleasesTheAgentHold()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+        registry.Clear(Site, Mac);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearingASiteDropsItsAgentHolds()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+        registry.ClearSite(Site);
+
+        registry.IsAgentHeld(Site, Mac, Now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void EverySpellingOfTheSameMacIsTheSameAgentHold()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshAgentHold(Site, Mac, Now);
+
+        registry.IsAgentHeld(Site, "AA-BB-CC-DD-EE-01", Now).Should().BeTrue();
+    }
+
     // --- Evaluator integration ----------------------------------------------------------------
 
     [Fact]
@@ -218,7 +279,7 @@ public class RolloutSuppressionRegistryTests
         var bus = new CapturingBus();
         var registry = new RolloutSuppressionRegistry();
         var evaluator = new DeviceStateAlertEvaluator(
-            bus, new DeviceTransitionTracker(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
         registry.Refresh(Site, Mac, Now);
 
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, Now);
@@ -233,7 +294,7 @@ public class RolloutSuppressionRegistryTests
         var bus = new CapturingBus();
         var registry = new RolloutSuppressionRegistry();
         var evaluator = new DeviceStateAlertEvaluator(
-            bus, new DeviceTransitionTracker(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
         registry.Refresh(Site, Mac, Now);
 
         var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);

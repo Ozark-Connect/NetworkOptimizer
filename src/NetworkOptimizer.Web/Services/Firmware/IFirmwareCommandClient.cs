@@ -82,12 +82,20 @@ public interface IFirmwareCommandClient
     Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// UniFi's "Check for Updates": checks and prepares new firmware, refreshing what the console
-    /// reports as upgradable. Run before planning, at rollout start, and after every channel change.
+    /// The console's catalog for the channel in force: newest build per model, with image URLs. It
+    /// reports, it does not restage - pair it with <see cref="TriggerDeviceFirmwareCheckAsync"/>.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The catalog entries, or an empty list when the console would not answer.</returns>
     Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Asks the console to re-derive every device's pending target against the channel in force.
+    /// Run before planning and after every channel change; repeating it while waiting buys nothing.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether the console accepted the request.</returns>
+    Task<bool> TriggerDeviceFirmwareCheckAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The console-level "check now" for application updates: refreshes what the console is

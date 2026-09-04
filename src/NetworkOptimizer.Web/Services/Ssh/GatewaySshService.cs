@@ -246,11 +246,6 @@ public class GatewaySshService : IGatewaySshService
             return (false, "Gateway host not configured");
         }
 
-        if (string.IsNullOrEmpty(password) && string.IsNullOrEmpty(privateKeyPath))
-        {
-            return (false, "SSH credentials not configured");
-        }
-
         if (await IsAwaitingAgentAsync())
         {
             return (false, AwaitingAgentMessage);
@@ -258,15 +253,37 @@ public class GatewaySshService : IGatewaySshService
 
         try
         {
-            var connection = await MaybeRouteViaAgentAsync(new SshConnectionInfo
+            SshConnectionInfo connection;
+
+            // No credential typed means test the edited fields against the stored one. The saved
+            // password never reaches the browser, so the page cannot supply it, and refusing here
+            // would test the saved host instead of the one on screen.
+            if (string.IsNullOrEmpty(password) && string.IsNullOrEmpty(privateKeyPath))
             {
-                Host = host,
-                Port = port,
-                Username = username,
-                Password = password,
-                PrivateKeyPath = privateKeyPath,
-                Timeout = TimeSpan.FromSeconds(5)
-            });
+                var saved = await GetSettingsAsync();
+                if (!saved.HasCredentials)
+                {
+                    return (false, "SSH credentials not configured");
+                }
+
+                var attempt = saved.ShallowCopy();
+                attempt.Host = host;
+                attempt.Port = port;
+                attempt.Username = username;
+                connection = await CreateConnectionInfoAsync(attempt);
+            }
+            else
+            {
+                connection = await MaybeRouteViaAgentAsync(new SshConnectionInfo
+                {
+                    Host = host,
+                    Port = port,
+                    Username = username,
+                    Password = password,
+                    PrivateKeyPath = privateKeyPath,
+                    Timeout = TimeSpan.FromSeconds(5)
+                });
+            }
 
             var (success, message) = await _sshClient.TestConnectionAsync(connection);
 
@@ -323,6 +340,34 @@ public class GatewaySshService : IGatewaySshService
 
         return (result.Success, result.CombinedOutput);
     }
+
+    /// <inheritdoc />
+    public async Task<SshCommandResult> RunCommandStreamingAsync(
+        string command,
+        Action<string> onOutput,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+            return StreamingPreconditionFailure("Gateway SSH access is disabled");
+
+        if (string.IsNullOrEmpty(settings.Host))
+            return StreamingPreconditionFailure("Gateway host not configured");
+
+        if (!settings.HasCredentials)
+            return StreamingPreconditionFailure("SSH credentials not configured");
+
+        if (await IsAwaitingAgentAsync())
+            return StreamingPreconditionFailure(AwaitingAgentMessage);
+
+        var connection = await CreateConnectionInfoAsync(settings);
+        return await _sshClient.ExecuteCommandStreamingAsync(connection, command, onOutput, timeout, cancellationToken);
+    }
+
+    private static SshCommandResult StreamingPreconditionFailure(string message) =>
+        new() { Success = false, ExitCode = -1, Error = message };
 
     /// <inheritdoc />
     public async Task<SshConnectionInfo?> GetConnectionInfoAsync()

@@ -22,7 +22,9 @@ public record ChannelOutcomeSample(
     DateTime TimestampUtc,
     double Utilization,
     double Interference,
-    double TxRetryPct);
+    double TxRetryPct,
+    int? CenterChannel = null,
+    double? NoiseFloor = null);
 
 /// <summary>
 /// One observation of a neighbor network by an AP radio, for the long-term neighbor memory.

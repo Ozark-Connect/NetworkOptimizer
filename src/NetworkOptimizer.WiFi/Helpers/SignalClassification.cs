@@ -105,11 +105,113 @@ public static class SignalClassification
         _ => 1
     };
 
+    /// <summary>
+    /// How many of five bars are lit, 1-5, derived from the class so the two can never disagree.
+    /// Never give the count its own thresholds: boundaries that do not line up draw the same bar
+    /// count in two different class colors.
+    /// </summary>
+    public static int GetSignalBars(int dbm, RadioBand band) => GetBarCount(GetSignalClass(dbm, band));
+
+    /// <summary>Bars for a band string, in either the UniFi or normalized form.</summary>
+    public static int GetSignalBars(int dbm, string? bandString) => GetSignalBars(dbm, ParseBand(bandString));
+
+    /// <summary>
+    /// The color ramp for a band, as (dBm, hex) from strongest to weakest. Anchored to the same
+    /// thresholds <see cref="GetSignalClass"/> uses and painted in the class colors, so a reading
+    /// at a boundary is exactly its badge color and anything between blends its neighbors. One
+    /// curve for gauges, dots and heat surfaces alike - a second scale is how they drift apart.
+    /// </summary>
+    public static (int Dbm, string Hex)[] GetSignalGradient(RadioBand band)
+    {
+        var (excellent, good, fair, weak) = band switch
+        {
+            RadioBand.Band2_4GHz => (-55, -65, -73, -80),
+            RadioBand.Band6GHz => (-67, -78, -87, -92),
+            _ => (-60, -70, -78, -85)
+        };
+
+        // The class boundaries are the anchors, so a reading at one is exactly its badge color, and
+        // the endpoints sit a fixed offset past them rather than at a fixed dBm: an absolute top
+        // stop would span 25 dB on 2.4 GHz and 37 on 6 GHz, which reads as two different scales.
+        //
+        // The top reaches 25 dB above excellent because a client beside its access point sits far
+        // above that boundary on every band, and anything past the last stop is one flat color.
+        // Hue travels the whole way - blue, teal, emerald, green, lime, yellow, orange, rose, dark
+        // red - since most readings sit in the strong half. The three mid-span stops are the only
+        // ones off a boundary.
+        var excellentToGood = (excellent + good) / 2;
+        var fairToWeak = (fair + weak) / 2;
+
+        return
+        [
+            (excellent + 25, "#2E79C4"),
+            (excellent + 15, "#4797ff"),
+            (excellent + 7, "#2dd4bf"),
+            (excellent, "#10b981"),
+            (excellentToGood, "#4ade80"),
+            (good, "#84cc16"),
+            (fair, "#fde047"),
+            (fairToWeak, "#fb923c"),
+            (weak, "#f43f5e"),
+            (weak - 10, "#991b1b")
+        ];
+    }
+
+    /// <summary>The ramp for a band string, in either the UniFi or normalized form.</summary>
+    public static (int Dbm, string Hex)[] GetSignalGradient(string? bandString) => GetSignalGradient(ParseBand(bandString));
+
+    /// <summary>
+    /// The blended color for a reading, as "rgb(r,g,b)". Every surface that displays a dBm uses
+    /// this so the value reads continuously: a decibel of change moves the color a little, rather
+    /// than snapping a whole class at a threshold. The class is still what decides a verdict -
+    /// bar counts, scoring, distribution counts - but it is not what paints a number.
+    /// </summary>
+    public static string GetSignalColor(int dbm, RadioBand band)
+    {
+        var stops = GetSignalGradient(band);
+        if (dbm >= stops[0].Dbm) return Rgb(stops[0].Hex);
+        if (dbm <= stops[^1].Dbm) return Rgb(stops[^1].Hex);
+
+        for (var i = 0; i < stops.Length - 1; i++)
+        {
+            if (dbm > stops[i].Dbm || dbm < stops[i + 1].Dbm) continue;
+            var t = (double)(dbm - stops[i + 1].Dbm) / (stops[i].Dbm - stops[i + 1].Dbm);
+            var (ar, ag, ab) = Rgb3(stops[i].Hex);
+            var (br, bg, bb) = Rgb3(stops[i + 1].Hex);
+            return $"rgb({(int)(ar * t + br * (1 - t))},{(int)(ag * t + bg * (1 - t))},{(int)(ab * t + bb * (1 - t))})";
+        }
+        return Rgb(stops[^1].Hex);
+    }
+
+    /// <summary>The blended color for a band string, in either form.</summary>
+    public static string GetSignalColor(int dbm, string? bandString) => GetSignalColor(dbm, ParseBand(bandString));
+
+    /// <summary>The blended color for a nullable reading, or empty when there is none.</summary>
+    public static string GetSignalColor(int? dbm, string? bandString) =>
+        dbm.HasValue ? GetSignalColor(dbm.Value, ParseBand(bandString)) : "";
+
+    /// <inheritdoc cref="GetSignalColor(int?, string?)"/>
+    public static string GetSignalColor(int? dbm, RadioBand band) =>
+        dbm.HasValue ? GetSignalColor(dbm.Value, band) : "";
+
+    private static (int R, int G, int B) Rgb3(string hex) => (
+        Convert.ToInt32(hex.Substring(1, 2), 16),
+        Convert.ToInt32(hex.Substring(3, 2), 16),
+        Convert.ToInt32(hex.Substring(5, 2), 16));
+
+    private static string Rgb(string hex)
+    {
+        var (r, g, b) = Rgb3(hex);
+        return $"rgb({r},{g},{b})";
+    }
+
+    // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
+    // through here is classified on the 5 GHz curve, so a missing case is a silently wrong color.
     private static RadioBand ParseBand(string? bandString) => bandString switch
     {
-        "ng" => RadioBand.Band2_4GHz,
-        "6e" => RadioBand.Band6GHz,
-        "na" => RadioBand.Band5GHz,
+        "ng" or "2.4" or "2.4ghz" or "2.4 GHz" => RadioBand.Band2_4GHz,
+        "6e" or "6" or "6ghz" or "6 GHz" => RadioBand.Band6GHz,
+        "na" or "5" or "5ghz" or "5 GHz" => RadioBand.Band5GHz,
         _ => RadioBand.Band5GHz
     };
 }

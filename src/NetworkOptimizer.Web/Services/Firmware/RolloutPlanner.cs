@@ -646,8 +646,8 @@ public class RolloutPlanner
         if (candidates.Any(d => d.Type == DeviceType.Gateway))
         {
             doc.Notes.Add(doc.IncludesUniFiOsUpdate
-                ? "The gateway upgrades last. Its UniFi OS cycle can take up to 30 minutes, and the console (and any agent tunnel) is unreachable during it."
-                : "The gateway upgrades last; the console is briefly unreachable during its reboot.");
+                ? "The gateway upgrades last. Its UniFi OS cycle can take up to 30 minutes, and the Console (and any agent tunnel) is unreachable during it."
+                : "The gateway upgrades last; the Console is briefly unreachable during its reboot.");
         }
 
         if (doc.MeshRepairs.Count > 0)

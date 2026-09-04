@@ -190,6 +190,56 @@ public class MonitoringPathView
     }
 
     /// <summary>
+    /// The WANs a WAN selector should offer: <see cref="GetWansAsync"/> minus any the console
+    /// reports with no link and no address, unless something says the WAN is real - it holds the
+    /// primary role, a WAN context names it, or a <see cref="WanProfile"/> remembers it. A spare
+    /// port with a WAN assigned and nothing plugged in is a WAN in name only (#1183); a WAN that
+    /// has been live before is in an outage, and its history stays reachable.
+    /// </summary>
+    public async Task<IReadOnlyList<WanSummary>> GetSelectableWansAsync(CancellationToken ct = default)
+    {
+        var wans = await GetWansAsync(ct);
+        if (wans.All(w => w.IsActive)) return wans;
+
+        var contextKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var profileGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            await using var db = CreateSiteDb();
+            contextKeys.UnionWith(await db.WanContexts.AsNoTracking()
+                .Where(c => c.WanInterface != null).Select(c => c.WanInterface!).ToListAsync(ct));
+            profileGroups.UnionWith(await db.WanProfiles.AsNoTracking()
+                .Select(p => p.WanNetworkgroup).ToListAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            // Without the DB the keep-alive evidence is unknown, so hiding would risk a real WAN.
+            _logger.LogDebug(ex, "GetSelectableWansAsync: site DB unavailable; offering every WAN");
+            return wans;
+        }
+        return SelectableWans(wans, contextKeys, profileGroups);
+    }
+
+    /// <summary>
+    /// The pure rule behind <see cref="GetSelectableWansAsync"/>. Keys are normalized on both
+    /// sides: a context can still say "wan1" for the WAN a summary calls "wan", and profiles are
+    /// keyed by network group ("WAN2"), not interface key ("wan2").
+    /// </summary>
+    public static IReadOnlyList<WanSummary> SelectableWans(
+        IReadOnlyList<WanSummary> wans, IEnumerable<string> contextWanKeys, IEnumerable<string> profileGroups)
+    {
+        var contexts = contextWanKeys.Select(GatewayWanHelper.WanInterfaceKeyFromKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var profiles = profileGroups.Select(g => GatewayWanHelper.WanNetworkGroupFromKey(g))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return wans.Where(w => w.IsActive
+                || w.IsPrimary
+                || contexts.Contains(GatewayWanHelper.WanInterfaceKeyFromKey(w.WanInterface))
+                || profiles.Contains(GatewayWanHelper.WanNetworkGroupFromKey(w.WanInterface)))
+            .ToList();
+    }
+
+    /// <summary>
     /// Builds the structural WAN summary list from the gateway device JSON. Throws on a
     /// failed device fetch so the caller's process-wide cache does not store a transient
     /// empty result. Live throughput rates are layered on by the caller, not here.
@@ -483,4 +533,12 @@ public record WanSummary
     public double? LiveRateOutBps { get; set; }
     public string? IpAddress { get; init; }
     public PublicAddressClass IpClass { get; init; }
+
+    /// <summary>
+    /// Whether the console shows any sign of life on this WAN: link up, or still holding an
+    /// address. The activity gate the WAN globes use (#911); a WAN failing it is a port with a WAN
+    /// assigned and nothing on the other end, or a WAN in an outage - the selectors tell those
+    /// apart with <see cref="MonitoringPathView.SelectableWans"/>.
+    /// </summary>
+    public bool IsActive => Up || !string.IsNullOrEmpty(IpAddress);
 }

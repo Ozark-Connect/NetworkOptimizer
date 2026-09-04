@@ -28,6 +28,15 @@ public class AccessPointSnapshot
     /// <summary>Total connected clients across all radios</summary>
     public int TotalClients { get; set; }
 
+    /// <summary>
+    /// Clients the AP Agent holds right now: exact and seconds old, where the console's count lags
+    /// its report interval and keeps a client the agent saw leave. Null on an AP no agent covers.
+    /// </summary>
+    public int? MeasuredClientCount { get; set; }
+
+    /// <summary>The measured count where there is one, the console's otherwise.</summary>
+    public int EffectiveClientCount => MeasuredClientCount ?? TotalClients;
+
     /// <summary>Per-radio details</summary>
     public List<RadioSnapshot> Radios { get; set; } = new();
 
@@ -88,6 +97,50 @@ public class AccessPointSnapshot
     /// <summary>Name of the mesh parent AP (resolved from MAC, if mesh child)</summary>
     public string? MeshParentName { get; set; }
 
+    /// <summary>Whether the mesh uplink is an MLO (Wi-Fi 7 multi-link) backhaul</summary>
+    public bool MeshUplinkIsMlo { get; set; }
+
+    /// <summary>
+    /// Every band/channel the mesh uplink occupies: the STA link plus any other MLO links.
+    /// A classic backhaul yields one entry; non-mesh APs none.
+    /// </summary>
+    public IEnumerable<(RadioBand Band, int? Channel)> MeshUplinkBandChannels
+    {
+        get
+        {
+            if (MeshUplinkBand.HasValue)
+                yield return (MeshUplinkBand.Value, MeshUplinkChannel);
+            foreach (var link in MeshUplinkLinks)
+            {
+                if (link.Band.HasValue && link.Band != MeshUplinkBand)
+                    yield return (link.Band.Value, link.Channel);
+            }
+        }
+    }
+
+    /// <summary>Whether the mesh uplink occupies the given band (any link, on MLO).</summary>
+    public bool MeshUplinkUsesBand(RadioBand band) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band);
+
+    /// <summary>Whether the mesh uplink occupies the given band and channel (any link, on MLO).</summary>
+    public bool MeshUplinkUsesChannel(RadioBand band, int channel) =>
+        MeshUplinkBandChannels.Any(x => x.Band == band && x.Channel == channel);
+
+    /// <summary>
+    /// Whether a mesh backhaul this AP participates in - as child or as parent - occupies the
+    /// given band. The parent side reads its children's links; the child side its own uplink.
+    /// </summary>
+    public bool MeshBackhaulUsesBand(RadioBand band) =>
+        MeshUplinkUsesBand(band) ||
+        MeshChildren.Any(c => c.UplinkBand == band || c.Links.Any(l => l.Band == band));
+
+    /// <summary>
+    /// Per-link detail of the mesh uplink, child's perspective (TX toward the parent). From the
+    /// child's own uplink.mlo_links when it reports them (signal as the child measures it), else
+    /// the parent's downlink_table flipped; empty when neither end reports links.
+    /// </summary>
+    public List<MeshLinkInfo> MeshUplinkLinks { get; set; } = new();
+
     /// <summary>Mesh children connected to this AP (if mesh parent)</summary>
     public List<MeshChildInfo> MeshChildren { get; set; } = new();
 
@@ -109,6 +162,27 @@ public class MeshChildInfo
     public int? TxRateMbps { get; set; }
     public int? RxRateMbps { get; set; }
     public RadioBand? UplinkBand { get; set; }
+
+    /// <summary>Whether the backhaul to this child is an MLO (Wi-Fi 7 multi-link) pairing</summary>
+    public bool IsMlo { get; set; }
+
+    /// <summary>Per-link detail, parent's perspective (TX toward the child). Empty when the
+    /// parent's downlink_table reported nothing and the values above came from the child.</summary>
+    public List<MeshLinkInfo> Links { get; set; } = new();
+}
+
+/// <summary>
+/// One radio link of a mesh backhaul. TX/RX direction and the signal reading follow the owning
+/// collection's end: the child's own on <see cref="AccessPointSnapshot.MeshUplinkLinks"/> (when
+/// it reports its links), the parent's on <see cref="MeshChildInfo.Links"/>.
+/// </summary>
+public class MeshLinkInfo
+{
+    public RadioBand? Band { get; set; }
+    public int? Channel { get; set; }
+    public int? SignalDbm { get; set; }
+    public int? TxRateMbps { get; set; }
+    public int? RxRateMbps { get; set; }
 }
 
 /// <summary>
@@ -130,6 +204,55 @@ public class RadioSnapshot
 
     /// <summary>Extension channel number for 40 MHz+ bonding (from radio_table_stats)</summary>
     public int? ExtChannel { get; set; }
+
+    /// <summary>
+    /// Center of the operating block as a channel number, reported by the AP Agent. At 320 MHz
+    /// the primary sits in one block of each of two overlapping channelizations and the console
+    /// never says which; this does. Null without an agent, and the span falls back to a guess.
+    /// </summary>
+    public int? CenterChannel { get; set; }
+
+    /// <summary>The channel is set by hand in UniFi Network (radio_table channel is a number, not "auto").</summary>
+    public bool ChannelIsFixed { get; set; }
+
+    /// <summary>The TX power mode is set by hand in UniFi Network (anything but "auto").</summary>
+    public bool TxPowerIsFixed { get; set; }
+
+    /// <summary>
+    /// This radio's width differs from the most common width on its band across the site, which
+    /// is the best available reading of a deliberate per-AP width; UniFi carries no override flag.
+    /// </summary>
+    public bool WidthIsOverride { get; set; }
+
+    /// <summary>
+    /// Airtime busy percent measured by the AP Agent in the last two minutes (the radio's own
+    /// <c>cu_total</c>). Null without an agent, or when its reading is stale. Named apart from
+    /// <see cref="ChannelUtilization"/>, the console's figure, which keeps feeding every rule.
+    /// </summary>
+    public int? MeasuredUtilization { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is this radio's own traffic (<c>cu_self_tx</c> plus <c>cu_self_rx</c>).</summary>
+    public int? MeasuredSelfAirtime { get; set; }
+
+    /// <summary>Of <see cref="MeasuredUtilization"/>, the percent that is other transmitters (<c>cu_interf</c>).</summary>
+    public int? MeasuredInterference { get; set; }
+
+    /// <summary>The radio's latest measured noise floor in dBm, from the AP Agent.</summary>
+    public int? MeasuredNoiseFloor { get; set; }
+
+    /// <summary>The median of the last hour's measured noise floors, once an hour's worth exists.</summary>
+    public int? MeasuredNoiseFloorHour { get; set; }
+
+    /// <summary>When the measured fields were read (UTC).</summary>
+    public DateTime? MeasuredAt { get; set; }
+
+    /// <summary>
+    /// The widest any client that can roam to this radio has negotiated on its band over the
+    /// lookback, from the AP Agent's client history and the clients on it now. Site-wide because
+    /// devices roam; a device locked to another AP is not counted, one locked to this AP is. Null
+    /// without agent history.
+    /// </summary>
+    public int? MeasuredMaxNegotiatedWidth { get; set; }
 
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }

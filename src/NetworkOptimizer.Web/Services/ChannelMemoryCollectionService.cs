@@ -1,5 +1,6 @@
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.ApAgent;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
@@ -11,8 +12,9 @@ namespace NetworkOptimizer.Web.Services;
 /// hourly per-AP radio metrics and channel-change events from the UniFi Console, attributes
 /// each sample to the (channel, width) that was actually live at the time, and persists
 /// daily aggregates - building a long-term measured record of how each tried config really
-/// performed that outlives the console's short metrics retention. Also maintains the
-/// persisted channel-change log the soak-period suppression reads.
+/// performed that outlives the console's short metrics retention. Radio-hours measured by an
+/// AP Agent replace the console's sample for that hour (see BuildRadioSamples). Also maintains
+/// the persisted channel-change log the soak-period suppression reads.
 ///
 /// Data-integrity rules: all fetches throw on failure (an empty result must mean "no data",
 /// never "fetch failed" - a silent failure would misattribute samples or skip a window), a
@@ -35,12 +37,19 @@ public class ChannelMemoryCollectionService : BackgroundService
     /// <summary>UniFi hourly report retention we can safely reach back into.</summary>
     private static readonly TimeSpan MaxLookback = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// A console event landing this close to an agent record for the same destination channel
+    /// is the same move seen from the other clock, not a second one.
+    /// </summary>
+    private static readonly TimeSpan AgentEventMatchWindow = TimeSpan.FromMinutes(5);
+
     /// <summary>How long outcome buckets and superseded change records are kept.</summary>
     private const int RetentionDays = 365;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IChannelMemoryRepository _repository;
     private readonly UniFiConnectionService _connectionService;
+    private readonly ApAgentTelemetryRegistry? _apAgentTelemetry;
     private readonly ILogger<ChannelMemoryCollectionService> _logger;
     private readonly string _siteSlug;
 
@@ -59,6 +68,8 @@ public class ChannelMemoryCollectionService : BackgroundService
         // resolve to the default site inside the background scope (no ambient HttpContext).
         _repository = ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.ChannelMemoryRepository>(
             serviceProvider, _siteSlug, isDefault);
+        // Optional so tests without the registry still construct; a live app always has it.
+        _apAgentTelemetry = serviceProvider.GetService<ApAgentTelemetryRegistry>();
         _logger = logger;
     }
 
@@ -173,6 +184,14 @@ public class ChannelMemoryCollectionService : BackgroundService
         var samples = new List<ChannelOutcomeSample>();
         var newChanges = new List<ApChannelChange>();
 
+        // Radio-hours the site's AP Agents measured on the AP itself. These win over the console's
+        // hourly report for the same radio-hour (their attribution is the config actually live),
+        // and consuming them here - inside the same commit and watermark - is what keeps the two
+        // sources from ever both writing one hour. APs without an agent are untouched.
+        var airtime = _apAgentTelemetry?.GetFor(_siteSlug).Airtime;
+        var agentHours = airtime?.GetFinalizedHours(start.UtcDateTime, collectEnd.UtcDateTime)
+            ?? (IReadOnlyList<ApAgentAirtimeHour>)Array.Empty<ApAgentAirtimeHour>();
+
         foreach (var (ap, metrics, events) in fetched)
         {
             var macLower = ap.Mac.ToLowerInvariant();
@@ -209,33 +228,16 @@ public class ChannelMemoryCollectionService : BackgroundService
                          lastKnown.NewWidthMhz.HasValue && lastKnown.NewWidthMhz.Value == currentWidth)
                     widthValidFrom = DateTimeOffset.MinValue;
 
-                // Attribute each hourly sample to the channel live at its timestamp.
-                // [start, collectEnd) matches the watermark semantics - no loss, no double count.
-                foreach (var metric in metrics)
+                var radioSamples = BuildRadioSamples(
+                    macLower, bandCode, band, metrics, bandEvents,
+                    currentChannel, currentWidth, widthValidFrom, start, collectEnd, agentHours);
+                samples.AddRange(radioSamples);
+                foreach (var s in radioSamples.Where(s => s.CenterChannel.HasValue || s.NoiseFloor.HasValue))
                 {
-                    if (metric.Timestamp < start || metric.Timestamp >= collectEnd) continue;
-                    if (!metric.ByBand.TryGetValue(band, out var bandData) ||
-                        !bandData.ChannelUtilization.HasValue)
-                        continue;
-
-                    var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, currentChannel);
-                    // An event parsed without PREVIOUS_CHANNEL yields channel 0 for samples
-                    // predating it - not a real channel, don't create buckets for it.
-                    if (channel <= 0) continue;
-
-                    var width = channel == currentChannel &&
-                                widthValidFrom.HasValue && metric.Timestamp >= widthValidFrom.Value
-                        ? currentWidth
-                        : 0;
-                    samples.Add(new ChannelOutcomeSample(
-                        macLower,
-                        bandCode,
-                        channel,
-                        width,
-                        metric.Timestamp.UtcDateTime,
-                        bandData.ChannelUtilization ?? 0,
-                        bandData.Interference ?? 0,
-                        bandData.TxRetryPct ?? 0));
+                    _logger.LogDebug(
+                        "[ChannelMemory] {ApName} {Band} ch {Channel}/{Width} center {Center} floor {Floor} -> bucket {Day}",
+                        ap.Name, band, s.Channel, s.WidthMhz, s.CenterChannel?.ToString() ?? "-",
+                        s.NoiseFloor?.ToString("F0") ?? "-", s.TimestampUtc.Date.ToString("yyyy-MM-dd"));
                 }
 
                 // Maintain the persisted change log. The last persisted record per radio is
@@ -259,6 +261,13 @@ public class ChannelMemoryCollectionService : BackgroundService
                 var lastRecordedAt = DateTime.SpecifyKind(lastKnown.ChangedAtUtc, DateTimeKind.Utc);
                 foreach (var evt in bandEvents.Where(e => e.Timestamp.UtcDateTime > lastRecordedAt))
                 {
+                    // The agent already logged this move, seconds after it happened; the console's
+                    // own event for it is the same move on another clock, not a second one.
+                    if (lastKnown.Source == ApChannelChangeSource.Agent
+                        && lastKnown.NewChannel == evt.NewChannel
+                        && (evt.Timestamp.UtcDateTime - lastRecordedAt).Duration() <= AgentEventMatchWindow)
+                        continue;
+
                     var isCurrentConfig = evt.NewChannel == currentChannel && evt == lastEvent;
                     newChanges.Add(new ApChannelChange
                     {
@@ -321,6 +330,9 @@ public class ChannelMemoryCollectionService : BackgroundService
         }
 
         await _repository.CommitCollectionAsync(samples, newChanges, collectEnd.UtcDateTime, cancellationToken);
+        // Only after the commit: a failed cycle keeps its agent hours for the retry, exactly
+        // like the untouched watermark keeps the console window.
+        airtime?.PruneBefore(collectEnd.UtcDateTime);
         await _repository.PruneAsync(RetentionDays, ChannelMemoryHelper.NeighborRetentionDays, cancellationToken);
 
         _logger.LogDebug(
@@ -328,6 +340,99 @@ public class ChannelMemoryCollectionService : BackgroundService
             "(window {Start:MM/dd HH:mm} - {End:MM/dd HH:mm} UTC)",
             samples.Count, onlineAps.Count, newChanges.Count, start, collectEnd);
     }
+
+    /// <summary>
+    /// Builds one radio's outcome samples over [start, collectEnd). Console hourly metrics are
+    /// attributed to a channel via the change-event timeline, as before; a radio-hour the AP
+    /// Agent measured wins outright (its attribution is the config that was actually live), and
+    /// the console's sample for that hour is skipped so the two sources can never both weigh in
+    /// on one radio-hour. Either way each radio-hour yields at most one sample, keeping
+    /// SampleCount's unit - hours of residency - identical across agent- and console-covered APs.
+    /// </summary>
+    public static List<ChannelOutcomeSample> BuildRadioSamples(
+        string macLower,
+        string bandCode,
+        RadioBand band,
+        IReadOnlyList<SiteWiFiMetrics> metrics,
+        List<ChannelChangeEvent> bandEvents,
+        int currentChannel,
+        int currentWidth,
+        DateTimeOffset? widthValidFrom,
+        DateTimeOffset start,
+        DateTimeOffset collectEnd,
+        IReadOnlyList<ApAgentAirtimeHour> agentHours)
+    {
+        var samples = new List<ChannelOutcomeSample>();
+        var agentByHour = new Dictionary<DateTime, ApAgentAirtimeHour>();
+        foreach (var h in agentHours)
+        {
+            if (h.ApMac.Equals(macLower, StringComparison.OrdinalIgnoreCase) && h.Band == bandCode &&
+                h.HourUtc >= start.UtcDateTime && h.HourUtc < collectEnd.UtcDateTime)
+                agentByHour[h.HourUtc] = h;
+        }
+
+        var metricsByHour = new Dictionary<DateTime, SiteWiFiMetrics>();
+        foreach (var metric in metrics)
+        {
+            if (metric.Timestamp < start || metric.Timestamp >= collectEnd) continue;
+            if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                !bandData.ChannelUtilization.HasValue)
+                continue;
+
+            var hourUtc = FloorHour(metric.Timestamp.UtcDateTime);
+            metricsByHour.TryAdd(hourUtc, metric);
+            if (agentByHour.ContainsKey(hourUtc)) continue;
+
+            var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, currentChannel);
+            // An event parsed without PREVIOUS_CHANNEL yields channel 0 for samples
+            // predating it - not a real channel, don't create buckets for it.
+            if (channel <= 0) continue;
+
+            var width = channel == currentChannel &&
+                        widthValidFrom.HasValue && metric.Timestamp >= widthValidFrom.Value
+                ? currentWidth
+                : 0;
+            samples.Add(new ChannelOutcomeSample(
+                macLower,
+                bandCode,
+                channel,
+                width,
+                metric.Timestamp.UtcDateTime,
+                bandData.ChannelUtilization ?? 0,
+                bandData.Interference ?? 0,
+                bandData.TxRetryPct ?? 0));
+        }
+
+        foreach (var h in agentByHour.Values)
+        {
+            // The agent serves no radio-level retry counter, so an agent-won hour adopts the
+            // console's TxRetryPct when the console attributes that hour to the same channel,
+            // and records 0 (this table's "unmeasured") otherwise.
+            double txRetry = 0;
+            if (metricsByHour.TryGetValue(h.HourUtc, out var metric) &&
+                metric.ByBand.TryGetValue(band, out var bandData) &&
+                bandData.TxRetryPct.HasValue &&
+                ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, currentChannel) == h.Channel)
+                txRetry = bandData.TxRetryPct.Value;
+
+            samples.Add(new ChannelOutcomeSample(
+                macLower,
+                bandCode,
+                h.Channel,
+                h.WidthMhz,
+                h.LastSampleUtc,
+                h.AvgUtilization,
+                h.AvgInterference,
+                txRetry,
+                h.CenterChannel,
+                h.AvgNoiseFloor));
+        }
+
+        return samples;
+    }
+
+    private static DateTime FloorHour(DateTime utc) =>
+        new(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc);
 
     /// <summary>
     /// Persist the current neighbor picture into the long-term neighbor memory. UniFi's

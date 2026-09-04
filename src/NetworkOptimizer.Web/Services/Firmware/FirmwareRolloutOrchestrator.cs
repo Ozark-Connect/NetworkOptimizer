@@ -133,6 +133,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IReleaseMetadataSource _releases;
     private readonly IAlertEventBus _eventBus;
     private readonly SiteTunnelRouting? _tunnelRouting;
+    private readonly IRolloutRebootWitness? _rebootWitness;
+    private readonly ApAgent.ApAgentRegistry? _apAgents;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
     private readonly string _siteSlug;
@@ -144,6 +146,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
+    // Devices seen behind each in-flight step, so a child that drops off the console's device
+    // list mid-cycle keeps its alert window until the step settles.
+    private readonly Dictionary<string, HashSet<string>> _downstreamOfStep = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _tickLock = new(1, 1);
     private IReadOnlyList<UniFiFirmwareCatalogEntry> _catalog = [];
     private DateTime _catalogReadAt = DateTime.MinValue;
@@ -164,7 +169,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="health">Start-time health gate.</param>
     /// <param name="meshRepairs">Background mesh re-pair queue.</param>
     /// <param name="channels">Console channel set and restore.</param>
-    /// <param name="suppression">Standard-alert suppression windows.</param>
+    /// <param name="suppression">Standard-alert suppression windows and AP Agent holds.</param>
     /// <param name="autopilot">Unattended plan builder, driven by the registry's tick.</param>
     /// <param name="releases">Changelog links for the post-soak report.</param>
     /// <param name="eventBus">Site-stamped alert bus.</param>
@@ -174,6 +179,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <param name="tunnelRouting">
     /// Agent tunnel state, where the app has it. Null falls back to console silence alone as the
     /// blindness signal, which is what a build without the routing service can tell.
+    /// </param>
+    /// <param name="apAgents">
+    /// AP Agent deployment services, for stopping the agent on an access point before it flashes.
+    /// Null skips the stop; the redeploy hold still applies.
     /// </param>
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
@@ -190,9 +199,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         TimeProvider time,
         ILogger<FirmwareRolloutOrchestrator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        SiteTunnelRouting? tunnelRouting = null)
+        SiteTunnelRouting? tunnelRouting = null,
+        ApAgent.ApAgentRegistry? apAgents = null,
+        IRolloutRebootWitness? rebootWitness = null)
     {
         _tunnelRouting = tunnelRouting;
+        _apAgents = apAgents;
+        _rebootWitness = rebootWitness;
         _repositories = repositories;
         _commands = commands;
         _observer = observer;
@@ -351,6 +364,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public Task CreateAutopilotPlanIfDueAsync(CancellationToken cancellationToken = default) =>
         _autopilot.CreatePlanIfDueAsync(cancellationToken);
 
+    /// <summary>Autopilot was saved or re-enabled: see <see cref="IRolloutAutopilot.ReconsiderAsync"/>.</summary>
+    public Task ReconsiderAutopilotAsync(CancellationToken cancellationToken = default) =>
+        _autopilot.ReconsiderAsync(cancellationToken);
+
+    /// <summary>See <see cref="IRolloutAutopilot.HoldReason"/>.</summary>
+    public string? AutopilotHoldReason => _autopilot.HoldReason;
+
     /// <summary>Holds a running rollout. In-flight devices are still watched to the end of their cycle.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task PauseAsync(CancellationToken cancellationToken = default)
@@ -470,10 +490,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // settle (no active plan → ClearSite in the normal sweep).
             var inFlight = steps.Where(s => !IsSettled(s)).Select(s => s.DeviceMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (inFlight.Count == 0)
+            {
                 _suppression.ClearSite(_siteSlug);
+                _downstreamOfStep.Clear();
+            }
             else
                 foreach (var step in steps.Where(s => IsSettled(s)))
-                    _suppression.Clear(_siteSlug, step.DeviceMac);
+                    CloseStepWindows(step);
 
             _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
         }
@@ -539,6 +562,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         var observations = await _observer.ObserveAsync(cancellationToken);
         var observation = observations.FirstOrDefault(o => o.Mac == step.DeviceMac);
+
+        // The step settled after its upgrade, so the agent's supervisor has likely redeployed by now.
+        await HoldApAgentAsync(step, cancellationToken);
 
         var result = await _commands.TriggerSshUpgradeAsync(
             observation?.IpAddress ?? string.Empty, prior.Url, SshUpgradesAsGateway(step), cancellationToken);
@@ -629,7 +655,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // Standalone UniFi OS Server consoles are often custom deploys, so their OS is never
             // ours to update. The UniFi Network application stays in scope on them.
             document.IncludesUniFiOsUpdate = false;
-            document.Notes.Add("UniFi OS is not updated on a self-hosted console; this rollout covers network devices only.");
+            document.Notes.Add("UniFi OS is not updated on a self-hosted Console; this rollout covers network devices only.");
             plan.PlanJson = JsonSerializer.Serialize(document);
             _logger.LogWarning(
                 "Refusing the UniFi OS step of rollout {Id} on site {Site}: the console is a self-hosted UniFi OS Server",
@@ -673,7 +699,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!RolloutPlanComposer.ConsoleReachable(console))
         {
             await AddBackupNoteAsync(plan, document,
-                "No console backup was taken: the console API is not reachable (API-key connection).",
+                "No Console backup was taken: the Console API is not reachable (API-key connection).",
                 cancellationToken);
             return;
         }
@@ -800,14 +826,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in inFlightSteps)
         {
             if (settings.SuppressStandardAlerts)
-                _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+                OpenStepWindows(step, byMac);
+
+            // Not gated on SuppressStandardAlerts: pushing a binary at a flashing AP is a hazard,
+            // not a preference. Clear releases the hold once the step settles.
+            if (IsAccessPointStep(step))
+                _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
 
             byMac.TryGetValue(step.DeviceMac, out var observation);
             await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
 
             if (IsSettled(step))
             {
-                _suppression.Clear(_siteSlug, step.DeviceMac);
+                CloseStepWindows(step);
                 _lastWaveSettledAt = Now;
             }
         }
@@ -1053,7 +1084,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.DeviceStuckOffline,
                 AlertSeverity.Critical,
                 $"Console Stuck Offline After UniFi OS Update{_siteSuffix}",
-                $"The console was updated to UniFi OS {ShortVersion(state.TargetVersion) ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
+                $"The Console was updated to UniFi OS {ShortVersion(state.TargetVersion) ?? "its pending build"} and has not answered for {UniFiOsUpdateBudget.TotalMinutes:0} minutes.",
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
                 steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
                 cancellationToken);
@@ -1311,7 +1342,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (ElapsedObserved(escalatedAt) >= CommandGraceWindow)
             {
                 await FailStepAsync(document, steps, step,
-                    "The device never started the upgrade, over the console or over SSH.", cancellationToken);
+                    "The device never started the upgrade, over the Console or over SSH.", cancellationToken);
             }
             return;
         }
@@ -1333,7 +1364,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
-                "The upgrade command was accepted but nothing happened, and the console lists no image URL to retry over SSH.",
+                "The upgrade command was accepted but nothing happened, and the Console lists no image URL to retry over SSH.",
                 cancellationToken);
             return;
         }
@@ -1362,6 +1393,62 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _escalatedAt[step.Id] = Now;
     }
 
+    /// <summary>
+    /// One SSH retry for a device that cycled and came back on its prior firmware, instead of
+    /// failing the step on the first wrong-version return. The escalation stamp makes it once per
+    /// step, and the step re-enters the normal watch as a fresh cycle from its new command time.
+    /// </summary>
+    private async Task RetryPriorVersionOverSshAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        RolloutDeviceObservation observation,
+        CancellationToken cancellationToken)
+    {
+        var cameBack = $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}";
+
+        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        if (url == null)
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the Console lists no image URL to retry over SSH.", cancellationToken);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(observation.IpAddress))
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the device has no address to reach over SSH.", cancellationToken);
+            return;
+        }
+
+        _logger.LogWarning(
+            "{Device} on site {Site} came back on {Version}, not {Target}; retrying the upgrade over SSH",
+            step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
+
+        // A second flash is still a flash, so the AP Agent hold applies to the retry too.
+        await HoldApAgentAsync(step, cancellationToken);
+
+        var result = await _commands.TriggerSshUpgradeAsync(
+            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+        if (!result.IsOk)
+        {
+            await FailStepAsync(document, steps, step,
+                $"{cameBack}, and the SSH retry failed: {result.Message}", cancellationToken);
+            return;
+        }
+
+        // The retry is judged on its own terms: command time reset, the first cycle's downtime
+        // bookkeeping cleared - the same reset a rollback gives its step.
+        step.State = FirmwareRolloutStepState.Commanded;
+        step.CommandedAt = Now;
+        step.WentDownAt = null;
+        step.BackAt = null;
+        step.DowntimeSeconds = null;
+        await PersistStepAsync(step, cancellationToken);
+        _escalatedAt[step.Id] = Now;
+    }
+
     private async Task ProgressDownAsync(
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
@@ -1384,6 +1471,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (elapsed < budget)
             return;
 
+        // The console has not called it back, but a recorded boot may already say it upgraded - a
+        // device that comes up close to the deadline would otherwise fail and drop its whole model.
+        if (await SettledByRecordedBootAsync(document, steps, step, wentDownAt, cancellationToken))
+            return;
+
         await FailStepAsync(document, steps, step,
             $"The device has been offline for over {budget.TotalMinutes:0} minutes and has not come back.",
             cancellationToken);
@@ -1396,6 +1488,39 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             step.DeviceMac,
             step.DeviceName,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Settles a step from a recorded boot when the device came up on its target version but the
+    /// console never reported it Online. Returns true when the step was settled.
+    /// </summary>
+    private async Task<bool> SettledByRecordedBootAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        DateTime wentDownAt,
+        CancellationToken cancellationToken)
+    {
+        if (_rebootWitness == null || string.IsNullOrWhiteSpace(step.ToVersion)) return false;
+
+        var booted = await _rebootWitness.FirstBootSinceAsync(step.DeviceMac, wentDownAt, cancellationToken);
+        if (booted == null || !VersionsMatch(booted.FirmwareVersion, step.ToVersion)) return false;
+
+        _logger.LogInformation(
+            "{Device} on site {Site} was recorded booting {Version} at {BootedAt} while offline; settling the step instead of failing it",
+            step.DeviceName, _siteSlug, booted.FirmwareVersion, booted.BootedAt);
+
+        // The version already matched, so MarkBackOnlineAsync cannot take its mismatch branch and
+        // the observation only has to carry what that check reads.
+        var observed = new RolloutDeviceObservation
+        {
+            Mac = step.DeviceMac,
+            Name = step.DeviceName,
+            Model = step.Model,
+            Firmware = booted.FirmwareVersion
+        };
+        await MarkBackOnlineAsync(document, steps, step, observed, cancellationToken, booted.BootedAt);
+        return true;
     }
 
     private async Task ProgressCoolDownAsync(
@@ -1428,7 +1553,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!verdict.Passed)
         {
-            await FailStepAsync(document, steps, step, verdict.Reason ?? "The post-upgrade check failed.", cancellationToken);
+            await FailStepAsync(
+                document, steps, step, verdict.Reason ?? "The post-upgrade check failed.",
+                cancellationToken, healthCheckFailed: true);
             return;
         }
 
@@ -1451,20 +1578,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         RolloutDeviceObservation observation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTime? backAt = null)
     {
-        step.BackAt = Now;
+        // backAt is supplied when a recorded boot, not a console observation, is the evidence: the
+        // device was back before we noticed, and charging it the difference would teach the timing
+        // store a downtime it never had.
+        step.BackAt = backAt ?? Now;
         if (step.WentDownAt is DateTime down)
-            step.DowntimeSeconds = (int)Math.Max(0, (Now - down).TotalSeconds);
+            step.DowntimeSeconds = (int)Math.Max(0, (step.BackAt.Value - down).TotalSeconds);
 
         // rc:ok and a full offline/online cycle both lie. The reported version is the only proof.
-        // Through FailStepAsync, not inline: a device that came back on the old firmware is the
-        // clearest evidence the build is bad, so its model must stop here like any other failure.
         if (!string.IsNullOrWhiteSpace(step.ToVersion) && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
             _logger.LogError(
                 "{Device} on site {Site} rebooted but is still on {Version}, not {Target}",
                 step.DeviceName, _siteSlug, observation.Firmware, step.ToVersion);
+
+            // One SSH retry first: some devices burn a reboot cycle without installing the
+            // console-delivered image. Spent is spent - and a rollback's stamp must hold, since
+            // its catalog URL carries the NEW build and retrying with it would undo the rollback.
+            if (!_escalatedAt.ContainsKey(step.Id))
+            {
+                await RetryPriorVersionOverSshAsync(document, steps, step, observation, cancellationToken);
+                return;
+            }
+
+            // Through FailStepAsync, not inline: a device that came back on the old firmware is the
+            // clearest evidence the build is bad, so its model must stop here like any other failure.
             await FailStepAsync(
                 document, steps, step,
                 $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}.",
@@ -1489,14 +1630,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         string error,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool healthCheckFailed = false)
     {
         step.State = FirmwareRolloutStepState.Failed;
         step.Error = error;
         await PersistStepAsync(step, cancellationToken);
         _logger.LogError("{Device} on site {Site} failed its upgrade: {Error}", step.DeviceName, _siteSlug, error);
 
-        await AbortSkuAsync(document, steps, step, error, cancellationToken);
+        await AbortSkuAsync(document, steps, step, error, cancellationToken, healthCheckFailed);
     }
 
     /// <summary>
@@ -1508,7 +1650,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep failed,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool healthCheckFailed = false)
     {
         if (string.IsNullOrWhiteSpace(failed.Model)) return;
 
@@ -1528,16 +1671,44 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (!_skuAbortsPublished.Add(failed.Model))
             return;
 
-        var isCanary = IsCanary(document, failed.DeviceMac);
+        var model = ResolvedModel(failed);
+        var version = ShortVersion(failed.ToVersion) ?? "the target version";
+
+        // A model with only one device in the plan has no canary - the label describes a device
+        // that goes first so the others can follow, and there are no others.
+        var hasSiblings = steps.Count(s =>
+            string.Equals(s.Model, failed.Model, StringComparison.OrdinalIgnoreCase)) > 1;
+        var canary = hasSiblings && IsCanary(document, failed.DeviceMac) ? ", the canary for this model" : "";
+
+        // Only when peers were actually dropped: with none, the sentence reports a consequence
+        // that did not happen.
+        var dropped = peers.Count > 0
+            ? $" {peers.Count} remaining {model} device{(peers.Count == 1 ? " was" : "s were")} dropped;"
+            + " other models keep rolling."
+            : " Other models keep rolling.";
+
+        var opening = healthCheckFailed
+            ? $"{failed.DeviceName} ({model}{canary}) upgraded to {version} but failed its post-upgrade check."
+            : $"{failed.DeviceName} ({model}{canary}) did not successfully upgrade to {version}.";
+
         await PublishAsync(
-            RolloutAlerts.SkuAborted,
-            AlertSeverity.Warning,
-            $"Firmware Rollout Dropped {failed.Model}{_siteSuffix}",
-            $"{failed.DeviceName} ({failed.Model}{(isCanary ? ", the first of its model" : "")}) did not come through its upgrade to {ShortVersion(failed.ToVersion) ?? "the target version"}. {peers.Count} remaining {failed.Model} device{(peers.Count == 1 ? " was" : "s were")} dropped; other models keep rolling.",
+            healthCheckFailed ? RolloutAlerts.PostUpgradeCheckFailed : RolloutAlerts.SkuAborted,
+            healthCheckFailed ? AlertSeverity.Info : AlertSeverity.Warning,
+            healthCheckFailed
+                ? $"Firmware Rollout: {model} Failed Its Post-Upgrade Check{_siteSuffix}"
+                : $"Firmware Rollout: {model} Failed{_siteSuffix}",
+            $"{opening} {reason}{dropped}",
             failed.DeviceMac,
             failed.DeviceName,
             cancellationToken);
     }
+
+    /// <summary>
+    /// The device's product name, resolved the same way the report resolves it. The SKU the
+    /// console reports is a key, never a label.
+    /// </summary>
+    private static string ResolvedModel(FirmwareRolloutStep step) =>
+        NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(step.Model, null);
 
     /// <summary>
     /// Releases a model's held peers once its canary is through, which is the whole point of the
@@ -1772,7 +1943,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in commandable)
         {
             byMac.TryGetValue(step.DeviceMac, out var observation);
-            await CommandStepAsync(document, steps, step, observation, settings, cancellationToken);
+            await CommandStepAsync(document, steps, step, observation, byMac, settings, cancellationToken);
         }
 
         // Anchor the gap on a command that actually went out. A step the console was too dark to
@@ -1812,6 +1983,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         RolloutDeviceObservation? observation,
+        IReadOnlyDictionary<string, RolloutDeviceObservation> byMac,
         FirmwareRolloutSettings settings,
         CancellationToken cancellationToken)
     {
@@ -1849,6 +2021,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             await PersistStepAsync(step, cancellationToken);
             return;
         }
+
+        await HoldApAgentAsync(step, cancellationToken);
 
         // The image this plan committed to, captured on this device's own channel. Only used when it
         // names the version this step is for - the catalog is matched by model code, so a
@@ -1901,7 +2075,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistStepAsync(step, cancellationToken);
 
         if (settings.SuppressStandardAlerts)
-            _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+            OpenStepWindows(step, byMac);
 
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
@@ -1977,13 +2151,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in steps.Where(IsInFlight).ToList())
         {
             if (settings.SuppressStandardAlerts)
-                _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+                OpenStepWindows(step, byMac);
+
+            if (IsAccessPointStep(step))
+                _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
 
             byMac.TryGetValue(step.DeviceMac, out var observation);
             await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
 
             if (IsSettled(step))
-                _suppression.Clear(_siteSlug, step.DeviceMac);
+                CloseStepWindows(step);
         }
     }
 
@@ -2539,6 +2716,117 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static bool IsGatewayStep(FirmwareRolloutStep step) =>
         FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.Gateway;
 
+    private static bool IsAccessPointStep(FirmwareRolloutStep step) =>
+        FirmwareDeviceTypes.Parse(step.DeviceType) == DeviceType.AccessPoint;
+
+    /// <summary>
+    /// Opens the alert windows an in-flight step needs. A gateway that is not the console (a UXG
+    /// behind a separate Console) upgrades as an ordinary device step, so the console-cycle and
+    /// OS-cycle windows only the console's own steps open never open for it - yet its reboot takes
+    /// every device reached through it dark, and WAN with it. Both are opened here instead.
+    /// Any other step also opens a window for each device whose uplink chain passes through it:
+    /// a switch or AP behind the one flashing goes dark with it.
+    /// </summary>
+    private void OpenStepWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
+    {
+        _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
+        if (IsGatewayStep(step))
+        {
+            _suppression.RefreshConsoleCycle(_siteSlug, Now);
+            _suppression.RefreshOsCycle(_siteSlug, Now);
+            return;
+        }
+
+        RefreshDownstreamWindows(step, byMac);
+    }
+
+    /// <summary>
+    /// Opens windows for everything downstream of the step, from the console's live uplink map
+    /// plus whatever was seen behind it earlier in the cycle. Purely additive to alert
+    /// suppression, and best effort: any failure leaves the step's own window as it was.
+    /// </summary>
+    private void RefreshDownstreamWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
+    {
+        try
+        {
+            if (!_downstreamOfStep.TryGetValue(step.DeviceMac, out var downstream))
+                _downstreamOfStep[step.DeviceMac] = downstream = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var children = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var o in byMac.Values)
+            {
+                if (string.IsNullOrEmpty(o.UplinkMac)) continue;
+                if (!children.TryGetValue(o.UplinkMac, out var list))
+                    children[o.UplinkMac] = list = [];
+                list.Add(o.Mac);
+            }
+
+            var queue = new Queue<string>();
+            queue.Enqueue(step.DeviceMac);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { step.DeviceMac };
+            while (queue.Count > 0)
+            {
+                if (!children.TryGetValue(queue.Dequeue(), out var next)) continue;
+                foreach (var child in next)
+                    if (visited.Add(child))
+                    {
+                        downstream.Add(child);
+                        queue.Enqueue(child);
+                    }
+            }
+
+            foreach (var mac in downstream)
+                _suppression.Refresh(_siteSlug, mac, Now);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Downstream alert windows for {Mac} on site {Site} not refreshed", step.DeviceMac, _siteSlug);
+        }
+    }
+
+    /// <summary>Ends a settled step's window and those of the devices behind it.</summary>
+    private void CloseStepWindows(FirmwareRolloutStep step)
+    {
+        _suppression.Clear(_siteSlug, step.DeviceMac);
+        if (!_downstreamOfStep.Remove(step.DeviceMac, out var downstream)) return;
+        foreach (var mac in downstream)
+            _suppression.Clear(_siteSlug, mac);
+    }
+
+    /// <summary>
+    /// Stops the AP Agent on an access point about to flash, and opens the hold that keeps its
+    /// supervisor from redeploying mid-upgrade. Best effort: the stop is a precaution, not a
+    /// precondition, so the upgrade proceeds whatever happens here.
+    /// </summary>
+    private async Task HoldApAgentAsync(FirmwareRolloutStep step, CancellationToken cancellationToken)
+    {
+        if (!IsAccessPointStep(step)) return;
+
+        _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
+        if (_apAgents == null) return;
+
+        try
+        {
+            var agents = _apAgents.GetFor(_siteSlug);
+            if (!await agents.IsSiteEnabledAsync()) return;
+
+            var result = await agents.RemoveAsync(step.DeviceMac, cancellationToken);
+            if (!result.Success)
+            {
+                _logger.LogInformation("AP Agent could not be stopped on {Device} before its upgrade: {Error}",
+                    step.DeviceName, result.Error);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "AP Agent could not be stopped on {Device} before its upgrade", step.DeviceName);
+        }
+    }
+
     /// <summary>
     /// Whether the SSH path takes the UniFi OS gateway command. Legacy USG models (UGW*) predate
     /// UniFi OS and upgrade with <c>upgrade</c> like an AP.
@@ -2600,16 +2888,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         switch (document.UniFiOsUpdate.Outcome)
         {
             case "updated":
-                parts.Add($"The console was updated to UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"}.");
+                parts.Add($"The Console was updated to UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"}.");
                 break;
             case "unchanged":
-                parts.Add($"The console accepted UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"} but is still offering it.");
+                parts.Add($"The Console accepted UniFi OS {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "its newest build"} but is still offering it.");
                 break;
             case "stuck":
-                parts.Add("The console has not answered since its UniFi OS update.");
+                parts.Add("The Console has not answered since its UniFi OS update.");
                 break;
             case "refused":
-                parts.Add("The console would not take its UniFi OS update.");
+                parts.Add("The Console would not take its UniFi OS update.");
                 break;
         }
 

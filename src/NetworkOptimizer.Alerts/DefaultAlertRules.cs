@@ -310,6 +310,26 @@ public static class DefaultAlertRules
             CooldownSeconds = 1800 // 30 minutes
         },
 
+        // --- AP Agent radio health (enabled - only fires where an AP Agent is deployed) ---
+        new AlertRule
+        {
+            Name = "Wi-Fi: Radio Stopped Transmitting",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.radio_wedged",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Error,
+            CooldownSeconds = 1800 // 30 minutes - the evaluator fires once per episode
+        },
+        new AlertRule
+        {
+            Name = "Wi-Fi: Radio Resetting",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.radio_resets",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 21600 // 6 hours - this is a slow warning, not an incident
+        },
+
         // --- Gateway health (enabled - always available when monitoring is active) ---
         new AlertRule
         {

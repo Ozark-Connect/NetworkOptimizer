@@ -3,7 +3,16 @@
    One component so the two directions cannot drift apart in glyph, hit area, or tooltip mode. *@
 <button type="button" class="monitoring-jump-btn" @onclick="OnClick" @onclick:stopPropagation
         aria-label="@Tooltip" data-tooltip="@Tooltip" data-tooltip-hover-only data-tour="@Tour">
-    @if (Icon == JumpIcon.Analyze)
+    @if (Icon == JumpIcon.Locate)
+    {
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="7" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+        </svg>
+    }
+    else if (Icon == JumpIcon.Analyze)
     {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -22,7 +31,7 @@
 </button>
 
 @code {
-    public enum JumpIcon { Analyze, Watch }
+    public enum JumpIcon { Analyze, Watch, Locate }
 
     [Parameter] public JumpIcon Icon { get; set; }
     [Parameter] public string Tooltip { get; set; } = "";

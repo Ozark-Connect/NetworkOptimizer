@@ -102,6 +102,9 @@ public static class PortStatsEndpoints
                 return null;
             }
 
+            // One row per interface SERIES, not per port: a port written under two names shows
+            // twice for the minutes both have samples (a relabel, or a walk that once failed).
+            // Accepted - folding on IfName would be the wrong key, and the window is short.
             var devices = points
                 .GroupBy(p => p.DeviceMac, StringComparer.OrdinalIgnoreCase)
                 .Select(g =>

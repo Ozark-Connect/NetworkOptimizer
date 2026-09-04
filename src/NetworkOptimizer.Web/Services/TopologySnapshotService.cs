@@ -13,17 +13,17 @@ public interface ITopologySnapshotService
     /// Captures a wireless rate snapshot for the given client IP.
     /// This invalidates the topology cache first to ensure fresh data.
     /// </summary>
-    Task CaptureSnapshotAsync(string clientIp);
+    Task CaptureSnapshotAsync(string siteSlug, string clientIp);
 
     /// <summary>
     /// Gets the snapshot for a client IP, if it exists and hasn't expired.
     /// </summary>
-    WirelessRateSnapshot? GetSnapshot(string clientIp);
+    WirelessRateSnapshot? GetSnapshot(string siteSlug, string clientIp);
 
     /// <summary>
     /// Removes the snapshot for a client IP.
     /// </summary>
-    void RemoveSnapshot(string clientIp);
+    void RemoveSnapshot(string siteSlug, string clientIp);
 }
 
 /// <summary>
@@ -33,30 +33,82 @@ public interface ITopologySnapshotService
 public class TopologySnapshotService : ITopologySnapshotService
 {
     private readonly IUniFiClientProvider _clientProvider;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<TopologySnapshotService> _logger;
 
     private readonly ConcurrentDictionary<string, SnapshotEntry> _snapshots = new();
+
+    /// <summary>
+    /// Keyed by site as well as client. This is a singleton across every site, and client IPs repeat
+    /// between them: two sites both running 192.168.1.x would otherwise read each other's snapshots.
+    /// </summary>
+    private static string Key(string siteSlug, string clientIp) => $"{siteSlug}|{clientIp}";
     private static readonly TimeSpan SnapshotExpiration = TimeSpan.FromMinutes(2);
 
     public TopologySnapshotService(
         IUniFiClientProvider clientProvider,
+        MonitoringLiveStatsRegistry liveStats,
         INetworkPathAnalyzer pathAnalyzer,
         ILoggerFactory loggerFactory,
         ILogger<TopologySnapshotService> logger)
     {
         _clientProvider = clientProvider;
+        _liveStats = liveStats;
         _pathAnalyzer = pathAnalyzer;
         _loggerFactory = loggerFactory;
         _logger = logger;
+    }
+
+    /// <summary>How recent a cached reading must be to displace a freshly fetched one.</summary>
+    private static readonly TimeSpan LiveRateMaxAge = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Replaces console-sourced client rates with anything the site's live cache holds more recently,
+    /// so a trace taken during a walk test carries the same numbers the page is showing.
+    /// </summary>
+    private void OverlayLiveRates(string siteSlug, WirelessRateSnapshot snapshot)
+    {
+        try
+        {
+            var live = _liveStats.GetFor(siteSlug);
+            var now = DateTime.UtcNow;
+
+            foreach (var mac in snapshot.ClientRates.Keys.ToList())
+            {
+                var snap = live.GetWifiClient(mac);
+                if (snap == null) continue;
+
+                // The capture above deliberately bypassed the topology cache to get current values,
+                // so the overlay has to clear a real bar rather than simply existing. A Console
+                // entry is that same wifi tier data on an independent clock, and a stale one can be
+                // older still, so neither may displace what was just fetched.
+                if (snap.Source == WifiClientSource.Console) continue;
+                if (now - snap.LastUpdate > LiveRateMaxAge) continue;
+
+                // Both directions or neither: taking one and writing 0 for the other replaces a
+                // real console rate with silence.
+                if (snap.TxRateKbps is not > 0 || snap.RxRateKbps is not > 0) continue;
+
+                snapshot.ClientRates[mac] = (
+                    (int)snap.TxRateKbps.Value,
+                    (int)snap.RxRateKbps.Value,
+                    string.IsNullOrEmpty(snap.ApMac) ? snapshot.ClientRates[mac].Item3 : snap.ApMac);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The console values are already in hand; a cache miss must not cost the snapshot.
+            _logger.LogDebug(ex, "Could not overlay live rates onto the snapshot");
+        }
     }
 
     /// <summary>
     /// Captures a wireless rate snapshot for the given client IP.
     /// This invalidates the topology cache first to ensure fresh data.
     /// </summary>
-    public async Task CaptureSnapshotAsync(string clientIp)
+    public async Task CaptureSnapshotAsync(string siteSlug, string clientIp)
     {
         try
         {
@@ -105,12 +157,17 @@ public class TopologySnapshotService : ITopologySnapshotService
                 snapshot.MeshUplinkRates[device.Mac] = (device.UplinkTxRateKbps, device.UplinkRxRateKbps);
             }
 
+            // Anything the site's live cache knows more recently wins. Client Performance polls the
+            // walked client many times a second, so during a walk test the console's copy of that
+            // client is the stalest number in the room.
+            OverlayLiveRates(siteSlug, snapshot);
+
             // Also poll WiFiman for the target client's realtime rates
             var targetClient = topology.Clients.FirstOrDefault(c => c.IpAddress == clientIp);
             await EnrichWithWiFiManAsync(snapshot, clientIp, targetClient);
 
             // Store snapshot (overwrite any existing for this IP)
-            _snapshots[clientIp] = new SnapshotEntry(snapshot, DateTime.UtcNow);
+            _snapshots[Key(siteSlug, clientIp)] = new SnapshotEntry(snapshot, DateTime.UtcNow);
 
             if (targetClient != null && !targetClient.IsWired && snapshot.ClientRates.TryGetValue(targetClient.Mac, out var targetRates))
             {
@@ -139,14 +196,14 @@ public class TopologySnapshotService : ITopologySnapshotService
     /// <summary>
     /// Gets the snapshot for a client IP, if it exists and hasn't expired.
     /// </summary>
-    public WirelessRateSnapshot? GetSnapshot(string clientIp)
+    public WirelessRateSnapshot? GetSnapshot(string siteSlug, string clientIp)
     {
-        if (_snapshots.TryGetValue(clientIp, out var entry))
+        if (_snapshots.TryGetValue(Key(siteSlug, clientIp), out var entry))
         {
             // Check if expired
             if (DateTime.UtcNow - entry.CapturedAt > SnapshotExpiration)
             {
-                _snapshots.TryRemove(clientIp, out _);
+                _snapshots.TryRemove(Key(siteSlug, clientIp), out _);
                 return null;
             }
             return entry.Snapshot;
@@ -157,9 +214,9 @@ public class TopologySnapshotService : ITopologySnapshotService
     /// <summary>
     /// Removes the snapshot for a client IP.
     /// </summary>
-    public void RemoveSnapshot(string clientIp)
+    public void RemoveSnapshot(string siteSlug, string clientIp)
     {
-        if (_snapshots.TryRemove(clientIp, out _))
+        if (_snapshots.TryRemove(Key(siteSlug, clientIp), out _))
         {
             _logger.LogDebug("Removed snapshot for {ClientIp}", clientIp);
         }

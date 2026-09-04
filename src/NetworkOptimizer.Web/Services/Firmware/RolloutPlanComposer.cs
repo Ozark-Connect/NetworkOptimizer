@@ -43,11 +43,13 @@ public static class RolloutPlanComposer
         FirmwareRolloutSettings? settings = null,
         ILogger? logger = null,
         ISharedFirmwareCatalogRepository? sharedCatalog = null,
+        UbiquitiReleaseFeedClient? feed = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
         ArgumentNullException.ThrowIfNull(commands);
 
+        await commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
         var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
         var context = await planning.GetContextAsync(cancellationToken);
@@ -62,10 +64,16 @@ public static class RolloutPlanComposer
         if (settings != null)
         {
             if (!string.IsNullOrEmpty(currentChannel))
+            {
+                ReconcileWithCatalog(context, settings, currentChannel, catalog, logger);
                 CaptureImages(images, context, settings, currentChannel, currentChannel, catalog);
+            }
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, images, catalog, sharedCatalog, logger, cancellationToken);
             console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
+
+            if (feed != null && settings.IncludeUniFiOs)
+                await PatchStaleGaFromFeedAsync(console, feed, logger, cancellationToken);
         }
 
         if (sharedCatalog != null)
@@ -75,6 +83,11 @@ public static class RolloutPlanComposer
                 sharedCatalog, context, settings, currentChannel, images, logger, cancellationToken);
             await AdoptSharedNetworkAppAsync(sharedCatalog, console, logger, cancellationToken);
         }
+
+        // Last word on every path, the read-only preview included. It used to run only inside the
+        // channel staging above, so the drift check (which previews without staging) kept the
+        // console's offer of an older build and Re-plan opened the wizard on a downgrade.
+        DropDowngrades(context);
 
         return new RolloutPlanInputs(
             context,
@@ -127,9 +140,14 @@ public static class RolloutPlanComposer
 
             // A refused write is the Early Access gate being off. Those devices keep no target
             // rather than being quoted the channel we failed to leave.
-            if (!await commands.SetDeviceChannelAsync(channel, cancellationToken)) continue;
+            if (!await commands.SetDeviceChannelAsync(channel, cancellationToken))
+            {
+                DropChannel(context, settings, channel);
+                continue;
+            }
             currentChannel = channel;
 
+            await commands.TriggerDeviceFirmwareCheckAsync(cancellationToken);
             var catalog = await WaitForCatalogAsync(commands, priorCatalog, channel, logger, cancellationToken);
             priorCatalog = catalog;
 
@@ -150,12 +168,77 @@ public static class RolloutPlanComposer
 
             }
 
+            ReconcileWithCatalog(context, settings, channel, catalog, logger);
             CaptureImages(images, context, settings, channel, channel, catalog);
         }
 
-        DropDowngrades(context);
         return currentChannel;
     }
+
+    /// <summary>
+    /// Holds every device planned on <paramref name="channel"/> to the build that channel's catalog
+    /// carries for its model. A device record and the catalog restage independently after a channel
+    /// change, so the record can still name the channel before this one.
+    /// An empty catalog is a failed read rather than an empty channel, so it drops nothing.
+    /// </summary>
+    private static void ReconcileWithCatalog(
+        RolloutPlanningContext context,
+        FirmwareRolloutSettings settings,
+        string channel,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog,
+        ILogger? logger)
+    {
+        if (catalog.Count == 0)
+        {
+            logger?.LogWarning(
+                "Not checking targets against the {Channel} catalog: the console returned no builds", channel);
+            return;
+        }
+
+        foreach (var device in context.Devices.Where(d => d.Upgradable
+            && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+        {
+            var entry = FindCatalogEntry(catalog, device.Model);
+            if (string.IsNullOrWhiteSpace(entry?.Version))
+            {
+                logger?.LogInformation(
+                    "Dropping {Model} ({Mac}) from the plan: the {Channel} catalog carries no build for it",
+                    device.Model, device.Mac, channel);
+                device.ToVersion = null;
+                device.Upgradable = false;
+                continue;
+            }
+
+            if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(entry.Version, device.ToVersion))
+                continue;
+
+            logger?.LogInformation(
+                "Retargeting {Model} ({Mac}) to {Version}, what {Channel} carries; the console still offered {Stale}",
+                device.Model, device.Mac, entry.Version, channel, device.ToVersion ?? "nothing");
+            device.ToVersion = entry.Version;
+        }
+    }
+
+    /// <summary>Takes every device planned on a channel out of the plan.</summary>
+    private static void DropChannel(
+        RolloutPlanningContext context, FirmwareRolloutSettings settings, string channel)
+    {
+        foreach (var device in context.Devices.Where(d => d.Upgradable
+            && string.Equals(RolloutPlanner.ResolveChannel(d, settings), channel, StringComparison.OrdinalIgnoreCase)))
+        {
+            device.ToVersion = null;
+            device.Upgradable = false;
+        }
+    }
+
+    /// <summary>The catalog entry for a device's model code, by either name the catalog uses.</summary>
+    private static NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry? FindCatalogEntry(
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> catalog, string? model) =>
+        string.IsNullOrWhiteSpace(model)
+            ? null
+            : catalog.FirstOrDefault(e =>
+                string.Equals(e.BaseModel, model, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(e.Device, model, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Drops every device the console is offering an OLDER build than it already runs.
@@ -192,6 +275,8 @@ public static class RolloutPlanComposer
     /// one. The catalog changing is the console having restaged; unchanged means still working, or
     /// two channels genuinely offering the same builds, which is why this is bounded rather than
     /// waited on indefinitely.
+    ///
+    /// An empty catalog is never a restage: it is this app's own "could not read it" answer.
     /// </summary>
     private static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
         IFirmwareCommandClient commands,
@@ -204,16 +289,19 @@ public static class RolloutPlanComposer
             string.Join("|", c.Select(e => $"{e.BaseModel ?? e.Device}={e.Version}").OrderBy(x => x, StringComparer.Ordinal));
 
         var was = Fingerprint(before);
+        bool Restaged(IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> c) =>
+            c.Count > 0 && Fingerprint(c) != was;
+
         var deadline = DateTime.UtcNow + CatalogReflectWait;
         var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
-        while (Fingerprint(catalog) == was && DateTime.UtcNow < deadline)
+        while (!Restaged(catalog) && DateTime.UtcNow < deadline)
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             catalog = await commands.CheckForUpdatesAsync(cancellationToken);
         }
 
-        if (Fingerprint(catalog) == was)
+        if (!Restaged(catalog))
         {
             logger?.LogWarning(
                 "The console did not restage after moving devices to {Channel} within {Seconds}s; "
@@ -244,9 +332,7 @@ public static class RolloutPlanComposer
         {
             if (images.Any(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))) continue;
 
-            var entry = catalog.FirstOrDefault(e =>
-                string.Equals(e.BaseModel, device.Model, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(e.Device, device.Model, StringComparison.OrdinalIgnoreCase));
+            var entry = FindCatalogEntry(catalog, device.Model);
             if (string.IsNullOrWhiteSpace(entry?.Url)) continue;
 
             images.Add(new PlanTargetImage { Mac = device.Mac, Version = entry.Version ?? device.ToVersion, Url = entry.Url });
@@ -476,10 +562,113 @@ public static class RolloutPlanComposer
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
         OfferedUniFiOsRelease(console, channel)?.Version;
 
+    /// <summary>
+    /// The newest UniFi OS release available at or below the configured channel's aggressiveness.
+    /// A promoted version can leave its origin channel (RC reverts to the prior RC build) and
+    /// the GA entry can go stale, so we walk all channels at or below and take the newest.
+    /// </summary>
     private static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
-        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel) =>
-        console?.Firmware?.LatestByChannel is { } byChannel
-        && byChannel.TryGetValue(channel, out var release) ? release : null;
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
+    {
+        if (console?.Firmware?.LatestByChannel is not { } byChannel)
+            return null;
+
+        NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? best = null;
+        foreach (var ch in ChannelsAtOrBelow(channel))
+        {
+            if (!byChannel.TryGetValue(ch, out var release) || string.IsNullOrEmpty(release?.Version))
+                continue;
+            if (best == null
+                || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(release.Version, best.Version!))
+                best = release;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Channels at or below the given aggressiveness: beta sees all three, release-candidate
+    /// sees RC and release, release sees only release.
+    /// </summary>
+    private static IEnumerable<string> ChannelsAtOrBelow(string channel) => channel switch
+    {
+        FirmwareChannels.Beta => [FirmwareChannels.Beta, FirmwareChannels.ReleaseCandidate, FirmwareChannels.Release],
+        FirmwareChannels.ReleaseCandidate => [FirmwareChannels.ReleaseCandidate, FirmwareChannels.Release],
+        _ => [channel],
+    };
+
+    /// <summary>
+    /// The console's <c>latestByChannel["release"]</c> entry can go stale when the console sits
+    /// on beta or RC: the GA entry only refreshes when the console is actually put on that channel.
+    /// This checks Ubiquiti's public release feed and replaces the stale entry with the real GA
+    /// build, so the channel-walking logic in <see cref="OfferedUniFiOsRelease"/> picks it up.
+    /// </summary>
+    private static async Task PatchStaleGaFromFeedAsync(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        UbiquitiReleaseFeedClient feed,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (console?.Firmware?.LatestByChannel is not { } byChannel)
+            return;
+
+        var platform = console.Hardware?.Shortname;
+        if (string.IsNullOrWhiteSpace(platform))
+            return;
+
+        var installed = console.InstalledOsVersion;
+
+        // Check what the console thinks GA is.
+        byChannel.TryGetValue(FirmwareChannels.Release, out var consoleGa);
+        var consoleGaVersion = consoleGa?.Version;
+
+        // If the console's GA entry is already newer than installed, the channel walk will find it.
+        if (!string.IsNullOrEmpty(consoleGaVersion)
+            && !string.IsNullOrEmpty(installed)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(consoleGaVersion, installed))
+        {
+            logger?.LogDebug(
+                "UniFi OS GA from console ({Version}) is already newer than installed ({Installed}), feed check skipped",
+                consoleGaVersion, installed);
+            return;
+        }
+
+        var feedGa = await feed.GetLatestAsync(platform, UbiquitiReleaseFeedClient.GaChannel,
+            product: "unifi-dream", cancellationToken: cancellationToken);
+
+        if (feedGa == null || string.IsNullOrEmpty(feedGa.Version))
+        {
+            logger?.LogDebug("No GA build on the public feed for platform {Platform}", platform);
+            return;
+        }
+
+        // Only patch if the feed version is genuinely newer than what the console reported.
+        if (!string.IsNullOrEmpty(consoleGaVersion)
+            && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(feedGa.Version, consoleGaVersion))
+        {
+            logger?.LogDebug(
+                "Public feed GA ({FeedVersion}) is not newer than console GA ({ConsoleVersion})",
+                feedGa.Version, consoleGaVersion);
+            return;
+        }
+
+        var release = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+        {
+            Channel = FirmwareChannels.Release,
+            Version = feedGa.Version,
+            Created = feedGa.Created,
+            Links = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLinks
+            {
+                Data = feedGa.DownloadUrl != null
+                    ? new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLink { Href = feedGa.DownloadUrl }
+                    : null,
+            },
+        };
+
+        byChannel[FirmwareChannels.Release] = release;
+        logger?.LogInformation(
+            "Patched stale UniFi OS GA entry: console reported {ConsoleVersion}, public feed has {FeedVersion} for {Platform}",
+            consoleGaVersion ?? "(absent)", feedGa.Version, platform);
+    }
 
     private static string? NetworkAppDebUrl(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
     {
@@ -493,17 +682,14 @@ public static class RolloutPlanComposer
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
     {
         if (!ConsoleReachable(console)) return false;
-        if (console?.Firmware?.LatestByChannel is not { } byChannel) return true;
-        if (!byChannel.TryGetValue(channel, out var release) || string.IsNullOrEmpty(release?.Version)) return true;
 
-        var installed = console.InstalledOsVersion;
+        var offered = OfferedUniFiOsRelease(console, channel);
+        if (offered == null || string.IsNullOrEmpty(offered.Version)) return true;
+
+        var installed = console!.InstalledOsVersion;
         if (string.IsNullOrEmpty(installed)) return true;
 
-        // Newer, not merely different. A channel holds its own line, so a less aggressive one can
-        // name a build far behind what is installed - GA at 4.4.7 against 5.1.28 - and treating any
-        // difference as an update turned that into a console downgrade.
-        // TODO: a deliberate downgrade is a separate opt-in mode, as for devices.
-        return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(release.Version, installed);
+        return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(offered.Version, installed);
     }
 
     /// <summary>Steps that would actually be commanded, i.e. everything not excluded up front.</summary>

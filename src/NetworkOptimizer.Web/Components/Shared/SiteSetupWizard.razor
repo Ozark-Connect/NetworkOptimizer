@@ -236,7 +236,7 @@
         }
         else
         {
-            <AgentInstallInstructions Token="@_agentToken" LanSpeedTest="_featureLanSpeedTest" />
+            <AgentInstallInstructions Token="@_agentToken" LanSpeedTest="_featureLanSpeedTest" SiteSlug="@_site?.Slug" />
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="() => _step = 4">Continue</button>
             </div>

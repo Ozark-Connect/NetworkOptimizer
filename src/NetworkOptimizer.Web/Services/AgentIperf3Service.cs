@@ -20,26 +20,30 @@ public class AgentIperf3Service
     private const int ResultTimeoutOverheadSeconds = 30;
 
     private readonly AgentTunnelRegistry _registry;
+    private readonly AgentOnGatewayDetector _onGateway;
     private readonly ILogger<AgentIperf3Service> _logger;
 
     private readonly ConcurrentDictionary<long, PendingRun> _pending = new();
     private long _nextRequestId;
 
-    public AgentIperf3Service(AgentTunnelRegistry registry, ILogger<AgentIperf3Service> logger)
+    public AgentIperf3Service(AgentTunnelRegistry registry, AgentOnGatewayDetector onGateway, ILogger<AgentIperf3Service> logger)
     {
         _registry = registry;
+        _onGateway = onGateway;
         _logger = logger;
     }
 
     /// <summary>
     /// Asks the site's agent to run an iperf3 client test and returns the raw
     /// result, matching the (success, output) contract of a local run: the
-    /// <c>iperf3 -J</c> JSON on success, or an error message otherwise.
+    /// <c>iperf3 -J</c> JSON on success, or an error message otherwise. A site with
+    /// an agent on the gateway and one on a separate box runs from the separate box:
+    /// a LAN test from the gateway measures the gateway against itself.
     /// </summary>
     public async Task<(bool success, string output)> RunClientAsync(
         string siteSlug, string host, int port, int durationSeconds, int parallelStreams, bool reverse, CancellationToken ct)
     {
-        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        var agent = await _onGateway.LanTestAgentAsync(siteSlug, ct) ?? _registry.GetForSite(siteSlug).FirstOrDefault();
         if (agent == null)
             return (false, $"No agent is online for site '{siteSlug}' to run the LAN iperf3 test");
 

@@ -129,6 +129,21 @@ public static class ChannelMemoryHelper
     /// <param name="events">Channel change events for one AP and band</param>
     /// <param name="currentChannel">The radio's current channel - never soaked</param>
     /// <param name="now">Current time (UTC)</param>
+    /// <summary>
+    /// Whether a radio sits on a channel no record explains: the last recorded config names a
+    /// different channel, and none of the known change events (console log or persisted) lands
+    /// on the current one. UniFi Network logs nothing for a Channel AI move, so this is how such
+    /// a move is noticed at all. False when there is no recorded config to compare against.
+    /// </summary>
+    public static bool IsUnloggedChange(
+        int currentChannel,
+        int? lastRecordedChannel,
+        IEnumerable<ChannelChangeEvent> knownEvents)
+    {
+        if (lastRecordedChannel is not > 0 || lastRecordedChannel == currentChannel) return false;
+        return !knownEvents.Any(e => e.NewChannel == currentChannel);
+    }
+
     public static ChannelSoakInfo? BuildSoakInfo(
         IEnumerable<ChannelChangeEvent> events,
         int currentChannel,
@@ -185,19 +200,24 @@ public static class ChannelMemoryHelper
         RadioBand band = RadioBand.Unknown,
         double historyConfidence = 1.0,
         Action<string>? trace = null,
-        IDictionary<int, double>? credibilityOut = null)
+        IDictionary<int, double>? credibilityOut = null,
+        IDictionary<int, double>? noiseFloorOut = null)
     {
         Dictionary<int, (double, double, double)>? merged = recentStress != null
             ? new Dictionary<int, (double, double, double)>(recentStress)
             : null;
 
+        // A bucket with a measured center files under its real block; one without takes the
+        // guess, exactly as before. At 320 MHz that is the difference between a radio's two
+        // possible blocks sharing one history and each keeping its own.
         var bySpan = longTermBuckets
             .Where(b => b.WidthMhz == 0 || b.WidthMhz == currentWidthMhz)
-            .GroupBy(b => SpanKey(band, b.Channel, currentWidthMhz));
+            .GroupBy(b => SpanKey(band, b.Channel, currentWidthMhz, b.CenterChannel));
 
         foreach (var group in bySpan)
         {
             double effectiveWeight = 0, utilSum = 0, interfSum = 0, txRetrySum = 0;
+            double noiseWeight = 0, noiseSum = 0;
             foreach (var bucket in group)
             {
                 var ageDays = Math.Max(0, (now - bucket.LastSampleAt).TotalDays);
@@ -206,6 +226,11 @@ public static class ChannelMemoryHelper
                 utilSum += bucket.UtilizationSum * decay;
                 interfSum += bucket.InterferenceSum * decay;
                 txRetrySum += bucket.TxRetrySum * decay;
+                if (bucket.NoiseFloorSum.HasValue && bucket.NoiseFloorSamples > 0)
+                {
+                    noiseWeight += bucket.NoiseFloorSamples * decay;
+                    noiseSum += bucket.NoiseFloorSum.Value * decay;
+                }
             }
 
             if (effectiveWeight <= 0) continue;
@@ -244,6 +269,7 @@ public static class ChannelMemoryHelper
                 if (merged.ContainsKey(channel)) continue;
                 merged[channel] = stats;
                 if (credibilityOut != null) credibilityOut[channel] = credibility;
+                if (noiseFloorOut != null && noiseWeight > 0) noiseFloorOut[channel] = noiseSum / noiseWeight;
             }
         }
 
@@ -255,13 +281,12 @@ public static class ChannelMemoryHelper
     /// on ch 149@80 and one on ch 157@80 sit in the identical 80 MHz block, so their outcomes are
     /// evidence about the same thing; keying on the control channel filed them apart and let each
     /// half fall under the sample floor. 2.4 GHz keeps control-channel keying - its spans overlap
-    /// partially rather than in discrete blocks, which is a different problem.
+    /// partially rather than in discrete blocks, which is a different problem. A measured center
+    /// names the block outright; without one the span helper's guess stands in.
     /// </summary>
-    private static int SpanKey(RadioBand band, int channel, int widthMhz) =>
+    private static int SpanKey(RadioBand band, int channel, int widthMhz, int? centerChannel = null) =>
         UsesBondingGroups(band, widthMhz)
-            ? (band == RadioBand.Band5GHz
-                ? ChannelSpanHelper.GetBondingGroupStart5GHz(channel, widthMhz)
-                : ChannelSpanHelper.GetBondingGroupStart6GHz(channel, widthMhz))
+            ? ChannelSpanHelper.GetChannelSpan(band, channel, widthMhz, centerChannel).Low
             : channel;
 
     /// <summary>
@@ -271,7 +296,9 @@ public static class ChannelMemoryHelper
     /// </summary>
     private static IEnumerable<int> SpanChannels(RadioBand band, int spanKey, int widthMhz) =>
         UsesBondingGroups(band, widthMhz)
-            ? ChannelSpanHelper.GetChannelWidthSpan(band, spanKey, widthMhz)
+            // From the key itself, never re-derived as if it were a primary: at 320 MHz a key of
+            // 33 names the block 33-93, while the primary-based guess for 33 is the block 1-61.
+            ? Enumerable.Range(0, widthMhz / 20).Select(i => spanKey + i * 4)
             : new[] { spanKey };
 
     private static bool UsesBondingGroups(RadioBand band, int widthMhz) =>

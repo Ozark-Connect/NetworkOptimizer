@@ -29,6 +29,12 @@ public sealed record RolloutDeviceObservation
 
     /// <summary>Version the console has staged for this device.</summary>
     public string? UpgradeToFirmware { get; init; }
+
+    /// <summary>
+    /// Normalized MAC of the device this one uplinks through, null for the root or when unknown.
+    /// Lets a step's alert window cover the devices its reboot takes dark.
+    /// </summary>
+    public string? UplinkMac { get; init; }
 }
 
 /// <summary>
@@ -85,6 +91,7 @@ public class RolloutDeviceObserver : IRolloutDeviceObserver
                     State = d.State,
                     Upgradable = d.Upgradable,
                     UpgradeToFirmware = d.UpgradeToFirmware,
+                    UplinkMac = string.IsNullOrEmpty(d.UplinkMac) ? null : MacNormalizer.Normalize(d.UplinkMac),
                 })
                 .ToList();
         }

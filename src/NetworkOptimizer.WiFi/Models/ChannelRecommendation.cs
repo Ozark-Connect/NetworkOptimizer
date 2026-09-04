@@ -34,6 +34,24 @@ public class ApChannelRecommendation
     public bool IsMeshConstrained { get; set; }
     public bool IsUnplaced { get; set; }
 
+    /// <summary>The operator kept this radio on its channel, so the plan left it where it is.</summary>
+    public bool IsKept { get; set; }
+
+    /// <summary>The channel is set by hand in UniFi Network rather than by Channel AI. Labeled, never skipped.</summary>
+    public bool IsChannelFixed { get; set; }
+
+    /// <summary>When the radio last moved, if within the last day and the AP Agent saw it (UTC).</summary>
+    public DateTime? MovedAt { get; set; }
+
+    /// <summary>When the one-hour measurement of that move lands (UTC).</summary>
+    public DateTime? MoveVerdictDueAt { get; set; }
+
+    /// <summary>Interference percent over the hour before the move, once the verdict exists.</summary>
+    public double? MoveInterferenceBefore { get; set; }
+
+    /// <summary>Interference percent over the hour after the move, once the verdict exists.</summary>
+    public double? MoveInterferenceAfter { get; set; }
+
     /// <summary>Whether the AP's current channel span is subject to DFS.</summary>
     public bool IsCurrentDfsChannel { get; set; }
 
@@ -73,6 +91,34 @@ public class ApChannelRecommendation
 
     /// <summary>Short human explanation for <see cref="ScanRescanRecommended"/>, for a UI tooltip.</summary>
     public string? ScanRescanReason { get; set; }
+
+    /// <summary>
+    /// Why the recommended width differs from the current one, in the card's words; null when
+    /// the width is unchanged. Set only from AP Agent evidence.
+    /// </summary>
+    public string? WidthReason { get; set; }
+}
+
+/// <summary>
+/// What the AP Agent measured about a radio's clients and air, for width candidates. Absent on
+/// a radio no agent covers, which keeps the radio at its current width exactly as before.
+/// </summary>
+public sealed class RadioWidthEvidence
+{
+    /// <summary>Online clients on the radio, every one agent-measured.</summary>
+    public int ClientCount { get; init; }
+
+    /// <summary>The widest any client negotiates, in MHz.</summary>
+    public int MaxNegotiatedWidth { get; init; }
+
+    /// <summary>The widest any client can use, in MHz; 0 when the agent reported no capability.</summary>
+    public int MaxSupportedWidth { get; init; }
+
+    /// <summary>The radio's measured busy percent over the last two minutes.</summary>
+    public int? MeasuredUtilization { get; init; }
+
+    /// <summary>The radio's band carries a mesh backhaul on this AP; its width is never a candidate.</summary>
+    public bool CarriesBackhaul { get; init; }
 }
 
 /// <summary>
@@ -105,6 +151,9 @@ public class ChannelPlan
         }
     }
     public int UnplacedApCount { get; set; }
+
+    /// <summary>Radios the operator kept where they are, so a plan that moves nothing can say why.</summary>
+    public int KeptRadioCount { get; set; }
     public bool HasScanData { get; set; }
     public bool HasNeighborNetworks { get; set; }
 
@@ -227,12 +276,35 @@ public class ApNode
     /// </summary>
     public Dictionary<int, double>? HistoricalStressCredibility { get; set; }
 
+    /// <summary>
+    /// Remembered noise floor per channel (dBm), from the AP Agent's radio readings folded into
+    /// the outcome memory. Absent for a channel the agent never measured, and for every channel
+    /// on a site without agents; the stress penalty then adds nothing for it.
+    /// </summary>
+    public Dictionary<int, double>? HistoricalNoiseFloor { get; set; }
+
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int CurrentChannel { get; set; }
     public int CurrentWidth { get; set; }
+
+    /// <summary>
+    /// Measured center of the current block, as a channel number, or null. Applies only to the
+    /// current assignment: a candidate has no center until UniFi applies it and picks the block.
+    /// </summary>
+    public int? CurrentCenter { get; set; }
     public int[] ValidChannels { get; set; } = [];
     public int[] ValidWidths { get; set; } = [];
+
+    /// <summary>
+    /// Candidate channels at each width other than the current one (which keeps
+    /// <see cref="ValidChannels"/>). A 160 MHz block starts on different channels than an 80 MHz
+    /// one, so a (channel, width) pair is only a candidate when the channel is valid at that width.
+    /// </summary>
+    public Dictionary<int, int[]> ValidChannelsByWidth { get; set; } = new();
+
+    /// <summary>Agent-measured width evidence, or null on a radio no agent covers.</summary>
+    public RadioWidthEvidence? WidthEvidence { get; set; }
     public bool IsPlaced { get; set; }
     public bool HasDfs { get; set; }
 

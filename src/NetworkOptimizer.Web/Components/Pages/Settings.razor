@@ -44,6 +44,7 @@
 @inject IAgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
+@inject SiteSpeedTestHostSelector HostSelector
 @inject AgentProbeResultSink ProbeSink
 @inject AgentOnGatewayDetector OnGatewayDetector
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
@@ -84,6 +85,12 @@
         <button class="wifi-view-tab @(_activeTab == "monitoring" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("monitoring"))">
             Monitoring
+        </button>
+        @* After Monitoring because it configures monitoring telemetry: the AP Agent feeds the same
+           surfaces the Monitoring tab's cards do. *@
+        <button class="wifi-view-tab @(_activeTab == "aptelemetry" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("aptelemetry"))">
+            AP Telemetry
         </button>
         @* Speed Tests settings are global (instance-wide), but the tab stays on every
            site: it's deep-linked from the Client WAN Speed Test and LAN Speed Test pages
@@ -165,7 +172,7 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="form-label">Console URL</label>
-                <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="text" class="form-control" @bind="controllerUrl" @bind:event="oninput" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 <small class="form-help">UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted Network Server.</small>
             </div>
 
@@ -187,19 +194,19 @@
             {
                 <div class="form-group">
                     <label class="form-label">Username</label>
-                    <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="text" class="form-control" @bind="controllerUsername" @bind:event="oninput" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Password</label>
-                    <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" placeholder="@(hasControllerPassword ? "Saved – enter new to update" : "Enter password")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="controllerPassword" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasControllerPassword ? "Saved – enter new to update" : "Enter password")" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
             }
             else
             {
                 <div class="form-group">
                     <label class="form-label">Network API Key</label>
-                    <input type="password" class="form-control" @bind="controllerApiKey" autocomplete="new-password" placeholder="@(hasControllerApiKey ? "Saved – enter new to update" : "Enter API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="controllerApiKey" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasControllerApiKey ? "Saved – enter new to update" : "Enter API key")" data-1p-ignore data-lpignore="true" data-bwignore />
                     <small class="form-help">No username or password needed. The API key handles all authentication.</small>
                 </div>
             }
@@ -218,7 +225,7 @@
                     }
                     else
                     {
-                        <input type="text" class="form-control" @bind="controllerSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        <input type="text" class="form-control" @bind="controllerSite" @bind:event="oninput" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     }
                     <button type="button" class="btn btn-secondary btn-sm" @onclick="ListSites" disabled="@loadingSites">
                         @if (loadingSites)
@@ -469,23 +476,23 @@
             <div class="form-row">
                 <div class="form-group" style="flex: 2;">
                     <label class="form-label">Gateway Host / IP</label>
-                    <input type="text" class="form-control" @bind="gatewayHost" placeholder="192.168.1.1" />
+                    <input type="text" class="form-control" @bind="gatewayHost" @bind:event="oninput" placeholder="192.168.1.1" />
                     <small class="form-help">IP address of your UniFi Gateway/UDM</small>
                 </div>
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label">SSH Port</label>
-                    <input type="number" class="form-control" @bind="gatewayPort" />
+                    <input type="number" class="form-control" @bind="gatewayPort" @bind:event="oninput" />
                 </div>
             </div>
 
             <div class="form-group">
                 <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="text" class="form-control" @bind="gatewayUsername" @bind:event="oninput" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
                 <label class="form-label @UnusedLabel(GatewayPasswordSet)">Password@(NotInUse(GatewayPasswordSet))</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="gatewayPassword" @bind:event="oninput" placeholder="@(SshKeyInUse(gatewayPrivateKeyPath, hasGatewayPassword) ? "(using SSH key)" : hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
@@ -493,7 +500,7 @@
             <AdminOnly NotAuthorized="@GatewayKeyFileNote">
                 <div class="form-group">
                     <label class="form-label @UnusedLabel(GatewayKeyPathSet)">Private Key Path@(NotInUse(GatewayKeyPathSet))</label>
-                    <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
+                    <input type="text" class="form-control" @bind="gatewayPrivateKeyPath" @bind:event="oninput" placeholder="/app/ssh-keys/gateway_key" />
                     <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
             </AdminOnly>
@@ -647,18 +654,18 @@
             <div class="form-row">
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="sshPort" />
+                    <input type="number" class="form-control" @bind="sshPort" @bind:event="oninput" />
                 </div>
                 <div class="form-group" style="flex: 2;">
                     <label class="form-label">Username</label>
-                    <input type="text" class="form-control" @bind="sshUsername" placeholder="Your Device SSH username" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="text" class="form-control" @bind="sshUsername" @bind:event="oninput" placeholder="Your Device SSH username" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <small class="form-help">Set in UniFi Network (see below for instructions), usually randomly generated by default</small>
                 </div>
             </div>
 
             <div class="form-group">
                 <label class="form-label @UnusedLabel(DevicePasswordSet)">Password@(NotInUse(DevicePasswordSet))</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="sshPassword" @bind:event="oninput" placeholder="@(SshKeyInUse(sshPrivateKeyPath, hasSshPassword) ? "(using SSH key)" : hasSshPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
@@ -666,7 +673,7 @@
             <AdminOnly NotAuthorized="@DeviceKeyFileNote">
                 <div class="form-group">
                     <label class="form-label @UnusedLabel(DeviceKeyPathSet)">Private Key Path@(NotInUse(DeviceKeyPathSet))</label>
-                    <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
+                    <input type="text" class="form-control" @bind="sshPrivateKeyPath" @bind:event="oninput" placeholder="/app/ssh-keys/id_rsa" />
                     <small class="form-help">Point at a key already on this server, for example your own <code>~/.ssh/id_rsa</code>. Leave blank to use the stored SSH key or a password.</small>
                 </div>
             </AdminOnly>
@@ -798,12 +805,12 @@
                             <small class="form-help">Choose a key file, or paste it below.</small>
                         </div>
                         <div class="form-group">
-                            <textarea class="form-control" rows="6" @bind="_sshKeyUploadPem"
+                            <textarea class="form-control" rows="6" @bind="_sshKeyUploadPem" @bind:event="oninput"
                                       placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Passphrase (if the key has one)</label>
-                            <input type="password" class="form-control" @bind="_sshKeyUploadPassphrase"
+                            <input type="password" class="form-control" @bind="_sshKeyUploadPassphrase" @bind:event="oninput"
                                    autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="action-buttons">
@@ -1011,27 +1018,27 @@
             {
                 <div class="form-group">
                     <label class="form-label">InfluxDB URL</label>
-                    <input type="text" class="form-control" @bind="_influxUrl" placeholder="http://localhost:8086" />
+                    <input type="text" class="form-control" @bind="_influxUrl" @bind:event="oninput" placeholder="http://localhost:8086" />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">API Token</label>
-                    <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="_influxToken" @bind:event="oninput" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Organization</label>
-                    <input type="text" class="form-control" @bind="_influxOrg" placeholder="network-optimizer" />
+                    <input type="text" class="form-control" @bind="_influxOrg" @bind:event="oninput" placeholder="network-optimizer" />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Primary Bucket</label>
-                    <input type="text" class="form-control" @bind="_influxBucket" placeholder="network_monitoring" />
+                    <input type="text" class="form-control" @bind="_influxBucket" @bind:event="oninput" placeholder="network_monitoring" />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Long-term Bucket</label>
-                    <input type="text" class="form-control" @bind="_influxLongtermBucket" placeholder="network_monitoring_longterm" />
+                    <input type="text" class="form-control" @bind="_influxLongtermBucket" @bind:event="oninput" placeholder="network_monitoring_longterm" />
                 </div>
             }
             else if (!_mainInfluxConfigured)
@@ -1064,12 +1071,12 @@
 
                 <div class="form-group">
                     <label class="form-label">Primary Bucket</label>
-                    <input type="text" class="form-control" @bind="_siteInfluxPrimaryBucket" placeholder="@($"{SiteContext.Slug}-network_monitoring")" />
+                    <input type="text" class="form-control" @bind="_siteInfluxPrimaryBucket" @bind:event="oninput" placeholder="@($"{SiteContext.Slug}-network_monitoring")" />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Long-term Bucket</label>
-                    <input type="text" class="form-control" @bind="_siteInfluxLongtermBucket" placeholder="@($"{SiteContext.Slug}-network_monitoring_longterm")" />
+                    <input type="text" class="form-control" @bind="_siteInfluxLongtermBucket" @bind:event="oninput" placeholder="@($"{SiteContext.Slug}-network_monitoring_longterm")" />
                 </div>
             }
             else
@@ -1154,7 +1161,7 @@
             <div class="form-row">
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
+                    <input type="number" class="form-control" @bind="tcMonitorPort" @bind:event="oninput" min="1" max="65535" />
                 </div>
                 <div class="action-buttons">
                     <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
@@ -1391,14 +1398,14 @@
                             </div>
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Name</label>
-                                <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
+                                <input type="text" class="form-control" @bind="editingModem.Name" @bind:event="oninput" placeholder="U5G-Max Primary" />
                             </div>
                         </div>
 
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Host / IP</label>
-                                <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                                <input type="text" class="form-control" @bind="editingModem.Host" @bind:event="oninput" placeholder="192.168.1.100" />
                                 @if (!IsUniFiSshModem(editingModem.Provider))
                                 {
                                     <small class="form-help">
@@ -1409,7 +1416,7 @@
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
-                                <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
+                                <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" @bind:event="oninput" min="60" max="3600" />
                             </div>
                         </div>
 
@@ -1418,7 +1425,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
                                     <label class="form-label">QMI Device Path (optional)</label>
-                                    <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="" />
+                                    <input type="text" class="form-control" @bind="editingModem.QmiDevice" @bind:event="oninput" placeholder="" />
                                     <small class="form-help">Stats are polled automatically via uiwwand. Only needed as a fallback if uiwwand is unavailable on your firmware. LTE: <code>/dev/cdc-wdm0</code> · 5G-Max: <code>/dev/wwan0qmi0</code> · U5G-Backup: <code>qrtr://3</code></small>
                                 </div>
                             </div>
@@ -1428,15 +1435,15 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Username</label>
-                                    <input type="text" class="form-control" @bind="editingModem.Username" placeholder="root" />
+                                    <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="root" />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Password</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">Modem Bus (optional)</label>
-                                    <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="e.g. 1-1.2" />
+                                    <input type="text" class="form-control" @bind="editingModem.QmiDevice" @bind:event="oninput" placeholder="e.g. 1-1.2" />
                                     <small class="form-help">Leave empty to auto-detect. Set this only if detection fails: <code>cpu</code> for a modem built into the router, or a USB path like 1-1.2 for a plug-in module.</small>
                                 </div>
                             </div>
@@ -1446,7 +1453,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
                                     <label class="form-label">Admin Password (optional)</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                     <small class="form-help">
                                         Without a password, signal/band/cell metrics are still polled.
                                         Setting the admin password unlocks throughput counters.
@@ -1629,7 +1636,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
-                            <input type="text" class="form-control" @bind="_editingCm.Name" placeholder="CM1000 Primary" required />
+                            <input type="text" class="form-control" @bind="_editingCm.Name" @bind:event="oninput" placeholder="CM1000 Primary" required />
                         </div>
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
@@ -1648,7 +1655,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
-                            <input type="text" class="form-control" @bind="_editingCm.Host" placeholder="192.168.100.1" required />
+                            <input type="text" class="form-control" @bind="_editingCm.Host" @bind:event="oninput" placeholder="192.168.100.1" required />
                             <small class="form-help">
                                 Can you only reach the management page of this device when directly connected?
                                 <a href="@MonitoringInterfaceLink(_editingCm.Host, "cm")">Set up a monitoring interface →</a>
@@ -1656,18 +1663,18 @@
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
-                            <input type="number" class="form-control" @bind="_editingCm.Port" min="1" max="65535" />
+                            <input type="number" class="form-control" @bind="_editingCm.Port" @bind:event="oninput" min="1" max="65535" />
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingCm.Username" placeholder="admin" />
+                            <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput" placeholder="admin" />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
-                            <input type="password" class="form-control" @bind="_editingCm.Password"
+                            <input type="password" class="form-control" @bind="_editingCm.Password" @bind:event="oninput"
                                    placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")"
                                    autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
@@ -1676,13 +1683,13 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Status Page Path (optional)</label>
-                            <input type="text" class="form-control" @bind="_editingCm.StatusPagePath"
+                            <input type="text" class="form-control" @bind="_editingCm.StatusPagePath" @bind:event="oninput"
                                    placeholder="@GetCmStatusPathPlaceholder(_editingCm.Provider)" />
                             <small class="form-help">Leave empty to use the provider default.@(IsCmHnapProvider(_editingCm.Provider) ? " Uses HNAP protocol on /HNAP1/." : "")</small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
-                            <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" min="60" max="3600" />
+                            <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" @bind:event="oninput" min="60" max="3600" />
                         </div>
                     </div>
 
@@ -1832,7 +1839,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Name" placeholder="AT&T BGW320" required />
+                            <input type="text" class="form-control" @bind="_editingOnt.Name" @bind:event="oninput" placeholder="AT&T BGW320" required />
                         </div>
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
@@ -1874,7 +1881,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="@GetOntHostPlaceholder(_editingOnt.Provider)" required />
+                            <input type="text" class="form-control" @bind="_editingOnt.Host" @bind:event="oninput" placeholder="@GetOntHostPlaceholder(_editingOnt.Provider)" required />
                             <small class="form-help">
                                 Can you only reach the management page of this device when directly connected?
                                 <a href="@MonitoringInterfaceLink(_editingOnt.Host, "ont")">Set up a monitoring interface →</a>
@@ -1882,18 +1889,18 @@
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
-                            <input type="number" class="form-control" @bind="_editingOnt.Port" min="1" max="65535" />
+                            <input type="number" class="form-control" @bind="_editingOnt.Port" @bind:event="oninput" min="1" max="65535" />
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Username" placeholder="admin" />
+                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="admin" />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
-                            <input type="password" class="form-control" @bind="_editingOnt.Password"
+                            <input type="password" class="form-control" @bind="_editingOnt.Password" @bind:event="oninput"
                                    placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")"
                                    autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
@@ -1919,7 +1926,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
-                            <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" min="60" max="3600" />
+                            <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" @bind:event="oninput" min="60" max="3600" />
                         </div>
                     </div>
 
@@ -2073,7 +2080,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
-                            <input type="text" class="form-control" @bind="_editingStarlink.Name" placeholder="Starlink Roof" required />
+                            <input type="text" class="form-control" @bind="_editingStarlink.Name" @bind:event="oninput" placeholder="Starlink Roof" required />
                         </div>
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
@@ -2086,7 +2093,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
-                            <input type="text" class="form-control" @bind="_editingStarlink.Host" placeholder="192.168.100.1" required />
+                            <input type="text" class="form-control" @bind="_editingStarlink.Host" @bind:event="oninput" placeholder="192.168.100.1" required />
                             <small class="form-help">
                                 Can you only reach the management page of this device when directly connected?
                                 <a href="@MonitoringInterfaceLink(_editingStarlink.Host, "starlink")">Set up a monitoring interface →</a>
@@ -2094,14 +2101,14 @@
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
-                            <input type="number" class="form-control" @bind="_editingStarlink.Port" min="1" max="65535" />
+                            <input type="number" class="form-control" @bind="_editingStarlink.Port" @bind:event="oninput" min="1" max="65535" />
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
-                            <input type="number" class="form-control" @bind="_editingStarlink.PollingIntervalSeconds" min="30" max="3600" />
+                            <input type="number" class="form-control" @bind="_editingStarlink.PollingIntervalSeconds" @bind:event="oninput" min="30" max="3600" />
                         </div>
                     </div>
 
@@ -2147,6 +2154,10 @@
         </div>
     </div>
 
+    <!-- AP Telemetry -->
+    <ApTelemetryPanel Class="settings-tab-aptelemetry" Active="@(_activeTab == "aptelemetry")"
+                      OnConfigureDeviceSsh="GoToDeviceSshSettingsAsync" />
+
     <!-- 7. Speed Test Settings -->
     <div class="card settings-tab-speedtests" id="speed-test-settings">
         <div class="card-header">
@@ -2168,22 +2179,22 @@
             <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Gateway</label>
-                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">UniFi Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Other Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
                 </div>
             </div>
             <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
 
             <div class="form-group">
                 <label class="form-label">Test Duration (seconds)</label>
-                <input type="number" class="form-control" @bind="iperf3Duration" min="3" max="60" style="width: 100px;" />
+                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" />
                 <small class="form-help">Duration of each test direction (3-60 seconds)</small>
             </div>
 
@@ -2299,7 +2310,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Server Name</label>
-                        <input type="text" class="form-control" @bind="extServerFormName" placeholder="e.g. VPS Chicago, Datacenter East" />
+                        <input type="text" class="form-control" @bind="extServerFormName" @bind:event="oninput" placeholder="e.g. VPS Chicago, Datacenter East" />
                     </div>
 
                     @if (!string.IsNullOrEmpty(extServerFormName))
@@ -2314,11 +2325,11 @@
                     <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
                         <div class="form-group" style="flex: 1; min-width: 200px;">
                             <label class="form-label">Hostname / IP</label>
-                            <input type="text" class="form-control" @bind="extServerFormHost" placeholder="e.g. speedtest.example.com or 203.0.113.10" />
+                            <input type="text" class="form-control" @bind="extServerFormHost" @bind:event="oninput" placeholder="e.g. speedtest.example.com or 203.0.113.10" />
                         </div>
                         <div class="form-group" style="width: 100px;">
                             <label class="form-label">Port</label>
-                            <input type="number" class="form-control" @bind="extServerFormPort" min="1" max="65535" />
+                            <input type="number" class="form-control" @bind="extServerFormPort" @bind:event="oninput" min="1" max="65535" />
                         </div>
                         <div class="form-group" style="width: 120px;">
                             <label class="form-label">Scheme</label>
@@ -2474,31 +2485,31 @@
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Unused port grace period (days)</label>
-                <input type="number" class="form-control" @bind="unusedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="unusedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
             </div>
 
             <div class="form-group">
                 <label class="form-label">Named port grace period (days)</label>
-                <input type="number" class="form-control" @bind="namedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
-                <input type="text" class="form-control" @bind="dnatExcludedVlans" placeholder="e.g., 100, 200" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Trusted DNS Redirect Targets (optional)</label>
-                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
+                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" @bind:event="oninput" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
                 <small class="form-help">Comma-separated IPs to accept as valid DNAT translated targets. Use for DNS VIPs (keepalived, HAProxy) or anycast addresses that are not in your LAN DNS configuration.</small>
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Third-Party DNS Management (optional)</label>
-                <input type="text" class="form-control" @bind="piholeManagementEndpoint" placeholder="Port number or URL" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="piholeManagementEndpoint" @bind:event="oninput" placeholder="Port number or URL" style="width: 240px;" />
                 <small class="form-help">Custom port (e.g., 5380 or 8080) or full URL (e.g., https://dns.local) for the admin interface. Leave empty to auto-probe common Pi-hole, AdGuard Home, and Technitium DNS ports on each detected resolver IP.</small>
             </div>
 
@@ -2625,7 +2636,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Channel Name</label>
-                        <input type="text" class="form-control" @bind="channelFormName" placeholder="e.g., Ops Team Slack" />
+                        <input type="text" class="form-control" @bind="channelFormName" @bind:event="oninput" placeholder="e.g., Ops Team Slack" />
                     </div>
 
                     <div class="form-group">
@@ -2644,11 +2655,11 @@
                     {
                         <div class="form-group">
                             <label class="form-label">SMTP Host</label>
-                            <input type="text" class="form-control" @bind="channelSmtpHost" placeholder="smtp.gmail.com" />
+                            <input type="text" class="form-control" @bind="channelSmtpHost" @bind:event="oninput" placeholder="smtp.gmail.com" />
                         </div>
                         <div class="form-group">
                             <label class="form-label">SMTP Port</label>
-                            <input type="number" class="form-control" @bind="channelSmtpPort" />
+                            <input type="number" class="form-control" @bind="channelSmtpPort" @bind:event="oninput" />
                         </div>
                         <div class="form-group">
                             <label class="checkbox-label">
@@ -2665,11 +2676,11 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="channelSmtpUser" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="text" class="form-control" @bind="channelSmtpUser" @bind:event="oninput" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group">
                             <label class="form-label">Password</label>
-                            <input type="password" class="form-control" @bind="channelSmtpPass" autocomplete="new-password" placeholder="@(editingChannelId.HasValue ? "Saved - enter new to update" : "")" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="password" class="form-control" @bind="channelSmtpPass" @bind:event="oninput" autocomplete="new-password" placeholder="@(editingChannelId.HasValue ? "Saved - enter new to update" : "")" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group">
                             <label class="form-label">From Address</label>
@@ -2677,7 +2688,7 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">To Addresses</label>
-                            <input type="text" class="form-control" @bind="channelSmtpTo" placeholder="admin@example.com, ops@example.com" />
+                            <input type="text" class="form-control" @bind="channelSmtpTo" @bind:event="oninput" placeholder="admin@example.com, ops@example.com" />
                             <small class="form-help">Comma-separated email addresses</small>
                         </div>
                     }
@@ -2690,7 +2701,7 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Topic</label>
-                            <input type="text" class="form-control" @bind="channelNtfyTopic" placeholder="my-network-alerts" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="text" class="form-control" @bind="channelNtfyTopic" @bind:event="oninput" placeholder="my-network-alerts" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group">
                             <label class="form-label">Access Token</label>
@@ -2703,7 +2714,7 @@
                             }
                             else
                             {
-                                <input type="password" class="form-control" @bind="channelNtfyAccessToken" autocomplete="new-password" placeholder="@(hasNtfyToken ? "Saved - enter new to update" : "Optional - for private topics")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                <input type="password" class="form-control" @bind="channelNtfyAccessToken" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasNtfyToken ? "Saved - enter new to update" : "Optional - for private topics")" data-1p-ignore data-lpignore="true" data-bwignore />
                                 @if (hasNtfyToken && string.IsNullOrEmpty(channelNtfyAccessToken))
                                 {
                                     <a href="javascript:void(0)" @onclick="() => clearNtfyToken = true" class="form-hint" style="cursor: pointer;">Clear existing token</a>
@@ -2712,7 +2723,7 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="channelNtfyUsername" placeholder="Optional - for basic auth" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="text" class="form-control" @bind="channelNtfyUsername" @bind:event="oninput" placeholder="Optional - for basic auth" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group">
                             <label class="form-label">Password</label>
@@ -2725,7 +2736,7 @@
                             }
                             else
                             {
-                                <input type="password" class="form-control" @bind="channelNtfyPassword" autocomplete="new-password" placeholder="@(hasNtfyPassword ? "Saved - enter new to update" : "Optional - for basic auth")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                <input type="password" class="form-control" @bind="channelNtfyPassword" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasNtfyPassword ? "Saved - enter new to update" : "Optional - for basic auth")" data-1p-ignore data-lpignore="true" data-bwignore />
                                 @if (hasNtfyPassword && string.IsNullOrEmpty(channelNtfyPassword))
                                 {
                                     <a href="javascript:void(0)" @onclick="() => clearNtfyPassword = true" class="form-hint" style="cursor: pointer;">Clear existing password</a>
@@ -2738,7 +2749,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Webhook URL</label>
-                            <input type="url" class="form-control" @bind="channelWebhookUrl" placeholder="@GetWebhookPlaceholder()" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="url" class="form-control" @bind="channelWebhookUrl" @bind:event="oninput" placeholder="@GetWebhookPlaceholder()" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         @if (channelFormType == "Webhook")
                         {
@@ -2753,7 +2764,7 @@
                                 }
                                 else
                                 {
-                                    <input type="password" class="form-control" @bind="channelWebhookSecret" autocomplete="new-password" placeholder="@(hasWebhookSecret ? "Saved - enter new to update" : "Optional")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                    <input type="password" class="form-control" @bind="channelWebhookSecret" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasWebhookSecret ? "Saved - enter new to update" : "Optional")" data-1p-ignore data-lpignore="true" data-bwignore />
                                     @if (hasWebhookSecret && string.IsNullOrEmpty(channelWebhookSecret))
                                     {
                                         <a href="javascript:void(0)" @onclick="() => clearWebhookSecret = true" class="form-hint" style="cursor: pointer;">Clear existing secret</a>
@@ -2961,7 +2972,7 @@
 
             <div class="form-group">
                 <label class="form-label">MaxMind Account ID</label>
-                <input type="text" class="form-control" @bind="maxmindAccountId" autocomplete="off"
+                <input type="text" class="form-control" @bind="maxmindAccountId" @bind:event="oninput" autocomplete="off"
                        placeholder="@(hasMaxmindAccountId ? "Saved - enter new to update" : "Enter MaxMind account ID")"
                        style="max-width: 200px;"
                        data-1p-ignore data-lpignore="true" data-bwignore />
@@ -2969,7 +2980,7 @@
 
             <div class="form-group">
                 <label class="form-label">MaxMind License Key</label>
-                <input type="password" class="form-control" @bind="maxmindLicenseKey" autocomplete="new-password"
+                <input type="password" class="form-control" @bind="maxmindLicenseKey" @bind:event="oninput" autocomplete="new-password"
                        placeholder="@(hasMaxmindLicenseKey ? "Saved - enter new to update" : "Enter MaxMind license key")"
                        data-1p-ignore data-lpignore="true" data-bwignore />
                 <small class="form-help">Get a free account at <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">maxmind.com</a> - Account ID and license key are under Account > Manage License Keys</small>
@@ -3053,13 +3064,13 @@
             {
                 <div class="form-group">
                     <label class="form-label">CTI API Key</label>
-                    <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec CTI API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="crowdsecApiKey" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec CTI API key")" data-1p-ignore data-lpignore="true" data-bwignore />
                     <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Daily Quota</label>
-                    <input type="number" class="form-control" @bind="crowdsecDailyQuota" min="1" max="100000" style="max-width: 120px;" />
+                    <input type="number" class="form-control" @bind="crowdsecDailyQuota" @bind:event="oninput" min="1" max="100000" style="max-width: 120px;" />
                     <small class="form-help">Your plan's daily lookup limit (free tier: 30)</small>
                 </div>
 
@@ -3158,7 +3169,7 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Mapbox Public Token <span class="form-help">(optional - for commercial use)</span></label>
-                <input type="password" class="form-control" @bind="_mapboxToken" placeholder="pk.eyJ..." autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="_mapboxToken" @bind:event="oninput" placeholder="pk.eyJ..." autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                 <small class="form-help">
                     Create a <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">Mapbox public token</a>
                     (scope it to your domain). Used client-side only. When set, the satellite layer uses Mapbox instead of Esri.
@@ -3606,6 +3617,16 @@
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
+                                                                    @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
+                                                                       address - so where it lives is said in words rather than shown as an address. *@
+                                                                    @if (AgentOnGateway(agent.Id))
+                                                                    {
+                                                                        <span class="text-muted">Gateway</span>
+                                                                    }
+                                                                    else if (!string.IsNullOrWhiteSpace(agent.LanIp))
+                                                                    {
+                                                                        <code>@agent.LanIp</code>
+                                                                    }
                                                                     @if (_collectorAgentIds.TryGetValue(site.Slug, out var collectorId) && collectorId == agent.Id)
                                                                     {
                                                                         <span class="status-badge status-active"
@@ -3622,17 +3643,15 @@
                                                                         }
                                                                         else if (TunnelRegistry.IsAgentLive(agent))
                                                                         {
-                                                                            <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion)}" : "")</text>
+                                                                            <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion))}" : "")</text>
                                                                             @if (AgentVersionOutdated(agent))
                                                                             {
-                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(AppVersionInfo.LatestAgentVersion)) is available. Update agents whenever a release calls for it.">
-                                                                                    Update agent
+                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">
+                                                                                    Agent needs update
                                                                                 </span>
                                                                                 <button class="btn btn-sm btn-secondary"
-                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)"
-                                                                                        data-tooltip="Show the upgrade one-liner">
-                                                                                    <span class="btn-label-full">@(_upgradeCommandAgentId == agent.Id ? "Hide command" : "Upgrade command")</span>
-                                                                                    <span class="btn-label-compact">@(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")</span>
+                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)">
+                                                                                    @(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")
                                                                                 </button>
                                                                             }
                                                                         }
@@ -3655,6 +3674,7 @@
                                                                         {
                                                                             <p class="form-help">On the UniFi gateway - enrollment is preserved, only the binary updates:</p>
                                                                             <CopyableCommand Text="@GatewayUpgradeCommand()" Tooltip="Copy the gateway upgrade command" />
+                                                                            <GatewayAgentRunPanel SiteSlug="@site.Slug" IsUpgrade="true" />
                                                                         }
                                                                         else
                                                                         {
@@ -3712,7 +3732,7 @@
                                                                     <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                                                                     - lets the site's clients run speed tests against the agent.</span>
                                                             </label>
-                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" />
+                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
                                                     </div>
 
@@ -3731,7 +3751,9 @@
                                                                     : "probes, path discovery and SNMP") run there instead of on this
                                                                 server. Turn on if this server is off-site, or you want a separate
                                                                 agent.@if (_siteHasMultipleWans)
-                                                                {<text> Agent(s) can still probe for Multi-WAN monitoring with this off.</text>}
+                                                                {<text> Agent(s) can still probe for @(SiteHasGatewayAgent(site.Id) ? "Multi-WAN and WAN usage" : "Multi-WAN") monitoring with this off.</text>}
+                                                                else if (SiteHasGatewayAgent(site.Id))
+                                                                {<text> Agent(s) can still provide WAN usage monitoring with this off.</text>}
                                                             </label>
                                                             @if (AgentCoversSite(site.Id))
                                                             {
@@ -3772,15 +3794,29 @@
                                                             </label>
                                                             <div class="form-group site-config-override">
                                                                 <label class="form-label">Client speed test target override (optional)</label>
-                                                                <input type="text" class="form-control"
-                                                                       placeholder="@ClientSpeedTestPlaceholder(site)"
-                                                                       value="@ClientSpeedTestTarget(site.Id)"
-                                                                       @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                                <div style="position: relative;">
+                                                                    <input type="text" class="form-control"
+                                                                           placeholder="@ClientSpeedTestPlaceholder(site)"
+                                                                           value="@(ClientSpeedTestTargetPending(site.Id) ?? ClientSpeedTestTarget(site.Id))"
+                                                                           @oninput="e => OnClientSpeedTestTargetInput(site, e.Value?.ToString())" />
+                                                                    @if (_clientSpeedTestTargetSaving.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saving">Saving...</span>
+                                                                    }
+                                                                    else if (_clientSpeedTestTargetSaved.Contains(site.Id))
+                                                                    {
+                                                                        <span class="notes-status saved">Saved</span>
+                                                                    }
+                                                                </div>
+                                                                @if (ClientSpeedTestTargetError(site.Id) is { } targetError)
+                                                                {
+                                                                    <div class="alert alert-danger" style="margin-top: 0.5rem;">@targetError</div>
+                                                                }
                                                                 <small class="form-help">
                                                                     Where browsers reach this site's speed test pages. Blank = the
                                                                     agent's detected LAN IP over https. Enter a full URL for a reverse
                                                                     proxy or an http agent (AGENT_SPEEDTEST_TLS=0); a bare host uses
-                                                                    https on the agent port.
+                                                                    https on the agent port, or on the port you add (host:port).
                                                                 </small>
                                                             </div>
                                                         </div>
@@ -3909,8 +3945,8 @@
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "connection", "monitoring", "speedtests", "security", "application", "identity", "multisite",
-        "auditlog"
+        "connection", "monitoring", "aptelemetry", "speedtests", "security", "application", "identity",
+        "multisite", "auditlog"
     };
 
     // Maps card anchors (used by /settings#... deep links across the app) to their tab
@@ -3928,6 +3964,7 @@
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",
         ["security-audit"] = "security",
@@ -4008,7 +4045,7 @@
         _multiWanHintChecked = true;
         try
         {
-            var wans = await PathView.GetWansAsync();
+            var wans = await PathView.GetSelectableWansAsync();
             _siteHasMultipleWans = wans.Count > 1;
             if (!_siteHasMultipleWans) return;
 
@@ -4154,6 +4191,18 @@
             await ScrollToAndHighlightAsync(hit.Entry.Anchor);
     }
 
+    /// <summary>Takes the reader to the Device SSH card from the AP Telemetry tab's gate.</summary>
+    private async Task GoToDeviceSshSettingsAsync()
+    {
+        if (_activeTab != "connection")
+        {
+            _activeTab = "connection";
+            StateHasChanged();
+        }
+
+        await ScrollToAndHighlightAsync("device-ssh");
+    }
+
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
     private async Task ShowSshKeyPanel()
     {
@@ -4188,6 +4237,9 @@
             // Keep the Sites table's agent status current while the page is open -
             // without this the Status column is a page-load snapshot and disagrees
             // with the site dropdown / All Sites page after an agent comes or goes.
+            // The open panel's per-agent facts refresh with it: after a one-click Gateway
+            // install the new agent's row otherwise shows its WAN IP instead of Gateway
+            // until the panel is closed and reopened.
             _agentPollTimer ??= new System.Threading.Timer(async _ =>
             {
                 try
@@ -4195,6 +4247,11 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
+                        {
+                            await LoadAgentsOnGatewayAsync(openSite);
+                            await LoadSpeedTestHostAsync(openSite);
+                        }
                         StateHasChanged();
                     });
                 }
@@ -4229,6 +4286,8 @@
 
     public void Dispose()
     {
+        DisposeTimers(_clientSpeedTestTargetDebounce);
+        DisposeTimers(_clientSpeedTestTargetSavedTimers);
         SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
         _agentPollTimer?.Dispose();
     }
@@ -4550,6 +4609,7 @@
                 await LoadAgentCoversSiteAsync(site);
                 await LoadClientSpeedTestTargetAsync(site);
                 await LoadAgentsOnGatewayAsync(site);
+                await LoadSpeedTestHostAsync(site);
                 _collectorAgentIds[site.Slug] = await ProbeSink.GetCollectorAgentIdAsync(site.Slug);
             }
         }
@@ -4573,6 +4633,7 @@
         await LoadSshViaAgentAsync(site);
         await LoadAgentCoversSiteAsync(site);
         await LoadClientSpeedTestTargetAsync(site);
+        await LoadSpeedTestHostAsync(site);
         StateHasChanged();
     }
 
@@ -4621,6 +4682,53 @@
     private string? ClientSpeedTestTarget(int siteId) =>
         _clientSpeedTestTarget.TryGetValue(siteId, out var v) ? v : null;
 
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetError = new();
+
+    private string? ClientSpeedTestTargetError(int siteId) =>
+        _clientSpeedTestTargetError.TryGetValue(siteId, out var v) ? v : null;
+
+    // Debounced save with the same Saving... / Saved feedback as result notes. The pending value
+    // is what the input renders while typing, so a re-render never snaps it back to the saved one.
+    private readonly Dictionary<int, string?> _clientSpeedTestTargetPending = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaving = new();
+    private readonly HashSet<int> _clientSpeedTestTargetSaved = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetDebounce = new();
+    private readonly Dictionary<int, System.Timers.Timer> _clientSpeedTestTargetSavedTimers = new();
+
+    private string? ClientSpeedTestTargetPending(int siteId) =>
+        _clientSpeedTestTargetPending.TryGetValue(siteId, out var v) ? v : null;
+
+    private void OnClientSpeedTestTargetInput(Site site, string? value)
+    {
+        _clientSpeedTestTargetPending[site.Id] = value;
+        _clientSpeedTestTargetSaved.Remove(site.Id);
+        RestartTimer(_clientSpeedTestTargetDebounce, site.Id, 800,
+            () => InvokeAsync(() => SaveClientSpeedTestTarget(site, value)));
+    }
+
+    private static void RestartTimer(Dictionary<int, System.Timers.Timer> timers, int key, double ms, Func<Task> action)
+    {
+        if (timers.Remove(key, out var existing))
+        {
+            existing.Stop();
+            existing.Dispose();
+        }
+        var timer = new System.Timers.Timer(ms) { AutoReset = false };
+        timer.Elapsed += async (_, _) => await action();
+        timers[key] = timer;
+        timer.Start();
+    }
+
+    private static void DisposeTimers(Dictionary<int, System.Timers.Timer> timers)
+    {
+        foreach (var timer in timers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        timers.Clear();
+    }
+
     // An online agent reporting an older version than the manually-tracked
     // latest agent release gets an "Update agent" callout. Tracked manually
     // (AppVersionInfo.LatestAgentVersion) rather than compared to the server
@@ -4651,35 +4759,39 @@
     private string ProxmoxUpgradeCommand() =>
         $"pct exec <CT_ID> -- bash -c '{NativeUpgradeCommand().Replace("sudo ", "")}'";
 
-    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
-    // host a speed-test server) and no sudo (UniFi gateways SSH in as root).
-    private string GatewayUpgradeCommand() =>
-        "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh"
-        + $" | bash -s -- --server \"{AgentServerBase()}\"";
+    // Monitoring-only gateway installer, via the shared builder that also feeds the
+    // "Run It for Me" SSH run, so the displayed command and the executed one cannot drift.
+    private string GatewayUpgradeCommand() => GatewayAgentCommands.Upgrade(AgentServerUrl.Url);
 
-    // Placeholder shows what a blank override resolves to - the online agent's
-    // detected LAN IP on the agent's https port (same pick as
-    // SiteSpeedTestTargetResolver) - so the operator can see the auto value
-    // they'd be overriding. A gateway-resident agent hosts no speed test, so
-    // its "auto" is nothing (the resolver gates the target off) and the
-    // placeholder says so instead of advertising the gateway's IP. Generic
-    // example when no agent has reported in.
+    // Placeholder shows what a blank override resolves to - the agent SiteSpeedTestHostSelector
+    // picks, on its own https port, the same pick clients are sent to - so the operator can see
+    // the auto value they'd be overriding. When no agent qualifies and one sits on the gateway,
+    // say so instead of advertising the gateway's IP. Generic example when no agent has reported in.
+    private readonly Dictionary<int, SiteSpeedTestHostSelector.Selection> _speedTestHosts = new();
+
+    private async Task LoadSpeedTestHostAsync(Site site)
+    {
+        try
+        {
+            _speedTestHosts[site.Id] = await HostSelector.SelectAsync(site.Slug);
+        }
+        catch (Exception ex)
+        {
+            // The placeholder is a hint; the panel must still open.
+            Logger.LogDebug(ex, "Speed test host selection failed for site {Site}", site.Slug);
+            _speedTestHosts.Remove(site.Id);
+        }
+    }
+
     private string ClientSpeedTestPlaceholder(Site site)
     {
-        if (SiteHasGatewayAgent(site.Id))
-            return "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test";
-        var lanIp = AgentsFor(site.Id)
-            .Where(a => a.Enabled && !string.IsNullOrEmpty(a.LanIp) && TunnelRegistry.IsReachable(a))
-            .OrderByDescending(a => a.LastSeenAt)
-            .Select(a => a.LanIp)
-            .FirstOrDefault();
-        // The port the agent says it serves on, not an assumed one - otherwise the hint advertises a
-        // URL that differs from the one clients are actually sent to.
-        var port = TunnelRegistry.GetForSite(site.Slug).FirstOrDefault(c => c.SpeedTestPort > 0)?.SpeedTestPort
-            ?? SiteSpeedTestTargetResolver.AgentOpenSpeedTestPort;
-        return lanIp != null
-            ? $"auto: https://{lanIp}:{port} (agent's detected LAN IP)"
-            : "e.g. 192.168.1.50 or https://speed.example.com";
+        if (!_speedTestHosts.TryGetValue(site.Id, out var selection) || selection.Host == null)
+        {
+            return selection is { AnyOnGateway: true }
+                ? "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test"
+                : "e.g. 192.168.1.50 or https://speed.example.com";
+        }
+        return $"auto: https://{selection.Host.LanIp}:{selection.Host.Port} (agent's detected LAN IP)";
     }
 
     // Which agents run on the UniFi gateway itself, keyed by AGENT id and loaded when the site's
@@ -4698,11 +4810,7 @@
         _agentOnGateway.TryGetValue(agentId, out var onGateway) && onGateway;
 
     // Any of the site's agents on the gateway - for the questions that are about the SITE rather
-    // than one agent row.
-    // TODO(#1106): its one caller wants a narrower question than ANY. The placeholder mirrors what a
-    // blank override resolves to, and SiteSpeedTestTargetResolver resolves against ONE agent, so a
-    // site with a gateway agent and a real-box agent makes the two disagree. Secondary sites only:
-    // the main site does not render the field.
+    // than one agent row (the speed test placeholder asks SiteSpeedTestHostSelector instead).
     private bool SiteHasGatewayAgent(int siteId) =>
         AgentsFor(siteId).Any(a => AgentOnGateway(a.Id));
 
@@ -4738,9 +4846,31 @@
 
     private async Task SaveClientSpeedTestTarget(Site site, string? value)
     {
-        await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        _clientSpeedTestTargetSaving.Add(site.Id);
+        StateHasChanged();
+        try
+        {
+            await SiteConfig.SetClientSpeedTestTargetAsync(site.Slug, value);
+        }
+        catch (ArgumentException ex)
+        {
+            _clientSpeedTestTargetError[site.Id] = ex.Message;
+            _clientSpeedTestTargetSaving.Remove(site.Id);
+            StateHasChanged();
+            return;
+        }
+        _clientSpeedTestTargetError.Remove(site.Id);
         var trimmed = value?.Trim();
         _clientSpeedTestTarget[site.Id] = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        _clientSpeedTestTargetPending.Remove(site.Id);
+        _clientSpeedTestTargetSaving.Remove(site.Id);
+        _clientSpeedTestTargetSaved.Add(site.Id);
+        StateHasChanged();
+        RestartTimer(_clientSpeedTestTargetSavedTimers, site.Id, 2000, () => InvokeAsync(() =>
+        {
+            _clientSpeedTestTargetSaved.Remove(site.Id);
+            StateHasChanged();
+        }));
     }
 
     private async Task CreateAgent(Site site)
@@ -5979,32 +6109,15 @@
 
         try
         {
-            (bool success, string message) result;
-
-            // If user entered a new password or key path, test with form values
-            // Otherwise test with saved settings (which handles decryption internally)
-            if (!string.IsNullOrEmpty(gatewayPassword) || !string.IsNullOrEmpty(gatewayPrivateKeyPath))
-            {
-                // Test with form values (new password is plain text)
-                result = await GatewaySshService.TestConnectionAsync(
-                    gatewayHost,
-                    gatewayPort,
-                    gatewayUsername,
-                    gatewayPassword,
-                    gatewayPrivateKeyPath);
-            }
-            else if (hasGatewayPassword || GatewayKeyPathSet || _sshKey is not null)
-            {
-                // No new credentials entered, test with saved settings. The key-file and stored-key
-                // cases have to reach here too: below global Admin the path above is redacted, so
-                // passing form values would test with no credential at all and the branch that reports
-                // none configured would answer for a gateway that is perfectly well configured.
-                result = await GatewaySshService.TestConnectionAsync();
-            }
-            else
-            {
-                result = (false, "No credentials configured");
-            }
+            // Always the fields as they are on screen. A blank password or key path means the
+            // stored credential, so editing the host and testing it does not silently test the
+            // saved one instead.
+            var result = await GatewaySshService.TestConnectionAsync(
+                gatewayHost,
+                gatewayPort,
+                gatewayUsername,
+                gatewayPassword,
+                gatewayPrivateKeyPath);
 
             if (result.success)
             {

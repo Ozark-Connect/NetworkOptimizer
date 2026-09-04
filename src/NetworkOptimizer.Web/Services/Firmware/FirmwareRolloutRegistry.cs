@@ -67,9 +67,15 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
         var autopilot = ActivatorUtilities.CreateInstance<RolloutAutopilot>(
             _serviceProvider, slug, repositories, planning, commands, bus);
 
+        // The site's Influx client is scoped and the orchestrator outlives any scope, so the witness
+        // is built here against this site's client like every other collaborator above.
+        var rebootWitness = new InfluxRolloutRebootWitness(
+            _serviceProvider.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
+            _serviceProvider.GetRequiredService<ILogger<InfluxRolloutRebootWitness>>());
+
         return ActivatorUtilities.CreateInstance<FirmwareRolloutOrchestrator>(
             _serviceProvider, slug, repositories, commands, observer, litmus, health, meshRepairs, channels,
-            autopilot, bus);
+            autopilot, bus, rebootWitness);
     }
 
     /// <summary>

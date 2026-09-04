@@ -44,7 +44,7 @@
                 <div class="power-stat-value">@_totalClients</div>
                 <div class="power-stat-label">Total Clients</div>
             </div>
-            <div class="power-stat-card @GetSignalClass(_avgSignal)">
+            <div class="power-stat-card @GetSignalClass(_avgSignal)" style="color: @SignalClassification.GetSignalColor(_avgSignal, RadioBand.Band5GHz)">
                 <div class="power-stat-value">@(_avgSignal.HasValue ? $"{_avgSignal} dBm" : "N/A")</div>
                 <div class="power-stat-label">Avg Signal</div>
             </div>
@@ -156,19 +156,19 @@
                         <div class="coverage-metrics">
                             <div class="coverage-metric">
                                 <span class="metric-label">Avg Signal</span>
-                                <span class="metric-value @GetSignalClass(apCoverage.AvgSignal)">
+                                <span class="metric-value @GetSignalClass(apCoverage.AvgSignal)" style="color: @SignalClassification.GetSignalColor(apCoverage.AvgSignal, RadioBand.Band5GHz)">
                                     @(apCoverage.AvgSignal.HasValue ? $"{apCoverage.AvgSignal} dBm" : "N/A")
                                 </span>
                             </div>
                             <div class="coverage-metric">
                                 <span class="metric-label">Weakest</span>
-                                <span class="metric-value @GetSignalClass(apCoverage.MinSignal)">
+                                <span class="metric-value @GetSignalClass(apCoverage.MinSignal)" style="color: @SignalClassification.GetSignalColor(apCoverage.MinSignal, RadioBand.Band5GHz)">
                                     @(apCoverage.MinSignal.HasValue ? $"{apCoverage.MinSignal} dBm" : "N/A")
                                 </span>
                             </div>
                             <div class="coverage-metric">
                                 <span class="metric-label">Strongest</span>
-                                <span class="metric-value @GetSignalClass(apCoverage.MaxSignal)">
+                                <span class="metric-value @GetSignalClass(apCoverage.MaxSignal)" style="color: @SignalClassification.GetSignalColor(apCoverage.MaxSignal, RadioBand.Band5GHz)">
                                     @(apCoverage.MaxSignal.HasValue ? $"{apCoverage.MaxSignal} dBm" : "N/A")
                                 </span>
                             </div>

@@ -85,7 +85,7 @@ public class DeviceRebootAlertEvaluator
         if (_rolloutWindows?.IsInRolloutWindow(_siteSlug, deviceMac, now) == true)
         {
             _logger.LogDebug(
-                "Not alerting on {Device} ({Mac}) restarting: a firmware rollout is upgrading it",
+                "Not alerting on {Device} ({Mac}) restarting: a firmware rollout is upgrading it or a device it uplinks through",
                 deviceName ?? "unknown", deviceMac);
             return false;
         }

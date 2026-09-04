@@ -464,6 +464,13 @@
                 </table>
                 </div>
             }
+            else if (_initialLoading)
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Loading...</span>
+                </div>
+            }
             else if (!loadingDiscovered)
             {
                 <p class="empty-state">No devices found. Click Refresh to scan for devices.</p>
@@ -590,6 +597,13 @@
                         }
                     </tbody>
                 </table>
+                </div>
+            }
+            else if (_initialLoading)
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Loading...</span>
                 </div>
             }
             else if (!showAddDevice)
@@ -1003,6 +1017,13 @@
                 <div class="empty-state filter-empty">
                     <p>No results matching "<strong>@historySearchFilter</strong>"</p>
                     <p class="form-help">Try a different search term, or clear the filter to see all results.</p>
+                </div>
+            }
+            else if (_initialLoading)
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Loading...</span>
                 </div>
             }
             else
@@ -1461,6 +1482,9 @@
     private List<DiscoveredDevice> discoveredDevices = new();
     private bool loadingDiscovered = false;
     private bool _discoveredDevicesLoaded;    // set once the device list has loaded from a connected console; the agent-status poll retries the load when the console reconnects
+    // True until the initial load chain finishes, so each card shows a spinner rather than its
+    // no-data message during the first render (prerender paints before any list has loaded).
+    private bool _initialLoading = true;
 
     // Saved devices form state
     private bool showAddDevice = false;
@@ -1615,12 +1639,19 @@
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
         await ConnectionService.WaitForConnectionAsync();
 
-        await CheckSshConfiguration();
-        await LoadGatewayConfiguration();
-        await LoadDevices();
-        await LoadHistory();
-        await LoadDiscoveredDevices();
-        await LoadApMarkers();
+        try
+        {
+            await CheckSshConfiguration();
+            await LoadGatewayConfiguration();
+            await LoadDevices();
+            await LoadHistory();
+            await LoadDiscoveredDevices();
+            await LoadApMarkers();
+        }
+        finally
+        {
+            _initialLoading = false;
+        }
 
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
@@ -1643,9 +1674,12 @@
         _siteAgentOffline = _agentRequired && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
 
         // UI gating for a gateway-resident agent: the Gateway Speed Test is a
-        // self-test there (hidden), and the UniFi Device Speed Test needs device
-        // SSH through the tunnel, so it keys on the devices-via-agent proxy flag.
-        _agentOnGateway = agentOnline && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug);
+        // self-test there (hidden) - unless another connected agent sits off the
+        // gateway, which is where the test then runs. The UniFi Device Speed Test
+        // needs device SSH through the tunnel, so it keys on the devices-via-agent flag.
+        _agentOnGateway = agentOnline
+            && await OnGatewayDetector.IsAgentOnGatewayAsync(SiteContext.Slug)
+            && await OnGatewayDetector.LanTestAgentAsync(SiteContext.Slug) == null;
         _devicesViaAgent = await TunnelRouting.IsViaAgentAsync(SiteContext.Slug);
     }
 

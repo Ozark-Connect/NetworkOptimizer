@@ -184,6 +184,16 @@ step "Configuring the agent"
 # wipes the persisted key.
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
+    # Upgrades keep the enrolled config by design, so the on-gateway key has to be ADDED to
+    # an existing agent.json rather than assumed present (#1108) - without this, every
+    # gateway agent installed before the flag existed would stay on the server's
+    # IP-correlation fallback forever. This installer only ever runs on a gateway, so the
+    # answer is unconditionally true.
+    if ! grep -q '"onGateway"' "$CONFIG"; then
+        sed -i '0,/{/s/{/{\n  "onGateway": true,/' "$CONFIG"
+        grep -q '"onGateway"' "$CONFIG" || warn "could not add onGateway to ${CONFIG} - add \"onGateway\": true by hand"
+        ok "Marked the install on-gateway in agent.json"
+    fi
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install."
     {
@@ -191,6 +201,7 @@ else
         echo "  \"serverUrl\": \"${SERVER%/}\","
         echo "  \"tunnelUrl\": \"${SERVER%/}\","
         echo "  \"enrollmentToken\": \"${TOKEN}\","
+        echo "  \"onGateway\": true,"
         printf '  "ignoreSslErrors": %s\n' "$INSECURE"
         echo "}"
     } > "$CONFIG"

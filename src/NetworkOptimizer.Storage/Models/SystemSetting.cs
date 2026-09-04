@@ -69,6 +69,15 @@ public static class SystemSettingKeys
     // console (which on an agent site reconnects through the agent's own tunnel) is back up.
     public static string AgentOnGatewayFor(int agentId) => $"agent.on_gateway.{agentId}";
 
+    // Per-agent capability list from the last hello (comma-joined, e.g. "conntrack-accounting").
+    // Persisted for the #1108 durability lesson: the tunnel is behind the thing being asked
+    // about, so restarts must answer from persistence before the agent reconnects.
+    public static string AgentCapabilitiesFor(int agentId) => $"agent.capabilities.{agentId}";
+
+    // Per-site: the Bandwidth Hogs card's "add a gateway agent" suggestion was dismissed.
+    // Lives in the site DB's SystemSettings, never AdminSettings (install-wide single row).
+    public const string BandwidthHogsGatewayAgentSuggestedDismissed = "bandwidthHogs.gatewayAgentSuggested.dismissed";
+
     // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
 

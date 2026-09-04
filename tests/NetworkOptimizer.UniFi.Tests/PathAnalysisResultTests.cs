@@ -535,6 +535,122 @@ public class PathAnalysisResultTests
 
     #endregion
 
+    #region Directional efficiency - wired bottleneck under a faster wireless link
+
+    // A mesh AP whose MLO backhaul (6.5 / 7.2 Gbps) outruns its parent's 2.5 GbE uplink. The
+    // path's bottleneck is the wire, so the grade must be measured against 2.5 Gbps at wired
+    // overhead, not against the backhaul at mesh overhead.
+    private static PathAnalysisResult MeshApBehindSlowerWire() => new()
+    {
+        Path = new NetworkPath
+        {
+            TargetIsAccessPoint = true,
+            HasRealBottleneck = true,
+            TheoreticalMaxMbps = 2500,
+            RealisticMaxMbps = 2390,
+            Hops =
+            [
+                new()
+                {
+                    Type = HopType.AccessPoint,
+                    IngressPortName = "wireless mesh", IngressSpeedMbps = 6533, IsWirelessIngress = true,
+                    EgressPortName = "wireless mesh", EgressSpeedMbps = 6533, IsWirelessEgress = true,
+                    WirelessTxRateMbps = 6533, WirelessRxRateMbps = 7206,
+                },
+                // The parent carries the mesh rate on its port-less ingress; only its port 3 is a wire.
+                new() { Type = HopType.AccessPoint, IngressPort = 0, IngressPortName = "Port 0", IngressSpeedMbps = 6533, EgressPort = 3, EgressSpeedMbps = 2500, IsBottleneck = true },
+                new() { Type = HopType.Switch, IngressPort = 3, IngressSpeedMbps = 2500, EgressPort = 10, EgressSpeedMbps = 10000 },
+            ],
+        },
+        MeasuredFromDeviceMbps = 1262,
+        MeasuredToDeviceMbps = 1247,
+    };
+
+    [Fact]
+    public void GetDirectionalEfficiency_WireSlowerThanBothWirelessDirections_GradesAgainstTheWire()
+    {
+        var result = MeshApBehindSlowerWire();
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        var (fromMax, toMax, fromEff, toEff, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(rxKbps, txKbps);
+
+        fromMax.Should().Be(2500);
+        toMax.Should().Be(2500);
+        fromOverhead.Should().Be(6, "a wired bottleneck carries wired overhead");
+        toOverhead.Should().Be(6);
+        fromEff.Should().BeApproximately(1262 / (2500 * 0.94) * 100, 0.01);
+        toEff.Should().BeApproximately(1247 / (2500 * 0.94) * 100, 0.01);
+    }
+
+    [Fact]
+    public void GetDirectionalEfficiency_MeshOverheadStillBindsWhenItLeavesLessThanTheWire()
+    {
+        // Mesh at 4000 / 5000 Mbps PHY over a 2.5 GbE port. The wire is the slowest link, but
+        // 4000 x 0.55 = 2200 is under the wire's 2350, so the from-device direction stays mesh-
+        // bound at mesh overhead while the to-device direction (5000 x 0.55 = 2750) is wire-bound.
+        var result = MeshApBehindSlowerWire();
+        result.Path.Hops[0].WirelessTxRateMbps = 4000;
+        result.Path.Hops[0].WirelessRxRateMbps = 5000;
+        result.Path.Hops[0].IngressSpeedMbps = 4000;
+        result.Path.Hops[0].EgressSpeedMbps = 4000;
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        var (fromMax, toMax, _, _, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(rxKbps, txKbps);
+
+        fromMax.Should().Be(4000);
+        fromOverhead.Should().Be(45);
+        toMax.Should().Be(2500);
+        toOverhead.Should().Be(6);
+    }
+
+    [Fact]
+    public void GetOverheadFactor_MeshApBehindSlowerWire_IsWired()
+    {
+        MeshApBehindSlowerWire().GetOverheadFactor().Should().Be(PathAnalysisResult.WiredOverheadFactor);
+    }
+
+    [Fact]
+    public void GetDirectionalEfficiency_WirelessLinkIsTheBottleneck_KeepsItsOwnDirections()
+    {
+        // A phone's Wi-Fi link (2401 / 2161) on an AP with a faster uplink: the path max is
+        // one of the two directions, so each direction keeps its own rate at Wi-Fi overhead.
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                HasRealBottleneck = true,
+                TheoreticalMaxMbps = 2161,
+                Hops =
+                [
+                    new() { Type = HopType.WirelessClient, IngressSpeedMbps = 2161, EgressSpeedMbps = 2401, IsWirelessIngress = true, IsBottleneck = true },
+                    new() { Type = HopType.AccessPoint, IngressSpeedMbps = 10000, EgressSpeedMbps = 10000 },
+                ],
+            },
+            MeasuredFromDeviceMbps = 1147,
+            MeasuredToDeviceMbps = 1190,
+        };
+
+        var (fromMax, toMax, _, _, fromOverhead, toOverhead) = result.GetDirectionalEfficiency(2401_000, 2161_000);
+
+        fromMax.Should().Be(2401);
+        toMax.Should().Be(2161);
+        fromOverhead.Should().Be(25);
+        toOverhead.Should().Be(25);
+    }
+
+    [Fact]
+    public void GetOverheadFactor_MeshApWhoseMeshIsTheBottleneck_IsMesh()
+    {
+        var result = MeshApBehindSlowerWire();
+        result.Path.TheoreticalMaxMbps = 1200;
+        result.Path.Hops[0].IngressSpeedMbps = 1200;
+        result.Path.Hops[0].EgressSpeedMbps = 1200;
+
+        result.GetOverheadFactor().Should().Be(PathAnalysisResult.MeshBackhaulOverheadFactor);
+    }
+
+    #endregion
+
     #region PerformanceGrade Enum Tests
 
     [Fact]

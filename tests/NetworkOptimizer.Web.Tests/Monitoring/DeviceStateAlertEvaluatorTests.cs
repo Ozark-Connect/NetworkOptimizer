@@ -42,7 +42,7 @@ public class DeviceStateAlertEvaluatorTests
     {
         var bus = new CapturingBus();
         var transitions = new DeviceTransitionTracker();
-        return (new DeviceStateAlertEvaluator(bus, transitions,
+        return (new DeviceStateAlertEvaluator(bus, transitions, new DeviceOfflineDeduplicator(),
             NullLogger<DeviceStateAlertEvaluator>.Instance), bus, transitions);
     }
 
@@ -163,7 +163,7 @@ public class DeviceStateAlertEvaluatorTests
     public async Task NonDefaultSite_StampsSlugInTitle()
     {
         var bus = new CapturingBus();
-        var evaluator = new DeviceStateAlertEvaluator(bus, new DeviceTransitionTracker(),
+        var evaluator = new DeviceStateAlertEvaluator(bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(),
             NullLogger<DeviceStateAlertEvaluator>.Instance, "branch-office");
 
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.11", DeviceType.AccessPoint, Disconnected, Now);

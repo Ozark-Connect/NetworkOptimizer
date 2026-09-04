@@ -20,6 +20,7 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Core.Helpers
 @using Microsoft.EntityFrameworkCore
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringReadinessService Readiness
@@ -368,7 +369,7 @@
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>" data-tooltip-html>?</span></div>
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
@@ -388,7 +389,7 @@
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>" data-tooltip-html>?</span></div>
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
@@ -409,7 +410,7 @@
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>" data-tooltip-html>?</span></div>
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
@@ -429,7 +430,7 @@
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>" data-tooltip-html>?</span></div>
                 }
                 <div class="stat-label">Transit Loss</div>
             </div>
@@ -446,12 +447,14 @@
         {
             @Map2dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map3dCard</div>
         }
         else
         {
             @Map3dCard
             @GatewayStatCards
+            @BandwidthHogs
             <div style="margin-top: 1rem;">@Map2dCard</div>
         }
 
@@ -933,6 +936,7 @@
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
                     <div class="sfp-pon-details"></div>
+                    <div class="sfp-pon-error-totals"></div>
                 </div>
                 <div class="sfp-stats-table"></div>
             </div>
@@ -1282,6 +1286,7 @@
                         <div class="ont-pon-gem-chart"></div>
                     </div>
                     <div class="ont-pon-details"></div>
+                    <div class="ont-pon-error-totals"></div>
                 </div>
                 <div class="ont-stats-table"></div>
             </div>
@@ -1889,6 +1894,17 @@
     public string? AtParam { get; set; }
 
     /// <summary>
+    /// A MAC the maps glow for a few seconds on arrival, from Client Performance's Live View
+    /// link or a speed-test result's. Names a client or a UniFi device; the maps resolve either.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "client")]
+    public string? ClientParam { get; set; }
+
+    /// <summary>The client parameter as a MAC, or empty: it is written into eval'd JS, so nothing else passes.</summary>
+    private string FocusClientMac =>
+        ClientParam is { } c && System.Text.RegularExpressions.Regex.IsMatch(c, "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$") ? c.ToLowerInvariant() : "";
+
+    /// <summary>
     /// How wide a window to frame around <c>?at=</c>, in milliseconds. An OVERRIDE only: a link
     /// that omits it frames what the destination always framed - 15 minutes on Latency and Packet
     /// Loss, an hour on Device Stats. Sent by a jump from a view that is itself a window, so the
@@ -2367,7 +2383,7 @@
         var options = new List<WanOption>();
         try
         {
-            foreach (var wan in await PathView.GetWansAsync())
+            foreach (var wan in await PathView.GetSelectableWansAsync())
             {
                 var label = NetworkOptimizer.UniFi.GatewayWanHelper.FormatWanLabel(
                     wan.FriendlyName, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.WanInterface), null, null);
@@ -2713,7 +2729,7 @@
         {
             if (_siteAgent is null) return "not set up";
             var version = _siteAgent.LastVersion is null ? ""
-                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion)}";
+                : $", v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(_siteAgent.LastVersion))}";
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
             if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
             return _siteAgent.LastSeenAt is DateTime seen
@@ -2909,6 +2925,9 @@
             if (!confirmed) return;
         }
         var enteringPerformance = tab == "performance" && _activeTab != "performance";
+        // Leaving Live View ends a link's claim on the WAN tiles: coming back re-reads the
+        // stored selection, matching the Network Performance filter's leave-and-return behavior.
+        if (_activeTab == "live" && tab != "live") LiveWan.ForgetVisitClaim();
         _activeTab = tab;
         ResetThresholdSavedFlags();
         if (enteringPerformance) await AdoptSharedWanFocusAsync();
@@ -3538,6 +3557,14 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    // A page mounted while the console was down - an agent site's normal state
+                    // right after a restart - loaded no WAN options, and the scope bar, the
+                    // tiles' ?wan= links, and Bandwidth Hogs' expected-speed capacity all wait
+                    // on them. Reload only while they are missing or unsettled (context fallback
+                    // can fill the secondaries while the console-only primary is still absent):
+                    // a reconnect blip on a settled scope must not reset a chosen WAN.
+                    if (LiveWan.Options.Count == 0 || !LiveWan.Loaded)
+                        await LoadTargetsAsync();
                     await RunDetection();
                     StateHasChanged();
                 });
@@ -3783,7 +3810,7 @@
         }
         if (_wanCountChecked) return;
         _wanCountChecked = true;
-        try { _multiWanUiVisible = (await PathView.GetWansAsync()).Count > 1; }
+        try { _multiWanUiVisible = (await PathView.GetSelectableWansAsync()).Count > 1; }
         catch { _multiWanUiVisible = false; }
         await ApplyPendingLinkWanAsync();
     }
@@ -4230,6 +4257,22 @@
         await JS.InvokeVoidAsync("noHighlightTarget", "monitoring-interfaces");
     }
 
+    /// <summary>
+    /// Lands a client-focus arrival at the maps rather than the top of the tab. Same wait as the
+    /// other deep-link scrolls here: ScrollRestoration settles the page 50 ms after the location
+    /// change and the tab is still laying out, so an immediate scroll is overridden.
+    /// </summary>
+    private async Task ScrollToLiveJumpRowAsync()
+    {
+        await Task.Delay(500);
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                "document.querySelector('.live-view-jump-row')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the maps for the client focus failed"); }
+    }
+
     private async Task ScrollToSfpChartsAsync()
     {
         await Task.Delay(300);
@@ -4274,6 +4317,7 @@
         // Drive each live consumer independently so one being unmounted doesn't starve
         // the other. Historic playback (at any speed) flows through OnMapTimeChanged;
         // this only gates live auto-refresh on pause/resume.
+        _mapPaused = paused;
         if (_wanLiveChartMounted)
         {
             if (paused)
@@ -4844,6 +4888,28 @@
         return (down, up);
     }
 
+    /// <summary>The live-cache history keys behind <see cref="GetWanRates"/>' interfaces, resolved the same way.</summary>
+    private List<string> GetWanHistoryKeys()
+    {
+        var keys = new List<string>();
+        if (_gatewayMac == null) return keys;
+        var selected = LiveWan.SelectedOptions;
+        if (selected.Count == 0)
+        {
+            foreach (var ifName in _gatewayWanIfNames)
+                keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName));
+            return keys;
+        }
+        foreach (var wan in selected)
+        {
+            var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
+                ? _gatewayWanIfNames.FirstOrDefault()
+                : wan.CounterIfName;
+            if (!string.IsNullOrEmpty(ifName)) keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName!));
+        }
+        return keys;
+    }
+
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
         LiveWan.IsComparing ? $" ({LiveWan.SelectedKeys.Count} WANs)" : "";
@@ -4902,7 +4968,7 @@
 
     private RenderFragment Map2dCard => __builder =>
     {
-        <div class="card lan-flow-map-2d-card" style="margin-top: 0.5rem;">
+        <div class="card lan-flow-map-2d-card" style="margin-top: 0.5rem;" data-tour="live-client-throughput">
             <div class="card-header">
                 <h2 class="card-title">LAN Topology Flow Map</h2>
                 <div class="card-header-right">
@@ -4918,6 +4984,17 @@
                 <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
             </div>
         </div>
+    };
+
+    private bool _mapPaused;
+
+    private RenderFragment BandwidthHogs => __builder =>
+    {
+        var wanRates = GetWanRates();
+        <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
+                           WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
+                           WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()"
+                           MultiWan="_multiWanUiVisible" />
     };
 
     private RenderFragment GatewayStatCards => __builder =>
@@ -5186,15 +5263,7 @@
         return (total.IngressBps, total.EgressBps);
     }
 
-    private static string FormatRate(double? bps)
-    {
-        if (!bps.HasValue || bps.Value < 1) return "-";
-        var v = bps.Value;
-        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
-        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
-        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
-        return $"{v:0} bps";
-    }
+    private static string FormatRate(double? bps) => DisplayFormatters.FormatRate(bps);
 
     /// <summary>
     /// Splits a formatted rate into its numeric value and unit so the unit can be styled separately.
@@ -5607,16 +5676,17 @@
                 // original closure, so a re-eval'd definition with different baked-in
                 // values is silently ignored on every mount after the first.
                 await JS.InvokeVoidAsync("eval",
-                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt) {" +
+                    "window.__mountLanFlowMap = async function(canvasId, ref, storagePrefix, initialAt, focusClient) {" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
                     "  const opts = { storagePrefix: storagePrefix };" +
                     "  if (initialAt > 0) opts.initialAt = initialAt;" +
+                    "  if (focusClient) opts.focusClient = focusClient;" +
                     "  await m.mount(canvasId, opts);" +
                     "}");
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef,
-                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs);
+                    SiteCtx.ScopeStorageKey("lanFlowMap"), initialAtMs, FocusClientMac);
             }
             catch (Exception ex) { _mapMounted = false; Logger.LogDebug(ex, "3D map mount failed; will retry on next render"); }
         }
@@ -5636,9 +5706,16 @@
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}' }}); }})();");
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}', focusClient: '{FocusClientMac}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
+            // The focus is a one-time arrival cue: once both maps have it, the parameter leaves the
+            // URL so a refresh or a copied link does not replay it.
+            if (_map2dMounted && FocusClientMac.Length > 0)
+            {
+                _ = ScrollToLiveJumpRowAsync();
+                NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "client"), forceLoad: false, replace: true);
+            }
         }
         else if (_activeTab != "live" && _map2dMounted)
         {

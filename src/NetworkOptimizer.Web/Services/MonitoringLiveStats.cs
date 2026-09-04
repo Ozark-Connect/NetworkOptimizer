@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -58,6 +58,9 @@ public class MonitoringLiveStats
             return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
         return await _dbFactory.CreateDbContextAsync(ct);
     }
+
+    /// <summary>When this cache came to life; readers use it to say how warmed up its histories are.</summary>
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
 
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
 
@@ -184,6 +187,7 @@ public class MonitoringLiveStats
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
     private readonly ConcurrentDictionary<string, WiredClientLiveSnapshot> _wiredClients = new();
+    private readonly ConcurrentDictionary<string, ConsoleWanRate> _consoleWanRates = new();
     // Per-port rate cache. Keyed by (deviceMac, ifName) so the SNMP fast tier
     // (clean 5s cadence) is the writer - the UniFi PortTable byte counters lag
     // ~30s server-side, so polling them every 5s yields a burst-then-zeros
@@ -192,11 +196,18 @@ public class MonitoringLiveStats
     // leaf), UpBps = port RX (data arriving on this port from the leaf).
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), PortLiveRate> _portRates = new();
 
-    public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp)
+    /// <summary>
+    /// Stores the rate under <paramref name="ifName"/> and, when it differs, under the raw
+    /// <paramref name="portId"/> as well. The server poller names a UniFi switch port by its
+    /// label and the agent relay by its raw name, and a link's PortKey holds whichever planted
+    /// its name-map row last - so a lookup by either name has to land on the same rate.
+    /// </summary>
+    public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp, string? portId = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return;
         var key = (Normalize(deviceMac), ifName);
         _portRates.TryGetValue(key, out var prior);
+        PortLiveRate stored;
         if (downBps == 0 && upBps == 0
             && prior != null
             && (prior.DownBps > 0 || prior.UpBps > 0)
@@ -205,19 +216,26 @@ public class MonitoringLiveStats
             _logger.LogTrace(
                 "Port rate hold: {Mac}/{If} was {Down:F0}/{Up:F0} bps, holding through single zero poll",
                 deviceMac, ifName, prior.DownBps, prior.UpBps);
-            _portRates[key] = prior with
+            stored = prior with
             {
                 LastUpdate = timestamp,
                 ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
             };
-            return;
         }
-        _portRates[key] = new PortLiveRate
+        else
         {
-            DownBps = downBps,
-            UpBps = upBps,
-            LastUpdate = timestamp,
-        };
+            stored = new PortLiveRate
+            {
+                DownBps = downBps,
+                UpBps = upBps,
+                LastUpdate = timestamp,
+            };
+        }
+        _portRates[key] = stored;
+        // The alias key only - a second row series would show the port twice in Live View.
+        if (!string.IsNullOrEmpty(portId) && !string.Equals(portId, ifName, StringComparison.OrdinalIgnoreCase))
+            _portRates[(key.Item1, portId)] = stored;
+        AppendRowRate(PortRowKey(deviceMac, ifName), stored.DownBps, stored.UpBps, timestamp);
     }
 
     public PortLiveRate? GetPortRate(string deviceMac, string ifName)
@@ -572,14 +590,21 @@ public class MonitoringLiveStats
     {
         if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
         var key = Normalize(snapshot.ClientMac);
+        // A caller carrying a prior reading forward passes the prior's zero-poll count with it;
+        // every other caller leaves it at zero, as a fresh measurement should.
         var fresh = snapshot with
         {
             ClientMac = key,
             ApMac = Normalize(snapshot.ApMac),
-            ConsecutiveZeroPolls = 0,
         };
-        _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
+        var stored = _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
         {
+            // One entry per client, so two access points claiming the same one race, and the later
+            // write wins whether or not it is the live association. An access point can hold a
+            // station long after the client left: idle separates them, and without this the maps
+            // and Client Performance follow whichever poll landed last.
+            if (KeepPriorApClaim(prior, fresh)) return prior;
+
             var newTx = fresh.TxThroughputBps ?? 0;
             var newRx = fresh.RxThroughputBps ?? 0;
             var priorTx = prior.TxThroughputBps ?? 0;
@@ -603,13 +628,43 @@ public class MonitoringLiveStats
                     Satisfaction = fresh.Satisfaction,
                     Rssi = fresh.Rssi,
                     IsMlo = fresh.IsMlo,
-                    Hostname = fresh.Hostname,
+                    Source = fresh.Source,
+                    Hostname = fresh.Hostname ?? prior.Hostname,
                     LastUpdate = fresh.LastUpdate,
                     ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
                 };
             }
-            return fresh;
+            // Hostname is identity, not a reading. Sources that carry no name (the AP Agent knows
+            // MACs only) must not blank the one a source that does carry it already established.
+            return fresh.Hostname is null ? fresh with { Hostname = prior.Hostname } : fresh;
         });
+        if (stored.TxThroughputBps != null || stored.RxThroughputBps != null)
+            AppendRowRate(WifiRowKey(key), stored.TxThroughputBps ?? 0, stored.RxThroughputBps ?? 0, stored.LastUpdate);
+    }
+
+    /// <summary>
+    /// How stale an incoming claim must be before a different access point's fresher one outranks
+    /// it. Well past any normal poll gap, so two access points genuinely serving a client in turn
+    /// hand over immediately and only an abandoned station is held back.
+    /// </summary>
+    private const long ContestedClaimIdleSeconds = 60;
+
+    /// <summary>How long a held claim stays authoritative without being reasserted by its own poll.</summary>
+    private static readonly TimeSpan ClaimFreshness = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// Whether an existing claim on a client outranks an incoming one from a different access
+    /// point. Only when both report idle, the incoming one is itself stale, and the held one is
+    /// both fresher and still being reasserted - so a client that really did leave still moves
+    /// once its old access point stops answering.
+    /// </summary>
+    private static bool KeepPriorApClaim(WifiClientLiveSnapshot prior, WifiClientLiveSnapshot fresh)
+    {
+        if (string.Equals(prior.ApMac, fresh.ApMac, StringComparison.OrdinalIgnoreCase)) return false;
+        if (prior.IdleSeconds is not { } priorIdle || fresh.IdleSeconds is not { } freshIdle) return false;
+        if (freshIdle < ContestedClaimIdleSeconds || freshIdle <= priorIdle) return false;
+
+        return DateTime.UtcNow - prior.LastUpdate <= ClaimFreshness;
     }
 
     /// <summary>Latest snapshot for a specific client MAC, or null if unknown / stale.</summary>
@@ -640,7 +695,7 @@ public class MonitoringLiveStats
         if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
         var key = Normalize(snapshot.ClientMac);
         var fresh = snapshot with { ClientMac = key, ConsecutiveZeroPolls = 0 };
-        _wiredClients.AddOrUpdate(key, fresh, (_, prior) =>
+        var stored = _wiredClients.AddOrUpdate(key, fresh, (_, prior) =>
         {
             var newTx = fresh.TxThroughputBps ?? 0;
             var newRx = fresh.RxThroughputBps ?? 0;
@@ -648,6 +703,8 @@ public class MonitoringLiveStats
                 return prior with { TxThroughputBps = prior.TxThroughputBps, RxThroughputBps = prior.RxThroughputBps, LastUpdate = fresh.LastUpdate, ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1 };
             return fresh;
         });
+        if (stored.TxThroughputBps != null || stored.RxThroughputBps != null)
+            AppendRowRate(WiredRowKey(key), stored.TxThroughputBps ?? 0, stored.RxThroughputBps ?? 0, stored.LastUpdate);
     }
 
     public WiredClientLiveSnapshot? GetWiredClient(string clientMac)
@@ -656,10 +713,256 @@ public class MonitoringLiveStats
         return _wiredClients.TryGetValue(Normalize(clientMac), out var v) ? v : null;
     }
 
+    // ---- Console WAN rates (the gateway's per-client view) ----
+
+    /// <summary>
+    /// Records the console's per-client rate. Kept apart from the client snapshots because it is a
+    /// different measurement: the gateway's, so WAN only, for wired and Wi-Fi clients alike, and
+    /// tens of seconds behind. Recorded for every client, including those an AP Agent serves.
+    /// </summary>
+    /// <summary>How much console rate history is kept per client, for the WAN-baseline read.</summary>
+    public static readonly TimeSpan ConsoleRateHistoryFor = TimeSpan.FromMinutes(15);
+
+    private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _consoleRateHistory = new(StringComparer.OrdinalIgnoreCase);
+
+    public void RecordConsoleWanRate(string clientMac, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return;
+        var key = Normalize(clientMac);
+        var fresh = new ConsoleWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        var kept = _consoleWanRates.AddOrUpdate(key, fresh, (_, prior) =>
+            // The console's -r fields read 0/0 for one sample between active ones, as the client
+            // snapshots already allow for. One zero is held; two in a row are idle.
+            fresh.DownBps == 0 && fresh.UpBps == 0 && (prior.DownBps > 0 || prior.UpBps > 0) && !prior.HeldZero
+                ? prior with { At = at, HeldZero = true }
+                : fresh);
+        var history = _consoleRateHistory.GetOrAdd(key, _ => new());
+        lock (history)
+        {
+            history.Add((at, kept.DownBps, kept.UpBps));
+            history.RemoveAll(s => at - s.At > ConsoleRateHistoryFor);
+        }
+    }
+
+    /// <summary>The console's recorded rates for a client over the kept history, oldest first.</summary>
+    public IReadOnlyList<(DateTime At, double Down, double Up)> ConsoleRateHistory(string clientMac)
+    {
+        if (string.IsNullOrEmpty(clientMac) || !_consoleRateHistory.TryGetValue(Normalize(clientMac), out var history))
+            return Array.Empty<(DateTime, double, double)>();
+        lock (history) return history.ToArray();
+    }
+
+    /// <summary>The console's WAN rate for a client, or null when it has none newer than <paramref name="maxAge"/>.</summary>
+    public ConsoleWanRate? GetConsoleWanRate(string clientMac, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _consoleWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
+    }
+
+    // ---- Gateway conntrack: measured per-client WAN rates ----
+    // THE per-client WAN cache everything else has been approximating: the on-gateway agent's
+    // conntrack window deltas, recorded as rates by the tunnel sink. Source of truth from the
+    // first batch - no arming period, no baseline dependency.
+
+    /// <summary>A client's conntrack-measured WAN rate, computed from a window's byte deltas.</summary>
+    public readonly record struct ClientWanRate(double DownBps, double UpBps, DateTime At);
+
+    /// <summary>Floor for <see cref="ConntrackFreshness"/>; the live value scales with the
+    /// agent's actual cadence so a stretched sampler shows honest (lumpier) measured data
+    /// instead of the coverage flapping to the estimated split between its batches.</summary>
+    private static readonly TimeSpan ConntrackFreshnessFloor = TimeSpan.FromSeconds(20);
+
+    private volatile int _lastConntrackWindowSeconds;
+
+    /// <summary>
+    /// How old a conntrack rate may be and still cover a row: three of the agent's own reported
+    /// windows, floored at 20s. Past it the row falls back to the estimated split rather than
+    /// showing a stale measurement as current.
+    /// </summary>
+    public TimeSpan ConntrackFreshness
+    {
+        get
+        {
+            var window = _lastConntrackWindowSeconds;
+            return window > 0 && TimeSpan.FromSeconds(window * 3) > ConntrackFreshnessFloor
+                ? TimeSpan.FromSeconds(window * 3)
+                : ConntrackFreshnessFloor;
+        }
+    }
+
+    /// <summary>The synthetic identity for WAN bytes conntrack saw but could not attribute
+    /// (endpoints with no neighbor entry - VPN road warriors, rotated IPv6 privacy addresses).</summary>
+    public const string ConntrackUnattributed = "unattributed";
+
+    private readonly ConcurrentDictionary<string, ClientWanRate> _clientWanRates = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _lastConntrackBatchAt = DateTime.MinValue;
+
+    /// <summary>Records a client's measured WAN rate from a conntrack window (all WANs summed).</summary>
+    public void RecordClientWanRate(string clientMac, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return;
+        _clientWanRates[Normalize(clientMac)] = new ClientWanRate(Math.Max(0, downBps), Math.Max(0, upBps), at);
+        _lastConntrackBatchAt = at;
+    }
+
+    /// <summary>Stamps a conntrack batch (an empty one included: an idle WAN is still coverage),
+    /// remembering the window it covered so the freshness gate tracks the agent's real cadence.</summary>
+    public void NoteConntrackBatch(DateTime at, int windowSeconds = 0)
+    {
+        _lastConntrackBatchAt = at;
+        if (windowSeconds > 0) _lastConntrackWindowSeconds = windowSeconds;
+    }
+
+    /// <summary>A client's measured WAN rate, or null when none newer than <paramref name="maxAge"/>.
+    /// A covered site's idle client has no entry (or a stale one): coverage says its WAN is zero,
+    /// which is why callers pair this with <see cref="HasConntrackCoverage"/>.</summary>
+    public ClientWanRate? GetClientWanRate(string clientMac, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _clientWanRates.TryGetValue(Normalize(clientMac), out var v) && DateTime.UtcNow - v.At <= maxAge ? v : null;
+    }
+
+    /// <summary>Whether the gateway agent's conntrack feed is currently flowing for this site.</summary>
+    public bool HasConntrackCoverage() => DateTime.UtcNow - _lastConntrackBatchAt <= ConntrackFreshness;
+
+    /// <summary>When the conntrack feed last reported, or null if it never has.</summary>
+    public DateTime? LastConntrackBatchAt => _lastConntrackBatchAt == DateTime.MinValue ? null : _lastConntrackBatchAt;
+
+    // Recent measured rates per Bandwidth Hogs row, appended where the sources land (Wi-Fi client
+    // throughput, SNMP/port-table port rates, the wired-client fallback) so the baselines are
+    // always warm - no page needs to be open, and no new polling: the data flows anyway.
+    private readonly ConcurrentDictionary<string, List<(DateTime At, double Down, double Up)>> _rowRates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How much measured-rate history is kept per row. Deliberately wide: the Bandwidth Hogs
+    /// baseline learns a device's background habit from it, and co-movement spans it so a WAN
+    /// burst from half an hour ago stays excluded from that habit. The console history stays at
+    /// 15 minutes on purpose - a recent ceiling against a wide floor errs toward not attributing.
+    /// </summary>
+    public static readonly TimeSpan RowRateHistoryFor = TimeSpan.FromMinutes(60);
+
+    /// <summary>Sources write faster than a baseline needs; samples closer than this are dropped.</summary>
+    private static readonly TimeSpan RowRateSampleSpacing = TimeSpan.FromSeconds(10);
+
+    /// <summary>History key for a Wi-Fi client row.</summary>
+    public static string WifiRowKey(string clientMac) => "wifi:" + Normalize(clientMac);
+
+    /// <summary>History key for a switch-port row (a wired client's port, or a shared port's hub).</summary>
+    public static string PortRowKey(string deviceMac, string ifName) => "port:" + Normalize(deviceMac) + "|" + ifName;
+
+    /// <summary>History key for a wired client with no port rate (non-SNMP switch fallback).</summary>
+    public static string WiredRowKey(string clientMac) => "wired:" + Normalize(clientMac);
+
+    private void AppendRowRate(string key, double down, double up, DateTime at)
+    {
+        var list = _rowRates.GetOrAdd(key, _ => new());
+        lock (list)
+        {
+            if (list.Count > 0 && at - list[^1].At < RowRateSampleSpacing) return;
+            list.Add((at, down, up));
+            list.RemoveAll(s => at - s.At > RowRateHistoryFor);
+        }
+    }
+
+    /// <summary>A row's measured-rate samples over the kept history, oldest first.</summary>
+    public IReadOnlyList<(DateTime At, double Down, double Up)> RowRateHistory(string key)
+    {
+        if (string.IsNullOrEmpty(key) || !_rowRates.TryGetValue(key, out var list))
+            return Array.Empty<(DateTime, double, double)>();
+        lock (list) return list.ToArray();
+    }
+
+    // ---- Bandwidth Hogs learned baselines, persisted so a restart starts armed ----
+
+    /// <summary>A row's learned baseline local rate, and when it was last computed live.</summary>
+    public readonly record struct RowBaseline(double DownBps, double UpBps, DateTime At);
+
+    private readonly ConcurrentDictionary<string, RowBaseline> _rowBaselines = new(StringComparer.OrdinalIgnoreCase);
+    private int _rowBaselinesLoadStarted;
+    private DateTime _rowBaselinesPersistedAt = DateTime.UtcNow;
+    private static readonly TimeSpan RowBaselinePersistEvery = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RowBaselineKeepFor = TimeSpan.FromHours(24);
+
+    /// <summary>Records a row's live-computed baseline; the newest per key survives restarts.</summary>
+    public void RecordRowBaseline(string key, double downBps, double upBps, DateTime at)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        EnsureRowBaselinesLoaded();
+        _rowBaselines[key] = new RowBaseline(Math.Max(0, downBps), Math.Max(0, upBps), at);
+    }
+
+    /// <summary>The learned baseline for a row, or null when none newer than <paramref name="maxAge"/>.</summary>
+    public RowBaseline? GetRowBaseline(string key, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        EnsureRowBaselinesLoaded();
+        return _rowBaselines.TryGetValue(key, out var b) && DateTime.UtcNow - b.At <= maxAge ? b : null;
+    }
+
+    private void EnsureRowBaselinesLoaded()
+    {
+        if (Interlocked.Exchange(ref _rowBaselinesLoadStarted, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var db = await CreateSiteContextAsync(CancellationToken.None);
+                var cutoff = DateTime.UtcNow - RowBaselineKeepFor;
+                // TryAdd only: anything computed live since startup outranks the persisted copy.
+                foreach (var row in await db.HogRowBaselines.AsNoTracking().ToListAsync())
+                    if (row.UpdatedAt >= cutoff)
+                        _rowBaselines.TryAdd(row.RowKey, new RowBaseline(row.DownBps, row.UpBps, row.UpdatedAt));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not load persisted Bandwidth Hogs baselines");
+            }
+        });
+    }
+
+    private async Task PersistRowBaselinesAsync()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - RowBaselineKeepFor;
+            foreach (var stale in _rowBaselines.Where(kv => kv.Value.At < cutoff).Select(kv => kv.Key).ToList())
+                _rowBaselines.TryRemove(stale, out _);
+            var live = _rowBaselines.ToArray();
+            await using var db = await CreateSiteContextAsync(CancellationToken.None);
+            var stored = await db.HogRowBaselines.ToDictionaryAsync(r => r.RowKey);
+            foreach (var (key, b) in live)
+            {
+                if (stored.TryGetValue(key, out var row))
+                {
+                    if (row.UpdatedAt >= b.At) continue;
+                    row.DownBps = b.DownBps;
+                    row.UpBps = b.UpBps;
+                    row.UpdatedAt = b.At;
+                }
+                else
+                {
+                    db.HogRowBaselines.Add(new HogRowBaseline { RowKey = key, DownBps = b.DownBps, UpBps = b.UpBps, UpdatedAt = b.At });
+                }
+            }
+            foreach (var row in stored.Values.Where(r => r.UpdatedAt < cutoff))
+                db.HogRowBaselines.Remove(row);
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not persist Bandwidth Hogs baselines");
+        }
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
         var cutoff = DateTime.UtcNow - maxAge;
+        // Conntrack rates are age-gated on read (ConntrackFreshness), so pruning is purely a
+        // memory tidy for clients that left the network.
+        foreach (var kvp in _clientWanRates)
+            if (kvp.Value.At < cutoff)
+                _clientWanRates.TryRemove(kvp.Key, out _);
         // SFP polls on the slow tier (~5min). If the SFP cutoff matches the
         // poll interval, every Prune tick between polls races the SFP entry
         // off the cache and the UI flashes blank ("-") for a few seconds
@@ -687,6 +990,28 @@ public class MonitoringLiveStats
             if (kvp.Value.LastUpdate < cutoff)
                 _wifiClients.TryRemove(kvp.Key, out _);
         }
+        foreach (var kvp in _consoleWanRates)
+        {
+            if (kvp.Value.At < cutoff)
+                _consoleWanRates.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _rowRates)
+        {
+            bool stale;
+            lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
+            if (stale) _rowRates.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _consoleRateHistory)
+        {
+            bool stale;
+            lock (kvp.Value) stale = kvp.Value.Count == 0 || kvp.Value[^1].At < cutoff;
+            if (stale) _consoleRateHistory.TryRemove(kvp.Key, out _);
+        }
+        if (DateTime.UtcNow - _rowBaselinesPersistedAt >= RowBaselinePersistEvery && !_rowBaselines.IsEmpty)
+        {
+            _rowBaselinesPersistedAt = DateTime.UtcNow;
+            _ = Task.Run(PersistRowBaselinesAsync);
+        }
         foreach (var kvp in _portRates)
         {
             if (kvp.Value.LastUpdate < cutoff)
@@ -711,6 +1036,18 @@ public class MonitoringLiveStats
 /// throughput and uses PHY rate as the "pipe width" / utilization denominator.
 /// Don't conflate them.
 /// </summary>
+/// <summary>
+/// Where a live client reading came from, fastest first. The AP Agent polls every 10 s and Client
+/// Performance drives it to 500 ms; WiFiman runs at 1 Hz on sites with no agent; the console wifi
+/// tier is the 30 s baseline every site has.
+/// </summary>
+public enum WifiClientSource
+{
+    Console,
+    WiFiMan,
+    ApAgent,
+}
+
 public record WifiClientLiveSnapshot
 {
     public required string ClientMac { get; init; }
@@ -734,7 +1071,22 @@ public record WifiClientLiveSnapshot
     public int? Rssi { get; init; }
     public bool IsMlo { get; init; }
     public string? Hostname { get; init; }
+
+    /// <summary>
+    /// Seconds since the access point reporting this last heard from the client. Null where the
+    /// source does not carry it. Two access points can both claim a client - one of them holding a
+    /// station that has physically left - and this is what tells them apart.
+    /// </summary>
+    public long? IdleSeconds { get; init; }
+
     public DateTime LastUpdate { get; init; }
+
+    /// <summary>
+    /// Which poller wrote this. Readers that must decide whether the cache beats their own copy of
+    /// the same console data need it: age cannot separate the sources, since a console write is
+    /// zero seconds old at the moment it lands.
+    /// </summary>
+    public WifiClientSource Source { get; init; } = WifiClientSource.Console;
 
     /// <summary>Internal: tracks consecutive 0/0 throughput polls so a single
     /// transient zero between active samples doesn't blink the UI to silent.</summary>
@@ -815,6 +1167,17 @@ public record DeviceLiveStats
         return (LastRateUpdate.HasValue && (now - LastRateUpdate.Value) <= maxAge)
             || (LastLatencyUpdate.HasValue && (now - LastLatencyUpdate.Value) <= maxAge);
     }
+}
+
+/// <summary>
+/// The console's per-client rate in the client's frame: <see cref="DownBps"/> is what it received.
+/// The gateway's measurement, so WAN traffic only, and behind the moment by the console's own
+/// reporting delay.
+/// </summary>
+public readonly record struct ConsoleWanRate(double DownBps, double UpBps, DateTime At)
+{
+    /// <summary>Internal: this reading is a prior one held through a single zero poll.</summary>
+    public bool HeldZero { get; init; }
 }
 
 /// <summary>

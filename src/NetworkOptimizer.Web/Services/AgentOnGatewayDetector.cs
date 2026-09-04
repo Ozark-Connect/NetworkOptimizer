@@ -29,9 +29,33 @@ namespace NetworkOptimizer.Web.Services;
 /// speed-test-capable gateway installs arrive, that gating should move to a
 /// per-agent capability flag - this detector only answers "is it on the
 /// gateway", not "what can it do".
+///
+/// Since #1108 the hello can carry the installer-written on_gateway flag, and a
+/// reported flag is the authoritative tier: it answers without any console round
+/// trip. EVERYTHING below it - correlation, caches, persisted verdicts - is the
+/// fallback for agents that did not say, and ages out with them; the
+/// address-based questions (MatchGatewayAddressAsync, IsIpOnGatewayAsync) stay
+/// correlation-based forever, because they need the matched address, which no
+/// flag can provide.
 /// </summary>
-public class AgentOnGatewayDetector
+public class AgentOnGatewayDetector : ISiteScopedRegistry
 {
+    /// <summary>
+    /// Site removal sweep: drops every cached answer keyed by the slug so a site re-created
+    /// under the same name cannot inherit the removed site's verdicts or gateway addresses.
+    /// Nothing here owns a disposable, so there is no teardown callback.
+    /// </summary>
+    public Func<ValueTask>? EvictSite(string slug)
+    {
+        _cache.TryRemove(slug, out _);
+        _gatewayIps.TryRemove(slug, out _);
+        _gatewayHostIps.TryRemove(slug, out _);
+        foreach (var key in _agentCache.Keys.Where(k => k.Slug == slug).ToList())
+            _agentCache.TryRemove(key, out _);
+        foreach (var key in _reported.Keys.Where(k => k.Slug == slug).ToList())
+            _reported.TryRemove(key, out _);
+        return null;
+    }
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RefreshTimeout = TimeSpan.FromSeconds(10);
 
@@ -41,11 +65,6 @@ public class AgentOnGatewayDetector
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly ILogger<AgentOnGatewayDetector> _logger;
     private readonly ConcurrentDictionary<string, (bool OnGateway, DateTime At)> _cache = new();
-    // The agent address the last detection compared against the gateway's. Kept so callers that
-    // need it - anything asking "is this target the box the agent runs on" - can have it from here
-    // rather than asking the enrollment service again, which is gated and unusable from background
-    // work without a system scope.
-    private readonly ConcurrentDictionary<string, string> _agentIp = new();
     private readonly ConcurrentDictionary<string, Task> _refreshing = new();
     // Per-agent verdicts and their in-flight refreshes, for the per-agent overload. Separate from
     // the site-level pair above rather than replacing it: the two answer different questions and
@@ -64,13 +83,72 @@ public class AgentOnGatewayDetector
         SiteConnectionRegistry siteConnections,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteAgentCoverage agentCoverage,
+        AgentTunnelRegistry tunnelRegistry,
         ILogger<AgentOnGatewayDetector> logger)
     {
         _enrollment = enrollment;
         _siteConnections = siteConnections;
         _siteDbFactory = siteDbFactory;
         _agentCoverage = agentCoverage;
+        _tunnelRegistry = tunnelRegistry;
         _logger = logger;
+    }
+
+    private readonly AgentTunnelRegistry _tunnelRegistry;
+
+    // Verdicts agents REPORTED in their hello (#1108): installer-recorded fact, authoritative
+    // over correlation whenever present. Absent from the hello leaves an agent out of this map
+    // entirely, which is what keeps every pre-flag install on the correlation path unchanged.
+    private readonly ConcurrentDictionary<(string Slug, int AgentId), bool> _reported = new();
+
+    /// <summary>
+    /// Adopts an agent's self-reported on-gateway flag (from its hello) as the authoritative
+    /// answer for that agent, and persists it under the same per-agent key the correlation
+    /// path uses, so a restart answers identically before the tunnel is back. Called only when
+    /// the hello actually carried the flag - never for absent, whose meaning is "ask the
+    /// correlation path exactly as before".
+    /// </summary>
+    public async Task NoteReportedAsync(string siteSlug, int agentId, bool onGateway)
+    {
+        _reported[(siteSlug, agentId)] = onGateway;
+        _agentCache[(siteSlug, agentId)] = (onGateway, DateTime.UtcNow);
+        await PersistAsync(siteSlug, SystemSettingKeys.AgentOnGatewayFor(agentId), onGateway);
+    }
+
+    /// <summary>
+    /// The reported verdict for a site, when any of its CONNECTED agents carries one: true if
+    /// any reported true, false if every connected agent reported (all false), null when none
+    /// reported - which sends the caller to the correlation path.
+    /// </summary>
+    private bool? ReportedForSite(string siteSlug)
+    {
+        var connections = _tunnelRegistry.GetForSite(siteSlug);
+        if (connections.Count == 0) return null;
+        var any = false;
+        foreach (var connection in connections)
+        {
+            if (connection.OnGateway is not { } reported) return null;
+            any |= reported;
+        }
+        return any;
+    }
+
+    /// <summary>
+    /// The connected agent a LAN test runs from: one that is not on the site's gateway (a test
+    /// from the gateway to the gateway measures nothing), most recently heard from first. Null
+    /// when every connected agent sits on the gateway, or none is connected - a disabled or
+    /// unreachable agent holds no connection, so it is never chosen.
+    /// </summary>
+    public async Task<AgentTunnelConnection?> LanTestAgentAsync(string siteSlug, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(siteSlug)) return null;
+        foreach (var connection in _tunnelRegistry.GetForSite(siteSlug).OrderByDescending(c => c.LastMessageAt))
+        {
+            var onGateway = connection.OnGateway
+                ?? await IsAgentOnGatewayAsync(siteSlug, connection.AgentId, connection.HostAddresses, ct);
+            if (!onGateway) return connection;
+        }
+        return null;
     }
 
     /// <summary>
@@ -87,6 +165,13 @@ public class AgentOnGatewayDetector
         if (string.IsNullOrWhiteSpace(siteSlug)) return false;
         if (siteSlug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(siteSlug))
             return false;
+
+        // Reported flags first (#1108): when every connected agent said where it runs, the
+        // installer's answer is authoritative and no console round trip happens at all. Any
+        // agent that did not say sends the whole question to the correlation path below,
+        // exactly as before the flag existed.
+        if (ReportedForSite(siteSlug) is { } reported)
+            return reported;
 
         var hasCached = _cache.TryGetValue(siteSlug, out var cached);
         if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
@@ -149,6 +234,16 @@ public class AgentOnGatewayDetector
             return false;
 
         var key = (siteSlug, agentId);
+
+        // Reported flag first (#1108): the live connection's is the source of truth, and the
+        // adopted copy answers across the reconnect gap. An agent that never reported falls
+        // through to the correlation path below, byte-for-byte the pre-flag behavior.
+        var live = _tunnelRegistry.GetForSite(siteSlug).FirstOrDefault(c => c.AgentId == agentId);
+        if (live?.OnGateway is { } liveReported)
+            return liveReported;
+        if (_reported.TryGetValue(key, out var adopted))
+            return adopted;
+
         var hasCached = _agentCache.TryGetValue(key, out var cached);
         if (hasCached && DateTime.UtcNow - cached.At < CacheTtl)
             return cached.OnGateway;
@@ -226,14 +321,6 @@ public class AgentOnGatewayDetector
                 _agentRefreshing.TryRemove(key, out _);
             }
         }));
-
-    /// <summary>
-    /// The address the site's agent reported at the last detection, or null if none has completed.
-    /// Only meaningful alongside <see cref="IsAgentOnGatewayAsync"/> saying true, where it is the
-    /// gateway's own address - which is to say, the one target that agent must not probe.
-    /// </summary>
-    public string? LastKnownAgentIp(string siteSlug) =>
-        _agentIp.TryGetValue(siteSlug, out var ip) ? ip : null;
 
     /// <summary>
     /// Whether a specific address is one of the site's gateway addresses - the per-connection
@@ -365,7 +452,6 @@ public class AgentOnGatewayDetector
 
         var onGateway = gatewayIps.Contains(agentIp!, StringComparer.OrdinalIgnoreCase);
         _cache[siteSlug] = (onGateway, DateTime.UtcNow);
-        _agentIp[siteSlug] = agentIp!;
         await PersistAsync(siteSlug, SystemSettingKeys.AgentOnGateway, onGateway);
     }
 

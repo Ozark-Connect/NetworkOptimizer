@@ -19,6 +19,13 @@ public class PropagationService
     // ITU-R P.1238 indoor path loss exponent (2.8 for residential/office at 5 GHz)
     private const double IndoorPathLossExponent = 2.8;
 
+    /// <summary>
+    /// What a client reads below the field strength at an isotropic antenna: a phone's antenna is
+    /// a few dB negative and a hand over it costs more again. The heatmap is read as what a device
+    /// will report, so it carries this; an access point receiving another access point does not.
+    /// </summary>
+    public const double ClientReceiveDeficitDb = 7.0;
+
     private bool _loggedPatternInfo;
 
     public PropagationService(AntennaPatternLoader antennaLoader, ILogger<PropagationService> logger)
@@ -99,7 +106,8 @@ public class PropagationService
                 foreach (var ap in aps)
                 {
                     var signal = ComputeSignalAtPoint(
-                        ap, pointLat, pointLng, activeFloor, band, freqMhz, segmentsByFloor, buildings);
+                        ap, pointLat, pointLng, activeFloor, band, freqMhz, segmentsByFloor, buildings,
+                        ClientReceiveDeficitDb);
 
                     if (signal > bestSignal)
                         bestSignal = signal;
@@ -344,7 +352,8 @@ public class PropagationService
         int activeFloor,
         string band, double freqMhz,
         Dictionary<int, List<WallSegment>> segmentsByFloor,
-        List<BuildingFloorInfo>? buildings)
+        List<BuildingFloorInfo>? buildings,
+        double receiverDeficitDb = 0.0)
     {
         // 2D distance from AP to point
         var distance2d = HaversineDistance(ap.Latitude, ap.Longitude, pointLat, pointLng);
@@ -480,8 +489,8 @@ public class PropagationService
             wallLoss += ComputeWallLoss(ap.Latitude, ap.Longitude, pointLat, pointLng, band, apFloorSegments);
         }
 
-        // Signal = TX power + antenna gain - FSPL - wall loss - floor loss
-        var signal = ap.TxPowerDbm + ap.AntennaGainDbi + antennaGain - fspl - wallLoss - floorLoss;
+        // Signal = TX power + antenna gain - FSPL - wall loss - floor loss - receiver deficit
+        var signal = ap.TxPowerDbm + ap.AntennaGainDbi + antennaGain - fspl - wallLoss - floorLoss - receiverDeficitDb;
 
         return (float)signal;
     }

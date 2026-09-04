@@ -1773,6 +1773,8 @@
                         <div @onclick='() => SelectEventType("monitoring.sfp_rx_power")'><code>monitoring.sfp_rx_power</code> <span>SFP/PON RX power below threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.radio_wedged")'><code>monitoring.radio_wedged</code> <span>An access point radio reports the channel permanently busy while transmitting nothing</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.radio_resets")'><code>monitoring.radio_resets</code> <span>One access point radio is resetting while its siblings are not</span></div>
                         <div @onclick='() => SelectEventType("monitoring.*")'><code>monitoring.*</code> <span>All monitoring events</span></div>
                     </div>
                 </div>

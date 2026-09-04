@@ -172,6 +172,26 @@ public class SnmpPoller : ISnmpPoller
             return await WalkAsync(ip, oid);
         }
 
+        return (await BulkWalkTrackedAsync(ip, oid, maxRepetitions)).Vars;
+    }
+
+    /// <summary>
+    /// <see cref="BulkWalkAsync"/> that also reports whether the walk completed. A failed walk
+    /// still hands back what it collected, and a caller naming interfaces must not take that
+    /// for the device's whole table.
+    /// </summary>
+    private async Task<(List<Variable> Vars, bool Ok)> BulkWalkTrackedAsync(IPAddress ip, string oid, int maxRepetitions = 25)
+    {
+        if (_config.Version == SnmpVersion.V1)
+        {
+            try { return (await WalkAsync(ip, oid), true); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "SNMP Walk failed for {Ip}:{Oid}", ip, oid);
+                return (new List<Variable>(), false);
+            }
+        }
+
         return await Task.Run(() =>
         {
             var list = new List<Variable>();
@@ -222,12 +242,12 @@ public class SnmpPoller : ISnmpPoller
                 }
 
                 DebugLog($"BulkWalk returned {list.Count} variables for {oid}");
-                return list;
+                return (list, true);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "SNMP BulkWalk failed for {Ip}:{Oid} (partial: {Count} variables)", ip, oid, list.Count);
-                return list;
+                return (list, false);
             }
         });
     }
@@ -312,9 +332,20 @@ public class SnmpPoller : ISnmpPoller
                     _logger.LogDebug("No interfaces found on device {Ip}", ip);
                     return interfaces;
                 }
-                cache.Metadata = metadata;
-                cache.LastMetadataPoll = now;
-                DebugLog($"Slow tier: refreshed metadata for {ip} ({metadata.DescrByIdx.Count} interfaces)");
+                if (cache.Metadata is { } kept && KeepCachedMetadata(kept, metadata))
+                {
+                    // Names from the cache, the rest fresh. Retried at the slow tier's own cadence,
+                    // which is also how often a real label change is picked up.
+                    cache.Metadata = MergeKeepingNames(kept, metadata);
+                    cache.LastMetadataPoll = now;
+                    _logger.LogDebug("Interface naming walk failed for {Ip}; keeping the cached names", ip);
+                }
+                else
+                {
+                    cache.Metadata = metadata;
+                    cache.LastMetadataPoll = now;
+                    DebugLog($"Slow tier: refreshed metadata for {ip} ({metadata.DescrByIdx.Count} interfaces)");
+                }
             }
 
             var meta = cache.Metadata;
@@ -608,8 +639,10 @@ public class SnmpPoller : ISnmpPoller
         var descrWalk = await BulkWalkAsync(ip, UniFiOids.IfDescr);
         if (descrWalk.Count == 0) return null;
 
-        var nameWalk = await BulkWalkAsync(ip, UniFiOids.IfName);
-        var aliasWalk = await BulkWalkAsync(ip, UniFiOids.IfAlias);
+        // Tracked: these two decide every interface's name, and a walk that died halfway must
+        // not pass for a device that has no aliases. See InterfaceMetadataCache.NamingIncomplete.
+        var (nameWalk, nameOk) = await BulkWalkTrackedAsync(ip, UniFiOids.IfName);
+        var (aliasWalk, aliasOk) = await BulkWalkTrackedAsync(ip, UniFiOids.IfAlias);
         var typeWalk = await BulkWalkAsync(ip, UniFiOids.IfType);
         var mtuWalk = await BulkWalkAsync(ip, UniFiOids.IfMtu);
         var speedWalk = await BulkWalkAsync(ip, UniFiOids.IfSpeed);
@@ -651,6 +684,42 @@ public class SnmpPoller : ISnmpPoller
             AdminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus),
             LastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange),
             IfXTableIndexOffset = ifXOffset,
+            NamingIncomplete = !nameOk || !aliasOk,
+        };
+    }
+
+    /// <summary>
+    /// Whether a refresh whose naming walks failed takes its names from the metadata already
+    /// cached. Adopting them renames every interface the walk missed, which splits the series and
+    /// plants a name-map row for each; with nothing cached yet the partial walk is still the best
+    /// the device offers.
+    /// </summary>
+    internal static bool KeepCachedMetadata(InterfaceMetadataCache? cached, InterfaceMetadataCache fresh) =>
+        fresh.NamingIncomplete && cached != null;
+
+    /// <summary>
+    /// The fresh refresh with its names replaced by the cached ones: only a name change splits a
+    /// series, while speed, admin state, MTU, type and MAC are better current than stable. The
+    /// two are keyed on one index space only if they agree on the ifXTable offset - a fixed
+    /// property of the device, so a different reading off a partial walk is a misdetection, and
+    /// the cached metadata stands whole.
+    /// </summary>
+    internal static InterfaceMetadataCache MergeKeepingNames(InterfaceMetadataCache cached, InterfaceMetadataCache fresh)
+    {
+        if (fresh.IfXTableIndexOffset != cached.IfXTableIndexOffset) return cached;
+        return new InterfaceMetadataCache
+        {
+            DescrByIdx = fresh.DescrByIdx,
+            NameByIdx = cached.NameByIdx,
+            AliasByIdx = cached.AliasByIdx,
+            TypeByIdx = fresh.TypeByIdx,
+            MtuByIdx = fresh.MtuByIdx,
+            SpeedByIdx = fresh.SpeedByIdx,
+            HighSpeedByIdx = fresh.HighSpeedByIdx,
+            PhysAddrByIdx = fresh.PhysAddrByIdx,
+            AdminByIdx = fresh.AdminByIdx,
+            LastChangeByIdx = fresh.LastChangeByIdx,
+            IfXTableIndexOffset = fresh.IfXTableIndexOffset,
         };
     }
 
@@ -1083,6 +1152,12 @@ internal sealed class InterfaceMetadataCache
     /// counter walks are rebased against this. See SnmpPoller.DetectIfXTableIndexOffset.
     /// </summary>
     public long IfXTableIndexOffset { get; init; }
+
+    /// <summary>
+    /// True when the ifName or ifAlias walk failed, so the names above are partial. Such a
+    /// refresh is not adopted over cached metadata: see SnmpPoller.KeepCachedMetadata.
+    /// </summary>
+    public bool NamingIncomplete { get; init; }
     public Dictionary<string, string> PhysAddrByIdx { get; init; } = new();
     public Dictionary<string, string> AdminByIdx { get; init; } = new();
     public Dictionary<string, string> LastChangeByIdx { get; init; } = new();

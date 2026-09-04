@@ -16,6 +16,29 @@ public class ChannelSoakInfo
 
     /// <summary>When the soak period ends (UTC): last change + soak window</summary>
     public DateTimeOffset SoakEndsAt { get; init; }
+
+    /// <summary>
+    /// The AP Agent's one-hour verdict on the move that started this soak, when the AP is covered
+    /// and the hour has elapsed. Read by exactly one thing: the soak escape, which lets a radio
+    /// leave a channel measured Worse at one hour instead of waiting on the console's report.
+    /// </summary>
+    public MoveOutcome? MeasuredOutcome { get; init; }
+
+    /// <summary>When the verdict was reached (UTC).</summary>
+    public DateTimeOffset? MeasuredAt { get; init; }
+}
+
+/// <summary>How a channel move measured after an hour, from the agent's own airtime readings.</summary>
+public enum MoveOutcome
+{
+    /// <summary>Interference fell by more than the dead band.</summary>
+    Improved,
+
+    /// <summary>Within the dead band either way.</summary>
+    Same,
+
+    /// <summary>Interference rose by more than the dead band.</summary>
+    Worse
 }
 
 /// <summary>
@@ -30,6 +53,9 @@ public class ChannelSoakInfo
 /// <param name="TxRetrySum">Sum of TX retry percentages</param>
 /// <param name="SampleCount">Number of samples in the bucket</param>
 /// <param name="LastSampleAt">Most recent sample in the bucket (UTC)</param>
+/// <param name="CenterChannel">Measured block center as a channel number, or null (console-sourced, or before the agent reported it)</param>
+/// <param name="NoiseFloorSum">Sum of measured noise floors (dBm) over the samples that carried one; null when none did</param>
+/// <param name="NoiseFloorSamples">How many samples carried a noise floor</param>
 public record ChannelOutcomeBucket(
     int Channel,
     int WidthMhz,
@@ -37,7 +63,10 @@ public record ChannelOutcomeBucket(
     double InterferenceSum,
     double TxRetrySum,
     int SampleCount,
-    DateTimeOffset LastSampleAt);
+    DateTimeOffset LastSampleAt,
+    int? CenterChannel = null,
+    double? NoiseFloorSum = null,
+    int NoiseFloorSamples = 0);
 
 /// <summary>
 /// One persisted neighbor sighting for an AP radio, storage-neutral so the engine project
@@ -83,10 +112,13 @@ public record RememberedNeighborSighting(
 /// <param name="Day">UTC day, used for the distinct-day evidence floor</param>
 /// <param name="WindowCount">Active windows in this bucket</param>
 /// <param name="MeanTxRateMbps">Mean AP-to-client PHY rate across those windows</param>
+/// <param name="NormalizedTxRateMbps">The same rate per spatial stream per 20 MHz, where every
+/// window carried the client's stream count; null for console-sourced windows</param>
 public record ClientRateSample(
     int Channel,
     int WidthMhz,
     int SignalBandDbm,
     DateTime Day,
     int WindowCount,
-    double MeanTxRateMbps);
+    double MeanTxRateMbps,
+    double? NormalizedTxRateMbps = null);

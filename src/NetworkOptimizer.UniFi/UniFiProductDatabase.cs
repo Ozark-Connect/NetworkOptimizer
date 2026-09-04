@@ -109,6 +109,7 @@ public static class UniFiProductDatabase
         "UNAS-2-W",
         "UNAS-4-B",
         "UNAS-4-W",
+        "ENAS",
     };
 
     /// <summary>
@@ -291,7 +292,10 @@ public static class UniFiProductDatabase
         { "USWF069", "ECS-48-PoE" },
         { "USWF003", "USW-Pro-XG-Aggregation" },
         { "USWF004", "ECS-24S-PoE" },
+        { "USWF005", "ECS-24S" },
         { "USWF006", "ECS-48S-PoE" },
+        { "USWF007", "ECS-48S" },
+        { "USWF07D", "ECS-Core" },
 
         // ----- Official: Enterprise AV Series -----
         { "USWF001", "EAV-24-PoE" },
@@ -426,6 +430,7 @@ public static class UniFiProductDatabase
         { "UNAS2B", "UNAS-2-B" },
         { "UNAS2W", "UNAS-2-W" },
         { "UNASEA63", "UNAS-Pro-8" },
+        { "UNASEA64", "ENAS" },
         { "UNASEA65", "UNAS-4-W" },
         { "UNASEA66", "UNAS-4-B" },
         { "UNASEA67", "UNAS-Pro-4" },
@@ -475,6 +480,7 @@ public static class UniFiProductDatabase
         // ----- Other -----
         { "USFPW", "UACC-SFP-Wizard" },
         { "UTREA06", "UTR" },
+        { "UTREA08", "UTR-LR" },
         { "p2N", "PICOM2HP" },
     };
 
@@ -565,6 +571,12 @@ public static class UniFiProductDatabase
         { "ECSAGG", "ECS-Aggregation" },
         { "USWF064", "ECS-Aggregation" },
         { "ESWHS", "ECS-Aggregation" },
+        { "EAS24S", "ECS-24S" },
+        { "ECS24S", "ECS-24S" },
+        { "EAS48S", "ECS-48S" },
+        { "ECS48S", "ECS-48S" },
+        { "ECSCORE", "ECS-Core" },
+        { "ECS-Core", "ECS-Core" },
         { "USW-LEAF", "USW-Leaf" },
         { "S28150", "US-8-150W" },
         { "S216150", "US-16-150W" },
@@ -669,6 +681,8 @@ public static class UniFiProductDatabase
         { "USPPDUPROUK", "USP-PDU-Pro" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
+        { "ENAS", "ENAS" },
+        { "UTR-LR", "UTR-LR" },
     };
 
     /// <summary>

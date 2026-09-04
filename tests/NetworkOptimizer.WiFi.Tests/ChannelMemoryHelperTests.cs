@@ -50,6 +50,107 @@ public class ChannelMemoryHelperTests
         ChannelMemoryHelper.GetChannelAtTime(Now.AddDays(-1), events, 11).Should().Be(11);
     }
 
+    // --- Outcome memory keyed by measured block ---
+
+    private static ChannelOutcomeBucket Bucket(int channel, int width, int? center, double interf = 40, int samples = 24, double? floorSum = null, int floorSamples = 0) =>
+        new(channel, width, UtilizationSum: 20 * samples, InterferenceSum: interf * samples, TxRetrySum: 5 * samples,
+            samples, Now.AddDays(-1), center, floorSum, floorSamples);
+
+    [Fact]
+    public void MergeLongTermOutcomes_320MHz_PoolsByMeasuredBlockNotByGuess()
+    {
+        // Primary 69 measured in 33-93 (center 63) and in 65-125 (center 95): two histories.
+        var buckets = new[]
+        {
+            Bucket(69, 320, center: 63, interf: 10),
+            Bucket(69, 320, center: 95, interf: 80),
+        };
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(null, buckets, 320, Now, band: RadioBand.Band6GHz)!;
+
+        // Channel 33 belongs only to the lower block, 125 only to the upper.
+        merged[33].Interference.Should().BeApproximately(10, 0.001);
+        merged[125].Interference.Should().BeApproximately(80, 0.001);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_320MHz_WithoutCentersPoolsByTheGuess()
+    {
+        var buckets = new[]
+        {
+            Bucket(69, 320, center: null, interf: 10),
+            Bucket(69, 320, center: null, interf: 80),
+        };
+
+        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(null, buckets, 320, Now, band: RadioBand.Band6GHz)!;
+
+        // Both file under the guessed block 33-93 and average together, as before centers existed.
+        merged[33].Interference.Should().BeApproximately(45, 0.001);
+        merged.Should().NotContainKey(125);
+    }
+
+    [Fact]
+    public void MergeLongTermOutcomes_ReportsThePooledNoiseFloorPerChannel()
+    {
+        var buckets = new[]
+        {
+            Bucket(36, 80, center: null, floorSum: -90.0 * 24, floorSamples: 24),
+            Bucket(44, 80, center: null, floorSum: -80.0 * 24, floorSamples: 24),
+            Bucket(149, 80, center: null),
+        };
+        var floors = new Dictionary<int, double>();
+
+        ChannelMemoryHelper.MergeLongTermOutcomes(null, buckets, 80, Now, band: RadioBand.Band5GHz, noiseFloorOut: floors);
+
+        // 36 and 44 share the 36-48 block: their floors average. 149 carried no floor.
+        floors[36].Should().BeApproximately(-85, 0.001);
+        floors[48].Should().BeApproximately(-85, 0.001);
+        floors.Should().NotContainKey(149);
+    }
+
+    // --- IsUnloggedChange ---
+    // UniFi Network logs nothing for a Channel AI move; the radio is simply on a channel the
+    // record never saw it reach.
+
+    [Fact]
+    public void IsUnloggedChange_RadioMovedWithNoEvent_IsTrue()
+    {
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 6, knownEvents: [])
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_MoveAlreadyRecorded_IsFalse()
+    {
+        var events = new[] { Change(Now.AddHours(-1), from: 6, to: 11) };
+
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 6, events).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_RadioStillOnRecordedChannel_IsFalse()
+    {
+        ChannelMemoryHelper.IsUnloggedChange(6, lastRecordedChannel: 6, knownEvents: []).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_NoRecordedConfig_IsFalse()
+    {
+        // A radio never recorded has nothing to be compared against; the collector's initial
+        // record establishes the baseline, not a fabricated move.
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: null, knownEvents: []).Should().BeFalse();
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 0, knownEvents: []).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnloggedChange_EventOnAnotherChannel_IsStillTrue()
+    {
+        // The recorded move went to 1; the radio is on 11 now, and nothing explains that.
+        var events = new[] { Change(Now.AddHours(-3), from: 6, to: 1) };
+
+        ChannelMemoryHelper.IsUnloggedChange(11, lastRecordedChannel: 1, events).Should().BeTrue();
+    }
+
     // --- BuildSoakInfo ---
 
     [Fact]

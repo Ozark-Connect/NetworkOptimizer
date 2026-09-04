@@ -417,6 +417,28 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
+    /// The measured block center for an assignment, or null. It applies only to the assignment
+    /// the radio is on right now: a candidate has no center until UniFi applies it, so every
+    /// candidate keeps the guessed block.
+    /// </summary>
+    private static int? CenterFor(ApNode node, int channel, int width) =>
+        channel == node.CurrentChannel && width == node.CurrentWidth ? node.CurrentCenter : null;
+
+    /// <summary>A node's span for an assignment, measured where the assignment is its current one.</summary>
+    private static (int Low, int High) SpanFor(RadioBand band, ApNode node, int channel, int width) =>
+        ChannelSpanHelper.GetChannelSpan(band, channel, width, CenterFor(node, channel, width));
+
+    /// <summary>Overlap between two nodes' assignments, measured where an assignment is a node's current one.</summary>
+    private static double OverlapFor(
+        RadioBand band, InterferenceGraph graph,
+        int i, (int Channel, int Width) a,
+        int j, (int Channel, int Width) b) =>
+        ChannelSpanHelper.ComputeOverlapFactor(
+            band, a.Channel, a.Width, b.Channel, b.Width,
+            CenterFor(graph.Nodes[i], a.Channel, a.Width),
+            CenterFor(graph.Nodes[j], b.Channel, b.Width));
+
+    /// <summary>
     /// Build the interference graph from live AP data, propagation context, and RF scan results.
     /// </summary>
     public InterferenceGraph BuildInterferenceGraph(
@@ -429,7 +451,9 @@ public class ChannelRecommendationService
         Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
         Dictionary<string, ChannelSoakInfo>? soakInfo = null,
         Dictionary<string, IReadOnlyList<ClientRateSample>>? clientRates = null,
-        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null)
+        Dictionary<string, Dictionary<int, double>>? historicalCredibility = null,
+        Dictionary<string, Dictionary<int, double>>? historicalNoiseFloor = null,
+        Dictionary<string, RadioWidthEvidence>? widthEvidence = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -482,14 +506,37 @@ public class ChannelRecommendationService
                     "to live radio stats for the current channel only",
                     ap.Name, band);
 
+            // Width candidates come only from agent evidence, and only when asked for. A radio
+            // without evidence keeps its width, and the search runs exactly as it always has.
+            var evidence = opts.OptimizeWidths ? widthEvidence?.GetValueOrDefault(macLower) : null;
+            var widths = evidence != null
+                ? CandidateWidths(band, radio, evidence, currentWidth)
+                : new[] { currentWidth };
+            var channelsByWidth = new Dictionary<int, int[]>();
+            foreach (var w in widths.Where(w => w != currentWidth))
+            {
+                var channels = DeduplicateByBondingGroup(
+                    GetValidChannels(band, radio, regulatoryData, opts.DfsPreference, w), band, w, radio.Channel!.Value);
+                if (channels.Length > 0) channelsByWidth[w] = channels;
+            }
+            widths = widths.Where(w => w == currentWidth || channelsByWidth.ContainsKey(w)).ToArray();
+            if (widths.Length > 1)
+                _logger.LogDebug("[ChannelRec] {ApName} {Band}: width candidates [{Widths}] from agent evidence " +
+                    "({Clients} client(s), negotiate <= {Neg} MHz, support <= {Sup} MHz, {Util}% busy)",
+                    ap.Name, band, string.Join(", ", widths), evidence!.ClientCount, evidence.MaxNegotiatedWidth,
+                    evidence.MaxSupportedWidth, evidence.MeasuredUtilization?.ToString() ?? "-");
+
             graph.Nodes.Add(new ApNode
             {
                 Mac = ap.Mac,
                 Name = ap.Name,
                 CurrentChannel = radio.Channel!.Value,
                 CurrentWidth = currentWidth,
+                CurrentCenter = radio.CenterChannel,
                 ValidChannels = validChannels,
-                ValidWidths = new[] { currentWidth }, // Width changes are a future feature
+                ValidWidths = widths,
+                ValidChannelsByWidth = channelsByWidth,
+                WidthEvidence = evidence,
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
@@ -497,6 +544,7 @@ public class ChannelRecommendationService
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
                 HistoricalStress = apHistStress,
                 HistoricalStressCredibility = historicalCredibility?.GetValueOrDefault(macLower),
+                HistoricalNoiseFloor = historicalNoiseFloor?.GetValueOrDefault(macLower),
                 SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
@@ -543,6 +591,63 @@ public class ChannelRecommendationService
         LogGraphDetails(graph, band, bandAps, options);
 
         return graph;
+    }
+
+    /// <summary>Widths a radio can take, narrowest first.</summary>
+    private static readonly int[] WidthLadder = { 20, 40, 80, 160, 320 };
+
+    /// <summary>Busy percent at or under which the air is quiet enough to widen into.</summary>
+    public const int QuietAirtimeForWideningPct = 25;
+
+    /// <summary>Clients a radio needs before its negotiated widths can argue it narrower.</summary>
+    public const int MinClientsForNarrowing = 3;
+
+    /// <summary>
+    /// The widths worth searching for one radio, from what its clients negotiate and can use.
+    /// Narrower only when every client (three or more) negotiates at most half the width; wider
+    /// only when a client can use more than the radio gives and the air is quiet. Never on
+    /// 2.4 GHz, never on a radio carrying a mesh backhaul. The current width is always included.
+    /// </summary>
+    public static int[] CandidateWidths(RadioBand band, RadioSnapshot radio, RadioWidthEvidence e, int currentWidth)
+    {
+        if (band == RadioBand.Band2_4GHz || e.CarriesBackhaul || e.ClientCount == 0)
+            return new[] { currentWidth };
+
+        var radioMax = band == RadioBand.Band6GHz && radio.Is11Be ? 320 : 160;
+        var demand = Math.Min(e.MaxSupportedWidth > 0 ? e.MaxSupportedWidth : e.MaxNegotiatedWidth, radioMax);
+        var widths = new SortedSet<int> { currentWidth };
+
+        if (e.ClientCount >= MinClientsForNarrowing && e.MaxNegotiatedWidth > 0 && e.MaxNegotiatedWidth * 2 <= currentWidth)
+            foreach (var w in WidthLadder.Where(w => w >= e.MaxNegotiatedWidth && w < currentWidth))
+                widths.Add(w);
+
+        if (demand > currentWidth && e.MeasuredUtilization is { } busy && busy <= QuietAirtimeForWideningPct)
+            foreach (var w in WidthLadder.Where(w => w > currentWidth && w <= demand))
+                widths.Add(w);
+
+        return widths.ToArray();
+    }
+
+    /// <summary>The candidate channels for a node at one width.</summary>
+    private static int[] ChannelsFor(ApNode node, int width) =>
+        width == node.CurrentWidth || !node.ValidChannelsByWidth.TryGetValue(width, out var channels)
+            ? node.ValidChannels
+            : channels;
+
+    /// <summary>Score per halving below what the radio's clients can use.</summary>
+    private const double WidthShortfallWeight = 0.8;
+
+    /// <summary>
+    /// The cost of a width below what the radio's clients can use, so narrowing is never free and
+    /// widening pays for the overlap it adds. Zero without agent evidence, so a console-only
+    /// site scores exactly as before.
+    /// </summary>
+    private static double WidthShortfallPenalty(ApNode node, int width)
+    {
+        if (node.WidthEvidence is not { } e || width <= 0) return 0;
+        var demand = e.MaxSupportedWidth > 0 ? e.MaxSupportedWidth : e.MaxNegotiatedWidth;
+        if (demand <= width) return 0;
+        return WidthShortfallWeight * Math.Log2((double)demand / width);
     }
 
     /// <summary>
@@ -833,7 +938,12 @@ public class ChannelRecommendationService
                         clientFactor < 1.0 ? "supports" : clientFactor > 1.0 ? "contradicts" : "has no opinion on",
                         recommendedChannel, clientFactor, clientReason);
 
-                if (currentApScore < moveThreshold)
+                // A width-only change is not a channel move: it disrupts nothing but the width,
+                // so the "healthy radios stay put" gate does not apply to it. The improvement
+                // gates below still do.
+                var widthOnly = recommendedChannel == node.CurrentChannel;
+
+                if (currentApScore < moveThreshold && !widthOnly)
                 {
                     _logger.LogDebug(
                         "[ChannelRec] {ApName} current score {Score:F3} below threshold {Threshold:F3}, " +
@@ -990,9 +1100,7 @@ public class ChannelRecommendationService
                                 if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
 
                                 var contribution = graph.DirectionalWeights[j, i] *
-                                    ChannelSpanHelper.ComputeOverlapFactor(band,
-                                        finalAssignment[i].Channel, finalAssignment[i].Width,
-                                        finalAssignment[j].Channel, finalAssignment[j].Width) *
+                                    OverlapFor(band, graph, i, finalAssignment[i], j, finalAssignment[j]) *
                                     InternalCoChannelMultiplier;
 
                                 if (contribution > maxContribution)
@@ -1032,6 +1140,9 @@ public class ChannelRecommendationService
         {
             var node = graph.Nodes[i];
             var rec = plan.Recommendations[i];
+            // A pinned AP is never moved, however badly it scores; the search left it out and
+            // this pass must too.
+            if (pinnedIndices.Contains(i)) continue;
             // A mesh child can't be moved on its own - it follows its leader's channel.
             if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
             var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
@@ -1440,6 +1551,18 @@ public class ChannelRecommendationService
             }
         }
 
+        // Why a width changed, in the card's words.
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            rec.WidthReason = null;
+            if (node.WidthEvidence is not { } e || finalAssignment[i].Width == node.CurrentWidth) continue;
+            rec.WidthReason = finalAssignment[i].Width < node.CurrentWidth
+                ? $"Narrower because no client that can roam to it has negotiated more than {e.MaxNegotiatedWidth} MHz in the last 7 days; the rest of the width only overlaps neighbors."
+                : $"Wider because its clients can use {finalAssignment[i].Width} MHz and the air is quiet ({e.MeasuredUtilization ?? 0}% busy).";
+        }
+
         // Re-score ALL APs against the final assignment for accurate display.
         // Unchanged APs may still be affected by other APs' moves (e.g., a neighbor
         // moved onto or off their channel), so their displayed score must reflect reality.
@@ -1497,10 +1620,7 @@ public class ChannelRecommendationService
                 if (AreMeshPair(graph, i, j))
                     continue;
 
-                var overlapFactor = ChannelSpanHelper.ComputeOverlapFactor(
-                    band,
-                    assignment[i].Channel, assignment[i].Width,
-                    assignment[j].Channel, assignment[j].Width);
+                var overlapFactor = OverlapFor(band, graph, i, assignment[i], j, assignment[j]);
 
                 score += graph.InternalWeights[i, j] * overlapFactor * InternalCoChannelMultiplier;
             }
@@ -1513,7 +1633,7 @@ public class ChannelRecommendationService
         // the BSSIDs the scan DID detect are real and will transmit even if idle this instant.
         for (int i = 0; i < n; i++)
         {
-            var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
+            var apSpan = SpanFor(band, graph.Nodes[i], assignment[i].Channel, assignment[i].Width);
             double externalLoad = 0;
             foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, i))
             {
@@ -1557,6 +1677,10 @@ public class ChannelRecommendationService
         for (int i = 0; i < n; i++)
             score += ComputeDfsDepartureFriction(graph, band, i, assignment[i]);
 
+        // Width below what the clients can use (agent evidence only)
+        for (int i = 0; i < n; i++)
+            score += WidthShortfallPenalty(graph.Nodes[i], assignment[i].Width);
+
         return score;
     }
 
@@ -1579,10 +1703,7 @@ public class ChannelRecommendationService
             if (j == apIndex) continue;
             if (AreMeshPair(graph, apIndex, j)) continue;
 
-            var overlapFactor = ChannelSpanHelper.ComputeOverlapFactor(
-                band,
-                assignment[apIndex].Channel, assignment[apIndex].Width,
-                assignment[j].Channel, assignment[j].Width);
+            var overlapFactor = OverlapFor(band, graph, apIndex, assignment[apIndex], j, assignment[j]);
 
             score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
@@ -1590,7 +1711,7 @@ public class ChannelRecommendationService
         // External interference, saturated onto the measured-airtime scale and floored by measured
         // congestion (#2): raise a channel the rogue scan under-states up to what the radio
         // measured, but never lower it - detected BSSIDs are real.
-        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+        var apSpan = SpanFor(band, graph.Nodes[apIndex], assignment[apIndex].Channel, assignment[apIndex].Width);
         double externalLoad = 0;
         foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
@@ -1619,6 +1740,9 @@ public class ChannelRecommendationService
         // Friction against blindly leaving a DFS channel for an unobserved non-DFS one
         score += ComputeDfsDepartureFriction(graph, band, apIndex, assignment[apIndex]);
 
+        // Width below what the clients can use (agent evidence only)
+        score += WidthShortfallPenalty(graph.Nodes[apIndex], assignment[apIndex].Width);
+
         return score;
     }
 
@@ -1641,7 +1765,7 @@ public class ChannelRecommendationService
     {
         var directChannels = graph.DirectlyObservedChannels[apIndex];
 
-        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+        var apSpan = SpanFor(band, graph.Nodes[apIndex], assignment[apIndex].Channel, assignment[apIndex].Width);
 
         var confidence = ObservationConfidence(graph, band, apIndex, apSpan, directChannels);
         if (confidence >= 1.0) return 0;
@@ -1728,11 +1852,11 @@ public class ChannelRecommendationService
         var node = graph.Nodes[apIndex];
         if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
 
-        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        var currentSpan = SpanFor(band, node, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
             if (!IsFullyCredible(node, histChannel)) continue;
-            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            var histSpan = SpanFor(band, node, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference < ComfortableInterferencePct;
         }
@@ -1850,7 +1974,7 @@ public class ChannelRecommendationService
     private static double? SiblingResidentMeasuredInterference(
         InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
     {
-        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var span = SpanFor(band, graph.Nodes[apIndex], channel, width);
         double? worst = null;
         var n = graph.Nodes.Count;
         for (int j = 0; j < n; j++)
@@ -1858,7 +1982,7 @@ public class ChannelRecommendationService
             if (j == apIndex) continue;
             var sibling = graph.Nodes[j];
             if (sibling.HistoricalStress == null) continue;
-            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            var siblingSpan = SpanFor(band, sibling, sibling.CurrentChannel, sibling.CurrentWidth);
             if (!ChannelSpanHelper.SpansOverlap(span, siblingSpan)) continue;
             if (!sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress)) continue;
             if (!IsFullyCredible(sibling, sibling.CurrentChannel)) continue;
@@ -1877,11 +2001,11 @@ public class ChannelRecommendationService
     private static bool TryGetMeasuredInterference(ApNode node, RadioBand band, int channel, out double interferencePct)
     {
         interferencePct = 0;
-        var span = ChannelSpanHelper.GetChannelSpan(band, channel, node.CurrentWidth);
+        var span = SpanFor(band, node, channel, node.CurrentWidth);
 
         if (node.HistoricalStress != null)
             foreach (var (ch, stress) in node.HistoricalStress)
-                if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
+                if (ChannelSpanHelper.SpansOverlap(span, SpanFor(band, node, ch, node.CurrentWidth)))
                 {
                 if (!IsFullyCredible(node, ch)) continue;
                     interferencePct = stress.Interference;
@@ -1890,7 +2014,7 @@ public class ChannelRecommendationService
 
         if (node.PropagatedStress != null)
             foreach (var (ch, stress) in node.PropagatedStress)
-                if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
+                if (ChannelSpanHelper.SpansOverlap(span, SpanFor(band, node, ch, node.CurrentWidth)))
                 {
                     interferencePct = stress.Interference;
                     return true;
@@ -1913,14 +2037,17 @@ public class ChannelRecommendationService
     private static bool IsCurrentChannelMeasurablySuffering(InterferenceGraph graph, RadioBand band, int apIndex)
     {
         var node = graph.Nodes[apIndex];
+        // The agent's one-hour verdict on the move is the same measured-worse evidence, an hour
+        // in rather than after the console's reports accumulate. Nothing else reads it.
+        if (node.SoakInfo?.MeasuredOutcome == MoveOutcome.Worse) return true;
         if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
 
         var escapePct = GetSoakEscapeInterferencePct(band);
-        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        var currentSpan = SpanFor(band, node, node.CurrentChannel, node.CurrentWidth);
         foreach (var (histChannel, stress) in node.HistoricalStress)
         {
             if (!IsFullyCredible(node, histChannel)) continue;
-            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            var histSpan = SpanFor(band, node, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference >= escapePct;
         }
@@ -1975,7 +2102,7 @@ public class ChannelRecommendationService
         if (buckets.TryGetValue((channel, width), out var exact)) return exact;
 
         // 2) Aggregate the finest sub-channels overlapping the span (don't mix widths).
-        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var span = SpanFor(band, graph.Nodes[apIndex], channel, width);
         var overlapping = buckets
             .Where(kv => ChannelSpanHelper.SpansOverlap(span, (kv.Key.Channel, kv.Key.Channel)))
             .ToList();
@@ -2008,7 +2135,7 @@ public class ChannelRecommendationService
         if (channel != graph.Nodes[apIndex].CurrentChannel)
             return ScanOverSpan(graph, band, apIndex, channel, width);
 
-        var targetSpan = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var targetSpan = SpanFor(band, graph.Nodes[apIndex], channel, width);
         double bestWeight = -1;
         (int Utilization, int? NoiseFloor)? best = null;
         var n = graph.Nodes.Count;
@@ -2016,7 +2143,7 @@ public class ChannelRecommendationService
         {
             if (j == apIndex) continue;
             var sibling = graph.Nodes[j];
-            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            var siblingSpan = SpanFor(band, sibling, sibling.CurrentChannel, sibling.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(targetSpan, siblingSpan)) continue; // on the channel - its read is self-contaminated too
             if (ScanOverSpan(graph, band, j, channel, width) is not { } reading) continue;
             var weight = graph.InternalWeights[apIndex, j];
@@ -2133,7 +2260,7 @@ public class ChannelRecommendationService
         {
             foreach (var histChannel in node.HistoricalStress.Keys)
             {
-                var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+                var histSpan = SpanFor(band, node, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, histSpan))
                 {
                     // Thin evidence buys a proportionally weaker claim to having observed the
@@ -2152,7 +2279,7 @@ public class ChannelRecommendationService
             if (graph.InternalWeights[apIndex, j] < SiblingObserverMinWeight) continue;
 
             var siblingNode = graph.Nodes[j];
-            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, siblingNode.CurrentChannel, siblingNode.CurrentWidth);
+            var siblingSpan = SpanFor(band, siblingNode, siblingNode.CurrentChannel, siblingNode.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(apSpan, siblingSpan))
             {
                 confidence = Math.Max(confidence, SiblingResidentConfidence);
@@ -2176,7 +2303,7 @@ public class ChannelRecommendationService
         (int Channel, int Width)[] assignment)
     {
         var node = graph.Nodes[apIndex];
-        var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+        var assignedSpan = SpanFor(band, node, assignment[apIndex].Channel, assignment[apIndex].Width);
 
         // Combine measured history (ground truth) with neighbor-estimated (propagated) stress for
         // channels this AP never sat on; real measurements win where both have an entry. The
@@ -2202,6 +2329,10 @@ public class ChannelRecommendationService
             // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
             double contentionPenalty = 0;
             double utilizationPenalty = 0;
+            // The remembered noise floor, on the scan floor's own scale so a measured past and a
+            // scanned present price RF energy the same way. Returned on the band-dampened side,
+            // as the scan's floor term is, because ambient energy means less on 2.4 GHz.
+            double rememberedNoise = 0;
             // How well the assigned channel is evidenced, 0 (never measured) to 1 (full strength).
             // Propagated estimates carry no credibility entry and count at full weight, as before.
             double assignedCredibility = 0;
@@ -2212,13 +2343,18 @@ public class ChannelRecommendationService
 
             foreach (var (histChannel, stress) in effectiveStress)
             {
-                var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+                var histSpan = SpanFor(band, node, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
                 {
                     var cred = node.HistoricalStressCredibility?.GetValueOrDefault(histChannel, 1.0) ?? 1.0;
                     assignedCredibility = Math.Max(assignedCredibility, cred);
 
                     if (!countedSpans.Add(histSpan)) continue;
+
+                    // Counted before the quiet-span skip: a channel can be idle in airtime and
+                    // still sit on a raised floor, which is the case the floor exists to catch.
+                    if (node.HistoricalNoiseFloor != null && node.HistoricalNoiseFloor.TryGetValue(histChannel, out var floor))
+                        rememberedNoise += ScanNoiseFloorPenalty((int)Math.Round(floor)) * cred;
 
                     if (stress.TxRetryPct < StressMinThreshold &&
                         stress.Utilization < StressMinThreshold &&
@@ -2242,7 +2378,7 @@ public class ChannelRecommendationService
             // double-counting. Utilization is part co-channel airtime (drops with the neighbor) and
             // part own serving traffic (persists), so it scales too but is floored at the own-load
             // fraction rather than zeroing out.
-            var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+            var histCurrentSpan = SpanFor(band, node, node.CurrentChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
             {
                 var scale = ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
@@ -2250,7 +2386,7 @@ public class ChannelRecommendationService
                 utilizationPenalty *= Math.Max(scale, OwnLoadUtilizationFloor);
             }
 
-            return (contentionPenalty + utilizationPenalty, 0);
+            return (contentionPenalty + utilizationPenalty, rememberedNoise);
         }
 
         // Fallback: use current radio stats on current channel span
@@ -2259,7 +2395,7 @@ public class ChannelRecommendationService
             node.Interference < StressMinThreshold)
             return (0, 0);
 
-        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        var currentSpan = SpanFor(band, node, node.CurrentChannel, node.CurrentWidth);
         if (!ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
             return (0, 0);
 
@@ -2303,16 +2439,15 @@ public class ChannelRecommendationService
             if (weight <= 0) continue;
 
             // Current internal co-channel load (weighted, not just count)
-            var currentOverlap = ChannelSpanHelper.ComputeOverlapFactor(
-                band, graph.Nodes[apIndex].CurrentChannel, graph.Nodes[apIndex].CurrentWidth,
-                graph.Nodes[j].CurrentChannel, graph.Nodes[j].CurrentWidth);
+            var self = graph.Nodes[apIndex];
+            var current = (self.CurrentChannel, self.CurrentWidth);
+            var currentOverlap = OverlapFor(band, graph, apIndex, current,
+                j, (graph.Nodes[j].CurrentChannel, graph.Nodes[j].CurrentWidth));
             if (currentOverlap > 0)
                 currentInternalLoad += weight * currentOverlap * InternalCoChannelMultiplier;
 
             // Proposed internal co-channel load
-            var proposedOverlap = ChannelSpanHelper.ComputeOverlapFactor(
-                band, graph.Nodes[apIndex].CurrentChannel, graph.Nodes[apIndex].CurrentWidth,
-                assignment[j].Channel, assignment[j].Width);
+            var proposedOverlap = OverlapFor(band, graph, apIndex, current, j, assignment[j]);
             if (proposedOverlap > 0)
                 proposedInternalLoad += weight * proposedOverlap * InternalCoChannelMultiplier;
         }
@@ -2703,12 +2838,9 @@ public class ChannelRecommendationService
         {
             if (!ap.IsMeshChild || string.IsNullOrEmpty(ap.MeshParentMac))
                 continue;
-            // TODO(MLO): MeshUplinkBand is a single RadioBand. No AP-to-AP MLO STR backhaul
-            // hardware exists yet (today's MLO STR is client/bridge only), but when it ships a
-            // backhaul can span multiple bands at once (e.g. 5 + 6 GHz). Make this a set and emit
-            // one constraint per participating band once UniFi exposes per-link bands. The
-            // reconciliation logic keys off MeshGroupLeader and needs no change - only this.
-            if (ap.MeshUplinkBand != band)
+            // An MLO STR backhaul spans several bands at once (per-link bands derived from the
+            // parent's downlink_table), so each participating band emits its own constraint.
+            if (!ap.MeshUplinkUsesBand(band))
                 continue;
 
             if (macToIndex.TryGetValue(ap.Mac, out var childIdx) &&
@@ -2863,7 +2995,7 @@ public class ChannelRecommendationService
     }
 
     private static int GetMaxValidChannels(InterferenceGraph graph) =>
-        graph.Nodes.Max(n => n.ValidChannels.Length);
+        graph.Nodes.Max(n => n.ValidWidths.Sum(w => ChannelsFor(n, w).Length));
 
     /// <summary>
     /// Count how many APs have a different channel/width vs the original assignment.
@@ -2957,7 +3089,7 @@ public class ChannelRecommendationService
         // Only when we have no neighbor data for the destination at all. Any external-load entry
         // overlapping it - direct or triangulated from a sibling's scan - is real evidence, so its
         // measured load already drives the score and no friction applies.
-        var span = ChannelSpanHelper.GetChannelSpan(band, assigned.Channel, assigned.Width);
+        var span = SpanFor(band, graph.Nodes[apIndex], assigned.Channel, assigned.Width);
         bool haveEvidence = ExternalContributors(graph, band, apIndex)
             .Any(c => ChannelSpanHelper.SpansOverlap(span, c.Span));
         if (haveEvidence) return 0;
@@ -3043,9 +3175,9 @@ public class ChannelRecommendationService
             var apIdx = searchIndices[depth];
             var node = graph.Nodes[apIdx];
 
-            foreach (var ch in node.ValidChannels)
+            foreach (var w in node.ValidWidths)
             {
-                foreach (var w in node.ValidWidths)
+                foreach (var ch in ChannelsFor(node, w))
                 {
                     currentAssignment[apIdx] = (ch, w);
                     Search(depth + 1);
@@ -3101,9 +3233,9 @@ public class ChannelRecommendationService
                 var bestW = node.CurrentWidth;
                 var bestLocal = double.MaxValue;
 
-                foreach (var ch in node.ValidChannels)
+                foreach (var w in node.ValidWidths)
                 {
-                    foreach (var w in node.ValidWidths)
+                    foreach (var ch in ChannelsFor(node, w))
                     {
                         assignment[apIdx] = (ch, w);
                         ApplyMeshConstraints(graph, assignment);
@@ -3136,9 +3268,9 @@ public class ChannelRecommendationService
                     var node = graph.Nodes[apIdx];
                     var currentScore = ScoreAssignment(graph, assignment, band);
 
-                    foreach (var ch in node.ValidChannels)
+                    foreach (var w in node.ValidWidths)
                     {
-                        foreach (var w in node.ValidWidths)
+                        foreach (var ch in ChannelsFor(node, w))
                         {
                             if (ch == assignment[apIdx].Channel && w == assignment[apIdx].Width)
                                 continue;
@@ -3335,13 +3467,11 @@ public class ChannelRecommendationService
                 {
                     if (j == i) continue;
                     if (AreMeshPair(graph, i, j)) continue;
-                    var overlap = ChannelSpanHelper.ComputeOverlapFactor(
-                        band, ch, currentAssignment[i].Width,
-                        testAssignment[j].Channel, testAssignment[j].Width);
+                    var overlap = OverlapFor(band, graph, i, testAssignment[i], j, testAssignment[j]);
                     internalScore += graph.DirectionalWeights[j, i] * overlap * InternalCoChannelMultiplier;
                 }
 
-                var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
+                var apSpan = SpanFor(band, graph.Nodes[i], ch, currentAssignment[i].Width);
                 foreach (var (extSpan, extW) in ExternalContributors(graph, band, i))
                 {
                     if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
@@ -3555,7 +3685,7 @@ public class ChannelRecommendationService
     /// <summary>Total pooled external-neighbor weight overlapping a channel span, for corroboration checks.</summary>
     private double ExternalNeighborWeightOn(InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
     {
-        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var span = SpanFor(band, graph.Nodes[apIndex], channel, width);
         double w = 0;
         foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
             if (ChannelSpanHelper.SpansOverlap(span, extSpan))

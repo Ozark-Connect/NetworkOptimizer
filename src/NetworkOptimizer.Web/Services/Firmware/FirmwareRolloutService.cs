@@ -28,6 +28,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     private readonly IAuditContext _audit;
     private readonly ICallerContext _caller;
     private readonly ISharedFirmwareCatalogRepository _sharedCatalog;
+    private readonly UbiquitiReleaseFeedClient _feed;
     private readonly ILogger<FirmwareRolloutService> _logger;
 
     /// <param name="repository">This site's rollout store.</param>
@@ -38,6 +39,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// <param name="audit">Audit detail for the gated writes.</param>
     /// <param name="caller">Who is asking, recorded as the plan's author.</param>
     /// <param name="sharedCatalog">The install-wide firmware build store (main database).</param>
+    /// <param name="feed">Ubiquiti public release feed for GA fallback.</param>
     /// <param name="logger">Logger.</param>
     public FirmwareRolloutService(
         IFirmwareRolloutRepository repository,
@@ -48,6 +50,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         IAuditContext audit,
         ICallerContext caller,
         ISharedFirmwareCatalogRepository sharedCatalog,
+        UbiquitiReleaseFeedClient feed,
         ILogger<FirmwareRolloutService> logger)
     {
         _repository = repository;
@@ -58,6 +61,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         _audit = audit;
         _caller = caller;
         _sharedCatalog = sharedCatalog;
+        _feed = feed;
         _logger = logger;
     }
 
@@ -88,6 +92,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             HasReport = !string.IsNullOrEmpty(plan.ReportJson),
         };
     }
+
+    /// <inheritdoc />
+    public Task<string?> GetAutopilotHoldReasonAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(_orchestrator.AutopilotHoldReason);
 
     /// <inheritdoc />
     public async Task<List<RolloutPlanSummaryView>> GetPlanHistoryAsync(
@@ -244,6 +252,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
+        // The wizard's "Autopilot on" lands here, not in SaveAutopilotSettingsAsync.
+        if (settings.Mode == FirmwareRolloutMode.Autopilot)
+            await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -270,6 +281,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         await _repository.SaveSettingsAsync(settings, cancellationToken);
         await _repository.SaveAutopilotSnapshotAsync(
             AutopilotSettingsSnapshot.Serialize(settings), cancellationToken);
+        // The wizard just showed a plan; without this the first real one is an hour away, and a
+        // plan the admin stopped to get here would keep it from ever being proposed again.
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -305,6 +319,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // reads that row live, and a rollout must run under what it was planned from.
         restored.Mode = FirmwareRolloutMode.Autopilot;
         await _repository.SaveSettingsAsync(restored, cancellationToken);
+        await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
         _audit.SetDetails(new
         {
@@ -424,7 +439,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(
-            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, cancellationToken);
+            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs);
@@ -638,7 +653,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             var alsoOs = preview.HasCloudGatewayHardware ? " and UniFi OS" : "";
             preview.Warnings.Add(
                 "This site is connected with a UniFi API key, which reaches the UniFi Network application " +
-                "but not the console itself, so only devices can be upgraded here. Connect with an account " +
+                "but not the Console itself, so only devices can be upgraded here. Connect with an account " +
                 $"to include the UniFi Network application{alsoOs}.");
         }
 

@@ -182,6 +182,10 @@
                 <div class="issues-list">
                     @if (selectedFilter == "dismissed")
                     {
+                        @if (dismissedIssues.Any())
+                        {
+                            <p class="acknowledged-note">Acknowledged issues stay in the security score. They are hidden here, not fixed.</p>
+                        }
                         @foreach (var issue in dismissedIssues)
                         {
                             <div class="issue-item issue-@GetSeverityCssClass(issue.Severity) issue-dismissed">

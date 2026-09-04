@@ -326,28 +326,33 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     /// would be sent to an agent for a network this server is already on.
     /// </summary>
     public async Task<string?> GetOnlineAgentLanIpAsync(string siteSlug)
+        => (await GetReachableAgentsAsync(siteSlug)).FirstOrDefault()?.LanIp;
+
+    /// <summary>
+    /// The site's enrolled, enabled, reachable agents with a known LAN IP, most recently seen
+    /// first. Reachable means an open tunnel or a fresh REST heartbeat - the LAN speed test hits
+    /// the agent's nginx directly, not the tunnel, so a heartbeat-only agent is still a valid
+    /// target. The default site answers empty unless it is configured for its agent to cover it -
+    /// otherwise clients would be sent to an agent for a network this server is already on.
+    /// </summary>
+    public async Task<List<SiteAgent>> GetReachableAgentsAsync(string siteSlug)
     {
         if (string.IsNullOrWhiteSpace(siteSlug))
-            return null;
+            return new List<SiteAgent>();
         if (siteSlug == SiteManagementService.DefaultSiteSlug && !_agentCoverage.Covers(siteSlug))
-            return null;
+            return new List<SiteAgent>();
 
         await using var db = await _mainDbFactory.CreateDbContextAsync();
         var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == siteSlug);
         if (site == null)
-            return null;
+            return new List<SiteAgent>();
 
-        // Filter to reachable agents FIRST (open tunnel, or a fresh REST heartbeat
-        // - the LAN speed test hits the agent's nginx directly, not the tunnel, so
-        // a heartbeat-only agent is still a valid target even when its tunnel is
-        // down), then take the most recently seen, so a site with one stale and one
-        // reachable agent still resolves.
         var agents = await db.SiteAgents.AsNoTracking()
             .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null && a.LanIp != null)
             .OrderByDescending(a => a.LastSeenAt)
             .ToListAsync();
 
-        return agents.FirstOrDefault(a => _tunnelRegistry.IsReachable(a))?.LanIp;
+        return agents.Where(a => _tunnelRegistry.IsReachable(a)).ToList();
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>

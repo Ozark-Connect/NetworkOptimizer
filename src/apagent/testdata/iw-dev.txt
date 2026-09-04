@@ -1,0 +1,123 @@
+phy#4
+	Interface scan0
+		ifindex 29
+		wdev 0x400000002
+		addr aa:bb:cc:00:00:05
+		mld_addr 00:00:00:00:00:00
+		ssid testscan
+		type AP
+		channel 1 (2412 MHz), width: 20 MHz, center1: 2412 MHz
+		txpower 30.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				0		0
+	Interface wifi3
+		ifindex 18
+		wdev 0x400000001
+		addr aa:bb:cc:00:00:05
+		mld_addr 00:00:00:00:00:00
+		type AP
+		channel 1 (2412 MHz), width: 20 MHz, center1: 2412 MHz
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+												
+phy#3
+	Interface wifi2ap10
+		ifindex 25
+		wdev 0x300000003
+		addr aa:bb:cc:00:00:04
+		mld_addr 00:00:00:00:00:00
+		ssid TestSSID
+		type AP
+		channel 165 (6775 MHz), width: 320 MHz, center1: 6745 MHz
+		txpower 24.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				3320912787		209198339
+	Interface wifi2
+		ifindex 16
+		wdev 0x300000001
+		addr aa:bb:cc:00:00:04
+		mld_addr 00:00:00:00:00:00
+		type AP
+		channel 165 (6775 MHz), width: 320 MHz, center1: 6745 MHz
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+												
+phy#2
+	Interface wifi0ap0
+		ifindex 21
+		wdev 0x200000004
+		addr aa:bb:cc:00:00:03
+		mld_addr 00:00:00:00:00:00
+		ssid TestSSID
+		type AP
+		channel 11 (2462 MHz), width: 20 MHz, center1: 2462 MHz
+		txpower 14.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				1730742426		4212126
+	Interface wifi0ap3
+		ifindex 22
+		wdev 0x200000003
+		addr ab:bb:cc:00:00:03
+		mld_addr 00:00:00:00:00:00
+		ssid TestSSID-IoT
+		type AP
+		channel 11 (2462 MHz), width: 20 MHz, center1: 2462 MHz
+		txpower 14.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				1659624875		10797695
+	Interface wifi0
+		ifindex 15
+		wdev 0x200000001
+		addr aa:bb:cc:00:00:03
+		mld_addr 00:00:00:00:00:00
+		type AP
+		channel 11 (2462 MHz), width: 20 MHz, center1: 2462 MHz
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+												
+phy#1
+	Interface wifi1ap5
+		ifindex 23
+		wdev 0x100000004
+		addr aa:bb:cc:00:00:02
+		mld_addr 00:00:00:00:00:00
+		ssid TestSSID
+		type AP
+		channel 100 (5500 MHz), width: 160 MHz, center1: 5570 MHz
+		txpower 24.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				2337775222		25536069
+	Interface wifi1ap6
+		ifindex 24
+		wdev 0x100000003
+		addr ab:bb:cc:00:00:02
+		mld_addr 00:00:00:00:00:00
+		ssid TestSSID-IoT
+		type AP
+		channel 100 (5500 MHz), width: 160 MHz, center1: 5570 MHz
+		txpower 24.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+						0				925311215		3834985
+	Interface wifi1
+		ifindex 13
+		wdev 0x100000001
+		addr aa:bb:cc:00:00:02
+		mld_addr 00:00:00:00:00:00
+		type AP
+		channel 100 (5500 MHz), width: 160 MHz, center1: 5570 MHz
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+												
+phy#0
+	Interface mld-wifi0
+		ifindex 12
+		wdev 0x1
+		addr 00:00:00:00:00:00
+		mld_addr 00:00:00:00:00:00
+		type AP
