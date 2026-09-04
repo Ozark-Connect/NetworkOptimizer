@@ -146,6 +146,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
+    // Devices seen behind each in-flight step, so a child that drops off the console's device
+    // list mid-cycle keeps its alert window until the step settles.
+    private readonly Dictionary<string, HashSet<string>> _downstreamOfStep = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _tickLock = new(1, 1);
     private IReadOnlyList<UniFiFirmwareCatalogEntry> _catalog = [];
     private DateTime _catalogReadAt = DateTime.MinValue;
@@ -487,10 +490,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // settle (no active plan → ClearSite in the normal sweep).
             var inFlight = steps.Where(s => !IsSettled(s)).Select(s => s.DeviceMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (inFlight.Count == 0)
+            {
                 _suppression.ClearSite(_siteSlug);
+                _downstreamOfStep.Clear();
+            }
             else
                 foreach (var step in steps.Where(s => IsSettled(s)))
-                    _suppression.Clear(_siteSlug, step.DeviceMac);
+                    CloseStepWindows(step);
 
             _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
         }
@@ -820,7 +826,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in inFlightSteps)
         {
             if (settings.SuppressStandardAlerts)
-                OpenStepWindows(step);
+                OpenStepWindows(step, byMac);
 
             // Not gated on SuppressStandardAlerts: pushing a binary at a flashing AP is a hazard,
             // not a preference. Clear releases the hold once the step settles.
@@ -832,7 +838,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             if (IsSettled(step))
             {
-                _suppression.Clear(_siteSlug, step.DeviceMac);
+                CloseStepWindows(step);
                 _lastWaveSettledAt = Now;
             }
         }
@@ -1937,7 +1943,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in commandable)
         {
             byMac.TryGetValue(step.DeviceMac, out var observation);
-            await CommandStepAsync(document, steps, step, observation, settings, cancellationToken);
+            await CommandStepAsync(document, steps, step, observation, byMac, settings, cancellationToken);
         }
 
         // Anchor the gap on a command that actually went out. A step the console was too dark to
@@ -1977,6 +1983,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
         RolloutDeviceObservation? observation,
+        IReadOnlyDictionary<string, RolloutDeviceObservation> byMac,
         FirmwareRolloutSettings settings,
         CancellationToken cancellationToken)
     {
@@ -2068,7 +2075,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistStepAsync(step, cancellationToken);
 
         if (settings.SuppressStandardAlerts)
-            OpenStepWindows(step);
+            OpenStepWindows(step, byMac);
 
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
@@ -2144,7 +2151,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in steps.Where(IsInFlight).ToList())
         {
             if (settings.SuppressStandardAlerts)
-                OpenStepWindows(step);
+                OpenStepWindows(step, byMac);
 
             if (IsAccessPointStep(step))
                 _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
@@ -2153,7 +2160,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             await ProgressStepAsync(plan, document, steps, step, observation, consoleDark, cancellationToken);
 
             if (IsSettled(step))
-                _suppression.Clear(_siteSlug, step.DeviceMac);
+                CloseStepWindows(step);
         }
     }
 
@@ -2717,14 +2724,73 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// behind a separate Console) upgrades as an ordinary device step, so the console-cycle and
     /// OS-cycle windows only the console's own steps open never open for it - yet its reboot takes
     /// every device reached through it dark, and WAN with it. Both are opened here instead.
+    /// Any other step also opens a window for each device whose uplink chain passes through it:
+    /// a switch or AP behind the one flashing goes dark with it.
     /// </summary>
-    private void OpenStepWindows(FirmwareRolloutStep step)
+    private void OpenStepWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
     {
         _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
-        if (!IsGatewayStep(step)) return;
+        if (IsGatewayStep(step))
+        {
+            _suppression.RefreshConsoleCycle(_siteSlug, Now);
+            _suppression.RefreshOsCycle(_siteSlug, Now);
+            return;
+        }
 
-        _suppression.RefreshConsoleCycle(_siteSlug, Now);
-        _suppression.RefreshOsCycle(_siteSlug, Now);
+        RefreshDownstreamWindows(step, byMac);
+    }
+
+    /// <summary>
+    /// Opens windows for everything downstream of the step, from the console's live uplink map
+    /// plus whatever was seen behind it earlier in the cycle. Purely additive to alert
+    /// suppression, and best effort: any failure leaves the step's own window as it was.
+    /// </summary>
+    private void RefreshDownstreamWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
+    {
+        try
+        {
+            if (!_downstreamOfStep.TryGetValue(step.DeviceMac, out var downstream))
+                _downstreamOfStep[step.DeviceMac] = downstream = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var children = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var o in byMac.Values)
+            {
+                if (string.IsNullOrEmpty(o.UplinkMac)) continue;
+                if (!children.TryGetValue(o.UplinkMac, out var list))
+                    children[o.UplinkMac] = list = [];
+                list.Add(o.Mac);
+            }
+
+            var queue = new Queue<string>();
+            queue.Enqueue(step.DeviceMac);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { step.DeviceMac };
+            while (queue.Count > 0)
+            {
+                if (!children.TryGetValue(queue.Dequeue(), out var next)) continue;
+                foreach (var child in next)
+                    if (visited.Add(child))
+                    {
+                        downstream.Add(child);
+                        queue.Enqueue(child);
+                    }
+            }
+
+            foreach (var mac in downstream)
+                _suppression.Refresh(_siteSlug, mac, Now);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Downstream alert windows for {Mac} on site {Site} not refreshed", step.DeviceMac, _siteSlug);
+        }
+    }
+
+    /// <summary>Ends a settled step's window and those of the devices behind it.</summary>
+    private void CloseStepWindows(FirmwareRolloutStep step)
+    {
+        _suppression.Clear(_siteSlug, step.DeviceMac);
+        if (!_downstreamOfStep.Remove(step.DeviceMac, out var downstream)) return;
+        foreach (var mac in downstream)
+            _suppression.Clear(_siteSlug, mac);
     }
 
     /// <summary>

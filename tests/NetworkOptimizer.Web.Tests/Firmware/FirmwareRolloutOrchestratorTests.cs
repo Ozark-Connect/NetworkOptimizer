@@ -1141,6 +1141,39 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task AStepOpensWindowsForTheDevicesBehindItAndClosesThemWhenItSettles()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        // Switch behind the AP, and a second AP behind that switch; a third device elsewhere.
+        harness.Observer.Set(SwitchMac, Online, FromVersion, name: "Switch 1", model: "USW-PRO-24", uplinkMac: ApMac);
+        harness.Observer.Set(PeerMac, Online, FromVersion, name: "AP 2", uplinkMac: SwitchMac);
+        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UDMA6A8");
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, GatewayMac, now).Should().BeFalse();
+
+        // A child the console stops listing mid-cycle stays covered.
+        harness.Observer.Devices.Remove(SwitchMac);
+        await harness.TickAsync();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeTrue();
+
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ANonGatewayStepLeavesTheSiteWideAndWanWindowsShut()
     {
         using var harness = new RolloutHarness();

@@ -262,7 +262,7 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
         Task.FromResult<IReadOnlyList<RolloutDeviceObservation>>(
             ConsoleDark ? [] : Devices.Values.ToList());
 
-    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1")
+    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1", string? uplinkMac = null)
     {
         Devices[mac] = new RolloutDeviceObservation
         {
@@ -274,6 +274,7 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
             State = state,
             Upgradable = upgradeTo != null,
             UpgradeToFirmware = upgradeTo,
+            UplinkMac = uplinkMac,
         };
     }
 }
