@@ -150,6 +150,9 @@ function paintHoverDots(w, at) {
     for (let i = 0; i < points.length; i++) {
         if (w.globals.collapsedSeriesIndices?.indexOf(i) >= 0) continue;
         if (at[i] == null || at[i] < 0) continue;
+        // A null reading gets no row, so no dot either: ApexCharts parks null points on the baseline,
+        // which put a dot in the corner for every series padded out to the chart's span.
+        if (w.globals.series[i]?.[at[i]] == null) continue;
         const p = points[i]?.[at[i]];
         if (!p) continue;
         const [cx, cy] = p;

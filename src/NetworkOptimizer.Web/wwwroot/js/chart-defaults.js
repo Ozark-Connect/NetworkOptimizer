@@ -27,4 +27,4 @@
 // serialized function string, which cannot import a module, so the shared tooltip has to already
 // stand at a window hook by the time one is hovered. The ?v= matches the other importers so this
 // is the same module instance, not a second copy.
-import('/js/chart-tooltip.js?v=16');
+import('/js/chart-tooltip.js?v=17');

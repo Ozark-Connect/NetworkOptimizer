@@ -15948,7 +15948,9 @@ a.affected-client:hover {
     margin-left: -0.75rem;
 }
 
-.wan-chart-container .apexcharts-tooltip,
+/* Never the tooltip: ApexCharts leaves it pointer-events none because a box that catches the
+   pointer steals it from the chart the instant it opens under the cursor, and the chart then hides
+   it on mouseout. Clicks reach the chart's own mouseup at the hovered point without it. */
 .wan-chart-container .apexcharts-marker {
     cursor: pointer;
     pointer-events: auto;

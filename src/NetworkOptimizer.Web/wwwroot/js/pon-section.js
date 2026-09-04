@@ -4,7 +4,7 @@
 // both tabs draw the same series under the same names off one definition. Chart mounting, sync
 // groups and event marks stay with each tab, which owns its own layout.
 
-import { alignedPoints } from './chart-tooltip.js?v=16';
+import { alignedPoints } from './chart-tooltip.js?v=17';
 import { detailsTableHtml, escapeHtml, fmtUptime } from './detail-table.js?v=1';
 
 // Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.

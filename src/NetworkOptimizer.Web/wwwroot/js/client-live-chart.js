@@ -8,7 +8,7 @@
 // timestamps, and folding them into the totals' points would punch null gaps into those lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip } from './chart-tooltip.js?v=16';
+import { valueSortedTooltip } from './chart-tooltip.js?v=17';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 
 const HISTORY_MINUTES = 5;
