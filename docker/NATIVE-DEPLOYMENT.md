@@ -299,8 +299,10 @@ sudo chown $USER:$USER /opt/network-optimizer
 # Build for your architecture (x64)
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
 
-# For ARM64, use:
-# dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
+# For ARM64 (Raspberry Pi, etc.), the protoc bundled with Grpc.Tools segfaults (exit code 139)
+# on native arm64 Linux, so build with the distro's protoc instead:
+# sudo apt install -y protobuf-compiler
+# PROTOBUF_PROTOC=/usr/bin/protoc dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
 
 # Make executable
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
@@ -445,7 +447,8 @@ cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.b
 # Update the .NET SDK (picks up runtime stability and security fixes)
 ./dotnet-install.sh --channel 10.0
 
-# Pull latest from main and rebuild (use linux-arm64 on ARM64 hardware)
+# Pull latest from main and rebuild (on ARM64 hardware use -r linux-arm64 and prefix with
+# PROTOBUF_PROTOC=/usr/bin/protoc, as in Build from Source above)
 cd ~/NetworkOptimizer
 git fetch origin && git checkout main && git pull
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
