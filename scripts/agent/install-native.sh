@@ -40,10 +40,7 @@ CONFIGURE_APPARMOR=false
 INSTALL_DIR="/opt/netopt-agent"
 SERVICE_NAME="netopt-agent"
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
-# PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: fetch the newest v2.8.0-preview*
-# binaries; releases/latest would hand back the pre-conntrack stable agent.
-PREVIEW_TAG="$(curl -fsSL 'https://api.github.com/repos/Ozark-Connect/NetworkOptimizer/releases?per_page=20' 2>/dev/null | sed -n 's/.*"tag_name": *"\(v2\.8\.0-preview[0-9]*\)".*/\1/p' | head -n1)" || PREVIEW_TAG=""
-RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${PREVIEW_TAG:-v2.8.0-preview8}"
+RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -355,7 +352,7 @@ fi
 # install on a gateway must always be possible.)
 if [ "$FORCE_NATIVE" != true ] && command -v ubnt-device-info >/dev/null 2>&1; then
     err "This host is a UniFi OS gateway ($(ubnt-device-info model 2>/dev/null || echo model unknown)) - use the on-gateway installer instead:
-  curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh | bash -s -- --server ... --token ...
+  curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --server ... --token ...
 Re-run with --force-native to override (not recommended: no memory fence, and the LAN speed test does not belong on the router)."
 fi
 
@@ -468,13 +465,12 @@ if [ "$LAN_SPEED_TEST" = true ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
         WEBROOT="${INSTALL_DIR}/speedtest-web"
-        # PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: assets from release/2.8, not main.
-        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8"
+        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
         mkdir -p "$WEBROOT/assets/js"
         note "Fetching the OpenSpeedTest page"
         TARBALL="$(mktemp)"; TMPX="$(mktemp -d)"
-        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/release/2.8.tar.gz" -o "$TARBALL"
-        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-release-2.8/src/OpenSpeedTest"
+        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" -o "$TARBALL"
+        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
         cp -r "$TMPX/." "$WEBROOT/"
         rm -rf "$TARBALL" "$TMPX"
 

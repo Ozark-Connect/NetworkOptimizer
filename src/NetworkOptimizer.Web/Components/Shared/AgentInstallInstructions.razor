@@ -128,8 +128,7 @@
     private string NativeOneLiner()
     {
         var sb = new StringBuilder();
-        // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: release/2.8 script fetches preview binaries.
-        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)

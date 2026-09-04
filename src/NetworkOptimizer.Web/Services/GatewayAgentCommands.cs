@@ -10,9 +10,8 @@ public static class GatewayAgentCommands
     /// <summary>Shown in place of the server URL when REVERSE_PROXIED_HOST_NAME is not set.</summary>
     public const string PlaceholderServerUrl = "https://your-network-optimizer";
 
-    // PREVIEW-CYCLE PIN (2.8.0) - REVERT BEFORE STABLE: release/2.8 script fetches preview binaries.
     private const string ScriptUrl =
-        "https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/release/2.8/scripts/agent/install-agent-gateway.sh";
+        "https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh";
 
     /// <summary>The --server value: the configured agent-facing URL, or the placeholder.</summary>
     public static string ServerValue(string? serverUrl) =>
