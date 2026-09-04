@@ -300,7 +300,9 @@ sudo chown $USER:$USER /opt/network-optimizer
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
 
 # For ARM64 (Raspberry Pi, etc.), the protoc bundled with Grpc.Tools segfaults (exit code 139)
-# on native arm64 Linux, so build with the distro's protoc instead:
+# on native arm64 Linux, so build with the distro's protoc instead. It must be 3.15 or newer
+# (check with protoc --version): Debian 12, Raspberry Pi OS Bookworm, and Ubuntu 24.04 qualify;
+# older releases need a protoc from https://github.com/protocolbuffers/protobuf/releases.
 # sudo apt install -y protobuf-compiler
 # PROTOBUF_PROTOC=/usr/bin/protoc dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
 
