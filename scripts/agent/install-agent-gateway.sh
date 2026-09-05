@@ -184,19 +184,21 @@ step "Configuring the agent"
 # wipes the persisted key - unless this run brought a new token, which means
 # re-enroll: the agent only enrolls when it has no key, so the old key and site
 # go and the token takes their place.
-if grep -q '"agentKey"' "$CONFIG" 2>/dev/null && [ -n "$TOKEN" ]; then
-    note "Re-enrolling with the new token - the previous agent key is discarded"
-    sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
-    if grep -q '"enrollmentToken"' "$CONFIG"; then
-        sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
+    if [ -n "$TOKEN" ]; then
+        note "Re-enrolling with the new token - the previous agent key is discarded"
+        sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+        if grep -q '"enrollmentToken"' "$CONFIG"; then
+            sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+        else
+            sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        fi
+        # A deleted last property leaves a trailing comma behind.
+        sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+        ok "Updated ${CONFIG}"
     else
-        sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        note "Existing enrollment found - keeping agent.json"
     fi
-    # A deleted last property leaves a trailing comma behind.
-    sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
-    ok "Updated ${CONFIG}"
-elif grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    note "Existing enrollment found - keeping agent.json"
     # Upgrades keep the enrolled config by design, so the on-gateway key has to be ADDED to
     # an existing agent.json rather than assumed present (#1108) - without this, every
     # gateway agent installed before the flag existed would stay on the server's
