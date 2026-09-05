@@ -181,8 +181,21 @@ CONFIG="${INSTALL_DIR}/agent.json"
 
 step "Configuring the agent"
 # Preserve an already-enrolled config so re-running to update the binary never
-# wipes the persisted key.
-if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
+# wipes the persisted key - unless this run brought a new token, which means
+# re-enroll: the agent only enrolls when it has no key, so the old key and site
+# go and the token takes their place.
+if grep -q '"agentKey"' "$CONFIG" 2>/dev/null && [ -n "$TOKEN" ]; then
+    note "Re-enrolling with the new token - the previous agent key is discarded"
+    sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+    if grep -q '"enrollmentToken"' "$CONFIG"; then
+        sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+    else
+        sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+    fi
+    # A deleted last property leaves a trailing comma behind.
+    sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+    ok "Updated ${CONFIG}"
+elif grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
     # Upgrades keep the enrolled config by design, so the on-gateway key has to be ADDED to
     # an existing agent.json rather than assumed present (#1108) - without this, every
@@ -245,5 +258,5 @@ step "Done"
 ok "Agent installed and running (monitoring-only)"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
 note "Logs:   journalctl -u ${SERVICE_NAME} -f"
-note "Remove: bash <(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh) --uninstall"
+note "Remove: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --uninstall"
 printf '\n'
