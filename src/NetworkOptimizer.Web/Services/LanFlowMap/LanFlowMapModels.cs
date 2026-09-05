@@ -16,9 +16,12 @@ public class LanFlowMapSnapshot
     public Dictionary<string, string> RecentClientNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// MAC -> last known address for the same set of clients, so a leaf the console is not
-    /// currently listing still opens on double-click. Same reason it lives on the snapshot.
+    /// MAC -> last known address for recently seen clients, so a leaf the console is not currently
+    /// listing still opens on double-click. Same reason it lives on the snapshot. Server-side only:
+    /// the addresses reach the browser on the nodes that need them, not as a roster of everything
+    /// the console has seen.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public Dictionary<string, string> RecentClientIps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public DateTime GeneratedAt { get; set; }
