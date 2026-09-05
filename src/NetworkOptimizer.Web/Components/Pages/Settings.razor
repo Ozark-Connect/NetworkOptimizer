@@ -3455,7 +3455,7 @@
                         {
                             <text>
                                 To monitor another, open @HintSitePhrase <strong>Configuration</strong>
-                                below, use <strong>Add Agent / New Token</strong> to enroll an agent for it,
+                                below, use <strong>Add Agent</strong> to enroll an agent for it,
                                 then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
                             </text>
                         }
@@ -3687,9 +3687,10 @@
                                                                     </button>
                                                                 }
                                                                 <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                    Add Agent / New Token
+                                                                    Add Agent
                                                                 </button>
                                                             </div>
+                                                            <small class="form-help">To rotate an agent's key, remove the existing agent and enroll a new one.</small>
                                                         }
                                                         else
                                                         {
