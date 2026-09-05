@@ -187,6 +187,8 @@ step "Configuring the agent"
 if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     if [ -n "$TOKEN" ]; then
         note "Re-enrolling with the new token - the previous agent key is discarded"
+        cp -p "$CONFIG" "${CONFIG}.bak"
+        note "Previous config saved to ${CONFIG}.bak"
         sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
         if grep -q '"enrollmentToken"' "$CONFIG"; then
             sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"

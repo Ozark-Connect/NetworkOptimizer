@@ -131,6 +131,8 @@ if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     if [ -n "$TOKEN" ]; then
         FRESH_CONFIG=true
         note "Re-enrolling with the new token - the previous agent key is discarded"
+        $SUDO cp -p "$CONFIG" "${CONFIG}.bak"
+        note "Previous config saved to ${CONFIG}.bak"
         $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
         if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
             $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
