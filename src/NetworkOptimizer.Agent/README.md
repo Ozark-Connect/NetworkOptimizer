@@ -178,18 +178,24 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 ### Re-enrolling an existing agent
 
 If the agent's enrollment is invalidated server-side - removed in the UI
-(Settings > Multi-Site > site > Agents > Remove), or its key rotated - the
-agent stops connecting. The install scripts detect the existing `agentKey` and
-skip enrollment, so re-running the installer alone does not fix it. To
-re-enroll:
+(Settings > Multi-Site > site > Agents > Remove) - the agent stops connecting
+and logs `Invalid agent key`. The agent only enrolls when its config has no
+`agentKey`, so a stale key must go before a new token is used. Re-running the
+installer with a fresh token does this for you:
 
 1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
-   (site) > Agents > Set up agent** (or **New Agent Token** if the site
-   already had an agent).
-2. Edit `agent.json` on the agent box: add or update `enrollmentToken` with
-   the new token. You can also remove `agentKey` and `siteSlug`, but it's
-   not required - the agent replaces them on successful enrollment.
-3. Restart the agent service.
+   (site) > Agents > Add Agent** (or **Set up agent** for a site with none).
+   The install panel's **New token** button issues another if the first one
+   lapses; tokens expire one hour after they are issued.
+2. Re-run the install command shown there, on the agent box. Passing `--token`
+   over an enrolled config discards the old `agentKey` and `siteSlug`, writes
+   the new token, and restarts the agent (Docker recreates the container) so it
+   enrolls again. Without `--token`, a re-run keeps the existing enrollment and
+   only updates the binary or image.
+
+To do it by hand instead, edit `agent.json`: remove the `agentKey` and
+`siteSlug` lines, set `enrollmentToken` to the new token, and restart the
+agent. Leaving `agentKey` in place means the token is never read.
 
 The config file location depends on the install type:
 
@@ -200,8 +206,8 @@ The config file location depends on the install type:
 | Gateway | `/data/netopt-agent/agent.json` |
 
 ```bash
-# Edit the config
-nano <path-to-agent.json>  # add or update enrollmentToken
+# Edit the config: delete the agentKey and siteSlug lines, set enrollmentToken
+nano <path-to-agent.json>
 
 # Restart - Docker
 docker restart network-optimizer-agent

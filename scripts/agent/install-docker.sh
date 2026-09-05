@@ -123,9 +123,23 @@ CONFIG="${INSTALL_DIR}/data/agent.json"
 
 step "Configuring the agent"
 # Preserve an already-enrolled config so re-running the installer (e.g. to
-# update the image) never wipes the persisted agent key.
+# update the image) never wipes the persisted agent key - unless this run
+# brought a new token, which means re-enroll: the agent only enrolls when it
+# has no key, so the old key and site go and the token takes their place.
 FRESH_CONFIG=false
-if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
+if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null && [ -n "$TOKEN" ]; then
+    FRESH_CONFIG=true
+    note "Re-enrolling with the new token - the previous agent key is discarded"
+    $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+    if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
+        $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+    else
+        $SUDO sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+    fi
+    # A deleted last property leaves a trailing comma behind.
+    $SUDO sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+    ok "Updated ${CONFIG}"
+elif $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
 else
     FRESH_CONFIG=true
