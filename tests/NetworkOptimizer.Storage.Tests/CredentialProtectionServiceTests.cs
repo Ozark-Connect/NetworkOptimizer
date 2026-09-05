@@ -331,6 +331,42 @@ public class CredentialProtectionServiceTests : IDisposable
 
     #endregion
 
+    #region Default key path Tests
+
+    [Fact]
+    public void DefaultKey_ThatCannotBeReadOrCreated_RefusesToStart()
+    {
+        // A directory squatting on the key file's path: File.Exists is false and the write fails,
+        // which is the shape of a permissions problem. Deriving a stand-in key here used to start
+        // cleanly and leave every stored secret undecryptable.
+        var appData = Path.Combine(Path.GetTempPath(), $"credential_default_{Guid.NewGuid()}");
+        Directory.CreateDirectory(Path.Combine(appData, "NetworkOptimizer", ".credential_key"));
+
+        var originalLocal = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        var originalXdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        Environment.SetEnvironmentVariable("LOCALAPPDATA", appData);
+        Environment.SetEnvironmentVariable("XDG_DATA_HOME", appData);
+        try
+        {
+            // Only assert when the redirect took: never let this test touch a real key location.
+            var resolved = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!resolved.StartsWith(appData, StringComparison.Ordinal))
+                return;
+
+            var act = () => new CredentialProtectionService();
+
+            act.Should().Throw<InvalidOperationException>().WithMessage("*could not be read or created*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LOCALAPPDATA", originalLocal);
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", originalXdg);
+            try { Directory.Delete(appData, true); } catch { }
+        }
+    }
+
+    #endregion
+
     #region NO_CREDENTIAL_KEY_FILE Tests
 
     // These live in this class deliberately: NO_CREDENTIAL_KEY_FILE is process-wide, and the only
