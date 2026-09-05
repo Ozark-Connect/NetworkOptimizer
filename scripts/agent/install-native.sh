@@ -649,5 +649,8 @@ fi
 step "Done"
 ok "Agent installed and running"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
-note "Logs: journalctl -u ${SERVICE_NAME} -f"
+note "Logs:   journalctl -u ${SERVICE_NAME} -f"
+DIR_ARG=""
+[ "$INSTALL_DIR" != "/opt/netopt-agent" ] && DIR_ARG=" --dir \"${INSTALL_DIR}\""
+note "Remove: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --uninstall${DIR_ARG}"
 printf '\n'
