@@ -1,5 +1,6 @@
 @using System.Text
 @inject AgentServerUrlProvider AgentServerUrl
+@inject IAgentEnrollmentService AgentEnrollment
 
 @* Agent enrollment token plus how to stand the agent up, shared by the site
    wizard and the Multi-Site settings panel. Always the published-release
@@ -7,10 +8,32 @@
    the agent should come from a release, not a hand-built binary. The
    configured central server URL is filled in so nothing is hand-typed. *@
 
+<style>
+    .agent-token-box .agent-token-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+</style>
+
 <div class="agent-install">
-<div class="alert alert-success">
-    Enrollment token: <code>@Token</code><br />
-    Copy it now - it is shown only once and expires in 24 hours if unused.
+<div class="alert alert-success agent-token-box">
+    <div class="agent-token-row">
+        <span>Enrollment token: <code>@_token</code></span>
+        @if (CanRefresh)
+        {
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="RefreshTokenAsync" disabled="@_refreshing"
+                    data-tooltip="Issue a new token. Every command below updates with it.">
+                New token
+            </button>
+        }
+    </div>
+    <div>Copy it now. It is shown only once and expires in @LifetimeText if unused.</div>
+    @if (_refreshNote != null)
+    {
+        <div>@_refreshNote</div>
+    }
 </div>
 
 @if (string.IsNullOrWhiteSpace(ServerUrl))
@@ -56,7 +79,7 @@
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (!string.IsNullOrWhiteSpace(SiteSlug))
     {
-        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@Token" />
+        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@_token" />
     }
     @if (LanSpeedTest)
     {
@@ -81,6 +104,17 @@
     [Parameter, EditorRequired]
     public string Token { get; set; } = "";
 
+    /// <summary>
+    /// The pending agent the token belongs to. Enables the New token button; without it the
+    /// panel is display-only.
+    /// </summary>
+    [Parameter]
+    public int AgentId { get; set; }
+
+    /// <summary>Raised with the fresh token after a refresh, so the parent's copy stays current.</summary>
+    [Parameter]
+    public EventCallback<string> TokenChanged { get; set; }
+
     /// <summary>Whether the agent should also host the LAN speed test server at the site.</summary>
     [Parameter]
     public bool LanSpeedTest { get; set; }
@@ -92,6 +126,62 @@
     /// </summary>
     [Parameter]
     public string? SiteSlug { get; set; }
+
+    // The token every command renders from. Starts as the parameter and is replaced by a refresh;
+    // the parameter is re-adopted only when the parent hands in a different one, so a parent that
+    // re-renders for an unrelated reason cannot roll a refreshed token back.
+    private string _token = "";
+    private string _lastTokenParameter = "";
+    private bool _refreshing;
+    private string? _refreshNote;
+
+    protected override void OnParametersSet()
+    {
+        if (Token != _lastTokenParameter)
+        {
+            _lastTokenParameter = Token;
+            _token = Token;
+            _refreshNote = null;
+        }
+    }
+
+    private bool CanRefresh => AgentId > 0 && !string.IsNullOrWhiteSpace(SiteSlug);
+
+    private static string LifetimeText
+    {
+        get
+        {
+            var life = AgentEnrollmentService.TokenLifetime;
+            if (life.TotalHours >= 1)
+                return life.TotalHours == 1 ? "1 hour" : $"{life.TotalHours:0} hours";
+            return $"{life.TotalMinutes:0} minutes";
+        }
+    }
+
+    private async Task RefreshTokenAsync()
+    {
+        if (!CanRefresh)
+            return;
+
+        _refreshing = true;
+        try
+        {
+            var fresh = await AgentEnrollment.ReissueTokenAsync(SiteSlug!, AgentId);
+            if (fresh == null)
+            {
+                _refreshNote = "This agent has already enrolled, so it no longer needs a token.";
+                return;
+            }
+
+            _token = fresh;
+            _refreshNote = null;
+            await TokenChanged.InvokeAsync(fresh);
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
 
     /// <summary>The agent-facing HTTPS base URL, derived from REVERSE_PROXIED_HOST_NAME.</summary>
     private string? ServerUrl => AgentServerUrl.Url;
@@ -108,7 +198,7 @@
         var sb = new StringBuilder();
         sb.Append("bash -c \"$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)\" -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
-        sb.Append($"  --token \"{Token}\"");
+        sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
         return sb.ToString();
@@ -119,7 +209,7 @@
         var sb = new StringBuilder();
         sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
-        sb.Append($"  --token \"{Token}\"");
+        sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
         return sb.ToString();
@@ -130,7 +220,7 @@
         var sb = new StringBuilder();
         sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
-        sb.Append($"  --token \"{Token}\"");
+        sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
         return sb.ToString();
@@ -138,5 +228,5 @@
 
     // The shared builder also feeds the "Run It for Me" SSH run, so the displayed
     // command and the executed one cannot drift.
-    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, Token);
+    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, _token);
 }

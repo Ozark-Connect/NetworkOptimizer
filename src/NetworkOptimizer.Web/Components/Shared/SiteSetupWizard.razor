@@ -236,7 +236,7 @@
         }
         else
         {
-            <AgentInstallInstructions Token="@_agentToken" LanSpeedTest="_featureLanSpeedTest" SiteSlug="@_site?.Slug" />
+            <AgentInstallInstructions Token="@_agentToken" AgentId="@_agentId" TokenChanged="@(t => _agentToken = t)" LanSpeedTest="_featureLanSpeedTest" SiteSlug="@_site?.Slug" />
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="() => _step = 4">Continue</button>
             </div>
@@ -338,6 +338,7 @@
 
     private bool _wantAgent;
     private string? _agentToken;
+    private int _agentId;
     private bool _featureLanSpeedTest;
     private bool _featureProxy;
 
@@ -551,10 +552,17 @@
             // only create a row when the site has none.
             var existing = await AgentEnrollment.GetAgentsForSiteAsync(_site.Id);
             var pending = existing.FirstOrDefault(a => a.EnrolledAt == null);
-            _agentToken = pending != null
-                ? await AgentEnrollment.ReissueTokenAsync(_site.Slug, pending.Id)
-                : null;
-            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Slug, "Agent")).Token;
+            if (pending != null)
+            {
+                _agentToken = await AgentEnrollment.ReissueTokenAsync(_site.Slug, pending.Id);
+                _agentId = pending.Id;
+            }
+            if (_agentToken == null)
+            {
+                var (agent, token) = await AgentEnrollment.CreateAgentAsync(_site.Slug, "Agent");
+                _agentToken = token;
+                _agentId = agent.Id;
+            }
 
             if (_featureProxy)
             {

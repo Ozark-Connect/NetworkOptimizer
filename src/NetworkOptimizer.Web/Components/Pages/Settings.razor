@@ -3708,7 +3708,7 @@
                                                                 else
                                                                 {
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                        Add Agent / New Token
+                                                                        Add Agent
                                                                     </button>
                                                                 }
                                                             </div>
@@ -3721,7 +3721,7 @@
                                                                     <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                                                                     - lets the site's clients run speed tests against the agent.</span>
                                                             </label>
-                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
+                                                            <AgentInstallInstructions Token="@_newAgentToken" AgentId="@_newAgentId" TokenChanged="@(t => _newAgentToken = t)" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
                                                     </div>
 
@@ -4489,6 +4489,7 @@
     private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-contrast" : "btn-secondary";
     private bool _creatingAgent;
     private string? _newAgentToken;
+    private int _newAgentId;
     private int? _newAgentTokenSiteId;
     private bool _newAgentLanSpeedTest;
     private SiteSetupWizard? _setupWizard;
@@ -4869,6 +4870,7 @@
         {
             var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Slug, NextAgentName(site.Id));
             _newAgentToken = token;
+            _newAgentId = agent.Id;
             _newAgentTokenSiteId = site.Id;
             _newAgentLanSpeedTest = false;
             await LoadAgentsAsync();
