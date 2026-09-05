@@ -801,7 +801,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors || viaAgent,
+                config.IgnoreControllerSSLErrors,
                 config.ApiKey,
                 consoleEndpoint.ProxyPort
             );
@@ -948,7 +948,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors || viaAgent,
+                config.IgnoreControllerSSLErrors,
                 config.ApiKey,
                 consoleEndpoint.ProxyPort
             );
@@ -1187,7 +1187,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors || viaAgent,
+                config.IgnoreControllerSSLErrors,
                 config.ApiKey,
                 consoleEndpoint.ProxyPort
             );
@@ -1257,7 +1257,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors || viaAgent,
+                config.IgnoreControllerSSLErrors,
                 config.ApiKey,
                 consoleEndpoint.ProxyPort
             );
