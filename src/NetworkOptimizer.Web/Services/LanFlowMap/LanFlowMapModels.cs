@@ -15,6 +15,12 @@ public class LanFlowMapSnapshot
     /// </summary>
     public Dictionary<string, string> RecentClientNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// MAC -> last known address for the same set of clients, so a leaf the console is not
+    /// currently listing still opens on double-click. Same reason it lives on the snapshot.
+    /// </summary>
+    public Dictionary<string, string> RecentClientIps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public DateTime GeneratedAt { get; set; }
     public List<LanNode> Nodes { get; set; } = new();
     public List<LanLink> Links { get; set; } = new();

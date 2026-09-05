@@ -198,6 +198,10 @@ public class LanFlowMapService
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Addresses off the same two calls, so a client the console is not listing right now
+            // still carries the one double-click needs. BestIp is ip > last_ip > fixed_ip, the
+            // same resolution the Client Performance device picker offers.
+            var ips = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             var history = await _connection.Client!.GetClientHistoryAsync(ClientNameLookbackHours, ct);
             var fromHistory = 0;
@@ -212,6 +216,8 @@ public class LanFlowMapService
                     names[NormalizeMac(c.Mac)] = label;
                     fromHistory++;
                 }
+                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp))
+                    ips[NormalizeMac(c.Mac)] = c.BestIp!;
             }
 
             var fromUserRecords = 0;
@@ -224,9 +230,13 @@ public class LanFlowMapService
                     names[NormalizeMac(c.Mac)] = c.Name;
                     fromUserRecords++;
                 }
+                // Fills gaps only: the history entry is the more recent sighting of the two.
+                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp))
+                    ips.TryAdd(NormalizeMac(c.Mac), c.BestIp!);
             }
 
             snapshot.RecentClientNames = names;
+            snapshot.RecentClientIps = ips;
             _logger.LogDebug(
                 "LAN map [{Site}]: {Count} client name(s) for historic playback ({History} from client history, {Alias} user aliases)",
                 _siteContext.Slug, names.Count, fromHistory, fromUserRecords);
@@ -1755,6 +1765,7 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = wired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
+                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
                 Name = !string.IsNullOrWhiteSpace(p.ClientName)
                     ? p.ClientName
                     : (snapshot.RecentClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
@@ -1857,7 +1868,8 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = c.IsWired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
-                Ip = string.IsNullOrEmpty(c.IpAddress) ? null : c.IpAddress,
+                Ip = !string.IsNullOrEmpty(c.IpAddress) ? c.IpAddress
+                    : snapshot.RecentClientIps.GetValueOrDefault(clientMac),
                 Name = ResolveClientLabel(c),
                 ParentId = "dev-" + parentMac,
                 Placement = anchor,
@@ -2718,6 +2730,7 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = LanNodeKind.WifiClient,
                 Mac = clientMac,
+                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
                 Name = snapshot.RecentClientNames[clientMac],
                 ParentId = parentId,
                 Band = band,
