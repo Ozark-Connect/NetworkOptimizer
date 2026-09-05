@@ -23,8 +23,7 @@
         <span>Enrollment token: <code>@_token</code></span>
         @if (CanRefresh)
         {
-            <button type="button" class="btn btn-secondary btn-sm" @onclick="RefreshTokenAsync" disabled="@_refreshing"
-                    data-tooltip="Issue a new token. Every command below updates with it.">
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="RefreshTokenAsync" disabled="@_refreshing">
                 New token
             </button>
         }
