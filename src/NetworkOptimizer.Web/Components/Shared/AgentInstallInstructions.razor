@@ -159,7 +159,10 @@
 
     private async Task RefreshTokenAsync()
     {
-        if (!CanRefresh)
+        // The disabled attribute renders only after the first await, so a fast second click can
+        // arrive first. Two reissues in flight would show one token while the database holds the
+        // other, and the install would fail with an invalid token.
+        if (_refreshing || !CanRefresh)
             return;
 
         _refreshing = true;
