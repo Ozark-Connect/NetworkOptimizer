@@ -405,19 +405,21 @@ step "Configuring the agent"
 # update the binary) never wipes the persisted agent key - unless this run
 # brought a new token, which means re-enroll: the agent only enrolls when it
 # has no key, so the old key and site go and the token takes their place.
-if grep -q '"agentKey"' "$CONFIG" 2>/dev/null && [ -n "$TOKEN" ]; then
-    note "Re-enrolling with the new token - the previous agent key is discarded"
-    sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
-    if grep -q '"enrollmentToken"' "$CONFIG"; then
-        sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
+    if [ -n "$TOKEN" ]; then
+        note "Re-enrolling with the new token - the previous agent key is discarded"
+        sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+        if grep -q '"enrollmentToken"' "$CONFIG"; then
+            sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+        else
+            sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        fi
+        # A deleted last property leaves a trailing comma behind.
+        sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+        ok "Updated ${CONFIG}"
     else
-        sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        note "Existing enrollment found - keeping agent.json"
     fi
-    # A deleted last property leaves a trailing comma behind.
-    sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
-    ok "Updated ${CONFIG}"
-elif grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    note "Existing enrollment found - keeping agent.json"
     # Upgrades keep the enrolled config, so the on-gateway key is ADDED when missing (#1108).
     if ! grep -q '"onGateway"' "$CONFIG"; then
         sed -i "0,/{/s/{/{\n  \"onGateway\": ${ON_GATEWAY},/" "$CONFIG"

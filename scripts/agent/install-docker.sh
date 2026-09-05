@@ -127,20 +127,22 @@ step "Configuring the agent"
 # brought a new token, which means re-enroll: the agent only enrolls when it
 # has no key, so the old key and site go and the token takes their place.
 FRESH_CONFIG=false
-if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null && [ -n "$TOKEN" ]; then
-    FRESH_CONFIG=true
-    note "Re-enrolling with the new token - the previous agent key is discarded"
-    $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
-    if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
-        $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
+    if [ -n "$TOKEN" ]; then
+        FRESH_CONFIG=true
+        note "Re-enrolling with the new token - the previous agent key is discarded"
+        $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+        if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
+            $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+        else
+            $SUDO sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        fi
+        # A deleted last property leaves a trailing comma behind.
+        $SUDO sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+        ok "Updated ${CONFIG}"
     else
-        $SUDO sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+        note "Existing enrollment found - keeping agent.json"
     fi
-    # A deleted last property leaves a trailing comma behind.
-    $SUDO sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
-    ok "Updated ${CONFIG}"
-elif $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
-    note "Existing enrollment found - keeping agent.json"
 else
     FRESH_CONFIG=true
     [ -n "$TOKEN" ] || err "--token is required for a first-time install"
