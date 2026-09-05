@@ -218,6 +218,7 @@ Run speed tests and security audits on a schedule, and get told when something g
 
 - UniFi Console (aka Controller) - UDM, UCG, UDR, CloudKey, or self-hosted UniFi Network Server
 - Network access to your UniFi Console API (HTTPS)
+- A separate box to host Network Optimizer, see Installation section below for options. [Deployment Guide](docker/DEPLOYMENT.md) lists general hardware requirements.
 
 Most features work with just API access. SSH is only needed for speed testing and Adaptive SQM:
 
