@@ -218,7 +218,7 @@ Run speed tests and security audits on a schedule, and get told when something g
 
 - UniFi Console (aka Controller) - UDM, UCG, UDR, CloudKey, or self-hosted UniFi Network Server
 - Network access to your UniFi Console API (HTTPS)
-- A box (bare metal, container(s), VM/LXC) to host Network Optimizer, see Installation section below for options. [Deployment Guide](docker/DEPLOYMENT.md) lists general hardware requirements. Do not attempt to install NO the UniFi Gateway or Console itself unless it's UDM-Beast, EFG, or EF-Core class.
+- A box (bare metal, container(s), VM/LXC) to host Network Optimizer, see Installation section below for options. [Deployment Guide](docker/DEPLOYMENT.md) lists general hardware requirements. Do not attempt to install NO on the UniFi Gateway or Console itself unless it's UDM-Beast, EFG, or EF-Core class.
 - A box to host InfluxDB if you want to run Time-Series Monitoring features. This is the one that needs a little more horsepower, so I recommend putting it on your most capable local server.
 
 Most features work with just API access. SSH is only needed for speed testing and Adaptive SQM:
