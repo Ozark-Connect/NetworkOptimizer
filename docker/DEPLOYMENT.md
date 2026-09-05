@@ -1060,6 +1060,10 @@ Network Optimizer stores UniFi controller credentials and SSH passwords. Limit a
 - Consider firewall rules to restrict access to trusted IPs
 - Use HTTPS via reverse proxy (see examples above)
 
+### SSH host keys
+
+Network Optimizer does not pin or verify SSH host keys for gateways and devices. This is deliberate. The SSH hop runs from the server (or the On-Site Agent) to devices on your management network, which the Security Audit already recommends keeping on its own isolated VLAN. Anyone positioned to intercept that hop is already inside your management VLAN, and at that point host-key verification is not what stands between them and your network. UniFi devices also regenerate their host keys on firmware updates, so trust-on-first-use pinning would raise a warning on every device after every release and train you to click through it. Isolate the management VLAN and restrict who can reach it: that is the control that matters here.
+
 ### UniFi Account
 
 Network Optimizer supports UniFi OS devices (UDM, UCG, UDR, Cloud Key) and self-hosted UniFi Network Server installations.
