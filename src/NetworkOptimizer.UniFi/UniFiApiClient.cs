@@ -1487,11 +1487,13 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// Get WAN configurations only (filtered from network configs)
-    /// Returns networks with purpose = "wan"
+    /// Returns networks with purpose = "wan". <paramref name="useCache"/> is passed through to
+    /// <see cref="GetNetworkConfigsAsync"/>; Smart Queues state lives on these rows, so Adaptive SQM
+    /// reads them fresh.
     /// </summary>
-    public async Task<List<UniFiNetworkConfig>> GetWanConfigsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<UniFiNetworkConfig>> GetWanConfigsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        var allConfigs = await GetNetworkConfigsAsync(cancellationToken);
+        var allConfigs = await GetNetworkConfigsAsync(cancellationToken, useCache);
         var wanConfigs = allConfigs
             .Where(c => c.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
             .ToList();

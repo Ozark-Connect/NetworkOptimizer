@@ -232,8 +232,9 @@ public class SqmService : ISqmService
                 return result;
             }
 
-            // Get WAN network configs for friendly names and SmartQ status (exclude disabled WANs)
-            var allWanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+            // Get WAN network configs for friendly names and SmartQ status (exclude disabled WANs).
+            // Read fresh: Deploy checks Smart Queues state right after the user enables it in UniFi.
+            var allWanConfigs = await _connectionService.Client.GetWanConfigsAsync(useCache: false);
             var wanConfigs = allWanConfigs.Where(w => w.Enabled).ToList();
 
             _logger.LogDebug("WAN network configs from controller: {Total} total, {Enabled} enabled. Details: {Details}",
