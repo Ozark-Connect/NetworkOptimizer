@@ -4241,6 +4241,7 @@
                         {
                             await LoadAgentsOnGatewayAsync(openSite);
                             await LoadSpeedTestHostAsync(openSite);
+                            _collectorAgentIds[openSite.Slug] = await ProbeSink.GetCollectorAgentIdAsync(openSite.Slug);
                         }
                         StateHasChanged();
                     });
