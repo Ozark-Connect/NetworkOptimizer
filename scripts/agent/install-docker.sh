@@ -124,9 +124,11 @@ CONFIG="${INSTALL_DIR}/data/agent.json"
 step "Configuring the agent"
 # Preserve an already-enrolled config so re-running the installer (e.g. to
 # update the image) never wipes the persisted agent key.
+FRESH_CONFIG=false
 if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     note "Existing enrollment found - keeping agent.json"
 else
+    FRESH_CONFIG=true
     [ -n "$TOKEN" ] || err "--token is required for a first-time install"
     TMP_CONFIG="$(mktemp)"
     {
@@ -147,7 +149,14 @@ fi
 
 step "Starting the agent"
 $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" pull
-$SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" up -d
+# The agent reads agent.json once at startup. A container already running from an earlier
+# enrollment keeps its old key in memory, so a freshly written config must recreate it or the
+# new token is never used.
+if [ "$FRESH_CONFIG" = true ]; then
+    $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" up -d --force-recreate
+else
+    $SUDO $COMPOSE -f "${INSTALL_DIR}/docker-compose.yml" up -d
+fi
 ok "container up"
 
 step "Done"
