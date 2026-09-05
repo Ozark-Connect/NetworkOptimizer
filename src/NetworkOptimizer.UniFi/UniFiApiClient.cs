@@ -51,6 +51,11 @@ public class UniFiApiClient : IDisposable
     private List<UniFiDeviceResponse>? _cachedDeviceResponses;
     private DateTime _deviceResponseCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceResponseCacheTtl = TimeSpan.FromSeconds(15);
+    // networkconf is site config, not state: a minute stale is invisible to every periodic
+    // reader, and without this each device discovery and gateway-IP lookup fetched it again.
+    private List<UniFiNetworkConfig>? _cachedNetworkConfigs;
+    private DateTime _networkConfigCacheTime = DateTime.MinValue;
+    private static readonly TimeSpan NetworkConfigCacheTtl = TimeSpan.FromSeconds(60);
     private bool _isAuthenticated = false;
     private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
     private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
@@ -1449,11 +1454,20 @@ public class UniFiApiClient : IDisposable
     #region Network Configuration APIs
 
     /// <summary>
-    /// GET rest/networkconf - Get all network/VLAN configurations
+    /// GET rest/networkconf - Get all network/VLAN configurations.
+    /// Successful results are cached for <see cref="NetworkConfigCacheTtl"/>; pass
+    /// <paramref name="useCache"/> false to read the console directly (the Security Audit does,
+    /// so a re-run right after a config change grades the new config).
     /// </summary>
-    public async Task<List<UniFiNetworkConfig>> GetNetworkConfigsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<UniFiNetworkConfig>> GetNetworkConfigsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        _logger.LogTrace("Fetching network configs from site {Site}", _site);
+        if (useCache && _cachedNetworkConfigs != null
+            && DateTime.UtcNow - _networkConfigCacheTime < NetworkConfigCacheTtl)
+        {
+            return _cachedNetworkConfigs;
+        }
+
+        _logger.LogTrace("Fetching network configs from site {Site} (useCache={UseCache})", _site, useCache);
 
         var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiNetworkConfig>>(
             () => _httpClient!.GetAsync(BuildApiPath("rest/networkconf"), cancellationToken),
@@ -1462,6 +1476,8 @@ public class UniFiApiClient : IDisposable
         if (response?.Meta.Rc == "ok")
         {
             _logger.LogTrace("Retrieved {Count} network configs", response.Data.Count);
+            _cachedNetworkConfigs = response.Data;
+            _networkConfigCacheTime = DateTime.UtcNow;
             return response.Data;
         }
 
