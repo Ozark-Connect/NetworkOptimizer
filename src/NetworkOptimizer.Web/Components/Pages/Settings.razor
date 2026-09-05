@@ -3604,7 +3604,7 @@
                                                             @foreach (var agent in agents)
                                                             {
                                                                 <div class="site-agent-row">
-                                                                    <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
+                                                                    <span class="status-dot @(agent.Enabled && TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
                                                                     @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
                                                                        address - so where it lives is said in words rather than shown as an address. *@
