@@ -1736,6 +1736,7 @@
     private bool _awaitingLocalIp;
     private System.Threading.Timer? _identityRetryTimer;
     private System.Threading.Timer? _pickerRefreshTimer;
+    private bool _disposed;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
     private string? _pickerSelection;
@@ -1936,8 +1937,12 @@
     /// </summary>
     private void StartPickerRefresh()
     {
+        // Armed after awaits: a page left mid-load has already run DisposeAsync, and a timer
+        // created afterward polls the console forever. Checked here and on every tick.
+        if (_disposed) return;
         _pickerRefreshTimer = new System.Threading.Timer(async _ =>
         {
+            if (_disposed) return;
             try
             {
                 if (_pickerClients.Count == 0) return;
@@ -3861,6 +3866,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
