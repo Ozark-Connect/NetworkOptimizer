@@ -1,12 +1,18 @@
 /**
  * OpenSpeedTest Configuration
- * Values are injected at runtime by NetworkOptimizer service
+ * Values are injected at runtime by NetworkOptimizer service (NginxHostedService)
+ *
+ * TWIN FILE: src/OpenSpeedTest/assets/js/config.js is the same logic with sed-style
+ * placeholders for Docker. Any change to one must be made in the other. Only the
+ * placeholder syntax may differ.
  */
 
 // These will be replaced by the service at startup
 var saveData = {{SAVE_DATA}};
 var saveDataURL = "{{SAVE_DATA_URL}}";
 var apiPath = "{{API_PATH}}";
+// Native installs are never a WAN speed test server, so this is always empty here.
+var externalServerId = "";
 
 // If __DYNAMIC__, construct URL from browser location (same host, port 8042)
 if (saveDataURL === "__DYNAMIC__") {
@@ -15,7 +21,7 @@ if (saveDataURL === "__DYNAMIC__") {
 
 // URL for viewing client speed test results (derived from saveDataURL)
 // Extract base URL by splitting on /api
-var clientResultsUrl = saveDataURL.split("/api")[0] + "/client-speedtest";
+var clientResultsUrl = saveDataURL.split("/api")[0] + (externalServerId ? "/client-wan-speedtest" : "/client-speedtest");
 
 // Fix for missing variable bug in OpenSpeedTest
 var OpenSpeedTestdb = "";
