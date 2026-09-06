@@ -793,7 +793,13 @@ public class AgentProbeResultSink
     public async Task PushSnmpConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         var isDefault = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
-        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug)) return;
+        if (isDefault && !await _agentCoverage.CoversAsync(connection.SiteSlug))
+        {
+            // Disabled rather than absent, as below: coverage switched off leaves the agent on
+            // the full device list it was pushed while coverage was on, polling alongside the server.
+            connection.TrySend(new ServerMessage { SnmpConfig = new SnmpConfig { Enabled = false } });
+            return;
+        }
         var steered = await IsSteeredToWanAgentAsync(connection, ct);
         var isCollector = steered && await GetCollectorAgentIdAsync(connection.SiteSlug, ct) == connection.AgentId;
         if (!ShouldPushSnmpConfig(steered, isCollector))
