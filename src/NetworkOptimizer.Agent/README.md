@@ -168,6 +168,35 @@ The bare-metal installer additionally accepts `--configure-apparmor` - with
 `--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile
 blocks the speed test (off by default).
 
+### Upgrading
+
+Re-run the installer you installed with. Each one keeps the enrolled key, the site,
+and the speed test setting, downloads the current release, and restarts the agent;
+no token is needed. A saved install command that still carries its original token
+is safe to re-run too: the installer checks the existing key with the server first
+and only re-enrolls if the server no longer accepts it (see Re-enrolling below).
+
+```bash
+# Docker
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- --server "https://optimizer.example.com"
+# or, from the install directory: docker compose pull && docker compose up -d
+
+# Bare metal (systemd)
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --server "https://optimizer.example.com"
+
+# UniFi gateway (on-box)
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --server "https://optimizer.example.com"
+
+# Proxmox LXC (from the Proxmox host)
+pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
+```
+
+Docker and bare metal: if you installed with `--dir`, pass the same `--dir`. The app
+tells you when an upgrade matters: **Settings > Multi-Site** flags an agent running
+older than the minimum version a release needs, and most releases do not change the
+agent at all. A UniFi OS firmware upgrade never requires re-running the gateway
+installer (see "Where to run it > On a UniFi gateway").
+
 #### Uninstall
 
 All three installers accept `--uninstall` for a clean, verified teardown. It stops
