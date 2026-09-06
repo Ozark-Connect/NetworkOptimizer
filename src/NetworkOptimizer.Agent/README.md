@@ -93,10 +93,10 @@ box" hardening described under Security and hardening.
 
 ## Install
 
-On the site's agent box, install with Docker or bare-metal (systemd) - pick one.
-Both dial out to the central server over HTTPS only, with no inbound access to
-the site. Generate the enrollment token in the web UI: **Settings > Multi-Site >
-(site) > Agents > Set up agent**.
+On the site's agent box, install with Docker, bare-metal (systemd), or a Proxmox
+LXC - pick one. All dial out to the central server over HTTPS only, with no
+inbound access to the site. Generate the enrollment token in the web UI:
+**Settings > Multi-Site > (site) > Agents > Set up agent**.
 
 ### Docker
 
@@ -123,7 +123,26 @@ Downloads the self-contained binary (no .NET runtime or Docker), writes
 `agent.json`, and installs + starts a `netopt-agent` systemd service under
 `/opt/netopt-agent`.
 
-Both scripts accept:
+### Proxmox LXC
+
+Run on the **Proxmox VE host**. It creates a small Debian container and runs the
+bare-metal installer inside it, so the result is the systemd install above with
+its own MAC address (what a per-WAN agent behind a Policy-Based Route needs):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)"
+```
+
+Every prompt is also a flag (`--server`, `--token`, `--lan-speed-test`, `--ip`, `--vlan`,
+`--unattended`, ...); see the script header. To upgrade the agent later, re-run the
+bare-metal installer inside the container from the Proxmox host. The enrolled key and
+the speed test setting are kept, so only `--server` is needed:
+
+```bash
+pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
+```
+
+The Docker and bare-metal scripts accept:
 
 - `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only feature that uses nginx.
 - `--speed-test-port N` - serve that page on `N` instead of 24443, for a host where 24443 is taken

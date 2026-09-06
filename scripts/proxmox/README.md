@@ -86,6 +86,17 @@ If you installed Traefik, update it separately:
 pct exec <CT_ID> -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d && docker image prune -f'
 ```
 
+### Updating an On-Site Agent container
+
+An agent LXC created by `install-agent.sh` runs the standard bare-metal agent
+installer inside the container. To upgrade it, run that installer again from the
+Proxmox host. The enrolled key and the speed test setting are kept, so only
+`--server` is needed:
+
+```bash
+pct exec <AGENT_CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
+```
+
 ## Post-Installation
 
 ### Get Admin Password
