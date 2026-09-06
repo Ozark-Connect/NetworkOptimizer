@@ -64,6 +64,40 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | Geo Location | Disabled | GPS tagging for speed tests and signal levels (auto-enabled with Traefik) |
 | Timezone | America/New_York | Container timezone |
 
+## On-Site Agent (optional, separate container)
+
+The install above is the Network Optimizer **server**. The **On-Site Agent** is a
+different, much smaller thing, and most installs never need one. It runs at a site
+and holds an outbound tunnel back to the server. You need one when:
+
+- **The site is somewhere else.** A second site the server cannot reach directly
+  (no site-to-site VPN, or behind CGNAT). The agent proxies that site's UniFi
+  Console, SNMP, and device SSH, and runs its probes and speed tests from inside
+  the site. This is the normal multi-site setup.
+- **You want a WAN probed from a second vantage** for Multi-WAN monitoring. Here
+  the recommended agent is the one that runs **on the UniFi gateway itself**
+  (installed from the app's setup panel), which needs no extra container. Use a
+  Proxmox agent instead when you would rather keep the agent off the gateway, or
+  when the site also needs a LAN speed test host, which the gateway agent
+  deliberately does not run.
+
+A site the server already reaches over VPN does not need an agent for management,
+auditing, or SNMP. The full when-and-why, including a capability table, is in the
+[agent README](../../src/NetworkOptimizer.Agent/README.md#when-you-need-an-agent).
+
+To create an agent container, run on the **Proxmox VE host**. It builds a small
+Debian LXC with its own MAC address and runs the standard agent installer inside
+it. Generate the enrollment token first in the server's web UI under
+**Settings > Multi-Site > (site) > Agents > Set up agent**:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)"
+```
+
+Every prompt is also a flag (`--server`, `--token`, `--lan-speed-test`, `--ip`,
+`--vlan`, `--unattended`, and more; see the script header), so one agent per WAN is
+one flag-driven run each. Updating it is covered below.
+
 ## Updating
 
 To update to the latest version, run from your **Proxmox host**:
