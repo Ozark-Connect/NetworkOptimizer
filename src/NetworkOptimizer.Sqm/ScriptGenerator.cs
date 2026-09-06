@@ -10,6 +10,11 @@ namespace NetworkOptimizer.Sqm;
 /// </summary>
 public class ScriptGenerator
 {
+    public const string ManagedSpeedtestPath = "/data/network-optimizer/bin/speedtest";
+    public const string ManagedSpeedtestArchiveRelease = "1.2.0";
+    public const string ManagedSpeedtestCliVersion = "1.2.0.84";
+    public const string ManagedSpeedtestBuildId = "ea6b6773cf";
+
     private readonly SqmConfiguration _config;
     private readonly string _name; // Normalized name for files (e.g., "wan1", "wan2")
     private readonly int _initialDelaySeconds; // Delay before first speedtest (for staggering multiple WANs)
@@ -75,6 +80,16 @@ public class ScriptGenerator
         sb.AppendLine("PING_SCRIPT=\"$SQM_DIR/${SQM_NAME}-ping.sh\"");
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
+        sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
+        sb.AppendLine($"SPEEDTEST_RELEASE=\"{ManagedSpeedtestArchiveRelease}\"");
+        sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");
+        sb.AppendLine($"SPEEDTEST_BUILD_ID=\"{ManagedSpeedtestBuildId}\"");
+        sb.AppendLine();
+        sb.AppendLine("fail_boot() {");
+        sb.AppendLine("    echo \"[$(date)] ERROR: $*\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    echo \"ERROR: $*\" >&2");
+        sb.AppendLine("    exit 1");
+        sb.AppendLine("}");
         sb.AppendLine();
         // Rotate log on boot/deploy: keep last 2000 lines (~1.5 days at 1 min ping interval)
         sb.AppendLine("# Rotate log to prevent unbounded growth");
@@ -90,19 +105,64 @@ public class ScriptGenerator
         sb.AppendLine("# Section 1: Install Dependencies");
         sb.AppendLine("# ============================================");
         sb.AppendLine();
-        sb.AppendLine("# Install official Ookla speedtest if not present");
-        sb.AppendLine("if ! which speedtest > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"Installing Ookla speedtest...\" >> $LOG_FILE");
-        sb.AppendLine("    # Remove UniFi's speedtest if present");
-        sb.AppendLine("    apt-get remove -y speedtest 2>/dev/null || true");
-        sb.AppendLine("    # Install official Speedtest by Ookla");
-        sb.AppendLine("    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash");
-        sb.AppendLine("    apt-get install -y speedtest");
+        sb.AppendLine("# Install the reviewed Ookla build without changing UniFi-managed packages");
+        sb.AppendLine("for required_command in curl tar sha256sum; do");
+        sb.AppendLine("    command -v \"$required_command\" >/dev/null 2>&1 || fail_boot \"required command not found: $required_command\"");
+        sb.AppendLine("done");
+        sb.AppendLine("case \"$(uname -m)\" in");
+        sb.AppendLine("    aarch64|arm64)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"aarch64\"");
+        sb.AppendLine("        SPEEDTEST_ARCHIVE_SHA256=\"3953d231da3783e2bf8904b6dd72767c5c6e533e163d3742fd0437affa431bd3\"");
+        sb.AppendLine("        SPEEDTEST_BINARY_SHA256=\"d99fa13293f658b53eaa79fe81f4b210db39fdfc1e9698f33da3f234a6008df7\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    armv7l|armv7)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"armhf\"");
+        sb.AppendLine("        SPEEDTEST_ARCHIVE_SHA256=\"e45fcdebbd8a185553535533dd032d6b10bc8c64eee4139b1147b9c09835d08d\"");
+        sb.AppendLine("        SPEEDTEST_BINARY_SHA256=\"66ad57568664e6f8580e14ad67316a57038fd22b30548bef98531df4ebcc8956\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    x86_64|amd64)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"x86_64\"");
+        sb.AppendLine("        SPEEDTEST_ARCHIVE_SHA256=\"5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7\"");
+        sb.AppendLine("        SPEEDTEST_BINARY_SHA256=\"31f1124c5ab8acdae6b9fe1741e704df420f9f2e7d429679fabe62075453c051\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    *) fail_boot \"unsupported gateway architecture: $(uname -m)\" ;;");
+        sb.AppendLine("esac");
+        sb.AppendLine("SPEEDTEST_URL=\"https://install.speedtest.net/app/cli/ookla-speedtest-${SPEEDTEST_RELEASE}-linux-${SPEEDTEST_ARCH}.tgz\"");
+        sb.AppendLine();
+        sb.AppendLine("speedtest_is_valid() {");
+        sb.AppendLine("    [ -f \"$SPEEDTEST_BIN\" ] && [ ! -L \"$SPEEDTEST_BIN\" ] && [ -x \"$SPEEDTEST_BIN\" ] \\");
+        sb.AppendLine("        && printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_BIN\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("        && \"$SPEEDTEST_BIN\" --version 2>/dev/null | head -n 1 | grep -Fq \"Speedtest by Ookla ${SPEEDTEST_CLI_VERSION} (${SPEEDTEST_BUILD_ID})\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("if ! speedtest_is_valid; then");
+        sb.AppendLine("    echo \"[$(date)] Installing Ookla speedtest ${SPEEDTEST_CLI_VERSION}...\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    SPEEDTEST_DIR=$(dirname \"$SPEEDTEST_BIN\")");
+        sb.AppendLine("    mkdir -p \"$SPEEDTEST_DIR\"");
+        sb.AppendLine("    SPEEDTEST_STAGE=$(mktemp -d \"${SPEEDTEST_DIR}/.speedtest-install.XXXXXX\") || fail_boot \"could not create speedtest staging directory\"");
+        sb.AppendLine("    cleanup_speedtest_stage() { rm -rf \"$SPEEDTEST_STAGE\"; }");
+        sb.AppendLine("    trap cleanup_speedtest_stage EXIT");
+        sb.AppendLine("    trap 'cleanup_speedtest_stage; exit 1' HUP INT TERM");
+        sb.AppendLine("    curl --fail --silent --show-error --location --proto '=https' --max-time 120 --max-filesize 4194304 \"$SPEEDTEST_URL\" -o \"$SPEEDTEST_STAGE/speedtest.tgz\" \\");
+        sb.AppendLine("        || fail_boot \"failed to download Ookla speedtest\"");
+        sb.AppendLine("    printf '%s  %s\\n' \"$SPEEDTEST_ARCHIVE_SHA256\" \"$SPEEDTEST_STAGE/speedtest.tgz\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("        || fail_boot \"Ookla speedtest archive checksum mismatch\"");
+        sb.AppendLine("    tar -xzf \"$SPEEDTEST_STAGE/speedtest.tgz\" -C \"$SPEEDTEST_STAGE\" speedtest \\");
+        sb.AppendLine("        || fail_boot \"failed to extract Ookla speedtest\"");
+        sb.AppendLine("    [ -f \"$SPEEDTEST_STAGE/speedtest\" ] && [ ! -L \"$SPEEDTEST_STAGE/speedtest\" ] \\");
+        sb.AppendLine("        || fail_boot \"Ookla speedtest archive did not contain a regular binary\"");
+        sb.AppendLine("    chmod 0755 \"$SPEEDTEST_STAGE/speedtest\"");
+        sb.AppendLine("    printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_STAGE/speedtest\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("        || fail_boot \"Ookla speedtest binary checksum mismatch\"");
+        sb.AppendLine("    mv -f \"$SPEEDTEST_STAGE/speedtest\" \"${SPEEDTEST_BIN}.new\"");
+        sb.AppendLine("    mv -f \"${SPEEDTEST_BIN}.new\" \"$SPEEDTEST_BIN\"");
+        sb.AppendLine("    speedtest_is_valid || fail_boot \"installed Ookla speedtest failed validation\"");
+        sb.AppendLine("    cleanup_speedtest_stage");
+        sb.AppendLine("    trap - EXIT HUP INT TERM");
         sb.AppendLine("fi");
         sb.AppendLine();
         // Refresh the package index once if either base dependency is missing, so a
-        // console with stale/empty apt lists can still resolve bc/jq. The Ookla block
-        // above gets its index refresh from the packagecloud script; these don't.
+        // console with stale/empty apt lists can still resolve bc/jq.
         sb.AppendLine("# Refresh package lists once if a base dependency is missing");
         sb.AppendLine("if ! which bc > /dev/null 2>&1 || ! which jq > /dev/null 2>&1; then");
         sb.AppendLine("    apt-get update");
@@ -253,6 +313,15 @@ public class ScriptGenerator
         sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
+        sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
+        sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");
+        sb.AppendLine($"SPEEDTEST_BUILD_ID=\"{ManagedSpeedtestBuildId}\"");
+        sb.AppendLine("case \"$(uname -m)\" in");
+        sb.AppendLine("    aarch64|arm64) SPEEDTEST_BINARY_SHA256=\"d99fa13293f658b53eaa79fe81f4b210db39fdfc1e9698f33da3f234a6008df7\" ;;");
+        sb.AppendLine("    armv7l|armv7) SPEEDTEST_BINARY_SHA256=\"66ad57568664e6f8580e14ad67316a57038fd22b30548bef98531df4ebcc8956\" ;;");
+        sb.AppendLine("    x86_64|amd64) SPEEDTEST_BINARY_SHA256=\"31f1124c5ab8acdae6b9fe1741e704df420f9f2e7d429679fabe62075453c051\" ;;");
+        sb.AppendLine("    *) SPEEDTEST_BINARY_SHA256=\"unsupported\" ;;");
+        sb.AppendLine("esac");
         sb.AppendLine();
 
         // Baseline data
@@ -265,9 +334,12 @@ public class ScriptGenerator
         sb.AppendLine();
 
         // Check for speedtest
-        sb.AppendLine("# Check if speedtest is installed");
-        sb.AppendLine("if ! which speedtest > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"[$(date)] ERROR: speedtest not found\" >> $LOG_FILE");
+        sb.AppendLine("# Validate the exact managed speedtest build before changing TC rates");
+        sb.AppendLine("if [ \"$SPEEDTEST_BINARY_SHA256\" = \"unsupported\" ] \\");
+        sb.AppendLine("    || [ ! -f \"$SPEEDTEST_BIN\" ] || [ -L \"$SPEEDTEST_BIN\" ] || [ ! -x \"$SPEEDTEST_BIN\" ] \\");
+        sb.AppendLine("    || ! printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_BIN\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("    || ! \"$SPEEDTEST_BIN\" --version 2>/dev/null | head -n 1 | grep -Fq \"Speedtest by Ookla ${SPEEDTEST_CLI_VERSION} (${SPEEDTEST_BUILD_ID})\"; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: managed speedtest binary is missing or failed validation\" >> $LOG_FILE");
         sb.AppendLine("    exit 1");
         sb.AppendLine("fi");
         sb.AppendLine();
@@ -306,7 +378,7 @@ public class ScriptGenerator
             ? ""
             : $" --server-id={_config.PreferredSpeedtestServerId}";
         sb.AppendLine("# Run speedtest");
-        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --accept-gdpr --format=json --interface=$INTERFACE{serverIdArg})");
+        sb.AppendLine($"speedtest_output=$(\"$SPEEDTEST_BIN\" --accept-license --accept-gdpr --format=json --interface=$INTERFACE{serverIdArg})");
         sb.AppendLine();
         sb.AppendLine("# Parse download speed (bytes/sec to Mbps)");
         sb.AppendLine("download_speed_bytes=$(echo \"$speedtest_output\" | jq .download.bandwidth)");

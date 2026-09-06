@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using NetworkOptimizer.Sqm.Models;
 using Xunit;
@@ -484,6 +485,110 @@ public class ScriptGeneratorTests
         // on Windows, which made these assertions pass on CI and fail locally).
         return generator.GenerateAllScripts(new Dictionary<string, string> { ["0_12"] = "880" })
             .ToDictionary(kv => kv.Key, kv => kv.Value.Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public void GenerateBootScript_InstallsPinnedOoklaArchiveAtomically()
+    {
+        var generator = new ScriptGenerator(new SqmConfiguration
+        {
+            ConnectionName = "WAN",
+            Interface = "eth8.201",
+            MaxDownloadSpeed = 1000,
+            MinDownloadSpeed = 100,
+            AbsoluteMaxDownloadSpeed = 1100,
+            PingHost = "1.1.1.1"
+        });
+
+        var script = generator.GenerateBootScript(new Dictionary<string, string>());
+
+        Assert.Contains("SPEEDTEST_RELEASE=\"1.2.0\"", script);
+        Assert.Contains("SPEEDTEST_CLI_VERSION=\"1.2.0.84\"", script);
+        Assert.Contains("https://install.speedtest.net/app/cli/ookla-speedtest-${SPEEDTEST_RELEASE}-linux-${SPEEDTEST_ARCH}.tgz", script);
+        Assert.Contains("SPEEDTEST_ARCHIVE_SHA256", script);
+        Assert.Contains("SPEEDTEST_BINARY_SHA256", script);
+        Assert.Contains("--max-filesize 4194304", script);
+        Assert.Contains("mktemp -d \"${SPEEDTEST_DIR}/.speedtest-install.XXXXXX\"", script);
+        Assert.Contains("mv -f \"${SPEEDTEST_BIN}.new\" \"$SPEEDTEST_BIN\"", script);
+    }
+
+    [Fact]
+    public void GenerateBootScript_DoesNotMutateUniFiSpeedtestPackage()
+    {
+        var generator = new ScriptGenerator(new SqmConfiguration
+        {
+            ConnectionName = "WAN",
+            Interface = "eth8.201",
+            MaxDownloadSpeed = 1000,
+            MinDownloadSpeed = 100,
+            AbsoluteMaxDownloadSpeed = 1100,
+            PingHost = "1.1.1.1"
+        });
+
+        var script = generator.GenerateBootScript(new Dictionary<string, string>());
+
+        Assert.DoesNotContain("packagecloud.io", script);
+        Assert.DoesNotContain("apt-get remove -y speedtest", script);
+        Assert.DoesNotContain("apt-get install -y speedtest", script);
+    }
+
+    [Fact]
+    public void GenerateBootScript_CalibrationUsesOnlyManagedSpeedtest()
+    {
+        var generator = new ScriptGenerator(new SqmConfiguration
+        {
+            ConnectionName = "WAN",
+            Interface = "eth8.201",
+            MaxDownloadSpeed = 1000,
+            MinDownloadSpeed = 100,
+            AbsoluteMaxDownloadSpeed = 1100,
+            PingHost = "1.1.1.1"
+        });
+
+        var script = generator.GenerateBootScript(new Dictionary<string, string>());
+        var speedtest = ExtractHeredocSection(script, "SPEEDTEST_EOF");
+
+        Assert.Contains($"SPEEDTEST_BIN=\"{ScriptGenerator.ManagedSpeedtestPath}\"", speedtest);
+        Assert.Contains("speedtest_output=$(\"$SPEEDTEST_BIN\" --accept-license", speedtest);
+        Assert.DoesNotContain("speedtest_output=$(speedtest ", speedtest);
+    }
+
+    [Fact]
+    public void GenerateBootScript_HasValidBashSyntax()
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash"))
+            return;
+
+        var generator = new ScriptGenerator(new SqmConfiguration
+        {
+            ConnectionName = "WAN",
+            Interface = "eth8.201",
+            MaxDownloadSpeed = 1000,
+            MinDownloadSpeed = 100,
+            AbsoluteMaxDownloadSpeed = 1100,
+            PingHost = "1.1.1.1"
+        });
+        var path = Path.Combine(Path.GetTempPath(), $"networkoptimizer-sqm-{Guid.NewGuid():N}.sh");
+
+        try
+        {
+            File.WriteAllText(path, generator.GenerateBootScript(new Dictionary<string, string>()));
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                ArgumentList = { "-n", path }
+            });
+
+            Assert.NotNull(process);
+            process!.WaitForExit();
+            Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>
