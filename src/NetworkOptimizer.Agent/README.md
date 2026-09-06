@@ -181,7 +181,11 @@ If the agent's enrollment is invalidated server-side - removed in the UI
 (Settings > Multi-Site > site > Agents > Remove) - the agent stops connecting
 and logs `Invalid agent key`. The agent only enrolls when its config has no
 `agentKey`, so a stale key must go before a new token is used. Re-running the
-installer with a fresh token does this for you:
+installer with a fresh token does this for you. The installer first checks the
+existing key against the server: if the server still accepts it, the key is kept
+and the token is ignored, so re-running a saved install command (which carries
+its original, already-used token) is a safe in-place upgrade. Only a key the
+server rejects is replaced by the token:
 
 1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
    (site) > Agents > Add Agent** (or **Set up agent** for a site with none).

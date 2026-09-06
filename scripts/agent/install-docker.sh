@@ -122,26 +122,46 @@ ok "docker-compose.yml"
 CONFIG="${INSTALL_DIR}/data/agent.json"
 
 step "Configuring the agent"
-# Preserve an already-enrolled config so re-running the installer (e.g. to
-# update the image) never wipes the persisted agent key - unless this run
-# brought a new token, which means re-enroll: the agent only enrolls when it
-# has no key, so the old key and site go and the token takes their place.
+# Preserve an already-enrolled config so re-running the installer (e.g. to update the
+# image) never wipes the persisted agent key. A token on top of an enrolled config
+# re-enrolls ONLY when the server no longer accepts the existing key (agent removed or
+# disabled): a saved install command carries its original, already-used token, and
+# re-running it is how people upgrade, so discarding a working key on that would loop
+# the agent on a dead token. The probe is the heartbeat every agent version already sends.
 FRESH_CONFIG=false
 if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
     if [ -n "$TOKEN" ]; then
-        FRESH_CONFIG=true
-        note "Re-enrolling with the new token - the previous agent key is discarded"
-        $SUDO cp -p "$CONFIG" "${CONFIG}.bak"
-        note "Previous config saved to ${CONFIG}.bak"
-        $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
-        if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
-            $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
-        else
-            $SUDO sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
-        fi
-        # A deleted last property leaves a trailing comma behind.
-        $SUDO sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
-        ok "Updated ${CONFIG}"
+        CURRENT_KEY=$($SUDO sed -n 's/^[[:space:]]*"agentKey":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" | head -n 1)
+        SERVER_URL=$($SUDO sed -n 's/^[[:space:]]*"serverUrl":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" | head -n 1)
+        [ -n "$SERVER_URL" ] || SERVER_URL="$SERVER"
+        CURL_TLS=""
+        if [ "$INSECURE" = true ] || $SUDO grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
+        KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
+            -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
+        case "$KEY_STATUS" in
+            204)
+                note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"
+                ;;
+            401)
+                FRESH_CONFIG=true
+                note "The server no longer accepts this agent's key - re-enrolling with the token"
+                $SUDO cp -p "$CONFIG" "${CONFIG}.bak"
+                note "Previous config saved to ${CONFIG}.bak"
+                $SUDO sed -i -e '/^[[:space:]]*"agentKey":/d' -e '/^[[:space:]]*"siteSlug":/d' "$CONFIG"
+                if $SUDO grep -q '"enrollmentToken"' "$CONFIG"; then
+                    $SUDO sed -i "s|\"enrollmentToken\": *[^,]*|\"enrollmentToken\": \"${TOKEN}\"|" "$CONFIG"
+                else
+                    $SUDO sed -i "0,/{/s/{/{\n  \"enrollmentToken\": \"${TOKEN}\",/" "$CONFIG"
+                fi
+                # A deleted last property leaves a trailing comma behind.
+                $SUDO sed -i -z 's/,\([[:space:]]*\)}/\1}/' "$CONFIG"
+                ok "Updated ${CONFIG}"
+                ;;
+            *)
+                warn "Could not verify the existing key with ${SERVER_URL} (HTTP ${KEY_STATUS}) - keeping agent.json unchanged. Re-run once the server is reachable, or remove the agent in the app to force a fresh enrollment."
+                ;;
+        esac
     else
         note "Existing enrollment found - keeping agent.json"
     fi
