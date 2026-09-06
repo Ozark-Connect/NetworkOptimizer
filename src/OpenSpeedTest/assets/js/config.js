@@ -2,6 +2,10 @@
  * OpenSpeedTest Configuration
  * Values are injected at container startup by docker-entrypoint.sh
  * Placeholders are replaced with actual values via sed
+ *
+ * TWIN FILE: src/NetworkOptimizer.Installer/SpeedTest/config.js.template is the same
+ * logic with {{PLACEHOLDER}} syntax for the Windows MSI and macOS native installs.
+ * Any change to one must be made in the other. Only the placeholder syntax may differ.
  */
 
 // These will be replaced by the entrypoint script
