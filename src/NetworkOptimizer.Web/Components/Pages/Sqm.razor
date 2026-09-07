@@ -1643,6 +1643,11 @@
         white-space: nowrap;
     }
 
+    .insight-pending {
+        grid-column: 1 / -1;
+        margin: 0;
+    }
+
     @@media (max-width: 768px) {
         .learning-insights {
             grid-template-columns: 1fr;
@@ -1860,8 +1865,7 @@
                         }
                         else if (status.IsActive)
                         {
-                            <span class="insight-label">Slowest</span>
-                            <span>after a couple of days of samples.</span>
+                            <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear after two days of samples.</span>
                         }
                     </div>
                 }
