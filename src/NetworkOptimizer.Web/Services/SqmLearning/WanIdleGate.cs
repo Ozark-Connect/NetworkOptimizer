@@ -23,24 +23,29 @@ public class WanIdleGate
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(60);
 
     private readonly UniFiConnectionService _connectionService;
-    private readonly MonitoringInfluxClient _influx;
+    private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteContextService _siteContext;
     private readonly ILogger<WanIdleGate> _logger;
 
+    // The registry rather than the scoped MonitoringInfluxClient forwarder: the schedule executor
+    // runs in a synchronously disposed scope, and the forwarder registers an async-only disposable
+    // there, which the container refuses to dispose ("type only implements IAsyncDisposable").
     public WanIdleGate(
         UniFiConnectionService connectionService,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         SiteDbContextFactory siteDb,
         SiteContextService siteContext,
         ILogger<WanIdleGate> logger)
     {
         _connectionService = connectionService;
-        _influx = influx;
+        _influxRegistry = influxRegistry;
         _siteDb = siteDb;
         _siteContext = siteContext;
         _logger = logger;
     }
+
+    private MonitoringInfluxClient Influx => _influxRegistry.GetFor(_siteContext.Slug);
 
     /// <summary>A traffic reading for the WAN and where it came from.</summary>
     public sealed record IdleReading(double DownloadMbps, double UploadMbps, string Source)
@@ -69,7 +74,7 @@ public class WanIdleGate
                 return null;
 
             var now = DateTime.UtcNow;
-            var points = await _influx.QueryGatewayWanRatesAsync(
+            var points = await Influx.QueryGatewayWanRatesAsync(
                 mac, new[] { counter }, now - MaxReadingAge, now,
                 aggregateWindow: TimeSpan.FromSeconds(5), ct: ct);
             var fresh = points.Where(p => p.Time >= now - Window).ToList();
