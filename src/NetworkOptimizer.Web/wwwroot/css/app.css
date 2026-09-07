@@ -20439,6 +20439,11 @@ body.kiosk-mode .status-indicators {
     gap: 0.35rem;
 }
 
+/* Lines up with the text inside the picker on the rows that have one. */
+.identity-role-text {
+    margin-left: 0.5rem;
+}
+
 .identity-credentials,
 .identity-row-actions {
     display: flex;
