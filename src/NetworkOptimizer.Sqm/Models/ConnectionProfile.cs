@@ -125,6 +125,71 @@ public class ConnectionProfile
     private string? _preferredSpeedtestServerId;
 
     /// <summary>
+    /// A learned 7x24 download curve (day 0 = Monday) that replaces the connection type's built-in
+    /// pattern when set. Values are fractions of nominal, exactly like the built-in patterns.
+    /// </summary>
+    public double[,]? CustomDownloadPattern { get; set; }
+
+    /// <summary>
+    /// A learned 7x24 upload curve. When null the upload schedule follows the download curve.
+    /// </summary>
+    public double[,]? CustomUploadPattern { get; set; }
+
+    /// <summary>
+    /// Dynamic upload shaping never drops below this fraction of nominal upload: the schedule and
+    /// the ping loop together can take at most half the upstream away.
+    /// </summary>
+    public const double MinUploadFraction = 0.5;
+
+    /// <summary>
+    /// Whether the medium's upstream is shared and congestion-sensitive enough for dynamic upload
+    /// shaping. Fiber and DOCSIS are not upstream-constrained by contention in the same way, so
+    /// they stay on the static nominal upload rate.
+    /// </summary>
+    public static bool SupportsDynamicUpload(ConnectionType type) =>
+        type is ConnectionType.CellularHome or ConnectionType.Starlink or ConnectionType.FixedWireless;
+
+    /// <summary>Default upload shaping strength for a connection type: half strength on shared media, off elsewhere.</summary>
+    public static double DefaultUploadCongestionSeverity(ConnectionType type) =>
+        SupportsDynamicUpload(type) ? 0.5 : 0.0;
+
+    /// <summary>
+    /// Upload multiplier for one hour: the curve's dip scaled by <paramref name="uploadSeverity"/>
+    /// (0 = flat, 1 = the full dip), floored at <see cref="MinUploadFraction"/> and capped at 1.0.
+    /// The cap matters for curves that exceed nominal in places (Starlink's); upload never shapes
+    /// above the configured nominal.
+    /// </summary>
+    public static double EffectiveUploadMultiplier(double multiplier, double uploadSeverity) =>
+        Math.Clamp(1.0 - (1.0 - multiplier) * uploadSeverity, MinUploadFraction, 1.0);
+
+    /// <summary>The upload curve for UI display: learned upload, else learned download, else the built-in pattern.</summary>
+    public double[,] GetUploadPatternPublic() => GetUploadPattern();
+
+    /// <summary>
+    /// Get the 168-hour upload schedule scaled to nominal upload, in the same "day_hour" keyed form
+    /// as <see cref="GetHourlyBaseline"/>. Severity 0 yields nominal upload for every hour.
+    /// </summary>
+    public Dictionary<string, string> GetHourlyUploadBaseline(double uploadSeverity)
+    {
+        var baseline = new Dictionary<string, string>();
+        var pattern = GetUploadPattern();
+
+        for (int day = 0; day < 7; day++)
+        {
+            for (int hour = 0; hour < 24; hour++)
+            {
+                var multiplier = EffectiveUploadMultiplier(pattern[day, hour], uploadSeverity);
+                var speed = Math.Max(1, (int)(multiplier * NominalUploadMbps));
+                baseline[$"{day}_{hour}"] = speed.ToString();
+            }
+        }
+
+        return baseline;
+    }
+
+    private double[,] GetUploadPattern() => CustomUploadPattern ?? CustomDownloadPattern ?? GetBaselinePattern();
+
+    /// <summary>
     /// Get default speedtest server based on connection type
     /// </summary>
     private string? GetDefaultSpeedtestServer()
@@ -443,6 +508,9 @@ public class ConnectionProfile
     /// </summary>
     private double[,] GetBaselinePattern()
     {
+        if (CustomDownloadPattern != null)
+            return CustomDownloadPattern;
+
         return Type switch
         {
             // DOCSIS Cable: stable with predictable peak-hour congestion

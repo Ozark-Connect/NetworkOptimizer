@@ -6,6 +6,29 @@ using NetworkOptimizer.Web.Services.Gates;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
+/// Per-run tuning for the gateway WAN speed test. The defaults reproduce the standard test exactly;
+/// Adaptive SQM learning passes a short duration, keeps its own record, and lifts the shaper.
+/// </summary>
+public sealed record GatewayWanTestOptions
+{
+    /// <summary>Seconds per direction handed to the binary. The standard test uses 8.</summary>
+    public int DurationSeconds { get; init; } = 8;
+
+    /// <summary>
+    /// Return the parsed result without storing it, alerting on it, or analyzing its path. For a
+    /// caller that records the measurement itself, so hourly samples never land in the WAN Speed
+    /// Test history or trip a speed-degradation alert.
+    /// </summary>
+    public bool Ephemeral { get; init; }
+
+    /// <summary>Lift the WAN's shaper around the test so it measures the line, not the current SQM rate.</summary>
+    public SqmShaperLift? ShaperLift { get; init; }
+}
+
+/// <summary>Rates to hold on the WAN's HTB roots while a measurement runs; restored when the binary exits.</summary>
+public sealed record SqmShaperLift(int DownloadProbeMbps, int UploadProbeMbps, bool RateProportionalDownloadBurst);
+
+/// <summary>
 /// The WAN speed test surface shared by the server-side (uwnspeedtest) runner. Running a speed test
 /// is the one mutating action an Operator may take (design doc 08); editing or deleting stored
 /// results is an Admin change to recorded data.
@@ -118,7 +141,8 @@ public interface IGatewayWanSpeedTestService
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
         IReadOnlyList<WanInterfaceInfo>? allInterfaces = null,
         bool maxMode = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        GatewayWanTestOptions? options = null);
 
     /// <summary>Stored gateway WAN results for this site.</summary>
     [RequireRole(Roles.Viewer)]

@@ -20,6 +20,7 @@ using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
+using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
 using Serilog;
 using Serilog.Events;
@@ -247,6 +248,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Storage.Interfaces.ISharedFirmwar
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmLearningRepository, NetworkOptimizer.Storage.Repositories.SqmLearningRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
@@ -786,6 +788,11 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Ssh.GatewayShaperProbeS
 // the method's [RequireRole] and writes its [AuditAction] envelope.
 builder.Services.AddMutatingService<ISqmService, SqmService>();
 builder.Services.AddMutatingService<ISqmDeploymentService, SqmDeploymentService>();
+// Congestion profile learning: the gated surface the page uses, plus the scoped pieces the
+// schedule executor resolves from a site-pinned scope.
+builder.Services.AddMutatingService<ISqmLearningService, SqmLearningService>();
+builder.Services.AddScoped<SqmLearningExecutor>();
+builder.Services.AddScoped<WanIdleGate>();
 builder.Services.AddMutatingService<IWanSteerDeploymentService, WanSteerDeploymentService>();
 builder.Services.AddMutatingService<IWanSteerRuleService, WanSteerRuleService>();
 builder.Services.AddMutatingService<ISiteConfigurationService, SiteConfigurationService>();

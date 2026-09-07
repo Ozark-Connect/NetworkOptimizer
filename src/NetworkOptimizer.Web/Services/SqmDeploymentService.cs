@@ -405,7 +405,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             steps.Add("Generating SQM boot script...");
             var generator = new ScriptGenerator(config, initialDelaySeconds);
             baseline ??= GenerateDefaultBaseline(config);
-            var scripts = generator.GenerateAllScripts(baseline);
+            var scripts = generator.GenerateAllScripts(baseline, GenerateUploadBaseline(config));
             var bootScriptName = generator.GetBootScriptName();
 
             // Step 3: Deploy the boot script
@@ -871,19 +871,17 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// </summary>
     private Dictionary<string, string> GenerateDefaultBaseline(SqmConfig config)
     {
-        // Create a ConnectionProfile to get the hourly baseline pattern
-        var profile = new ConnectionProfile
-        {
-            Type = config.ConnectionType,
-            Name = config.ConnectionName ?? "",
-            Interface = config.Interface,
-            NominalDownloadMbps = config.NominalDownloadSpeed,
-            NominalUploadMbps = config.NominalUploadSpeed
-        };
-
-        // Get the 168-hour baseline scaled to nominal speed, with congestion severity applied
-        return profile.GetHourlyBaseline(config.CongestionSeverity);
+        // The configuration's profile carries the learned curves when a learned profile is in use;
+        // otherwise this is the connection type's built-in pattern, as before.
+        return config.GetProfile().GetHourlyBaseline(config.CongestionSeverity);
     }
+
+    /// <summary>
+    /// The 168-hour upload schedule, or null when upload stays static (strength 0, the default),
+    /// in which case the generated scripts are identical to those before dynamic upload existed.
+    /// </summary>
+    private static Dictionary<string, string>? GenerateUploadBaseline(SqmConfig config) =>
+        config.DynamicUpload ? config.GetProfile().GetHourlyUploadBaseline(config.UploadCongestionSeverity) : null;
 
     /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs

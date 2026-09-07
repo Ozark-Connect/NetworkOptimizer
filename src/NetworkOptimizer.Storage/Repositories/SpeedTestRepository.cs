@@ -448,6 +448,8 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.LinkSpeedOverrideMbps = config.LinkSpeedOverrideMbps;
                 existing.BootDelaySeconds = config.BootDelaySeconds;
                 existing.RateProportionalDownloadBurst = config.RateProportionalDownloadBurst;
+                existing.UploadCongestionSeverity = config.UploadCongestionSeverity;
+                existing.UseLearnedProfile = config.UseLearnedProfile;
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else

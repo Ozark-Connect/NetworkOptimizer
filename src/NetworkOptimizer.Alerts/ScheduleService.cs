@@ -48,6 +48,16 @@ public class ScheduleService : BackgroundService
     /// </summary>
     public Func<string, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? LanSpeedTestExecutor { get; set; }
 
+    /// <summary>Task type of the one-time Adaptive SQM congestion learning schedule.</summary>
+    public const string SqmLearningTaskType = "sqm_learning";
+
+    /// <summary>
+    /// Delegate that the Web project registers to take one Adaptive SQM learning sample.
+    /// Takes (siteKey, taskId, targetId, targetConfig). Its outcome may name the next run (a busy
+    /// link retries within the hour) and whether the run deserves an alert.
+    /// </summary>
+    public Func<string, int, string?, string?, CancellationToken, Task<ScheduleRunOutcome>>? SqmLearningExecutor { get; set; }
+
     public ScheduleService(
         ILogger<ScheduleService> logger,
         IServiceScopeFactory scopeFactory,
@@ -216,22 +226,36 @@ public class ScheduleService : BackgroundService
 
         try
         {
-            var (success, summary, error) = taskType switch
+            // The learning executor steers its own next run and alerting; the others keep the
+            // plain (success, summary, error) contract and the default cadence.
+            ScheduleRunOutcome outcome;
+            if (taskType == SqmLearningTaskType)
             {
-                "audit" => AuditExecutor != null
-                    ? await AuditExecutor(siteKey, ct)
-                    : (false, null, "Audit executor not registered"),
-                "wan_speedtest" => WanSpeedTestExecutor != null
-                    ? await WanSpeedTestExecutor(siteKey, taskId, targetId, targetConfig, ct)
-                    : (false, null, "WAN speed test executor not registered"),
-                "lan_speedtest" => LanSpeedTestExecutor != null
-                    ? await LanSpeedTestExecutor(siteKey, targetId, targetConfig, ct)
-                    : (false, null, "LAN speed test executor not registered"),
-                _ => (false, (string?)null, $"Unknown task type: {taskType}")
-            };
+                outcome = SqmLearningExecutor != null
+                    ? await SqmLearningExecutor(siteKey, taskId, targetId, targetConfig, ct)
+                    : new ScheduleRunOutcome(false, null, "Adaptive SQM learning executor not registered");
+            }
+            else
+            {
+                var (s, m, e) = taskType switch
+                {
+                    "audit" => AuditExecutor != null
+                        ? await AuditExecutor(siteKey, ct)
+                        : (false, null, "Audit executor not registered"),
+                    "wan_speedtest" => WanSpeedTestExecutor != null
+                        ? await WanSpeedTestExecutor(siteKey, taskId, targetId, targetConfig, ct)
+                        : (false, null, "WAN speed test executor not registered"),
+                    "lan_speedtest" => LanSpeedTestExecutor != null
+                        ? await LanSpeedTestExecutor(siteKey, targetId, targetConfig, ct)
+                        : (false, null, "LAN speed test executor not registered"),
+                    _ => (false, (string?)null, $"Unknown task type: {taskType}")
+                };
+                outcome = new ScheduleRunOutcome(s, m, e);
+            }
+            var (success, summary, error) = (outcome.Success, outcome.Summary, outcome.Error);
 
             var status = success ? "success" : "failed";
-            var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
+            var nextRun = outcome.NextRunAt ?? CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
 
             // DB update - failure here shouldn't change the task's reported status
             try
@@ -249,7 +273,11 @@ public class ScheduleService : BackgroundService
                 taskId, taskType, status, summary ?? "no summary");
 
             // Alert publishing - based on actual task result, not DB update success
-            if (success)
+            if (!outcome.Notify)
+            {
+                // A quiet run (a learning sample, a busy-link retry) is recorded on the task only.
+            }
+            else if (success)
             {
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -414,6 +442,19 @@ public class ScheduleService : BackgroundService
         "audit" => "security audit",
         "wan_speedtest" => "WAN speed test",
         "lan_speedtest" => "LAN speed test",
+        SqmLearningTaskType => "Adaptive SQM learning",
         _ => taskType
     };
 }
+
+/// <summary>
+/// What a schedule executor reports back. <paramref name="NextRunAt"/> overrides the task's
+/// regular cadence for one cycle (null keeps it); <paramref name="Notify"/> false records the run
+/// on the task without raising the completed/failed alert.
+/// </summary>
+public sealed record ScheduleRunOutcome(
+    bool Success,
+    string? Summary,
+    string? Error,
+    DateTime? NextRunAt = null,
+    bool Notify = true);
