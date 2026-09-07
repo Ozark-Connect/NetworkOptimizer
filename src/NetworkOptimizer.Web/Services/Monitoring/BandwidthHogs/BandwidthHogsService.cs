@@ -154,6 +154,7 @@ public class BandwidthHogsService
         DateTime? at, double? wanDownBps, double? wanUpBps, IReadOnlyCollection<string> wanKeys,
         IReadOnlyCollection<string>? wanHistoryKeys = null, CancellationToken ct = default)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var snapshot = await _map.BuildSnapshotAsync(ct);
         List<LanNode> nodes;
         List<LanLink> links;
@@ -172,6 +173,7 @@ public class BandwidthHogsService
             links = snapshot.Links.Concat(historic.AddedClientLinks).ToList();
             rates = historic.LinkRates;
         }
+        var mapMs = sw.ElapsedMilliseconds;
 
         var nodeById = new Dictionary<string, LanNode>(StringComparer.OrdinalIgnoreCase);
         foreach (var n in nodes) nodeById.TryAdd(n.Id, n);
@@ -208,22 +210,6 @@ public class BandwidthHogsService
             measured.Add((node, Math.Max(0, rate.DownstreamBps), Math.Max(0, rate.UpstreamBps), capDown, capUp, historyKey));
         }
 
-        // Live weights by the last quarter hour. At the playhead the window snaps to quarter-hour
-        // boundaries, so every position inside one shares a single cached DPI report.
-        var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % DpiRecentWindow.Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
-        var dpi = await DpiTotalsAsync(end - DpiRecentWindow, end, ct);
-        var history = await DpiTotalsAsync(end - ExclusionLookback, end, ct);
-        var firstSeen = await FirstSeenAsync(ct);
-
-        bool NotAWanUser(string mac) => IsNotAWanUser(
-            firstSeen.TryGetValue(mac, out var seen) ? seen : null,
-            history.TryGetValue(mac, out var h) ? h.Down + h.Up : 0,
-            dpi.TryGetValue(mac, out var r) ? r.Down + r.Up : 0,
-            end, ExclusionLookback, ExclusionFloorBytes);
-
-        var included = new List<int>(measured.Count);
-        var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
-        var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
         // Live only; at the playhead the split runs on DPI weights alone. Per-row source
         // hierarchy, best evidence first:
         //   1. The gateway agent's conntrack-measured WAN: exact from its first report. A
@@ -250,13 +236,35 @@ public class BandwidthHogsService
                     playbackRates = measuredAt.ToDictionary(
                         r => r.ClientMac, r => (r.DownBps, r.UpBps), StringComparer.OrdinalIgnoreCase);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogDebug(ex, "Bandwidth Hogs: measured WAN unavailable at the playhead; splitting from DPI");
             }
         }
         var conntrackCovered = playbackRates != null
             || (liveStats != null && liveStats.HasConntrackCoverage());
+        var measuredMs = sw.ElapsedMilliseconds - mapMs;
+
+        // Live weights by the last quarter hour. At the playhead the window snaps to quarter-hour
+        // boundaries, so every position inside one shares a single cached DPI report. Only the
+        // estimated split reads these: a covered site skips them, and at the playhead each new
+        // quarter hour is otherwise two console reports behind the console's own call spacing.
+        var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % DpiRecentWindow.Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
+        var none = new Dictionary<string, (double Down, double Up)>(StringComparer.OrdinalIgnoreCase);
+        var dpi = conntrackCovered ? none : await DpiTotalsAsync(end - DpiRecentWindow, end, ct);
+        var history = conntrackCovered ? none : await DpiTotalsAsync(end - ExclusionLookback, end, ct);
+        var firstSeen = conntrackCovered ? new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase) : await FirstSeenAsync(ct);
+        var dpiMs = sw.ElapsedMilliseconds - mapMs - measuredMs;
+
+        bool NotAWanUser(string mac) => IsNotAWanUser(
+            firstSeen.TryGetValue(mac, out var seen) ? seen : null,
+            history.TryGetValue(mac, out var h) ? h.Down + h.Up : 0,
+            dpi.TryGetValue(mac, out var r) ? r.Down + r.Up : 0,
+            end, ExclusionLookback, ExclusionFloorBytes);
+
+        var included = new List<int>(measured.Count);
+        var loadsDown = new List<WanShareReconciler.Load>(measured.Count);
+        var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
@@ -434,6 +442,9 @@ public class BandwidthHogsService
         }
 
         var (capDownTotal, capUpTotal) = await CapacityAsync(wanKeys, ct);
+        if (at != null)
+            _logger.LogDebug("Bandwidth Hogs: playhead answer in {Ms} ms (map {MapMs}, measured {MeasuredMs}, dpi {DpiMs}; covered={Covered})",
+                sw.ElapsedMilliseconds, mapMs, measuredMs, dpiMs, conntrackCovered);
         return new HogsResult
         {
             Rows = rows,
@@ -469,7 +480,7 @@ public class BandwidthHogsService
             return hit.Result;
         LanFlowMapSnapshot? snapshot = null;
         try { snapshot = await _map.BuildSnapshotAsync(ct); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Bandwidth Hogs: no topology snapshot; naming clients from telemetry"); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Bandwidth Hogs: no topology snapshot; naming clients from telemetry"); }
         var nodeByMac = new Dictionary<string, LanNode>(StringComparer.OrdinalIgnoreCase);
         var nodeById = new Dictionary<string, LanNode>(StringComparer.OrdinalIgnoreCase);
         if (snapshot != null)
@@ -511,7 +522,7 @@ public class BandwidthHogsService
                     };
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogDebug(ex, "Bandwidth Hogs: WAN usage unavailable");
             }
@@ -535,7 +546,7 @@ public class BandwidthHogsService
                     };
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogDebug(ex, "Bandwidth Hogs: measured WAN usage unavailable");
             }
@@ -562,7 +573,7 @@ public class BandwidthHogsService
                 rows[t.ClientMac] = row with { DownBytes = t.ToClientBytes, UpBytes = t.FromClientBytes, IsWired = false };
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: wireless usage unavailable");
         }
@@ -667,7 +678,7 @@ public class BandwidthHogsService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: wired usage unavailable");
         }
@@ -688,7 +699,7 @@ public class BandwidthHogsService
             var coverage = await _influx.QueryClientWanCoverageHoursAsync(from, to, ct);
             return coverage.Count == 0 ? to : CoverageBoundary(coverage, from, to);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: conntrack coverage unavailable; WAN usage stays DPI");
             return to;
@@ -912,7 +923,7 @@ public class BandwidthHogsService
                 totals[mac] = (down, up);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: DPI report unavailable; WAN split weighted by rate");
         }
@@ -1088,7 +1099,7 @@ public class BandwidthHogsService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: client list unavailable; nothing excluded from WAN");
         }
@@ -1127,7 +1138,7 @@ public class BandwidthHogsService
             }
             return (down, up);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Bandwidth Hogs: WAN capacity unavailable");
             return (null, null);

@@ -2661,6 +2661,8 @@
     private HistoricStatSnapshot? _historicSnapshot;
     // Seeks overlap during a drag, and a slow older query must not land over a newer answer.
     private int _historicSnapshotSeq;
+    // The instant the landed snapshot's WAN rate describes; Bandwidth Hogs asks once it matches the playhead.
+    private DateTime? _hogsWanRateAt;
 
     // Setup is the default so a site that cannot finish initializing - unreachable InfluxDB,
     // failing SNMP - still lands where it can be fixed. It just must not RENDER before the
@@ -4437,6 +4439,7 @@
             ClearLinkedInstant();
             _mapHistoricAt = null;
             _historicSnapshot = null;
+            _hogsWanRateAt = null;
             Interlocked.Increment(ref _historicSnapshotSeq);
             await InvokeAsync(StateHasChanged);
             return;
@@ -4733,6 +4736,7 @@
 
         // A newer seek (or a return to live) has superseded this instant.
         if (seq != _historicSnapshotSeq) return;
+        _hogsWanRateAt = at;
         _historicSnapshot = new HistoricStatSnapshot
         {
             PerWan = perWan,
@@ -5003,7 +5007,7 @@
     private RenderFragment BandwidthHogs => __builder =>
     {
         var wanRates = GetWanRates();
-        <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused"
+        <BandwidthHogsCard HistoricAt="_mapHistoricAt" Paused="_mapPaused" WanRateAt="_hogsWanRateAt"
                            WanDownBps="wanRates.download" WanUpBps="wanRates.upload"
                            WanKeys="LiveWan.SelectedKeys" WanHistoryKeys="GetWanHistoryKeys()"
                            MultiWan="_multiWanUiVisible" />
@@ -5707,6 +5711,7 @@
             _mapMounted = false;
             _mapHistoricAt = null;
             _historicSnapshot = null;
+            _hogsWanRateAt = null;
             Interlocked.Increment(ref _historicSnapshotSeq);
             try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
             catch { }
