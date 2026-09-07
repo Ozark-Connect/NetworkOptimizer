@@ -67,7 +67,7 @@
                     <thead>
                         <tr>
                             <th>User</th>
-                            <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            <th>@(ViewOnly ? "Global Role" : "Role") <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
                             @if (!ViewOnly)
                             {
                                 <th class="hide-mobile">Sign-in</th>
