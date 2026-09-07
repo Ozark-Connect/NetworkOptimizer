@@ -601,9 +601,12 @@
                 </div>
             </div>
 
-            @* Tour anchor sits on WAN 1 only, like the burst toggle below. *@
+            @* Tour anchors sit on WAN 1 only, like the burst toggle below. *@
             <div data-tour="sqm-congestion-profile">
                 @CongestionProfilePanel(wan1Config)
+            </div>
+            <div data-tour="sqm-learning">
+                @LearningPanel(wan1Config)
             </div>
 
             <div class="form-group">
@@ -658,16 +661,13 @@
                 </div>
                 @* Tour anchor sits on WAN 1 only; a duplicate selector would just resolve to this one. *@
                 <div class="form-group" data-tour="sqm-download-burst">
-                    <label class="toggle-label">
+                    <label class="checkbox-label">
                         <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
                 </div>
             </div>
-                </div>
-                <div class="learning-section" data-tour="sqm-learning">
-                    @LearningPanel(wan1Config)
                 </div>
             </div>
         </div>
@@ -781,6 +781,7 @@
             </div>
 
             @CongestionProfilePanel(wan2Config)
+            @LearningPanel(wan2Config)
 
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
@@ -833,16 +834,13 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="toggle-label">
+                    <label class="checkbox-label">
                         <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
                 </div>
             </div>
-                </div>
-                <div class="learning-section">
-                    @LearningPanel(wan2Config)
                 </div>
             </div>
         </div>
@@ -1601,14 +1599,6 @@
         color: var(--text-muted);
     }
 
-    .learning-section {
-        padding: 0 16px 16px;
-    }
-
-    .learning-section .calculated-params {
-        margin-top: 0;
-    }
-
     .learning-text {
         margin: 0 0 0.75rem 0;
         font-size: 0.85rem;
@@ -1754,8 +1744,7 @@
         </div>
     </div>;
 
-    // Rendered below the WAN's card body rather than inside it: the body is dimmed and
-    // click-blocked until Adaptive SQM is enabled for the WAN, and learning is meant to run first.
+    // Sits directly under Congestion Schedule as its peer, so it shares the card body's enable gate.
     private RenderFragment<WanConfigModel> LearningPanel => model =>
     @<div class="calculated-params" style="margin-top: 0.75rem;">
         @{
@@ -1771,7 +1760,7 @@
                     about @EstimateSampleMb(model).ToString("F0") MB per sample and up to @EstimateWeekGb(model).ToString("F1") GB over the week at your nominal speeds.
                     @if (!ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
                     {
-                        <text> Most useful on cellular, satellite, and fixed wireless, where the tower or cell decides the hour-by-hour speed.</text>
+                        <text> Most useful on cellular, satellite, and fixed wireless: shared, limited-capacity access where the hour-by-hour speed follows how congested the tower, cell, or beam is.</text>
                     }
                 </p>
                 <div class="learning-actions">
