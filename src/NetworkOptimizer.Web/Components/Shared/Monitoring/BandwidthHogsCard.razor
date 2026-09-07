@@ -261,6 +261,10 @@
     [Parameter] public double? WanDownBps { get; set; }
     [Parameter] public double? WanUpBps { get; set; }
 
+    /// <summary>The instant the WAN rate above describes, once the page's snapshot for it has
+    /// landed; null while live. At the playhead the card waits for it to match HistoricAt.</summary>
+    [Parameter] public DateTime? WanRateAt { get; set; }
+
     /// <summary>The selected WAN keys, for their expected speeds.</summary>
     [Parameter] public IReadOnlyCollection<string> WanKeys { get; set; } = Array.Empty<string>();
 
@@ -344,7 +348,9 @@
     private bool _disposed;
     private DateTime _lastLiveRefresh = DateTime.MinValue;
     private static readonly TimeSpan LiveRefreshFloor = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan SeekDebounce = TimeSpan.FromMilliseconds(400);
+    // Short: the map already spaces seeks half a second apart and the rate gate above admits
+    // one render per seek, so this only folds the odd back-to-back render.
+    private static readonly TimeSpan SeekDebounce = TimeSpan.FromMilliseconds(150);
 
     // Same key shape chart-window.js writes for the Network Performance and Stats tabs, so this is
     // one more remembered window per site, per tab, in this browser.
@@ -421,6 +427,9 @@
         if (HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey)
         {
             _refreshCts?.Cancel();
+            // The page renders on its own tick before the snapshot for a seek lands, carrying
+            // the previous instant's rate. Asking then is a question the snapshot cancels.
+            if (AwaitingPlayheadRate) { _seekTimer?.Dispose(); return; }
             ScheduleSeekRefresh();
             return;
         }
@@ -440,6 +449,9 @@
     /// </summary>
     private string SeekKey() => HistoricAt == null || _mode != Mode.Throughput ? ""
         : $"{string.Join(",", WanKeys)}|{WanDownBps?.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|{WanUpBps?.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    /// <summary>The playhead has moved but the WAN rate on the tiles still describes the previous instant.</summary>
+    private bool AwaitingPlayheadRate => HistoricAt != null && _mode == Mode.Throughput && WanRateAt != HistoricAt;
 
     /// <summary>
     /// A drag or playback moves the playhead many times a second; one refresh after it settles,
@@ -605,7 +617,7 @@
         if (!discarded) await InvokeAsync(StateHasChanged);
         // The playhead moved while this was answering: answer for where it is now. The seek that
         // moved it armed the debounce, but it may have fired into the loading guard and been dropped.
-        if (HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey) ScheduleSeekRefresh();
+        if ((HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey) && !AwaitingPlayheadRate) ScheduleSeekRefresh();
     }
 
     private double RowValue(HogRow row) => RowValue(row, _view);

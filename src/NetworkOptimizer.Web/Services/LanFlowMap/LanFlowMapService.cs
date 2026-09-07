@@ -2905,9 +2905,12 @@ public class LanFlowMapService
 
         var healthByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>>(
             StringComparer.OrdinalIgnoreCase);
+        // Infrastructure only: clients write no device_health, and these run one at a time, so
+        // a site's hundred client nodes were a hundred empty round trips per seek.
         foreach (var node in snapshot.Nodes)
         {
             if (string.IsNullOrEmpty(node.Mac)) continue;
+            if (node.Kind is LanNodeKind.WifiClient or LanNodeKind.WiredClient or LanNodeKind.VirtualHub) continue;
             try
             {
                 healthByDevice[node.Mac] = await _influx.QueryDeviceHealthRawAsync(node.Mac, from, to, ct);
