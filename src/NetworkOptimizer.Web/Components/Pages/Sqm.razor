@@ -1648,6 +1648,10 @@
         margin: 0;
     }
 
+    .learn-tip-pct {
+        color: var(--text-muted);
+    }
+
     @@media (max-width: 768px) {
         .learning-insights {
             grid-template-columns: 1fr;
@@ -1879,7 +1883,7 @@
                             @for (var h = 0; h < 24; h++)
                             {
                                 var hour = h;
-                                <div class="learn-bar" style="height: @((down[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {down[hour] * learned.PeakDownloadMbps:F0} Mbps <span class=\"text-muted\">{Math.Round(down[hour] * 100):F0}%</span>")"></div>
+                                <div class="learn-bar" style="height: @((down[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {down[hour] * learned.PeakDownloadMbps:F0} Mbps <span class=\"learn-tip-pct\">{Math.Round(down[hour] * 100):F0}%</span>")"></div>
                             }
                         </div>
                     </div>
@@ -1889,7 +1893,7 @@
                             @for (var h = 0; h < 24; h++)
                             {
                                 var hour = h;
-                                <div class="learn-bar up" style="height: @((up[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {up[hour] * learned.PeakUploadMbps:F0} Mbps <span class=\"text-muted\">{Math.Round(up[hour] * 100):F0}%</span>")"></div>
+                                <div class="learn-bar up" style="height: @((up[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {up[hour] * learned.PeakUploadMbps:F0} Mbps <span class=\"learn-tip-pct\">{Math.Round(up[hour] * 100):F0}%</span>")"></div>
                             }
                         </div>
                     </div>
