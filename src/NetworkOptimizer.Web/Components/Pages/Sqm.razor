@@ -1879,7 +1879,7 @@
                             @for (var h = 0; h < 24; h++)
                             {
                                 var hour = h;
-                                <div class="learn-bar" style="height: @((down[hour] * 100).ToString("F0"))%" data-tooltip="@($"{hour:00}:00 · {down[hour] * learned.PeakDownloadMbps:F0} Mbps ({down[hour]:P0}), averaged over the week")"></div>
+                                <div class="learn-bar" style="height: @((down[hour] * 100).ToString("F0"))%" data-tooltip="@($"{hour:00}:00 · {down[hour] * learned.PeakDownloadMbps:F0} Mbps <span class=\"text-muted\">{Math.Round(down[hour] * 100):F0}%</span>")"></div>
                             }
                         </div>
                     </div>
@@ -1889,7 +1889,7 @@
                             @for (var h = 0; h < 24; h++)
                             {
                                 var hour = h;
-                                <div class="learn-bar up" style="height: @((up[hour] * 100).ToString("F0"))%" data-tooltip="@($"{hour:00}:00 · {up[hour] * learned.PeakUploadMbps:F0} Mbps ({up[hour]:P0}), averaged over the week")"></div>
+                                <div class="learn-bar up" style="height: @((up[hour] * 100).ToString("F0"))%" data-tooltip="@($"{hour:00}:00 · {up[hour] * learned.PeakUploadMbps:F0} Mbps <span class=\"text-muted\">{Math.Round(up[hour] * 100):F0}%</span>")"></div>
                             }
                         </div>
                     </div>
