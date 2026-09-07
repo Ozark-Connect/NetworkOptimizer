@@ -1608,18 +1608,20 @@
     .learning-status {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         gap: 0.5rem 1.25rem;
         margin-bottom: 0.75rem;
         font-size: 0.85rem;
     }
 
-    .learning-status .detail-label {
-        color: var(--text-secondary);
-        margin-right: 0.25rem;
+    .learning-status > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
     }
 
-    .learning-status .status-badge {
-        margin-right: 0.4rem;
+    .learning-status .detail-label {
+        color: var(--text-secondary);
     }
 
     .learning-insights {
