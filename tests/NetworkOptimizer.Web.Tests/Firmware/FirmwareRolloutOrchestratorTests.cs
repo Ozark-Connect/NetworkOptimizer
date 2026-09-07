@@ -939,6 +939,157 @@ public class FirmwareRolloutOrchestratorTests
         persisted.Notes.Should().Contain(n => n.Contains("UniFi OS is not updated on a self-hosted Console"));
     }
 
+    // --- Pruning a plan that has not started -------------------------------------------------
+
+    [Fact]
+    public async Task DeviceUpgradedOutOfBand_IsDroppedFromTheWaitingPlan_AndTheListShrinks()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            RolloutHarness.Start.AddDays(2),
+            Step(ApMac), Step(PeerMac, wave: 2));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        var dropped = await harness.StepAsync(plan.Id, ApMac);
+        dropped.State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+        dropped.Error.Should().Contain("updated outside this rollout");
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+
+        var stored = await harness.PlanAsync(plan.Id);
+        stored!.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
+        var document = JsonSerializer.Deserialize<RolloutPlanDocument>(stored.PlanJson)!;
+        document.Waves.Should().ContainSingle().Which.Number.Should().Be(2);
+        document.Notes.Should().Contain(n => n.Contains("already on") && n.Contains("dropped from the plan"));
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DeviceStillBehind_IsLeftInTheWaitingPlan()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+        var document = JsonSerializer.Deserialize<RolloutPlanDocument>((await harness.PlanAsync(plan.Id))!.PlanJson)!;
+        document.Waves.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task PruningIsHourly_NotEveryTick()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync();
+
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(10));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.PruneInterval);
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+    }
+
+    [Fact]
+    public async Task NetworkAppUpdatedOutOfBand_IsDroppedFromTheWaitingPlan()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(appVersion: "10.7.10", appUpdateAvailable: null);
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.IncludesUniFiNetworkUpdate = true;
+        document.UniFiNetworkUpdateSeconds = 300;
+        document.NetworkAppUpdate.FromVersion = "10.6.94";
+        document.NetworkAppUpdate.TargetVersion = "10.7.10";
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        var stored = JsonSerializer.Deserialize<RolloutPlanDocument>((await harness.PlanAsync(plan.Id))!.PlanJson)!;
+        stored.IncludesUniFiNetworkUpdate.Should().BeFalse();
+        stored.UniFiNetworkUpdateSeconds.Should().Be(0);
+        stored.Notes.Should().Contain(n => n.Contains("UniFi Network application is already on 10.7.10"));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+    }
+
+    [Fact]
+    public async Task NetworkAppWithNoKnownTarget_IsNotDropped()
+    {
+        using var harness = new RolloutHarness();
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.IncludesUniFiNetworkUpdate = true;
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        JsonSerializer.Deserialize<RolloutPlanDocument>((await harness.PlanAsync(plan.Id))!.PlanJson)!
+            .IncludesUniFiNetworkUpdate.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EverythingUpdatedOutOfBand_CancelsTheWaitingPlan_AndSaysSo()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+
+        await harness.TickAsync();
+
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
+        harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.NothingLeft);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.StartingSoon);
+    }
+
+    [Fact]
+    public async Task PrunedCanary_ReleasesItsHeldPeers()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, canary: true)), Wave(2, PlanStep(PeerMac, held: true))),
+            RolloutHarness.Start.AddDays(2),
+            Step(ApMac), Step(PeerMac, wave: 2, state: FirmwareRolloutStepState.Held));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+    }
+
+    [Fact]
+    public async Task StartingAPlan_DropsWhatWasUpdatedSinceTheLastHourlyCheck()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            RolloutHarness.Start.AddMinutes(30),
+            Step(ApMac), Step(PeerMac, wave: 2));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync();
+
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(30));
+
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+        harness.Commands.UpgradeCommands.Should().NotContain(ApMac);
+        var started = harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.Started).Subject;
+        started.Message.Should().Contain("1 device");
+    }
+
     [Fact]
     public async Task MeshRepair_IsQueuedOnceBothHalvesArePast()
     {

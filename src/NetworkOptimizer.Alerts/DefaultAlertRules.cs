@@ -625,6 +625,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Firmware Rollout: Nothing Left To Do",
+            IsEnabled = true,
+            EventTypePattern = "rollout.nothing_left",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Wave Awaiting Approval",
             IsEnabled = true,
             EventTypePattern = "rollout.wave_awaiting_approval",

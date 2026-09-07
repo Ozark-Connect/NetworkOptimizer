@@ -24,6 +24,9 @@ public static class RolloutAlerts
     /// <summary>A rollout has begun.</summary>
     public const string Started = "rollout.started";
 
+    /// <summary>A scheduled rollout was cancelled because everything in it was updated out of band.</summary>
+    public const string NothingLeft = "rollout.nothing_left";
+
     /// <summary>A wave boundary is waiting for a Site Admin to approve the next wave.</summary>
     public const string WaveAwaitingApproval = "rollout.wave_awaiting_approval";
 

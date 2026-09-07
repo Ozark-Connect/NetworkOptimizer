@@ -116,6 +116,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
 
     /// <summary>
+    /// How often a plan that has not started is checked for work that no longer needs doing. The
+    /// same cadence autopilot looks for new updates on.
+    /// </summary>
+    public static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+
+    /// <summary>
     /// Blind stretches kept on the plan. A flapping tunnel adds one every other pass, and anything
     /// this far back is long past every deadline still in flight.
     /// </summary>
@@ -154,6 +160,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private DateTime _catalogReadAt = DateTime.MinValue;
     private DateTime? _lastWaveSettledAt;
     private DateTime? _lastWaveCommandedAt;
+    private DateTime _lastPruneAt = DateTime.MinValue;
+    private int _prunedPlanId;
     private int _reconciledPlanId;
     private bool _restoreSweepDone;
     private bool _resumeGapCharged;
@@ -288,7 +296,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             {
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
                     await BeginAsync(plan, overrideHealthGate: false, cancellationToken);
-                else
+                else if (!await PruneIfDueAsync(plan, cancellationToken))
                     await RemindOfImminentStartAsync(plan, cancellationToken);
                 return;
             }
@@ -469,41 +477,46 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var plan = await _repositories.UseAsync((r, c) => r.GetActivePlanAsync(c), cancellationToken);
             if (plan == null) return;
 
-            var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
-            foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
-            {
-                // AbortedSku is the only "queued, then dropped" state on the step machine, so a manual
-                // abort lands there too rather than leaving rows looking like they are still coming.
-                step.State = FirmwareRolloutStepState.AbortedSku;
-                step.Error = $"Rollout aborted: {reason}";
-                await PersistStepAsync(step, cancellationToken);
-            }
-
-            await RestoreChannelsAsync(plan, cancellationToken);
-
-            plan.Status = FirmwareRolloutStatus.Aborted;
-            plan.CompletedAt = Now;
-            await PersistPlanAsync(plan, cancellationToken);
-
-            // Only clear suppression for steps that were dropped. Devices mid-cycle are left to
-            // finish, and their suppression window must stay open until the tick loop sees them
-            // settle (no active plan → ClearSite in the normal sweep).
-            var inFlight = steps.Where(s => !IsSettled(s)).Select(s => s.DeviceMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (inFlight.Count == 0)
-            {
-                _suppression.ClearSite(_siteSlug);
-                _downstreamOfStep.Clear();
-            }
-            else
-                foreach (var step in steps.Where(s => IsSettled(s)))
-                    CloseStepWindows(step);
-
-            _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
+            await AbortCoreAsync(plan, reason, cancellationToken);
         }
         finally
         {
             _tickLock.Release();
         }
+    }
+
+    private async Task AbortCoreAsync(FirmwareRolloutPlan plan, string reason, CancellationToken cancellationToken)
+    {
+        var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+        foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
+        {
+            // AbortedSku is the only "queued, then dropped" state on the step machine, so a manual
+            // abort lands there too rather than leaving rows looking like they are still coming.
+            step.State = FirmwareRolloutStepState.AbortedSku;
+            step.Error = $"Rollout aborted: {reason}";
+            await PersistStepAsync(step, cancellationToken);
+        }
+
+        await RestoreChannelsAsync(plan, cancellationToken);
+
+        plan.Status = FirmwareRolloutStatus.Aborted;
+        plan.CompletedAt = Now;
+        await PersistPlanAsync(plan, cancellationToken);
+
+        // Only clear suppression for steps that were dropped. Devices mid-cycle are left to
+        // finish, and their suppression window must stay open until the tick loop sees them
+        // settle (no active plan → ClearSite in the normal sweep).
+        var inFlight = steps.Where(s => !IsSettled(s)).Select(s => s.DeviceMac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (inFlight.Count == 0)
+        {
+            _suppression.ClearSite(_siteSlug);
+            _downstreamOfStep.Clear();
+        }
+        else
+            foreach (var step in steps.Where(s => IsSettled(s)))
+                CloseStepWindows(step);
+
+        _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
     }
 
     /// <summary>
@@ -648,6 +661,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         var document = ParseDocument(plan);
 
+        // Last look before anything is commanded: what was brought current since the hourly check
+        // comes out here, and a plan that has nothing left does not start.
+        var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+        await PruneAlreadyCurrentAsync(plan, document, steps, cancellationToken);
+        if (await AbortIfNothingLeftAsync(plan, document, steps, cancellationToken))
+            return false;
+
         if (document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
             await RunPreFlightBackupAsync(plan, document, cancellationToken);
         if (document.IncludesUniFiOsUpdate && await IsStandaloneConsoleAsync(cancellationToken))
@@ -679,7 +699,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.StartedAt = Now;
         await PersistPlanAsync(plan, cancellationToken);
 
-        var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
         var upgrading = steps.Count(s => !IsSettled(s));
         await PublishAsync(
             RolloutAlerts.Started,
@@ -775,6 +794,146 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         _logger.LogInformation(
             "Reminded site {Site} that firmware rollout {Id} starts at {When}", _siteSlug, plan.Id, start);
+    }
+
+    /// <summary>
+    /// The hourly pass over a plan that has not started. Returns true when the plan was aborted
+    /// for having nothing left, so the caller does not go on to remind anyone of it.
+    /// </summary>
+    private async Task<bool> PruneIfDueAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)
+    {
+        // A freshly booked plan gets its first look straight away rather than up to an hour on.
+        if (_prunedPlanId == plan.Id && Now - _lastPruneAt < PruneInterval) return false;
+        _prunedPlanId = plan.Id;
+        _lastPruneAt = Now;
+
+        var document = ParseDocument(plan);
+        var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+        await PruneAlreadyCurrentAsync(plan, document, steps, cancellationToken);
+        return await AbortIfNothingLeftAsync(plan, document, steps, cancellationToken);
+    }
+
+    /// <summary>
+    /// Drops from a plan whatever was brought to its target outside the rollout: a device someone
+    /// upgraded by hand, a console that took its own update. Judged on what runs NOW against the
+    /// plan's target, never on whether the console still offers an update - the read-only preview
+    /// stages no channels, so its absence of an offer proves nothing.
+    /// </summary>
+    /// <returns>True when anything was dropped.</returns>
+    private async Task<bool> PruneAlreadyCurrentAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var changed = false;
+
+        var observations = await _observer.ObserveAsync(cancellationToken);
+        var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
+        foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
+        {
+            if (!byMac.TryGetValue(step.DeviceMac, out var seen)
+                || string.IsNullOrWhiteSpace(seen.Firmware)
+                || string.IsNullOrWhiteSpace(step.ToVersion)
+                || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, seen.Firmware))
+            {
+                continue;
+            }
+
+            var running = ShortVersion(seen.Firmware);
+            step.State = FirmwareRolloutStepState.SkippedExcluded;
+            step.Error = $"Already on {running}, updated outside this rollout.";
+            await PersistStepAsync(step, cancellationToken);
+            document.Notes.Add($"{step.DeviceName} ({step.Model}) is already on {running} and was dropped from the plan.");
+            _logger.LogInformation(
+                "Dropping {Device} from firmware rollout {Id} on site {Site}: already on {Version}",
+                step.DeviceName, plan.Id, _siteSlug, running);
+
+            // A device of the SKU running the target and answering is the canary's proof, so its
+            // held peers are not left waiting on a step that will never run.
+            if (IsCanary(document, step.DeviceMac))
+            {
+                foreach (var held in steps.Where(s => s.State == FirmwareRolloutStepState.Held
+                    && string.Equals(s.Model, step.Model, StringComparison.OrdinalIgnoreCase)))
+                {
+                    held.State = FirmwareRolloutStepState.Pending;
+                    await PersistStepAsync(held, cancellationToken);
+                }
+            }
+
+            foreach (var wave in document.Waves)
+                wave.Steps.RemoveAll(s => string.Equals(s.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+            changed = true;
+        }
+
+        if (document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
+        {
+            var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+
+            var app = console?.NetworkApplication?.Version;
+            var appTarget = document.NetworkAppUpdate.TargetVersion;
+            if (document.IncludesUniFiNetworkUpdate
+                && !string.IsNullOrWhiteSpace(app) && !string.IsNullOrWhiteSpace(appTarget)
+                && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(appTarget, app))
+            {
+                document.IncludesUniFiNetworkUpdate = false;
+                document.UniFiNetworkUpdateSeconds = 0;
+                document.Notes.Add($"The UniFi Network application is already on {ShortVersion(app)} and was dropped from the plan.");
+                _logger.LogInformation(
+                    "Dropping the UniFi Network application from firmware rollout {Id} on site {Site}: already on {Version}",
+                    plan.Id, _siteSlug, app);
+                changed = true;
+            }
+
+            var os = console?.InstalledOsVersion;
+            var osTarget = document.UniFiOsUpdate.TargetVersion;
+            if (document.IncludesUniFiOsUpdate
+                && !string.IsNullOrWhiteSpace(os) && !string.IsNullOrWhiteSpace(osTarget)
+                && (OsVersionMatches(os, osTarget) || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(osTarget, os)))
+            {
+                document.IncludesUniFiOsUpdate = false;
+                document.UniFiOsUpdateSeconds = 0;
+                document.Notes.Add($"UniFi OS is already on {ShortVersion(os)} and was dropped from the plan.");
+                _logger.LogInformation(
+                    "Dropping UniFi OS from firmware rollout {Id} on site {Site}: already on {Version}",
+                    plan.Id, _siteSlug, os);
+                changed = true;
+            }
+        }
+
+        if (!changed) return false;
+
+        document.Waves.RemoveAll(w => w.Steps.Count == 0);
+        document.ChannelGroups.RemoveAll(g => !document.Waves.Any(w => w.Number >= g.FirstWave && w.Number <= g.LastWave));
+        foreach (var group in document.ChannelGroups)
+            group.DeviceCount = document.Waves.Where(w => w.Number >= group.FirstWave && w.Number <= group.LastWave).Sum(w => w.Steps.Count);
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        RolloutPlanner.ComputeTimeline(document, ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson));
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Ends a plan that pruning emptied, and says so: the announcement promised a rollout, so its
+    /// disappearance is explained rather than left to be noticed.
+    /// </summary>
+    private async Task<bool> AbortIfNothingLeftAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        if (steps.Any(s => !IsSettled(s)) || document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
+            return false;
+
+        await AbortCoreAsync(plan, "everything it covered is already up to date", cancellationToken);
+        await PublishAsync(
+            RolloutAlerts.NothingLeft,
+            AlertSeverity.Info,
+            $"Firmware Rollout Cancelled{_siteSuffix}",
+            "Everything the scheduled rollout covered has been updated already, so there is nothing left for it to do.",
+            null, null, cancellationToken);
+        return true;
     }
 
     private async Task PostponeAsync(FirmwareRolloutPlan plan, string reason, CancellationToken cancellationToken)
