@@ -249,22 +249,11 @@
             </div>
 
             <div class="form-group">
-                @if (_currentSiteConsoleViaAgent)
-                {
-                    <label class="checkbox-label">
-                        <input type="checkbox" checked disabled />
-                        <span>Ignore SSL certificate errors</span>
-                    </label>
-                    <small class="form-help">Certificate validation isn't supported when connecting through the site's agent.</small>
-                }
-                else
-                {
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="ignoreControllerSSLErrors" />
-                        <span>Ignore SSL certificate errors</span>
-                    </label>
-                    <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
-                }
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="ignoreControllerSSLErrors" />
+                    <span>Ignore SSL certificate errors</span>
+                </label>
+                <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
             </div>
 
             <div class="action-buttons">
@@ -3466,7 +3455,7 @@
                         {
                             <text>
                                 To monitor another, open @HintSitePhrase <strong>Configuration</strong>
-                                below, use <strong>Add Agent / New Token</strong> to enroll an agent for it,
+                                below, use <strong>Add Agent</strong> to enroll an agent for it,
                                 then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
                             </text>
                         }
@@ -3615,7 +3604,7 @@
                                                             @foreach (var agent in agents)
                                                             {
                                                                 <div class="site-agent-row">
-                                                                    <span class="status-dot @(TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
+                                                                    <span class="status-dot @(agent.Enabled && TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
                                                                     <span>@agent.Name</span>
                                                                     @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
                                                                        address - so where it lives is said in words rather than shown as an address. *@
@@ -3698,9 +3687,10 @@
                                                                     </button>
                                                                 }
                                                                 <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                    Add Agent / New Token
+                                                                    Add Agent
                                                                 </button>
                                                             </div>
+                                                            <small class="form-help">To rotate an agent's key, remove the existing agent and enroll a new one.</small>
                                                         }
                                                         else
                                                         {
@@ -3719,7 +3709,7 @@
                                                                 else
                                                                 {
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                                        Add Agent / New Token
+                                                                        Add Agent
                                                                     </button>
                                                                 }
                                                             </div>
@@ -3732,7 +3722,7 @@
                                                                     <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                                                                     - lets the site's clients run speed tests against the agent.</span>
                                                             </label>
-                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
+                                                            <AgentInstallInstructions Token="@_newAgentToken" AgentId="@_newAgentId" TokenChanged="@(t => _newAgentToken = t)" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
                                                     </div>
 
@@ -4251,6 +4241,7 @@
                         {
                             await LoadAgentsOnGatewayAsync(openSite);
                             await LoadSpeedTestHostAsync(openSite);
+                            _collectorAgentIds[openSite.Slug] = await ProbeSink.GetCollectorAgentIdAsync(openSite.Slug);
                         }
                         StateHasChanged();
                     });
@@ -4500,6 +4491,7 @@
     private string SiteActionButtonClass(int siteId) => IsSiteRowOpen(siteId) ? "btn-contrast" : "btn-secondary";
     private bool _creatingAgent;
     private string? _newAgentToken;
+    private int _newAgentId;
     private int? _newAgentTokenSiteId;
     private bool _newAgentLanSpeedTest;
     private SiteSetupWizard? _setupWizard;
@@ -4880,6 +4872,7 @@
         {
             var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Slug, NextAgentName(site.Id));
             _newAgentToken = token;
+            _newAgentId = agent.Id;
             _newAgentTokenSiteId = site.Id;
             _newAgentLanSpeedTest = false;
             await LoadAgentsAsync();

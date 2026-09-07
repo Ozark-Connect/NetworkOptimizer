@@ -111,7 +111,22 @@
     private const int NoHighlight = -1;
 
     /// <summary>The rows actually rendered, which is what the highlight indexes into.</summary>
-    private List<Item> Visible() => Filtered().Take(50).ToList();
+    private List<Item> Visible() => _shown = Filtered().Take(50).ToList();
+
+    /// <summary>The rows as of the last time they were worked out, to compare a new list against.</summary>
+    private List<Item> _shown = new();
+
+    /// <summary>
+    /// The host refreshes its list while this is open, and the highlight is an index: a client
+    /// going offline reorders the rows, so without this Enter would pick a different device than
+    /// the one under the cursor. Follows the row instead, and drops the highlight if it is gone.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (!_open || _highlight < 0 || _highlight >= _shown.Count) return;
+        var key = _shown[_highlight].Key;
+        _highlight = Visible().FindIndex(i => i.Key == key);
+    }
 
     /// <summary>Searching ranks the list, so the top match leads. Clearing it leads nothing again.</summary>
     private void OnSearchChanged()

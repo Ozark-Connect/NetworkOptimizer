@@ -68,6 +68,7 @@ public sealed class MembershipOwnershipTests : IDisposable
             new NetworkOptimizerDbContextFactory(mainOptions));
 
         services.AddNetOptIdentityCore(_dbPath);
+        services.AddSingleton<IAuthPolicyOptions, GateHarness.UnrestrictedAuthPolicy>();
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
         services.AddScoped<IEffectiveSiteRoleResolver>(_ => new SiteAdminOf(OwnedSite));

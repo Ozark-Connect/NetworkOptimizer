@@ -1380,7 +1380,7 @@ public class AuditService : IAuditScanService
             List<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs = null;
             try
             {
-                networkConfigs = await _connectionService.Client.GetNetworkConfigsAsync();
+                networkConfigs = await _connectionService.Client.GetNetworkConfigsAsync(useCache: false);
                 if (networkConfigs.Count > 0)
                 {
                     var wanCount = networkConfigs.Count(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));

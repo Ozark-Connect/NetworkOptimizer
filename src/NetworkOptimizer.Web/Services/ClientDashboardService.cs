@@ -117,22 +117,7 @@ public class ClientDashboardService
             return new List<SelectableClient>();
         try
         {
-            var clients = await _connectionService.Client.GetClientsAsync();
-            // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
-            // picker matches the name shown on the page and in Client Stats.
-            var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
-            var online = (clients ?? new List<UniFiClientResponse>())
-                .Where(c => !string.IsNullOrEmpty(c.BestIp))
-                .Select(c => new SelectableClient(
-                    c.BestIp!,
-                    displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
-                        : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                        : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
-                        : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
-                    c.IsWired,
-                    c.Mac,
-                    IsOnline: true))
-                .ToList();
+            var online = await GetOnlineSelectableAsync();
 
             // Two days of departed clients too, so a device that dropped yesterday is still pickable.
             // Not Client Stats' thirty days: in a picker that is noise.
@@ -158,13 +143,7 @@ public class ClientDashboardService
                 _logger.LogDebug(ex, "Client history unavailable for the picker; showing connected clients only");
             }
 
-            // Wireless first: the page is about Wi-Fi performance, so those are what a viewer came
-            // to pick. Connected before departed within each group, then alphabetical.
-            return online
-                .OrderBy(c => c.IsWired)
-                .ThenByDescending(c => c.IsOnline)
-                .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return SortSelectable(online);
         }
         catch (Exception ex)
         {
@@ -172,6 +151,72 @@ public class ClientDashboardService
             return new List<SelectableClient>();
         }
     }
+
+    /// <summary>
+    /// Re-reads the connected clients and merges them over a list already in hand, so an open
+    /// picker's online dots keep up with the network. The 48-hour history is deliberately not
+    /// re-fetched: the departed clients it supplies are already in <paramref name="known"/>, and
+    /// this runs on a timer for as long as the page is open. Returns <paramref name="known"/>
+    /// unchanged when the console has nothing to say, rather than emptying the list under the user.
+    /// </summary>
+    public async Task<List<SelectableClient>> RefreshSelectableClientsAsync(IReadOnlyList<SelectableClient> known)
+    {
+        var fallback = known.ToList();
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return fallback;
+        try
+        {
+            var online = await GetOnlineSelectableAsync();
+            if (online.Count == 0)
+                return fallback;
+
+            var seen = new HashSet<string>(online.Select(c => c.Ip), StringComparer.OrdinalIgnoreCase);
+            foreach (var k in known)
+            {
+                if (seen.Add(k.Ip))
+                    online.Add(k with { IsOnline = false });
+            }
+
+            return SortSelectable(online);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not refresh the device picker's client list");
+            return fallback;
+        }
+    }
+
+    /// <summary>This site's currently connected clients, as picker choices.</summary>
+    private async Task<List<SelectableClient>> GetOnlineSelectableAsync()
+    {
+        var clients = await _connectionService.Client!.GetClientsAsync();
+        // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
+        // picker matches the name shown on the page and in Client Stats.
+        var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
+        return (clients ?? new List<UniFiClientResponse>())
+            .Where(c => !string.IsNullOrEmpty(c.BestIp))
+            .Select(c => new SelectableClient(
+                c.BestIp!,
+                displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
+                    : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                    : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
+                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
+                c.IsWired,
+                c.Mac,
+                IsOnline: true))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Wireless first: the page is about Wi-Fi performance, so those are what a viewer came to
+    /// pick. Connected before departed within each group, then alphabetical.
+    /// </summary>
+    private static List<SelectableClient> SortSelectable(List<SelectableClient> clients) =>
+        clients
+            .OrderBy(c => c.IsWired)
+            .ThenByDescending(c => c.IsOnline)
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// Identify a client by its IP address using UniFi controller data.

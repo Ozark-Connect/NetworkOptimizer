@@ -335,6 +335,10 @@
     private string _loadedWanKeys = "";
     private System.Threading.Timer? _timer;
     private System.Threading.Timer? _seekTimer;
+    // Timers are armed after awaits. If the circuit is torn down during one, Dispose has already
+    // run, and a timer created afterward polls forever: Blazor's dispatcher keeps running
+    // InvokeAsync delegates on a disposed component. Check this before arming and on every tick.
+    private bool _disposed;
     private DateTime _lastLiveRefresh = DateTime.MinValue;
     private static readonly TimeSpan LiveRefreshFloor = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan SeekDebounce = TimeSpan.FromMilliseconds(400);
@@ -432,8 +436,10 @@
     private void ScheduleSeekRefresh()
     {
         _seekTimer?.Dispose();
+        if (_disposed) return;
         _seekTimer = new System.Threading.Timer(_ =>
         {
+            if (_disposed) return;
             try { _ = InvokeAsync(RefreshAsync); }
             catch { /* circuit going away */ }
         }, null, SeekDebounce, Timeout.InfiniteTimeSpan);
@@ -512,6 +518,7 @@
     private void ArmTimer()
     {
         _timer?.Dispose();
+        if (_disposed) return;
         // Data follows the Data tab's cadence: a day or less every minute, the long windows every
         // five (those are the site-wide scans). The WAN half is cached five minutes either way.
         // Live throughput ticks at the conntrack sample cadence; the answer is in-memory lookups.
@@ -519,6 +526,7 @@
             : _hours <= 24 ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5);
         _timer = new System.Threading.Timer(_ =>
         {
+            if (_disposed) return;
             try
             {
                 _ = InvokeAsync(async () =>
@@ -684,6 +692,7 @@
 
     public void Dispose()
     {
+        _disposed = true;
         _timer?.Dispose();
         _seekTimer?.Dispose();
     }

@@ -44,6 +44,9 @@
 }
 else
 {
+    @* The account list still shows here so nobody goes looking for it: read-only, with the way to
+       the main site for an Admin and who to ask for a Site Admin. *@
+    <IdentityUsersCard ViewOnly="true" OnExplainRoles="ExplainRolesAsync" />
     <IdentityAccessCard SiteSlug="@SiteSlug" SiteName="@SiteName" OnExplainRoles="ExplainRolesAsync" />
     @* Roles read the same whichever scope you are in, so the scoped tab carries the reference too
        rather than bouncing a site admin to a tab they may not be able to open. *@

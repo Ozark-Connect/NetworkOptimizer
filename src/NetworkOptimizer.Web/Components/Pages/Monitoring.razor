@@ -2653,6 +2653,9 @@
             ? _primaryWanKey : t.WanInterface!.ToLowerInvariant();
     private System.Threading.Timer? _liveRefreshTimer;
     private System.Threading.Timer? _dataRefreshTimer;
+    // Both are armed after awaits in OnInitializedAsync; a circuit torn down mid-await has already
+    // run Dispose, and a timer created afterward runs forever. Checked before arming and per tick.
+    private bool _disposed;
     private DotNetObjectReference<Monitoring>? _mapDotNetRef;
     private DateTime? _mapHistoricAt;
     private HistoricStatSnapshot? _historicSnapshot;
@@ -3176,14 +3179,17 @@
 
         await RefreshUpstreamReviewAsync();
 
+        if (_disposed) return;
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
+            if (_disposed) return;
             try { _ = InvokeAsync(StateHasChanged); }
             catch { }
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
 
         _dataRefreshTimer = new System.Threading.Timer(async _ =>
         {
+            if (_disposed) return;
             try
             {
                 await InvokeAsync(async () =>
@@ -6133,6 +6139,7 @@
 
     public void Dispose()
     {
+        _disposed = true;
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _tabVisPersistSub.Dispose();
         _liveRefreshTimer?.Dispose();

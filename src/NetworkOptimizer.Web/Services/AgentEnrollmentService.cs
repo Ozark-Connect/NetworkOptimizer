@@ -16,8 +16,12 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     /// <summary>Agents reporting within this window count as online.</summary>
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(2);
 
-    /// <summary>Unused enrollment tokens stop working after this long.</summary>
-    public static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(24);
+    /// <summary>
+    /// Unused enrollment tokens stop working after this long. Long enough to hand the install
+    /// command to whoever is at the site; short enough that one left in a chat log is dead by the
+    /// time anyone reads it. The install panel can issue a fresh one in one click.
+    /// </summary>
+    public static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(1);
 
     private const string TokenPrefix = "noa_";
     private const string KeyPrefix = "noak_";

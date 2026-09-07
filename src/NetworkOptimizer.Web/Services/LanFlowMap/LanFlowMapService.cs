@@ -198,6 +198,16 @@ public class LanFlowMapService
         try
         {
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Addresses off the same two calls, so a client the console is not listing right now
+            // still carries the one double-click needs. BestIp is ip > last_ip > fixed_ip, the
+            // same resolution the Client Performance device picker offers.
+            //
+            // Bounded by last sighting, where the name is not: a stale name is merely old, but
+            // last_ip after the lease moved on belongs to a DIFFERENT device, and navigating to it
+            // opens the wrong client's page rather than doing nothing. The window is the picker's,
+            // which makes the same bet on the same field.
+            var ips = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var ipCutoff = DateTime.UtcNow - RecentClientIpMaxAge;
 
             var history = await _connection.Client!.GetClientHistoryAsync(ClientNameLookbackHours, ct);
             var fromHistory = 0;
@@ -212,6 +222,8 @@ public class LanFlowMapService
                     names[NormalizeMac(c.Mac)] = label;
                     fromHistory++;
                 }
+                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp) && SeenSince(c.LastSeen, ipCutoff))
+                    ips[NormalizeMac(c.Mac)] = c.BestIp!;
             }
 
             var fromUserRecords = 0;
@@ -224,9 +236,13 @@ public class LanFlowMapService
                     names[NormalizeMac(c.Mac)] = c.Name;
                     fromUserRecords++;
                 }
+                // Fills gaps only: the history entry is the more recent sighting of the two.
+                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp) && SeenSince(c.LastSeen, ipCutoff))
+                    ips.TryAdd(NormalizeMac(c.Mac), c.BestIp!);
             }
 
             snapshot.RecentClientNames = names;
+            snapshot.RecentClientIps = ips;
             _logger.LogDebug(
                 "LAN map [{Site}]: {Count} client name(s) for historic playback ({History} from client history, {Alias} user aliases)",
                 _siteContext.Slug, names.Count, fromHistory, fromUserRecords);
@@ -285,6 +301,17 @@ public class LanFlowMapService
     /// per historic request, so the cost is bounded by the snapshot cache rather than by playback.
     /// </summary>
     private const int ClientNameLookbackHours = 2160;
+
+    /// <summary>
+    /// How recently a client must have been seen for its last known address to be worth offering.
+    /// Names are kept for the whole lookback; addresses are not, because a reissued lease makes an
+    /// old one point at another device. Matches the Client Performance picker's own window.
+    /// </summary>
+    private static readonly TimeSpan RecentClientIpMaxAge = TimeSpan.FromHours(48);
+
+    /// <summary>A console last_seen (unix seconds) at or after <paramref name="cutoff"/>. Absent reads as too old.</summary>
+    private static bool SeenSince(long lastSeen, DateTime cutoff) =>
+        lastSeen > 0 && DateTimeOffset.FromUnixTimeSeconds(lastSeen).UtcDateTime >= cutoff;
 
     /// <summary>
     /// Tolerance for deriving historic online state from telemetry proximity. There is
@@ -1755,6 +1782,7 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = wired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
+                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
                 Name = !string.IsNullOrWhiteSpace(p.ClientName)
                     ? p.ClientName
                     : (snapshot.RecentClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
@@ -2718,6 +2746,7 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = LanNodeKind.WifiClient,
                 Mac = clientMac,
+                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
                 Name = snapshot.RecentClientNames[clientMac],
                 ParentId = parentId,
                 Band = band,

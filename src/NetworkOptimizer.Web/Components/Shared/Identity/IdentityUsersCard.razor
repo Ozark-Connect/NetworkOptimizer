@@ -8,12 +8,15 @@
 @inject IAuthPolicyOptions AuthPolicy
 @inject SiteContextService SiteContext
 @inject NetworkOptimizer.Web.Services.SiteRegistryChangeNotifier ChangeNotifier
+@inject NetworkOptimizer.Web.Services.SiteSwitchService SiteSwitch
 @implements IDisposable
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
-   IdentityAdminService, which holds the last-admin invariant and audits each change. *@
+   IdentityAdminService, which holds the last-admin invariant and audits each change.
+   On a managed site (ViewOnly) the card is a window onto the same list: an Admin sees it read-only
+   with a switch to the main site, and a Site Admin is told who to ask. *@
 
 <div class="card settings-tab-identity" id="identity-users" data-tour="identity">
     <div class="card-header">
@@ -32,27 +35,49 @@
             is read-only.
         </p>
 
+        @if (ViewOnly)
+        {
+            <div class="alert alert-info identity-managed-note">
+                @if (_callerIsGlobalAdmin)
+                {
+                    <span>Users are managed on the main site.</span>
+                    <button type="button" class="btn btn-sm btn-contrast" @onclick="SwitchToMainSiteAsync">Switch to @MainSiteName</button>
+                    <span>to add or manage users.</span>
+                }
+                else
+                {
+                    <span>Users are managed by an Admin. Ask an Admin to add a user for you, then grant them this site under Access.</span>
+                }
+            </div>
+        }
+
         @if (_message is not null)
         {
             <div class="alert alert-@_messageClass">@_message</div>
         }
 
-        @if (_users is null)
+        @if (ShowsList && _users is null)
         {
             <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
         }
-        else
+        else if (ShowsList && _users is not null)
         {
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>User</th>
-                            <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
-                            <th class="hide-mobile">Sign-in</th>
+                            <th>@(ViewOnly ? "Global Role" : "Role") <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
+                            @if (!ViewOnly)
+                            {
+                                <th class="hide-mobile">Sign-in</th>
+                            }
                             <th class="hide-mobile">Last sign-in</th>
                             <th>Status</th>
-                            <th class="identity-actions-col"></th>
+                            @if (!ViewOnly)
+                            {
+                                <th class="identity-actions-col"></th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -76,6 +101,12 @@
                                     <div class="identity-role-cell">
                                         @* A disabled control receives no mouse events, so the tooltip has to
                                            live on a wrapper or it never shows. *@
+                                        @if (ViewOnly)
+                                        {
+                                            <span>@(summary.GlobalRole ?? Roles.Viewer)</span>
+                                        }
+                                        else
+                                        {
                                         <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
                                         <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
                                                 @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
@@ -86,13 +117,16 @@
                                             }
                                         </select>
                                         </span>
+                                        }
                                         @if (_siteRestrictionActive && !summary.HasSiteAccess)
                                         {
                                             <span class="status-badge status-inactive"
-                                                  data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
+                                                  data-tooltip="@(ViewOnly ? "This account is limited to its assigned sites and has none, so it can access nothing." : "This account is limited to its assigned sites and has none, so it can access nothing. Grant access under Access.")">No site access</span>
                                         }
                                     </div>
                                 </td>
+                                @if (!ViewOnly)
+                                {
                                 <td class="hide-mobile">
                                     @* What this account can actually sign in with. A badge that only
                                        restates itself carries no tooltip. *@
@@ -112,7 +146,7 @@
                                         }
                                         @foreach (var provider in summary.LinkedProviders)
                                         {
-                                            <span class="status-badge status-info" data-tooltip="Signs in through this identity provider">@provider</span>
+                                            <span class="status-badge status-info" data-tooltip="Signs in through this IdP - see Identities for details">@provider</span>
                                         }
                                         @if (!summary.HasPassword && summary.PasskeyCount == 0 && summary.LinkedProviders.Count == 0)
                                         {
@@ -120,6 +154,7 @@
                                         }
                                     </div>
                                 </td>
+                                }
                                 <td class="hide-mobile">
                                     @if (user.LastLoginAt is { } last)
                                     {
@@ -135,6 +170,8 @@
                                         @(user.IsEnabled ? "Enabled" : "Disabled")
                                     </span>
                                 </td>
+                                @if (!ViewOnly)
+                                {
                                 <td class="identity-actions-col">
                                     <div class="identity-row-actions">
                                         <button type="button" class="btn btn-secondary btn-sm"
@@ -161,6 +198,7 @@
                                         </span>
                                     </div>
                                 </td>
+                                }
                             </tr>
 
                             @if (_passwordResetUserId == user.Id)
@@ -315,7 +353,7 @@
                     </div>
                 </div>
             }
-            else
+            else if (!ViewOnly)
             {
                 <div class="identity-card-actions">
                     <button type="button" class="btn btn-primary btn-sm" @onclick="StartAddUser">Add user</button>
@@ -331,6 +369,22 @@
 
     private bool _multiSiteEnabled;
     private bool _siteRestrictionActive;
+    private bool _callerIsGlobalAdmin;
+
+    /// <summary>
+    /// True on a managed site: the list is shown without its controls. Only an Admin can read it
+    /// (the listing is Admin-gated), so a Site Admin gets the note alone and no call is made.
+    /// </summary>
+    [Parameter] public bool ViewOnly { get; set; }
+
+    /// <summary>The listing is Admin-gated, so a Site Admin on a managed site gets the note alone.</summary>
+    private bool ShowsList => !ViewOnly || _callerIsGlobalAdmin;
+
+    private string MainSiteName =>
+        _sites.FirstOrDefault(s => s.Slug == SiteManagementService.DefaultSiteSlug)?.Name ?? "the main site";
+
+    private Task SwitchToMainSiteAsync() =>
+        SiteSwitch.SwitchToAsync(SiteManagementService.DefaultSiteSlug, "/settings?tab=identity");
 
     /// <summary>The configured policy, so the hint cannot drift from what the validator enforces.</summary>
     private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
@@ -373,7 +427,11 @@
             var principal = (await AuthState).User;
             if (principal.Identity?.IsAuthenticated == true)
                 _currentUserId = (await CurrentUser.GetAsync(principal))?.Id;
+            _callerIsGlobalAdmin = principal.IsInRole(Roles.Admin);
         }
+
+        if (!ShowsList)
+            return;
 
         await ReloadAsync();
         _providers = await Federation.GetAllAsync();
@@ -651,7 +709,8 @@
             {
                 _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
                 _sites = await SiteManagement.GetSitesAsync();
-                await ReloadAsync();
+                if (ShowsList)
+                    await ReloadAsync();
                 StateHasChanged();
             }
             catch (ObjectDisposedException)

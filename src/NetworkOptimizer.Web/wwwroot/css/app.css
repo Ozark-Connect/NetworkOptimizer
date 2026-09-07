@@ -20439,6 +20439,11 @@ body.kiosk-mode .status-indicators {
     gap: 0.35rem;
 }
 
+/* Lines up with the text inside the picker on the rows that have one. */
+.identity-role-text {
+    margin-left: 0.5rem;
+}
+
 .identity-credentials,
 .identity-row-actions {
     display: flex;
@@ -20543,6 +20548,13 @@ body.kiosk-mode .status-indicators {
 .identity-card-actions {
     justify-content: flex-end;
     margin-top: 1rem;
+}
+
+.identity-managed-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 /* Both are grids on the LIST with each row's cells promoted into it, so columns line up across rows
@@ -20947,7 +20959,12 @@ body.kiosk-mode .status-indicators {
 .firmware-rollout-plan-note {
     color: var(--text-muted);
     font-size: 0.85rem;
-    margin: 0.25rem 0;
+    margin: 0.25rem 0 0.75rem;
+}
+
+/* Pulled up under the schedule line: its 1.5rem bottom margin is sized for the map, not a note. */
+.firmware-rollout-note + .firmware-rollout-plan-note {
+    margin-top: -0.75rem;
 }
 
 .firmware-rollout-chip {

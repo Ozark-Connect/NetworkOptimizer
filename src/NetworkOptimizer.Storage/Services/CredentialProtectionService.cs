@@ -180,10 +180,12 @@ public class CredentialProtectionService : ICredentialProtectionService
         }
         catch (Exception ex)
         {
-            // Fallback: use machine name + some entropy
-            _logger?.LogWarning(ex, "Failed to create/read credential key file, using fallback key derivation");
-            var fallback = Environment.MachineName + KeyPurpose + Environment.UserName;
-            return Encoding.UTF8.GetBytes(fallback.PadRight(64, 'X'));
+            // Never derive a stand-in key: in a container the machine name is the container id, so a
+            // derived key changes on every recreate and silently leaves every stored secret
+            // undecryptable. A data directory this broken has already taken the database down too.
+            throw new InvalidOperationException(
+                $"The credential key at '{keyFilePath}' could not be read or created. Fix the file or " +
+                "directory permissions, or supply the key through NO_CREDENTIAL_KEY_FILE.", ex);
         }
     }
 
@@ -196,8 +198,7 @@ public class CredentialProtectionService : ICredentialProtectionService
     /// Generating one instead is silent and looks like nothing happened: the app starts, every
     /// stored ENC: value is undecryptable against the new key, and anything saved afterwards is
     /// encrypted under it - leaving a mixture that restoring the real key only half repairs. The
-    /// same is true of the machine-name fallback further up, which in a container derives from the
-    /// container id and so differs on every recreate.
+    /// default path refuses for the same reason when its key file cannot be read or created.
     ///
     /// That is an edge case when the path is a file sitting on the host, and routine when the key is
     /// fetched from a vault at every boot: an unreachable vault, a flapped tunnel, or losing a

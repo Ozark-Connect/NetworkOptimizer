@@ -1536,6 +1536,19 @@
         {
             try
             {
+                // On your own device identity resolves after first render, so a VPN client reaches
+                // this timer rather than the VPN branch above. Its stat/sta poll returns nothing,
+                // so without this the Speed tab never picks up new results.
+                if (_client?.IsVpn == true)
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshVpnSpeedAsync();
+                        StateHasChanged();
+                    });
+                    return;
+                }
+
                 _tickCount++;
                 var ticksPerFullPoll = _hasApAgentData ? 10 : 5;
                 var isFullPoll = !(_hasApAgentData || _hasWiFiManData) || _tickCount % ticksPerFullPoll == 0;
@@ -1660,6 +1673,7 @@
             StateHasChanged();
 
         await LoadPickerClientsAsync();
+        StartPickerRefresh();
 
         // GPS watcher is started from the first poll cycle (after _client is identified)
         // so we can skip it for wired devices
@@ -1721,6 +1735,8 @@
     private bool _awaitingSiteIdentity;
     private bool _awaitingLocalIp;
     private System.Threading.Timer? _identityRetryTimer;
+    private System.Threading.Timer? _pickerRefreshTimer;
+    private bool _disposed;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
     private string? _pickerSelection;
@@ -1912,6 +1928,33 @@
         // The header's "This device" jump needs the viewer's own address to know whether to show.
         if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
             StateHasChanged();
+    }
+
+    /// <summary>
+    /// Keeps the selector's roster and online dots current while the page sits open. One console
+    /// call a tick, and only the list is replaced - the selection, the search and an open dropdown
+    /// all live in the selector, which holds its highlight on the row rather than its index.
+    /// </summary>
+    private void StartPickerRefresh()
+    {
+        // Armed after awaits: a page left mid-load has already run DisposeAsync, and a timer
+        // created afterward polls the console forever. Checked here and on every tick.
+        if (_disposed) return;
+        _pickerRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            if (_disposed) return;
+            try
+            {
+                if (_pickerClients.Count == 0) return;
+                var refreshed = await DashboardService.RefreshSelectableClientsAsync(_pickerClients);
+                await InvokeAsync(() =>
+                {
+                    _pickerClients = refreshed;
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
     }
 
     /// <summary>
@@ -3823,9 +3866,11 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
+        _pickerRefreshTimer?.Dispose();
         if (_liveChartMounted) await DisposeLiveChartAsync();
 
         // Stop GPS watcher
