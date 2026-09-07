@@ -246,6 +246,7 @@ public class SqmLearningService : ISqmLearningService
         var now = DateTime.UtcNow;
         var samples = await _repo.GetSamplesAsync(profile.WanNumber, profile.LearningStartedAt);
         var active = task is { Enabled: true } && profile.LearningCompletedAt == null && profile.LearningEndsAt > now;
+        var valid = samples.Where(s => s.Success && !s.Excluded).ToList();
         return new SqmLearningStatus
         {
             WanNumber = profile.WanNumber,
@@ -274,7 +275,11 @@ public class SqmLearningService : ISqmLearningService
             PeakDownloadMbps = profile.PeakDownloadMbps,
             PeakUploadMbps = profile.PeakUploadMbps,
             DurationSeconds = profile.SampleDurationSeconds,
-            ProbeLimitedSampleCount = samples.Count(s => s.Success && !s.Excluded && s.ProbeLimited),
+            ObservedMinDownloadMbps = valid.Count > 0 ? valid.Min(s => s.DownloadMbps) : null,
+            ObservedMaxDownloadMbps = valid.Count > 0 ? valid.Max(s => s.DownloadMbps) : null,
+            ObservedMinUploadMbps = valid.Count > 0 ? valid.Min(s => s.UploadMbps) : null,
+            ObservedMaxUploadMbps = valid.Count > 0 ? valid.Max(s => s.UploadMbps) : null,
+            ProbeLimitedSampleCount = valid.Count(s => s.ProbeLimited),
             PeakIsLowerBound = profile.PeakIsLowerBound,
             LiftDownloadMbps = profile.LiftDownloadMbps,
             LiftUploadMbps = profile.LiftUploadMbps,

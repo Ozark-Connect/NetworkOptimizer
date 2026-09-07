@@ -109,6 +109,12 @@ public sealed class SqmLearningStatus
     public double PeakUploadMbps { get; set; }
     public int DurationSeconds { get; set; }
 
+    /// <summary>Range the line has delivered across the valid samples so far; null until there is one.</summary>
+    public double? ObservedMinDownloadMbps { get; set; }
+    public double? ObservedMaxDownloadMbps { get; set; }
+    public double? ObservedMinUploadMbps { get; set; }
+    public double? ObservedMaxUploadMbps { get; set; }
+
     /// <summary>Valid samples that ran into the lifted shaper rate instead of measuring the line.</summary>
     public int ProbeLimitedSampleCount { get; set; }
 

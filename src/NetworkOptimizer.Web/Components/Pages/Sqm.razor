@@ -1618,6 +1618,24 @@
         margin-right: 0.25rem;
     }
 
+    .learning-insights {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+    }
+
+    .insight-label {
+        display: inline-block;
+        min-width: 8.5rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
     .learning-actions {
         display: flex;
         flex-wrap: wrap;
@@ -1788,10 +1806,6 @@
                     }
                     <span><span class="detail-label">Samples:</span>@status.ValidSampleCount valid of @status.TotalSampleCount</span>
                     <span><span class="detail-label">Week covered:</span>@status.CoveragePercent.ToString("F0")%</span>
-                    @if (status.HasProfile)
-                    {
-                        <span><span class="detail-label">Peak:</span>@status.PeakDownloadMbps.ToString("F0") / @status.PeakUploadMbps.ToString("F0") Mbps</span>
-                    }
                     @if (status.LastSampleAt.HasValue)
                     {
                         <span><span class="detail-label">Last sample:</span>@status.LastSampleAt.Value.ToLocalTime().ToString("MMM d, HH:mm")</span>
@@ -1804,7 +1818,7 @@
                     {
                         <span><span class="detail-label">Next check:</span>@status.NextRunAt.Value.ToLocalTime().ToString("HH:mm")</span>
                     }
-                    @if (!string.IsNullOrEmpty(status.LastSummary) && status.IsActive)
+                    @if (status.IsActive && status.LastSummary?.StartsWith("Waiting", StringComparison.Ordinal) == true)
                     {
                         <span class="form-hint" style="margin: 0;">@status.LastSummary</span>
                     }
@@ -1812,6 +1826,22 @@
                 @if (status.HasProfile && !status.IsReliable && status.IsCompleted)
                 {
                     <p class="learning-text">Not enough of the week was sampled to rely on this profile yet. You can still select it, or relearn for a fuller picture.</p>
+                }
+                @if (status.ObservedMinDownloadMbps.HasValue)
+                {
+                    var insight = learned != null && status.DaysSpanned >= 2 ? NetworkOptimizer.Sqm.CongestionProfileInsights.Describe(learned, model.ConnectionType) : null;
+                    <div class="learning-insights">
+                        <div><span class="insight-label">So far</span>@status.ObservedMinDownloadMbps.Value.ToString("F0") to @status.ObservedMaxDownloadMbps!.Value.ToString("F0") Mbps down, @status.ObservedMinUploadMbps!.Value.ToString("F0") to @status.ObservedMaxUploadMbps!.Value.ToString("F0") up.</div>
+                        @if (insight != null)
+                        {
+                            <div><span class="insight-label">Slowest</span>@insight.SlowestSentence.</div>
+                            <div><span class="insight-label">Versus the default</span>@insight.ComparisonSentence(ConnectionProfile.GetConnectionTypeName(model.ConnectionType)).</div>
+                        }
+                        else if (status.IsActive)
+                        {
+                            <div><span class="insight-label">Slowest</span>after a couple of days of samples.</div>
+                        }
+                    </div>
                 }
                 @if (learned != null)
                 {
