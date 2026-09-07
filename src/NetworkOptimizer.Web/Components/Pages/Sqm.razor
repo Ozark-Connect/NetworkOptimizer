@@ -1860,6 +1860,10 @@
                     </div>
                     <div class="learn-strip-axis"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
                 }
+                @if (deploymentStatus?.IsDeployed == true && deploymentStatus.PingScriptsWithoutProbeGuard > 0)
+                {
+                    <div class="alert alert-warning" style="margin-bottom: 0.75rem;">Redeploy Adaptive SQM so it doesn't interfere with congestion learning.</div>
+                }
                 @if (!string.IsNullOrEmpty(status.LastError))
                 {
                     <div class="alert alert-warning" style="margin-bottom: 0.75rem;">Last sample problem: @status.LastError</div>

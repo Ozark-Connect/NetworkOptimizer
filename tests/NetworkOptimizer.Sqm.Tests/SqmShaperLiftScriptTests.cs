@@ -47,6 +47,9 @@ public class SqmShaperLiftScriptTests
         ping.Should().Contain($"-lt {ScriptGenerator.ProbeLockMaxAgeSeconds}");
         // The guard precedes the result-file check, so a locked run touches nothing at all.
         ping.IndexOf("PROBE_LOCK=", StringComparison.Ordinal).Should().BeLessThan(ping.IndexOf("Check for speedtest result", StringComparison.Ordinal));
+        // The speedtest script waits for the lock instead of skipping: a calibration is not to be lost.
+        ping.Should().Contain("Wait for a probe (congestion learning sample) to release the shaper");
+        ping.IndexOf("Wait for a probe", StringComparison.Ordinal).Should().BeLessThan(ping.IndexOf("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", StringComparison.Ordinal));
     }
 
     [Fact]

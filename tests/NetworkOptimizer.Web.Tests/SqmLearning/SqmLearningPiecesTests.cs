@@ -56,6 +56,26 @@ public class GatewayInterfaceRateProbeTests
     }
 
     [Fact]
+    public void Parse_ReadsTheGatewayMinute()
+    {
+        GatewayInterfaceRateProbe.Parse("rx_bytes=0\ntx_bytes=0\nday=0\nhour=18\nminute=27\n")!.Minute.Should().Be(27);
+        GatewayInterfaceRateProbe.Parse("rx_bytes=0\ntx_bytes=0\nday=0\nhour=18\n")!.Minute.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(18, 27, true)]   // three minutes before the 18:30 probe
+    [InlineData(18, 30, true)]   // on the minute
+    [InlineData(18, 26, false)]  // four minutes out
+    [InlineData(5, 58, true)]    // two minutes before the 06:00 probe
+    [InlineData(12, 0, false)]
+    public void ScheduledProbeImminent_UsesTheSavedProbeTimes(int hour, int minute, bool expected)
+    {
+        var wan = new SqmWanConfiguration { SpeedtestMorningHour = 6, SpeedtestMorningMinute = 0, SpeedtestEveningHour = 18, SpeedtestEveningMinute = 30 };
+
+        SqmLearningExecutor.ScheduledProbeImminent(hour, minute, wan, 3).Should().Be(expected);
+    }
+
+    [Fact]
     public void Parse_TreatsAWrappedCounterAsBusy()
     {
         var reading = GatewayInterfaceRateProbe.Parse("rx_bytes=-5\ntx_bytes=10\nday=0\nhour=0\n");

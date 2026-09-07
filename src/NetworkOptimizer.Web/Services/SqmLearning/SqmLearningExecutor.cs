@@ -24,6 +24,9 @@ public class SqmLearningExecutor
     /// <summary>Connections per sample: half the standard test's, plenty to saturate a shared-medium WAN for 4 s.</summary>
     public const int SampleStreams = 10;
 
+    /// <summary>A sample stays this far clear of a scheduled Adaptive SQM speed test so the two never overlap.</summary>
+    public const int ScheduledProbeClearanceMinutes = 3;
+
     /// <summary>A direction that lands at or above this fraction of its lift measured the lift, not the line.</summary>
     public const double ProbeLimitedFraction = 0.95;
 
@@ -121,6 +124,8 @@ public class SqmLearningExecutor
 
         if (gateway.SqmSpeedtestRunning)
             return Wait($"Waiting: the Adaptive SQM speed test is running on {profile.Name}");
+        if (saved != null && ScheduledProbeImminent(gateway.Hour, gateway.Minute, saved, ScheduledProbeClearanceMinutes))
+            return Wait($"Waiting: an Adaptive SQM speed test is due within {ScheduledProbeClearanceMinutes} minutes");
         if (!idle.IsIdle)
             return Wait($"Waiting for an idle stretch: {profile.Name} at {FormatMbps(idle.DownloadMbps)} down / {FormatMbps(idle.UploadMbps)} up");
 
@@ -289,6 +294,25 @@ public class SqmLearningExecutor
             up = Math.Min(up, ceiling);
         }
         return new SqmShaperLift(down, up, wanConfig.RateProportionalDownloadBurst);
+    }
+
+    /// <summary>
+    /// True when one of the WAN's two scheduled Adaptive SQM speed tests (saved as gateway-local
+    /// times) is due within <paramref name="windowMinutes"/> of the gateway's clock.
+    /// </summary>
+    internal static bool ScheduledProbeImminent(int hour, int minute, SqmWanConfiguration wanConfig, int windowMinutes)
+    {
+        var now = hour * 60 + minute;
+        foreach (var due in new[]
+                 {
+                     wanConfig.SpeedtestMorningHour * 60 + wanConfig.SpeedtestMorningMinute,
+                     wanConfig.SpeedtestEveningHour * 60 + wanConfig.SpeedtestEveningMinute,
+                 })
+        {
+            var ahead = ((due - now) % 1440 + 1440) % 1440;
+            if (ahead <= windowMinutes) return true;
+        }
+        return false;
     }
 
     /// <summary>The highest lift the WAN allows: link speed with HTB headroom, or null when unknown.</summary>

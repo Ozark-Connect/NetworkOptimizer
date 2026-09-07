@@ -288,6 +288,11 @@ public class ScriptGenerator
         sb.AppendLine("echo \"[$(date)] Starting speedtest adjustment on $INTERFACE...\" >> $LOG_FILE");
         sb.AppendLine();
 
+        // A probe (congestion learning sample) may hold the shaper lifted for ~15 s; calibrating on
+        // top of it would measure against its lift and then write over its restore.
+        sb.AppendLine(GetProbeLockWait());
+        sb.AppendLine();
+
         // Verify IFB device exists (created by UniFi Smart Queues)
         sb.AppendLine("# Verify IFB device exists (created by UniFi Smart Queues)");
         sb.AppendLine("if ! ip link show \"$IFB_DEVICE\" &>/dev/null; then");
@@ -641,6 +646,22 @@ public class ScriptGenerator
 
     /// <summary>Seconds after which a lock left behind by a killed probe is ignored and removed.</summary>
     public const int ProbeLockMaxAgeSeconds = 120;
+
+    /// <summary>
+    /// Speedtest-script wait: let a fresh probe lock clear (up to 90 s) before calibrating, and
+    /// drop a stale one so a killed probe can never block calibration for good.
+    /// </summary>
+    private static string GetProbeLockWait()
+    {
+        return $@"# Wait for a probe (congestion learning sample) to release the shaper
+PROBE_LOCK=""/data/sqm/probe-${{INTERFACE}}.lock""
+for _ in $(seq 1 90); do
+    [ -f ""$PROBE_LOCK"" ] || break
+    lock_age=$(( $(date +%s) - $(stat -c %Y ""$PROBE_LOCK"" 2>/dev/null || echo 0) ))
+    if [ ""$lock_age"" -ge {ProbeLockMaxAgeSeconds} ]; then rm -f ""$PROBE_LOCK""; break; fi
+    sleep 1
+done";
+    }
 
     /// <summary>
     /// Ping-script guard: stand down while a fresh probe lock exists for this interface.

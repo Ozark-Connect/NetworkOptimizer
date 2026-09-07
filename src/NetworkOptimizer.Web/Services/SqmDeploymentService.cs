@@ -145,7 +145,10 @@ public class SqmDeploymentService : ISqmDeploymentService
                 "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
                 "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
                 "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
+                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+                // Ping scripts from before the probe lock existed keep adjusting during a congestion
+                // learning sample; a redeploy installs the guard.
+                $"echo '---PING_GUARD_MISSING---'; for f in {SqmDir}/*-ping.sh; do [ -f \"$f\" ] && ! grep -q PROBE_LOCK \"$f\" && echo \"$f\"; done | wc -l";
 
             var result = await RunCommandAsync(combinedCommand);
             var sections = ParseDelimitedOutput(result.output);
@@ -180,6 +183,11 @@ public class SqmDeploymentService : ISqmDeploymentService
             status.SpeedtestCliInstalled = result.success && GetSection(sections, "SPEEDTEST_CLI").Contains("installed");
 
             status.BcInstalled = result.success && GetSection(sections, "BC_CHECK").Contains("installed");
+
+            if (int.TryParse(GetSection(sections, "PING_GUARD_MISSING").Trim(), out int unguarded))
+            {
+                status.PingScriptsWithoutProbeGuard = unguarded;
+            }
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
         }
@@ -1381,6 +1389,12 @@ public class SqmDeploymentStatus
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Deployed ping scripts that predate the probe lock and so keep adjusting during a congestion
+    /// learning sample. Zero once Adaptive SQM has been redeployed from a build that has the guard.
+    /// </summary>
+    public int PingScriptsWithoutProbeGuard { get; set; }
 
     /// <summary>
     /// True when the gateway is unreachable only because this site's on-site agent
