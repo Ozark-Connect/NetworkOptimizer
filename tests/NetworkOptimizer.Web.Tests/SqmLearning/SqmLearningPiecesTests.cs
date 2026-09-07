@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Sqm.Models;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using Xunit;
 
@@ -105,7 +106,7 @@ public class SqmLearningTaskConfigTests
         var sizing = back.ToWanConfiguration("eth4");
         sizing.Interface.Should().Be("eth4");
         sizing.NominalDownloadMbps.Should().Be(200);
-        SqmLearningExecutor.BuildLift(sizing)!.DownloadProbeMbps.Should().Be(400);
+        SqmLearningExecutor.BuildLift(sizing).Should().NotBeNull();
     }
 
     [Theory]
@@ -129,18 +130,20 @@ public class SqmLearningTaskConfigTests
 public class SqmLearningExecutorLiftTests
 {
     [Fact]
-    public void BuildLift_UsesTwiceNominal_AtLeastTheDeployProbe_AndTheBurstMode()
+    public void BuildLift_MatchesTheDeploysProbe_AndTheBurstMode()
     {
-        var lift = SqmLearningExecutor.BuildLift(new SqmWanConfiguration
+        var wan = new SqmWanConfiguration
         {
             ConnectionType = (int)ConnectionType.CellularHome,
             NominalDownloadMbps = 200,
             NominalUploadMbps = 30,
             RateProportionalDownloadBurst = true,
-        })!;
+        };
+        var lift = SqmLearningExecutor.BuildLift(wan)!;
 
-        lift.DownloadProbeMbps.Should().Be(400);
-        lift.UploadProbeMbps.Should().Be(60);
+        // Cellular MaxDownload is 1.2x nominal (240); the speedtest probe sits 3% above that.
+        lift.DownloadProbeMbps.Should().Be(247);
+        lift.UploadProbeMbps.Should().Be(31);
         lift.RateProportionalDownloadBurst.Should().BeTrue();
     }
 
@@ -150,17 +153,18 @@ public class SqmLearningExecutorLiftTests
         var lift = SqmLearningExecutor.BuildLift(new SqmWanConfiguration
         {
             ConnectionType = (int)ConnectionType.Gpon,
-            NominalDownloadMbps = 900,
-            NominalUploadMbps = 900,
+            NominalDownloadMbps = 990,
+            NominalUploadMbps = 990,
             LinkSpeedOverrideMbps = 1000,
         })!;
 
+        // GPON MaxDownload 1039 -> probe 1070, capped at 980; upload 1020 -> capped too.
         lift.DownloadProbeMbps.Should().Be(980);
         lift.UploadProbeMbps.Should().Be(980);
     }
 
     [Fact]
-    public void BuildLift_KeepsAMinimumUploadProbe()
+    public void BuildLift_KeepsUploadJustAboveNominal()
     {
         var lift = SqmLearningExecutor.BuildLift(new SqmWanConfiguration
         {
@@ -169,7 +173,33 @@ public class SqmLearningExecutorLiftTests
             NominalUploadMbps = 2,
         })!;
 
-        lift.UploadProbeMbps.Should().Be(10);
+        lift.UploadProbeMbps.Should().Be(3);
+    }
+
+    [Fact]
+    public void ProbeLimited_IsWithinFivePercentOfTheLift()
+    {
+        SqmLearningExecutor.IsProbeLimited(238, 247).Should().BeTrue();
+        SqmLearningExecutor.IsProbeLimited(230, 247).Should().BeFalse();
+        SqmLearningExecutor.IsProbeLimited(100, 0).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NextLift_RaisesByHalf_AndStopsAtTheCeiling()
+    {
+        SqmLearningExecutor.NextLift(240, null).Should().Be(360);
+        SqmLearningExecutor.NextLift(240, 300).Should().Be(300);
+    }
+
+    [Fact]
+    public void RaiseLift_TakesTheRememberedLift_NeverAboveTheCeiling()
+    {
+        var baseLift = new SqmShaperLift(247, 31, false);
+
+        SqmLearningExecutor.RaiseLift(baseLift, 360, null, null).Should().Be(new SqmShaperLift(360, 31, false));
+        SqmLearningExecutor.RaiseLift(baseLift, 360, 50, 300).Should().Be(new SqmShaperLift(300, 50, false));
+        SqmLearningExecutor.RaiseLift(baseLift, 100, null, null).Should().Be(baseLift);
+        SqmLearningExecutor.RaiseLift(null, 360, 50, 300).Should().BeNull();
     }
 
     [Fact]

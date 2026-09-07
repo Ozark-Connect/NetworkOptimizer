@@ -60,6 +60,10 @@ public class SqmLearningRepository : ISqmLearningRepository
                 existing.CoveragePercent = profile.CoveragePercent;
                 existing.DaysSpanned = profile.DaysSpanned;
                 existing.IsReliable = profile.IsReliable;
+                existing.PeakIsLowerBound = profile.PeakIsLowerBound;
+                existing.LiftDownloadMbps = profile.LiftDownloadMbps;
+                existing.LiftUploadMbps = profile.LiftUploadMbps;
+                existing.LiftCeilingMbps = profile.LiftCeilingMbps;
                 existing.ProfileUpdatedAt = profile.ProfileUpdatedAt;
                 existing.UpdatedAt = DateTime.UtcNow;
                 profile.Id = existing.Id;

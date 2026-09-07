@@ -344,7 +344,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         {
             var wrapper = NetworkOptimizer.Sqm.SqmShaperLiftScript.Wrap(
                 binaryCommand, interfaceName, lift.DownloadProbeMbps, lift.UploadProbeMbps, lift.RateProportionalDownloadBurst);
-            command = NetworkOptimizer.Sqm.SqmShaperLiftScript.ToRemoteCommand(wrapper, interfaceName) + " 2>/dev/null";
+            command = NetworkOptimizer.Sqm.SqmShaperLiftScript.ToRemoteCommand(wrapper, interfaceName);
         }
         else
         {

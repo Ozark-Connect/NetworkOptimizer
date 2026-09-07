@@ -186,6 +186,7 @@ public class SqmLearningService : ISqmLearningService
             reliable = profile.IsReliable,
             peakDownloadMbps = profile.PeakDownloadMbps,
             peakUploadMbps = profile.PeakUploadMbps,
+            peakIsLowerBound = profile.PeakIsLowerBound,
             slotLayout = "index = day * 24 + hour, day 0 = Monday",
             downloadMultipliers = learned?.DownloadMultipliers,
             uploadMultipliers = learned?.UploadMultipliers,
@@ -214,6 +215,7 @@ public class SqmLearningService : ISqmLearningService
                 ValidSampleCount = profile.ValidSampleCount,
                 DaysSpanned = profile.DaysSpanned,
                 IsReliable = profile.IsReliable,
+                PeakIsLowerBound = profile.PeakIsLowerBound,
             };
         }
         catch (JsonException)
@@ -272,6 +274,11 @@ public class SqmLearningService : ISqmLearningService
             PeakDownloadMbps = profile.PeakDownloadMbps,
             PeakUploadMbps = profile.PeakUploadMbps,
             DurationSeconds = profile.SampleDurationSeconds,
+            ProbeLimitedSampleCount = samples.Count(s => s.Success && !s.Excluded && s.ProbeLimited),
+            PeakIsLowerBound = profile.PeakIsLowerBound,
+            LiftDownloadMbps = profile.LiftDownloadMbps,
+            LiftUploadMbps = profile.LiftUploadMbps,
+            LiftCeilingMbps = profile.LiftCeilingMbps,
             Profile = ToLearned(profile),
         };
     }

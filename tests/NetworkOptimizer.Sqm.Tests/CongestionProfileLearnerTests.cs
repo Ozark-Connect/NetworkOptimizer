@@ -151,6 +151,36 @@ public class CongestionProfileLearnerTests
     }
 
     [Fact]
+    public void ProbeLimitedSamples_ShapeTheCurve_ButNeverSetThePeak()
+    {
+        // Overnight samples clipped at a 250 lift; the rest measured the line at 200 / 100.
+        var samples = Week(EveningDip)
+            .Select(s => s.Hour is >= 1 and <= 4 ? s with { DownloadMbps = 250, ProbeLimited = true } : s)
+            .ToList();
+
+        var p = CongestionProfileLearner.Learn(samples).Profile;
+
+        p.ProbeLimitedSampleCount.Should().Be(28);
+        p.PeakIsLowerBound.Should().BeFalse();
+        // The peak is the best unclipped hour, not the lift.
+        p.PeakDownloadMbps.Should().BeLessThan(215);
+        // Clipped hours still read as at least as fast as the peak.
+        p.DownloadMultipliers[LearnedCongestionProfile.SlotIndex(2, 2)].Should().Be(1.0);
+    }
+
+    [Fact]
+    public void AllSamplesProbeLimited_MarksThePeakAsALowerBound()
+    {
+        var samples = Week(EveningDip).Select(s => s with { ProbeLimited = true }).ToList();
+
+        var p = CongestionProfileLearner.Learn(samples).Profile;
+
+        p.PeakIsLowerBound.Should().BeTrue();
+        p.ProbeLimitedSampleCount.Should().Be(168);
+        p.PeakDownloadMbps.Should().BeApproximately(200, 1);
+    }
+
+    [Fact]
     public void EmptyInput_YieldsFlatUnreliableProfile()
     {
         var p = CongestionProfileLearner.Learn(Array.Empty<LearningSample>()).Profile;

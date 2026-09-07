@@ -85,6 +85,8 @@ fi
     /// <summary>
     /// A one-line shell command that carries the wrapper to the gateway and runs it, returning the
     /// wrapped command's exit code. The temp file name is per-interface so two WANs never collide.
+    /// The script's stderr is dropped right here: the SSH runner merges stderr into the output it
+    /// returns, and the binary's progress lines would land in what the caller parses as JSON.
     /// </summary>
     public static string ToRemoteCommand(string script, string interfaceName)
     {
@@ -93,6 +95,6 @@ fi
             throw new ArgumentException(validation.error, nameof(interfaceName));
         var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script.Replace("\r\n", "\n")));
         var path = $"/tmp/netopt-sqm-probe-{interfaceName}.sh";
-        return $"echo '{b64}' | base64 -d > {path} && bash {path}; rc=$?; rm -f {path}; exit $rc";
+        return $"echo '{b64}' | base64 -d > {path} && bash {path} 2>/dev/null; rc=$?; rm -f {path}; exit $rc";
     }
 }

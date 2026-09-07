@@ -37,6 +37,15 @@ public class LearnedCongestionProfile
     /// <summary>True once the sample count, coverage, and span are enough to shape from.</summary>
     public bool IsReliable { get; set; }
 
+    /// <summary>Samples that hit the measurement ceiling (the lifted shaper rate) rather than the line.</summary>
+    public int ProbeLimitedSampleCount { get; set; }
+
+    /// <summary>
+    /// True when every sample hit the measurement ceiling, so the peaks are the ceiling, not the line:
+    /// the real best hour is at least this fast.
+    /// </summary>
+    public bool PeakIsLowerBound { get; set; }
+
     /// <summary>Slot index for a day of week (0 = Monday) and hour.</summary>
     public static int SlotIndex(int dayOfWeek, int hour) => dayOfWeek * 24 + hour;
 
@@ -92,6 +101,8 @@ public class LearnedCongestionProfile
 /// <summary>
 /// One measured throughput sample feeding the learner. Day and hour are the gateway's local
 /// time at the moment of the test, so slots line up with the clock the deployed scripts read.
+/// A probe-limited sample ran into the lifted shaper rate: its figures are lower bounds, so it
+/// shapes the curve but never sets the peak.
 /// </summary>
 public sealed record LearningSample(
     long Id,
@@ -99,4 +110,5 @@ public sealed record LearningSample(
     int Hour,
     double DownloadMbps,
     double UploadMbps,
-    DateTime SampledAt);
+    DateTime SampledAt,
+    bool ProbeLimited = false);

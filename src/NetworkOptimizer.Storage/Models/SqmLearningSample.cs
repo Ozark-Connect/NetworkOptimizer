@@ -45,6 +45,15 @@ public class SqmLearningSample
     [MaxLength(20)]
     public string IdleSource { get; set; } = "gateway";
 
+    /// <summary>Rate the shaper was lifted to on the download side for this sample; null when it was not lifted.</summary>
+    public int? LiftDownloadMbps { get; set; }
+
+    /// <summary>Rate the shaper was lifted to on the upload side for this sample; null when it was not lifted.</summary>
+    public int? LiftUploadMbps { get; set; }
+
+    /// <summary>True when either direction landed within a few percent of its lift: the sample measured the lift, not the line.</summary>
+    public bool ProbeLimited { get; set; }
+
     /// <summary>False when the test itself failed; such rows carry <see cref="Error"/> and no throughput.</summary>
     public bool Success { get; set; }
 

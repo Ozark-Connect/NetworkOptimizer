@@ -103,14 +103,39 @@ public static class CongestionProfileLearner
         var smoothDown = Smooth(sumDown, counts, HourOfDayMeans(kept, s => s.DownloadMbps), Median(kept.Select(s => s.DownloadMbps)));
         var smoothUp = Smooth(sumUp, counts, HourOfDayMeans(kept, s => s.UploadMbps), Median(kept.Select(s => s.UploadMbps)));
 
-        var peakDown = smoothDown.Max();
-        var peakUp = smoothUp.Max();
+        // The peak comes only from samples that measured the line. A probe-limited sample is a
+        // lower bound: it may pull the shape, but it must not become the ceiling everything is
+        // relative to, or the learned nominal is our own lift rate.
+        var unclipped = kept.Where(s => !s.ProbeLimited).ToList();
+        double peakDown, peakUp;
+        if (unclipped.Count > 0)
+        {
+            var uCounts = new int[LearnedCongestionProfile.Slots];
+            var uDown = new double[LearnedCongestionProfile.Slots];
+            var uUp = new double[LearnedCongestionProfile.Slots];
+            foreach (var s in unclipped)
+            {
+                var slot = LearnedCongestionProfile.SlotIndex(s.DayOfWeek, s.Hour);
+                uCounts[slot]++;
+                uDown[slot] += s.DownloadMbps;
+                uUp[slot] += s.UploadMbps;
+            }
+            peakDown = Smooth(uDown, uCounts, HourOfDayMeans(unclipped, s => s.DownloadMbps), Median(unclipped.Select(s => s.DownloadMbps))).Max();
+            peakUp = Smooth(uUp, uCounts, HourOfDayMeans(unclipped, s => s.UploadMbps), Median(unclipped.Select(s => s.UploadMbps))).Max();
+        }
+        else
+        {
+            peakDown = smoothDown.Max();
+            peakUp = smoothUp.Max();
+            profile.PeakIsLowerBound = true;
+        }
 
         profile.SampleCounts = counts;
         profile.DownloadMultipliers = smoothDown.Select(v => Normalize(v, peakDown)).ToArray();
         profile.UploadMultipliers = smoothUp.Select(v => Normalize(v, peakUp)).ToArray();
         profile.PeakDownloadMbps = Math.Round(peakDown, 1);
         profile.PeakUploadMbps = Math.Round(peakUp, 1);
+        profile.ProbeLimitedSampleCount = kept.Count - unclipped.Count;
         profile.DaysSpanned = kept.Select(s => s.SampledAt.Date).Distinct().Count();
         profile.IsReliable = kept.Count >= MinReliableSamples
             && profile.Coverage >= MinReliableCoverage

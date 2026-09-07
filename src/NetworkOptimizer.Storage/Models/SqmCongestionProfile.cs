@@ -79,6 +79,18 @@ public class SqmCongestionProfile
     /// <summary>True once the learner judges the profile fit to shape from.</summary>
     public bool IsReliable { get; set; }
 
+    /// <summary>True when every valid sample hit the measurement ceiling, so the peaks are lower bounds.</summary>
+    public bool PeakIsLowerBound { get; set; }
+
+    /// <summary>Download lift the next sample uses, raised after a probe-limited sample; null = the default lift.</summary>
+    public int? LiftDownloadMbps { get; set; }
+
+    /// <summary>Upload lift the next sample uses, raised after a probe-limited sample; null = the default lift.</summary>
+    public int? LiftUploadMbps { get; set; }
+
+    /// <summary>Highest lift the WAN allows (its link speed with HTB headroom); null when the link speed is unknown.</summary>
+    public int? LiftCeilingMbps { get; set; }
+
     /// <summary>When the multipliers were last recomputed (UTC).</summary>
     public DateTime? ProfileUpdatedAt { get; set; }
 

@@ -109,6 +109,23 @@ public sealed class SqmLearningStatus
     public double PeakUploadMbps { get; set; }
     public int DurationSeconds { get; set; }
 
+    /// <summary>Valid samples that ran into the lifted shaper rate instead of measuring the line.</summary>
+    public int ProbeLimitedSampleCount { get; set; }
+
+    /// <summary>True when every valid sample was probe-limited, so the peaks are lower bounds.</summary>
+    public bool PeakIsLowerBound { get; set; }
+
+    /// <summary>Lift the next sample uses, when raised above the default.</summary>
+    public int? LiftDownloadMbps { get; set; }
+    public int? LiftUploadMbps { get; set; }
+
+    /// <summary>Highest lift the WAN allows (link speed with headroom); null when unknown.</summary>
+    public int? LiftCeilingMbps { get; set; }
+
+    /// <summary>True when a raised lift has reached the link ceiling and cannot go higher.</summary>
+    public bool LiftAtCeiling =>
+        LiftCeilingMbps is > 0 && ((LiftDownloadMbps ?? 0) >= LiftCeilingMbps || (LiftUploadMbps ?? 0) >= LiftCeilingMbps);
+
     /// <summary>The learned curves, when <see cref="HasProfile"/>.</summary>
     public LearnedCongestionProfile? Profile { get; set; }
 }

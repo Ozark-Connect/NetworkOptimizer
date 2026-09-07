@@ -24,6 +24,15 @@ public class SqmLearningExecutor
     /// <summary>Connections per sample: half the standard test's, plenty to saturate a shared-medium WAN for 4 s.</summary>
     public const int SampleStreams = 10;
 
+    /// <summary>A direction that lands at or above this fraction of its lift measured the lift, not the line.</summary>
+    public const double ProbeLimitedFraction = 0.95;
+
+    /// <summary>How far the lift is raised after a probe-limited sample.</summary>
+    public const double LiftRaiseFactor = 1.5;
+
+    /// <summary>Sanity ceiling for a raised lift when the link speed is unknown.</summary>
+    public const int MaxLiftMbps = 100_000;
+
     /// <summary>Failures alert on the third in a row and then once a day, not every hour.</summary>
     public const int FailureAlertThreshold = 3;
     public const int FailureAlertRepeatEvery = 24;
@@ -115,12 +124,17 @@ public class SqmLearningExecutor
         if (!idle.IsIdle)
             return Wait($"Waiting for an idle stretch: {profile.Name} at {FormatMbps(idle.DownloadMbps)} down / {FormatMbps(idle.UploadMbps)} up");
 
+        // The lift starts from the configuration and rises after any sample that ran into it, so a
+        // conservative nominal cannot cap what learning sees.
+        var ceiling = LinkCeiling(wanConfig);
+        var lift = RaiseLift(BuildLift(wanConfig), profile.LiftDownloadMbps, profile.LiftUploadMbps, ceiling);
+        profile.LiftCeilingMbps = ceiling;
         var options = new GatewayWanTestOptions
         {
             DurationSeconds = cfg.DurationSeconds,
             Streams = SampleStreams,
             Ephemeral = true,
-            ShaperLift = BuildLift(wanConfig),
+            ShaperLift = lift,
         };
 
         Iperf3Result? result;
@@ -151,13 +165,24 @@ public class SqmLearningExecutor
             IdleDownloadMbps = Math.Round(idle.DownloadMbps, 3),
             IdleUploadMbps = Math.Round(idle.UploadMbps, 3),
             IdleSource = idle.Source,
+            LiftDownloadMbps = lift?.DownloadProbeMbps,
+            LiftUploadMbps = lift?.UploadProbeMbps,
             Success = result.Success,
             Error = result.Success ? null : Trim(result.ErrorMessage),
         };
+        var limitedDown = result.Success && lift != null && IsProbeLimited(result.DownloadMbps, lift.DownloadProbeMbps);
+        var limitedUp = result.Success && lift != null && IsProbeLimited(result.UploadMbps, lift.UploadProbeMbps);
+        sample.ProbeLimited = limitedDown || limitedUp;
         await _repo.AddSampleAsync(sample, ct);
 
         if (!result.Success)
             return await FailAsync(profile, result.ErrorMessage ?? "The gateway speed test reported a failure.", ct);
+
+        // A direction that hit its lift gets a higher lift next time, up to the link ceiling.
+        if (limitedDown)
+            profile.LiftDownloadMbps = Math.Max(profile.LiftDownloadMbps ?? 0, NextLift(result.DownloadMbps, ceiling));
+        if (limitedUp)
+            profile.LiftUploadMbps = Math.Max(profile.LiftUploadMbps ?? 0, NextLift(result.UploadMbps, ceiling));
 
         profile.LastSampleAt = sample.SampledAt;
         profile.LastError = null;
@@ -165,8 +190,9 @@ public class SqmLearningExecutor
         profile.Interface = iface;
         await RecomputeAsync(profile, ct);
 
-        var summary = $"Sample {sample.DownloadMbps:F0} / {sample.UploadMbps:F0} Mbps · " +
-                      $"{profile.ValidSampleCount} samples, {profile.CoveragePercent:F0}% of the week covered";
+        var summary = $"Sample {sample.DownloadMbps:F0} / {sample.UploadMbps:F0} Mbps" +
+                      (sample.ProbeLimited ? " (hit the measurement ceiling, lift raised)" : "") +
+                      $" · {profile.ValidSampleCount} samples, {profile.CoveragePercent:F0}% of the week covered";
         _logger.LogInformation("Adaptive SQM learning sample for WAN {Wan} ({Iface}): {Summary}", cfg.WanNumber, iface, summary);
         return new ScheduleRunOutcome(true, summary, null, Notify: false);
 
@@ -179,7 +205,7 @@ public class SqmLearningExecutor
     {
         var rows = await _repo.GetSamplesAsync(profile.WanNumber, profile.LearningStartedAt, ct);
         var samples = rows.Where(r => r.Success)
-            .Select(r => new LearningSample(r.Id, r.LocalDayOfWeek, r.LocalHour, r.DownloadMbps, r.UploadMbps, r.SampledAt))
+            .Select(r => new LearningSample(r.Id, r.LocalDayOfWeek, r.LocalHour, r.DownloadMbps, r.UploadMbps, r.SampledAt, r.ProbeLimited))
             .ToList();
 
         var learned = CongestionProfileLearner.Learn(samples);
@@ -196,6 +222,7 @@ public class SqmLearningExecutor
         profile.CoveragePercent = Math.Round(p.Coverage * 100, 1);
         profile.DaysSpanned = p.DaysSpanned;
         profile.IsReliable = p.IsReliable;
+        profile.PeakIsLowerBound = p.PeakIsLowerBound;
         profile.ProfileUpdatedAt = DateTime.UtcNow;
         await _repo.SaveProfileAsync(profile, ct);
     }
@@ -234,32 +261,60 @@ public class SqmLearningExecutor
     }
 
     /// <summary>
-    /// Probe rates that stay clear of the line rate: at least twice nominal so a conservative
-    /// nominal cannot cap the measurement, at least the deploy's own probe rate, and never above
-    /// the link ceiling the deploy uses. Null when the WAN has no saved configuration to size from.
+    /// The same probe the deployed Adaptive SQM speed test uses: download 3% above the highest rate
+    /// the WAN ever shapes to, upload just above nominal. The link stays shaped during the sample,
+    /// so a learning run never turns bufferbloat loose for its test window; a sample that clips at
+    /// this probe raises it for the next one (<see cref="RaiseLift"/>). Never above the link
+    /// ceiling. Null when the WAN has no configuration to size from.
     /// </summary>
     internal static SqmShaperLift? BuildLift(SqmWanConfiguration? wanConfig)
     {
         if (wanConfig == null || wanConfig.NominalDownloadMbps <= 0)
             return null;
 
+        var nominalUp = Math.Max(1, wanConfig.NominalUploadMbps);
         var sqm = new SqmConfig
         {
             ConnectionType = (ConnectionType)wanConfig.ConnectionType,
             NominalDownloadSpeed = wanConfig.NominalDownloadMbps,
-            NominalUploadSpeed = Math.Max(1, wanConfig.NominalUploadMbps),
+            NominalUploadSpeed = nominalUp,
         };
         sqm.ApplyProfileSettings(wanConfig.LinkSpeedOverrideMbps);
 
-        var down = Math.Max(sqm.SpeedtestProbeRateMbps, wanConfig.NominalDownloadMbps * 2);
-        var up = Math.Max(10, Math.Max(1, wanConfig.NominalUploadMbps) * 2);
-        if (wanConfig.LinkSpeedOverrideMbps is > 0)
+        var down = sqm.SpeedtestProbeRateMbps;
+        var up = Math.Max(nominalUp + 1, (int)Math.Ceiling(nominalUp * 1.03));
+        if (LinkCeiling(wanConfig) is { } ceiling)
         {
-            var ceiling = (int)(wanConfig.LinkSpeedOverrideMbps.Value * 0.98);
             down = Math.Min(down, ceiling);
             up = Math.Min(up, ceiling);
         }
         return new SqmShaperLift(down, up, wanConfig.RateProportionalDownloadBurst);
+    }
+
+    /// <summary>The highest lift the WAN allows: link speed with HTB headroom, or null when unknown.</summary>
+    internal static int? LinkCeiling(SqmWanConfiguration wanConfig) =>
+        wanConfig.LinkSpeedOverrideMbps is > 0 ? (int)(wanConfig.LinkSpeedOverrideMbps.Value * 0.98) : null;
+
+    /// <summary>Whether a measured direction ran into its lift rather than the line.</summary>
+    internal static bool IsProbeLimited(double measuredMbps, int liftMbps) =>
+        liftMbps > 0 && measuredMbps >= liftMbps * ProbeLimitedFraction;
+
+    /// <summary>The lift to use after a direction clipped at <paramref name="clippedMbps"/>.</summary>
+    internal static int NextLift(double clippedMbps, int? ceiling) =>
+        Math.Min((int)Math.Ceiling(clippedMbps * LiftRaiseFactor), ceiling ?? MaxLiftMbps);
+
+    /// <summary>The configured lift raised to any remembered per-direction lift, never above the ceiling.</summary>
+    internal static SqmShaperLift? RaiseLift(SqmShaperLift? baseLift, int? liftDown, int? liftUp, int? ceiling)
+    {
+        if (baseLift == null) return null;
+        var down = Math.Max(baseLift.DownloadProbeMbps, liftDown ?? 0);
+        var up = Math.Max(baseLift.UploadProbeMbps, liftUp ?? 0);
+        if (ceiling is > 0)
+        {
+            down = Math.Min(down, ceiling.Value);
+            up = Math.Min(up, ceiling.Value);
+        }
+        return baseLift with { DownloadProbeMbps = down, UploadProbeMbps = up };
     }
 
     private async Task<string?> ResolveWanGroupAsync(string iface)

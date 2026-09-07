@@ -65,6 +65,9 @@ public class SqmShaperLiftScriptTests
         var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
         command.Should().Contain(b64);
         command.Should().Contain("/tmp/netopt-sqm-probe-eth4.sh");
+        // The SSH runner merges stderr into the returned output, so the script's stderr (the
+        // binary's progress lines) must be dropped on the script itself, not on the final exit.
+        command.Should().Contain("bash /tmp/netopt-sqm-probe-eth4.sh 2>/dev/null;");
         command.Should().EndWith("exit $rc");
         // No shell metacharacters from the script leak into the command line: it travels base64.
         command.Should().NotContain("echo hi");
