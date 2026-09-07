@@ -146,7 +146,7 @@
                                         }
                                         @foreach (var provider in summary.LinkedProviders)
                                         {
-                                            <span class="status-badge status-info" data-tooltip="Signs in through this identity provider">@provider</span>
+                                            <span class="status-badge status-info" data-tooltip="Signs in through this IdP - see Identities for details">@provider</span>
                                         }
                                         @if (!summary.HasPassword && summary.PasskeyCount == 0 && summary.LinkedProviders.Count == 0)
                                         {
