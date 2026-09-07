@@ -252,7 +252,7 @@ public class RolloutAutopilot : IRolloutAutopilot
             _logger.LogDebug(
                 "Autopilot is holding off on site {Site}: the last unattended rollout was stopped and nothing new has been released since",
                 _siteSlug);
-            HoldReason = "The last Autopilot plan was stopped, so it's waiting for new firmware before proposing again. Save Autopilot Configuration to plan now.";
+            HoldReason = "The last Autopilot plan was stopped, so it's waiting for new firmware before proposing again.";
             return null;
         }
 
