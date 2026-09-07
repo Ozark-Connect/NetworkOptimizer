@@ -46,7 +46,7 @@
                 }
                 else
                 {
-                    <span>Users are managed by an Admin. Ask an Admin to add a user for you, or to change what an existing one can reach.</span>
+                    <span>Users are managed by an Admin. Ask an Admin to add a user for you, or to change what an existing one can access.</span>
                 }
             </div>
         }
@@ -60,7 +60,7 @@
         {
             <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
         }
-        else if (ShowsList)
+        else if (ShowsList && _users is not null)
         {
             <div class="table-responsive">
                 <table class="data-table">
@@ -68,7 +68,10 @@
                         <tr>
                             <th>User</th>
                             <th>Role <span class="tooltip-icon tooltip-icon-sm" role="button" data-tooltip-hover-only data-tooltip="Click to see what each role can and cannot do" @onclick="() => OnExplainRoles.InvokeAsync()">?</span></th>
-                            <th class="hide-mobile">Sign-in</th>
+                            @if (!ViewOnly)
+                            {
+                                <th class="hide-mobile">Sign-in</th>
+                            }
                             <th class="hide-mobile">Last sign-in</th>
                             <th>Status</th>
                             @if (!ViewOnly)
@@ -98,23 +101,32 @@
                                     <div class="identity-role-cell">
                                         @* A disabled control receives no mouse events, so the tooltip has to
                                            live on a wrapper or it never shows. *@
-                                        <span class="identity-lock" data-tooltip="@(ViewOnly ? "Managed on the main site" : IsSelf(user) ? "You cannot change your own role" : null)">
+                                        @if (ViewOnly)
+                                        {
+                                            <span>@(summary.GlobalRole ?? Roles.Viewer)</span>
+                                        }
+                                        else
+                                        {
+                                        <span class="identity-lock" data-tooltip="@(IsSelf(user) ? "You cannot change your own role" : null)">
                                         <select class="form-control identity-role-select" value="@(summary.GlobalRole ?? Roles.Viewer)"
                                                 @onchange="e => ChangeRoleAsync(summary, e.Value?.ToString())"
-                                                disabled="@(ViewOnly || _busyUserId == user.Id || IsSelf(user))">
+                                                disabled="@(_busyUserId == user.Id || IsSelf(user))">
                                             @foreach (var role in Roles.All)
                                             {
                                                 <option value="@role">@role</option>
                                             }
                                         </select>
                                         </span>
+                                        }
                                         @if (_siteRestrictionActive && !summary.HasSiteAccess)
                                         {
                                             <span class="status-badge status-inactive"
-                                                  data-tooltip="This account is limited to its assigned sites and has none, so it can reach nothing. Grant access under Access.">No site access</span>
+                                                  data-tooltip="@(ViewOnly ? "This account is limited to its assigned sites and has none, so it can access nothing." : "This account is limited to its assigned sites and has none, so it can access nothing. Grant access under Access.")">No site access</span>
                                         }
                                     </div>
                                 </td>
+                                @if (!ViewOnly)
+                                {
                                 <td class="hide-mobile">
                                     @* What this account can actually sign in with. A badge that only
                                        restates itself carries no tooltip. *@
@@ -142,6 +154,7 @@
                                         }
                                     </div>
                                 </td>
+                                }
                                 <td class="hide-mobile">
                                     @if (user.LastLoginAt is { } last)
                                     {
