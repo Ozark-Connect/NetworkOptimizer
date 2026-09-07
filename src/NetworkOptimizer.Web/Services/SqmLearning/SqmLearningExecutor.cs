@@ -21,6 +21,9 @@ public class SqmLearningExecutor
     /// <summary>How soon a busy or contended attempt is retried, so a quiet stretch within the hour is caught.</summary>
     public static readonly TimeSpan BusyRetry = TimeSpan.FromMinutes(10);
 
+    /// <summary>Connections per sample: half the standard test's, plenty to saturate a shared-medium WAN for 4 s.</summary>
+    public const int SampleStreams = 10;
+
     /// <summary>Failures alert on the third in a row and then once a day, not every hour.</summary>
     public const int FailureAlertThreshold = 3;
     public const int FailureAlertRepeatEvery = 24;
@@ -115,6 +118,7 @@ public class SqmLearningExecutor
         var options = new GatewayWanTestOptions
         {
             DurationSeconds = cfg.DurationSeconds,
+            Streams = SampleStreams,
             Ephemeral = true,
             ShaperLift = BuildLift(wanConfig),
         };

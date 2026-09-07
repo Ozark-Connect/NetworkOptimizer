@@ -14,6 +14,9 @@ public sealed record GatewayWanTestOptions
     /// <summary>Seconds per direction handed to the binary. The standard test uses 8.</summary>
     public int DurationSeconds { get; init; } = 8;
 
+    /// <summary>Concurrent connections; null keeps the standard test's count (20, or 24 at max load).</summary>
+    public int? Streams { get; init; }
+
     /// <summary>
     /// Return the parsed result without storing it, alerting on it, or analyzing its path. For a
     /// caller that records the measurement itself, so hourly samples never land in the WAN Speed

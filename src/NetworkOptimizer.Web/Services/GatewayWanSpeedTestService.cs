@@ -332,6 +332,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
 
         var (servers, streams) = maxMode ? (6, 24) : (4, 20);
+        if (options.Streams is > 0)
+            streams = Math.Clamp(options.Streams.Value, 1, 48);
         var duration = Math.Clamp(options.DurationSeconds, 2, 60);
         var binaryCommand = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration {duration}";
 
