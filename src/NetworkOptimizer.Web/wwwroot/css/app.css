@@ -20947,7 +20947,12 @@ body.kiosk-mode .status-indicators {
 .firmware-rollout-plan-note {
     color: var(--text-muted);
     font-size: 0.85rem;
-    margin: 0.25rem 0;
+    margin: 0.25rem 0 0.75rem;
+}
+
+/* Pulled up under the schedule line: its 1.5rem bottom margin is sized for the map, not a note. */
+.firmware-rollout-note + .firmware-rollout-plan-note {
+    margin-top: -0.75rem;
 }
 
 .firmware-rollout-chip {
