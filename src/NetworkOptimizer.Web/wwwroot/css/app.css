@@ -20545,6 +20545,13 @@ body.kiosk-mode .status-indicators {
     margin-top: 1rem;
 }
 
+.identity-managed-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 /* Both are grids on the LIST with each row's cells promoted into it, so columns line up across rows
    instead of every row sizing itself. They differ in how many columns they have, which is why they
    cannot share one rule: a link row is provider / subject / action. */
