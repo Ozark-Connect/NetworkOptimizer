@@ -438,6 +438,12 @@ public class ScriptGenerator
         if (dynamicUpload)
             AppendUploadBaseline(sb, uploadBaseline!);
 
+        // A probe (congestion learning sample) holds the shaper lifted for ~15 s and leaves this
+        // lock while it does. Adjusting in that window would write a latency-driven cut over the
+        // lift and shorten the measurement; the probe restores the rates itself when it exits.
+        sb.AppendLine(GetProbeLockGuard());
+        sb.AppendLine();
+
         // Check for result file
         sb.AppendLine("# Check for speedtest result");
         sb.AppendLine("if [ ! -f \"$RESULT_FILE\" ]; then");
@@ -628,6 +634,28 @@ public class ScriptGenerator
         sb.AppendLine("fi");
 
         return sb.ToString();
+    }
+
+    /// <summary>Path of the lock a probe holds while it has the shaper lifted on an interface.</summary>
+    public static string ProbeLockPath(string interfaceName) => $"/data/sqm/probe-{interfaceName}.lock";
+
+    /// <summary>Seconds after which a lock left behind by a killed probe is ignored and removed.</summary>
+    public const int ProbeLockMaxAgeSeconds = 120;
+
+    /// <summary>
+    /// Ping-script guard: stand down while a fresh probe lock exists for this interface.
+    /// </summary>
+    private static string GetProbeLockGuard()
+    {
+        return $@"# Stand down while a probe (congestion learning sample) has the shaper lifted
+PROBE_LOCK=""/data/sqm/probe-${{INTERFACE}}.lock""
+if [ -f ""$PROBE_LOCK"" ]; then
+    lock_age=$(( $(date +%s) - $(stat -c %Y ""$PROBE_LOCK"" 2>/dev/null || echo 0) ))
+    if [ ""$lock_age"" -lt {ProbeLockMaxAgeSeconds} ]; then
+        exit 0
+    fi
+    rm -f ""$PROBE_LOCK""
+fi";
     }
 
     /// <summary>

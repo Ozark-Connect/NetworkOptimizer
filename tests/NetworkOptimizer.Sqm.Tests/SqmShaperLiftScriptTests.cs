@@ -1,5 +1,6 @@
 using System.Text;
 using FluentAssertions;
+using NetworkOptimizer.Sqm.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Sqm.Tests;
@@ -25,6 +26,27 @@ public class SqmShaperLiftScriptTests
         script.IndexOf("restore_rates() {", StringComparison.Ordinal).Should().BeLessThan(script.IndexOf("\"$DOWN_PROBE\"", StringComparison.Ordinal));
         script.TrimEnd('\n').Should().EndWith("/data/uwnspeedtest --interface eth4 -duration 4");
         script.Should().NotContain("\r\n");
+    }
+
+    [Fact]
+    public void Wrap_HoldsTheProbeLock_ThePingScriptStandsDownFor()
+    {
+        var script = SqmShaperLiftScript.Wrap("true", "eth4", 273, 31, false);
+
+        script.Should().Contain("PROBE_LOCK=\"/data/sqm/probe-eth4.lock\"");
+        script.Should().Contain("pgrep -f -- '[-]ping\\.sh'");
+        script.Should().Contain("touch \"$PROBE_LOCK\"");
+        script.Should().Contain("rm -f \"$PROBE_LOCK\"");
+        // The lock is taken before the rates are read and released inside the exit trap.
+        script.IndexOf("touch \"$PROBE_LOCK\"", StringComparison.Ordinal).Should().BeLessThan(script.IndexOf("saved_down=$(read_root_rate_mbps", StringComparison.Ordinal));
+        script.IndexOf("rm -f \"$PROBE_LOCK\"", StringComparison.Ordinal).Should().BeLessThan(script.IndexOf("trap restore_rates EXIT", StringComparison.Ordinal));
+
+        var config = new SqmConfiguration { ConnectionName = "Test WAN", Interface = "eth4", PingHost = "1.1.1.1" };
+        var ping = new ScriptGenerator(config).GenerateAllScripts(new Dictionary<string, string> { ["0_12"] = "95" }).Values.Single();
+        ping.Should().Contain("PROBE_LOCK=\"/data/sqm/probe-${INTERFACE}.lock\"");
+        ping.Should().Contain($"-lt {ScriptGenerator.ProbeLockMaxAgeSeconds}");
+        // The guard precedes the result-file check, so a locked run touches nothing at all.
+        ping.IndexOf("PROBE_LOCK=", StringComparison.Ordinal).Should().BeLessThan(ping.IndexOf("Check for speedtest result", StringComparison.Ordinal));
     }
 
     [Fact]

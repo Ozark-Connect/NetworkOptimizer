@@ -35,6 +35,7 @@ public static class SqmShaperLiftScript
         sb.Append($"DOWN_PROBE=\"{downloadProbeMbps}\"\n");
         sb.Append($"UP_PROBE=\"{uploadProbeMbps}\"\n");
         sb.Append($"BURST_MODE={(rateProportionalDownloadBurst ? "1" : "0")}\n");
+        sb.Append($"PROBE_LOCK=\"{ScriptGenerator.ProbeLockPath(interfaceName)}\"\n");
         sb.Append('\n');
         sb.Append(ScriptGenerator.TcFunctionsText.Replace("\r\n", "\n"));
         sb.Append('\n');
@@ -52,6 +53,15 @@ read_root_rate_mbps() {
     esac
 }
 
+# Let a ping adjustment that is mid-run finish before the rates are read, then hold the lock the
+# ping script stands down for, so nothing rewrites the shaper while the lift is up.
+for _ in $(seq 1 20); do
+    pgrep -f -- '[-]ping\.sh' >/dev/null 2>&1 || break
+    sleep 1
+done
+mkdir -p ""$(dirname ""$PROBE_LOCK"")"" 2>/dev/null
+touch ""$PROBE_LOCK"" 2>/dev/null
+
 saved_down=""""
 saved_up=""""
 if ip link show ""$IFB_DEVICE"" >/dev/null 2>&1; then
@@ -66,6 +76,7 @@ restore_rates() {
     if [ -n ""$saved_up"" ] && [ ""$saved_up"" -gt 0 ] 2>/dev/null; then
         update_all_tc_classes ""$INTERFACE"" ""$saved_up"" >/dev/null 2>&1
     fi
+    rm -f ""$PROBE_LOCK"" 2>/dev/null
 }
 trap restore_rates EXIT
 
