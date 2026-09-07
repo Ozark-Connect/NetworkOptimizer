@@ -332,7 +332,10 @@
     private int _loading;
     private bool _ready;
     private DateTime? _loadedAt;
-    private string _loadedWanKeys = "";
+    private string _loadedSeekKey = "";
+    // Cancels the answer in flight when the playhead moves: whatever it was answering for is
+    // behind the user now, and rendering it anyway is what made a scrub land twice.
+    private CancellationTokenSource? _refreshCts;
     private System.Threading.Timer? _timer;
     private System.Threading.Timer? _seekTimer;
     // Timers are armed after awaits. If the circuit is torn down during one, Dispose has already
@@ -415,9 +418,9 @@
     protected override void OnParametersSet()
     {
         if (!_ready) return;
-        var wanKeys = string.Join(",", WanKeys);
-        if (HistoricAt != _loadedAt || (HistoricAt != null && wanKeys != _loadedWanKeys))
+        if (HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey)
         {
+            _refreshCts?.Cancel();
             ScheduleSeekRefresh();
             return;
         }
@@ -428,6 +431,15 @@
             && DateTime.UtcNow - _lastLiveRefresh >= LiveRefreshFloor)
             _ = RefreshAsync();
     }
+
+    /// <summary>
+    /// What a playhead answer depends on beyond the instant: the selected WANs and their rate,
+    /// which the split is allocated against. The page's snapshot for an instant can land after
+    /// the instant itself, so a changed rate at the same playhead is a new question. Empty live;
+    /// Data usage at the playhead depends on neither.
+    /// </summary>
+    private string SeekKey() => HistoricAt == null || _mode != Mode.Throughput ? ""
+        : $"{string.Join(",", WanKeys)}|{WanDownBps?.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|{WanUpBps?.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
 
     /// <summary>
     /// A drag or playback moves the playhead many times a second; one refresh after it settles,
@@ -542,24 +554,41 @@
     private async Task RefreshAsync()
     {
         if (Interlocked.CompareExchange(ref _loading, 1, 0) != 0) return;
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
+        // Recorded up front: what this answer is FOR, so a failure does not ask again forever.
+        // A cancelled answer is not a failure - the record goes back to what is on screen.
+        var (shownAt, shownKey) = (_loadedAt, _loadedSeekKey);
+        var at = HistoricAt;
+        _loadedAt = at;
+        _loadedSeekKey = SeekKey();
+        var discarded = false;
         try
         {
-            // Recorded up front: what this answer is FOR, so a failure does not ask again forever.
-            var at = HistoricAt;
             var wanKeys = WanKeys.ToList();
-            _loadedAt = at;
-            _loadedWanKeys = string.Join(",", wanKeys);
             if (at == null) _lastLiveRefresh = DateTime.UtcNow;
             // At the playhead the window snaps to five minutes, so a drag inside them reuses the
             // same cached answer rather than asking for each position.
             var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % TimeSpan.FromMinutes(5).Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
             var result = _mode == Mode.Throughput
-                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys)
-                : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan);
-            _result = result;
-            await RefreshAgentStatusAsync();
-            _error = false;
-            StampQualified(at);
+                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys, cts.Token)
+                : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan, ct: cts.Token);
+            // Answered for an instant the playhead has since left: nobody's answer now.
+            if (cts.IsCancellationRequested)
+            {
+                discarded = true;
+            }
+            else
+            {
+                _result = result;
+                await RefreshAgentStatusAsync();
+                _error = false;
+                StampQualified(at);
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            discarded = true;
         }
         catch (Exception ex)
         {
@@ -568,11 +597,15 @@
         }
         finally
         {
+            if (discarded) (_loadedAt, _loadedSeekKey) = (shownAt, shownKey);
+            if (ReferenceEquals(_refreshCts, cts)) _refreshCts = null;
+            cts.Dispose();
             Interlocked.Exchange(ref _loading, 0);
         }
-        await InvokeAsync(StateHasChanged);
-        // The playhead moved while this was answering: answer for where it is now.
-        if (HistoricAt != _loadedAt) ScheduleSeekRefresh();
+        if (!discarded) await InvokeAsync(StateHasChanged);
+        // The playhead moved while this was answering: answer for where it is now. The seek that
+        // moved it armed the debounce, but it may have fired into the loading guard and been dropped.
+        if (HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey) ScheduleSeekRefresh();
     }
 
     private double RowValue(HogRow row) => RowValue(row, _view);
@@ -651,13 +684,12 @@
     private double ShareDenominator(View view) => VisibleRows(view).Sum(r => RowValue(r, view));
 
     /// <summary>
-    /// The WAN rate as the tiles beside the card carry it right now, so the WAN line moves with
-    /// them rather than with the card's own refresh. At the playhead, the answer's own.
+    /// The WAN rate as the tiles beside the card carry it, live or at the playhead, so the WAN
+    /// line moves with them rather than with the card's own refresh. Never the answer's echo of
+    /// it: that is the rate the tiles held when the question was asked, and at the playhead the
+    /// snapshot can land after the question does.
     /// </summary>
-    private (double? Down, double? Up) CurrentWanRate() =>
-        HistoricAt == null && _result?.At == null
-            ? (WanDownBps, WanUpBps)
-            : (_result?.WanDownBps, _result?.WanUpBps);
+    private (double? Down, double? Up) CurrentWanRate() => (WanDownBps, WanUpBps);
 
     private string FormatDown(HogRow row) => (_mode, _view) switch
     {
@@ -695,5 +727,6 @@
         _disposed = true;
         _timer?.Dispose();
         _seekTimer?.Dispose();
+        try { _refreshCts?.Cancel(); } catch (ObjectDisposedException) { }
     }
 }

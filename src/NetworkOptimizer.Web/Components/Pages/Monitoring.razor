@@ -2659,6 +2659,8 @@
     private DotNetObjectReference<Monitoring>? _mapDotNetRef;
     private DateTime? _mapHistoricAt;
     private HistoricStatSnapshot? _historicSnapshot;
+    // Seeks overlap during a drag, and a slow older query must not land over a newer answer.
+    private int _historicSnapshotSeq;
 
     // Setup is the default so a site that cannot finish initializing - unreachable InfluxDB,
     // failing SNMP - still lands where it can be fixed. It just must not RENDER before the
@@ -4435,6 +4437,7 @@
             ClearLinkedInstant();
             _mapHistoricAt = null;
             _historicSnapshot = null;
+            Interlocked.Increment(ref _historicSnapshotSeq);
             await InvokeAsync(StateHasChanged);
             return;
         }
@@ -4516,6 +4519,7 @@
 
     private async Task FetchHistoricSnapshotAsync(DateTime at)
     {
+        var seq = Interlocked.Increment(ref _historicSnapshotSeq);
         var from = at.AddSeconds(-90);
         var to = at.AddSeconds(30);
 
@@ -4727,6 +4731,8 @@
             ? await BuildPerWanLatencyAsync(from, to, at)
             : new Dictionary<string, WanLatencySnapshot>();
 
+        // A newer seek (or a return to live) has superseded this instant.
+        if (seq != _historicSnapshotSeq) return;
         _historicSnapshot = new HistoricStatSnapshot
         {
             PerWan = perWan,
@@ -5701,6 +5707,7 @@
             _mapMounted = false;
             _mapHistoricAt = null;
             _historicSnapshot = null;
+            Interlocked.Increment(ref _historicSnapshotSeq);
             try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
             catch { }
         }
