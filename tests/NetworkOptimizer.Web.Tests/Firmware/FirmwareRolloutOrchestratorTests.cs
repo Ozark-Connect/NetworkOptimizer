@@ -1000,6 +1000,23 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task PruneWhileTheConsoleIsDark_LooksAgainOnTheNextTick_NotAnHourOn()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(2), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        harness.Observer.ConsoleDark = true;
+        await harness.TickAsync();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+
+        harness.Observer.ConsoleDark = false;
+        await harness.TickAsync(TimeSpan.FromSeconds(10));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+    }
+
+    [Fact]
     public async Task NetworkAppUpdatedOutOfBand_IsDroppedFromTheWaitingPlan()
     {
         using var harness = new RolloutHarness();

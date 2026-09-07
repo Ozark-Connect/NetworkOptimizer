@@ -804,12 +804,18 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         // A freshly booked plan gets its first look straight away rather than up to an hour on.
         if (_prunedPlanId == plan.Id && Now - _lastPruneAt < PruneInterval) return false;
-        _prunedPlanId = plan.Id;
-        _lastPruneAt = Now;
 
         var document = ParseDocument(plan);
         var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
-        await PruneAlreadyCurrentAsync(plan, document, steps, cancellationToken);
+        var answered = await PruneAlreadyCurrentAsync(plan, document, steps, cancellationToken);
+
+        // The hour only starts on a pass the site answered. Right after a restart the executor
+        // ticks before the console has reconnected, and an unanswered look is not a look.
+        if (answered)
+        {
+            _prunedPlanId = plan.Id;
+            _lastPruneAt = Now;
+        }
         return await AbortIfNothingLeftAsync(plan, document, steps, cancellationToken);
     }
 
@@ -819,7 +825,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// plan's target, never on whether the console still offers an update - the read-only preview
     /// stages no channels, so its absence of an offer proves nothing.
     /// </summary>
-    /// <returns>True when anything was dropped.</returns>
+    /// <returns>True when every source the plan needed answered, whether or not anything was dropped.</returns>
     private async Task<bool> PruneAlreadyCurrentAsync(
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
@@ -829,6 +835,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var changed = false;
 
         var observations = await _observer.ObserveAsync(cancellationToken);
+        var answered = observations.Count > 0;
         var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
         foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
         {
@@ -869,6 +876,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
         {
             var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+            answered &= console != null;
 
             var app = console?.NetworkApplication?.Version;
             var appTarget = document.NetworkAppUpdate.TargetVersion;
@@ -901,7 +909,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
 
-        if (!changed) return false;
+        if (!changed) return answered;
 
         document.Waves.RemoveAll(w => w.Steps.Count == 0);
         document.ChannelGroups.RemoveAll(g => !document.Waves.Any(w => w.Number >= g.FirstWave && w.Number <= g.LastWave));
@@ -910,7 +918,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         RolloutPlanner.ComputeTimeline(document, ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson));
         await PersistDocumentAsync(plan, document, cancellationToken);
-        return true;
+        return answered;
     }
 
     /// <summary>
