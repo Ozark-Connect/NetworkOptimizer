@@ -1619,21 +1619,33 @@
     }
 
     .learning-insights {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 0.75rem;
+        row-gap: 0.3rem;
+        align-items: baseline;
         margin-bottom: 0.75rem;
         font-size: 0.85rem;
         color: var(--text-primary);
     }
 
     .insight-label {
-        display: inline-block;
-        min-width: 8.5rem;
         color: var(--text-secondary);
         font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+
+    @@media (max-width: 768px) {
+        .learning-insights {
+            grid-template-columns: 1fr;
+            row-gap: 0.15rem;
+        }
+
+        .learning-insights > span:not(.insight-label) {
+            margin-bottom: 0.4rem;
+        }
     }
 
     .learning-actions {
@@ -1831,15 +1843,19 @@
                 {
                     var insight = learned != null && status.DaysSpanned >= 2 ? NetworkOptimizer.Sqm.CongestionProfileInsights.Describe(learned, model.ConnectionType) : null;
                     <div class="learning-insights">
-                        <div><span class="insight-label">So far</span>@status.ObservedMinDownloadMbps.Value.ToString("F0") to @status.ObservedMaxDownloadMbps!.Value.ToString("F0") Mbps down, @status.ObservedMinUploadMbps!.Value.ToString("F0") to @status.ObservedMaxUploadMbps!.Value.ToString("F0") up.</div>
+                        <span class="insight-label">So far</span>
+                        <span>@status.ObservedMinDownloadMbps.Value.ToString("F0") to @status.ObservedMaxDownloadMbps!.Value.ToString("F0") Mbps down, @status.ObservedMinUploadMbps!.Value.ToString("F0") to @status.ObservedMaxUploadMbps!.Value.ToString("F0") up.</span>
                         @if (insight != null)
                         {
-                            <div><span class="insight-label">Slowest</span>@insight.SlowestSentence.</div>
-                            <div><span class="insight-label">Versus the default</span>@insight.ComparisonSentence(ConnectionProfile.GetConnectionTypeName(model.ConnectionType)).</div>
+                            <span class="insight-label">Slowest</span>
+                            <span>@insight.SlowestSentence.</span>
+                            <span class="insight-label">vs default</span>
+                            <span>@insight.ComparisonSentence(ConnectionProfile.GetConnectionTypeName(model.ConnectionType)).</span>
                         }
                         else if (status.IsActive)
                         {
-                            <div><span class="insight-label">Slowest</span>after a couple of days of samples.</div>
+                            <span class="insight-label">Slowest</span>
+                            <span>after a couple of days of samples.</span>
                         }
                     </div>
                 }
