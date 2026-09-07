@@ -207,9 +207,8 @@ public class SqmLearningExecutor
         profile.Interface = iface;
         await RecomputeAsync(profile, ct);
 
-        var summary = $"Sample {sample.DownloadMbps:F0} / {sample.UploadMbps:F0} Mbps" +
-                      (sample.ProbeLimited ? " (hit the measurement ceiling, lift raised)" : "") +
-                      $" · {profile.ValidSampleCount} samples, {profile.CoveragePercent:F0}% of the week covered";
+        var summary = $"Sample {sample.DownloadMbps:F0} / {sample.UploadMbps:F0} Mbps · " +
+                      $"{profile.ValidSampleCount} samples, {profile.CoveragePercent:F0}% of the week covered";
         _logger.LogInformation("Adaptive SQM learning sample for WAN {Wan} ({Iface}): {Summary}", cfg.WanNumber, iface, summary);
         return new ScheduleRunOutcome(true, summary, null, Notify: false);
 

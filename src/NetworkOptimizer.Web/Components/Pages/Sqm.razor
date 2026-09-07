@@ -1813,27 +1813,6 @@
                 {
                     <p class="learning-text">Not enough of the week was sampled to rely on this profile yet. You can still select it, or relearn for a fuller picture.</p>
                 }
-                @if (status.ProbeLimitedSampleCount > 0)
-                {
-                    <p class="learning-text">
-                        @if (status.PeakIsLowerBound)
-                        {
-                            <text>Every sample so far hit the measurement ceiling, so the peak is a lower bound: the line is at least that fast. </text>
-                        }
-                        else
-                        {
-                            <text>@status.ProbeLimitedSampleCount of @status.ValidSampleCount samples hit the measurement ceiling and were kept out of the peak. </text>
-                        }
-                        @if (status.LiftAtCeiling)
-                        {
-                            <text>The ceiling is now the WAN link speed with headroom (@(status.LiftCeilingMbps) Mbps), so it cannot be raised further; at those hours the line is at least that fast.</text>
-                        }
-                        else if (status.LiftDownloadMbps.HasValue || status.LiftUploadMbps.HasValue)
-                        {
-                            <text>The lift has been raised to @(status.LiftDownloadMbps?.ToString() ?? "default") / @(status.LiftUploadMbps?.ToString() ?? "default") Mbps for the next samples. If this keeps happening, the nominal speeds are set well below what the line delivers.</text>
-                        }
-                    </p>
-                }
                 @if (learned != null)
                 {
                     var down = LearnedCongestionProfile.HourOfDayAverages(learned.DownloadMultipliers);
