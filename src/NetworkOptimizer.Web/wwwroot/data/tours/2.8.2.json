@@ -1,0 +1,33 @@
+{
+  "id": "2.8.2",
+  "kind": "whats-new",
+  "title": "What's new in v2.8.2",
+  "summary": "Adaptive SQM can now learn your line's real weekly congestion pattern from brief idle-hour speed tests, and on shared media the upload rate follows the congestion schedule too.",
+  "steps": [
+    {
+      "id": "sqm-learning",
+      "level": "major",
+      "url": "/sqm",
+      "selector": "[data-tour=\"sqm-learning\"]",
+      "title": "Congestion Profile Learning",
+      "listLabel": "Learn your line's real weekly congestion pattern instead of assuming one",
+      "body": "Adaptive SQM has always shaped to a weekly congestion curve chosen by connection type. **Start Learning** builds one from your own line instead: for 7 days, once an hour when the WAN is idle, the gateway runs a 4 second speed test with the shaper lifted out of the way. Errant samples are thrown out and the curve is smoothed across neighboring hours and days, so one bad reading never becomes a dip in your schedule. Pick **Learned** under **Profile** to deploy it; **Severity** still tunes it, and the twice-daily speed tests keep calibrating against it. Most useful on cellular, satellite, and fixed wireless, where the tower, cell, or beam decides the hour-by-hour speed. The run also shows on Alerts & Schedule - Schedule.",
+      "placement": "top",
+      "requires": ["sqm-enabled"],
+      "optional": true
+    },
+    {
+      "id": "sqm-upload-strength",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/sqm",
+      "selector": "[data-tour=\"sqm-congestion-profile\"]",
+      "title": "Upload Strength",
+      "listLabel": "Upload now follows the congestion schedule on shared media",
+      "body": "Upload used to be shaped at one fixed rate. On Fixed LTE/5G, Starlink, and Fixed Wireless (WISP), **Upload Strength** applies the congestion schedule to upload as well, never below half of nominal, and a latency cut takes upload down in the same proportion as download. New setups on those media start at 0.5; existing ones stay at 0 until you move the slider. **Upload Range** shows where the rate will sit over the week.",
+      "placement": "top",
+      "requires": ["sqm-enabled"],
+      "optional": true
+    }
+  ]
+}
