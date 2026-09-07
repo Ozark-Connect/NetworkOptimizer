@@ -20,6 +20,18 @@ namespace NetworkOptimizer.Web.Tests.Identity;
 /// </summary>
 internal static class GateHarness
 {
+    /// <summary>
+    /// The site restriction as IdentityAdminService reads it for the Access lists. The real
+    /// IAuthPolicyOptions needs system settings a bare identity container has no reason to carry.
+    /// </summary>
+    public sealed class UnrestrictedAuthPolicy : IAuthPolicyOptions
+    {
+        public Task<bool> IsLocalLoginDisabledAsync() => Task.FromResult(false);
+        public Task SetLocalLoginDisabledAsync(bool disabled) => Task.CompletedTask;
+        public Task<bool> IsRestrictSitesToMembersAsync() => Task.FromResult(false);
+        public Task SetRestrictSitesToMembersAsync(bool restrict) => Task.CompletedTask;
+    }
+
     /// <summary>Adds the gate plumbing, pinned to <paramref name="currentSite"/> as the ambient site.</summary>
     public static IServiceCollection AddGatePlumbing(this IServiceCollection services, string currentSite = "default")
     {

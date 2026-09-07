@@ -187,6 +187,20 @@ public interface IIdentityAdminService
     Task<IReadOnlyList<SiteAccessGrant>> GetSiteAccessAsync([SiteSlug] string siteSlug);
 
     /// <summary>
+    /// Everyone who can access one site and the role that actually applies: grants, global roles while
+    /// the site restriction is off, and Admins. The per-site Access list.
+    /// </summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    Task<IReadOnlyList<Authorization.AccessEntry>> GetEffectiveSiteAccessAsync([SiteSlug] string siteSlug);
+
+    /// <summary>
+    /// The instance-wide Access list: every grant with the role that applies on its target, plus an
+    /// All sites row for each account whose global role gets it in without one.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    Task<IReadOnlyList<Authorization.AccessEntry>> GetAccessOverviewAsync();
+
+    /// <summary>
     /// Grants a user access. The gate is only a floor: the target may be a site, a group, or all sites,
     /// so which of those the caller is entitled to change is settled by the site-ownership check inside.
     /// </summary>
@@ -241,6 +255,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly IAuditLogger _audit;
     private readonly ICallerContext _caller;
     private readonly Authorization.IEffectiveSiteRoleResolver _siteRoles;
+    private readonly IAuthPolicyOptions _policy;
     private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
     private readonly UserSessionRevocationNotifier _revocations;
     private readonly IJwtService? _legacyJwt;
@@ -255,6 +270,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         IAuditLogger audit,
         ICallerContext caller,
         Authorization.IEffectiveSiteRoleResolver siteRoles,
+        IAuthPolicyOptions policy,
         SiteRegistryChangeNotifier siteRegistryChanges,
         UserSessionRevocationNotifier revocations,
         ILogger<IdentityAdminService> logger,
@@ -268,6 +284,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _audit = audit;
         _caller = caller;
         _siteRoles = siteRoles;
+        _policy = policy;
         _siteRegistryChanges = siteRegistryChanges;
         _revocations = revocations;
         _adminAuth = adminAuth;
@@ -817,6 +834,65 @@ public sealed class IdentityAdminService : IIdentityAdminService
             .Select(g => new SiteAccessGrant(g.Id, g.UserId, names.GetValueOrDefault(g.UserId), g.SiteRole))
             .OrderBy(g => g.UserName)
             .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Authorization.AccessEntry>> GetEffectiveSiteAccessAsync(string siteSlug)
+    {
+        var (users, groupSlugs) = await LoadAccessUsersAsync();
+        return Authorization.EffectiveAccess.ForSite(
+            users, siteSlug,
+            slugInGroup: groupId => groupSlugs.TryGetValue(groupId, out var slugs) && slugs.Contains(siteSlug),
+            await _policy.IsRestrictSitesToMembersAsync());
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Authorization.AccessEntry>> GetAccessOverviewAsync()
+    {
+        var (users, _) = await LoadAccessUsersAsync();
+        return Authorization.EffectiveAccess.Overview(users, await _policy.IsRestrictSitesToMembersAsync());
+    }
+
+    /// <summary>Every account with its global role and grants, plus the site lists behind any group grant.</summary>
+    private async Task<(List<Authorization.AccessUser> Users, Dictionary<string, HashSet<string>> GroupSlugs)>
+        LoadAccessUsersAsync()
+    {
+        List<SiteMembership> memberships;
+        var groupSlugs = new Dictionary<string, HashSet<string>>();
+        await using (var db = await _authDbFactory.CreateDbContextAsync())
+        {
+            memberships = await db.SiteMemberships.AsNoTracking().ToListAsync();
+
+            var groupIds = memberships
+                .Where(m => m.TargetType == MembershipTargetType.Group && int.TryParse(m.TargetId, out _))
+                .Select(m => int.Parse(m.TargetId!))
+                .ToHashSet();
+            if (groupIds.Count > 0)
+            {
+                var members = await db.SiteGroupMembers
+                    .AsNoTracking()
+                    .Where(gm => groupIds.Contains(gm.GroupId))
+                    .Select(gm => new { gm.GroupId, gm.SiteSlug })
+                    .ToListAsync();
+                foreach (var gm in members)
+                {
+                    if (!groupSlugs.TryGetValue(gm.GroupId.ToString(), out var set))
+                        groupSlugs[gm.GroupId.ToString()] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    set.Add(gm.SiteSlug);
+                }
+            }
+        }
+
+        var byUser = memberships.ToLookup(m => m.UserId, StringComparer.Ordinal);
+        var users = new List<Authorization.AccessUser>();
+        foreach (var user in await _userManager.Users.OrderBy(u => u.UserName).ToListAsync())
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            users.Add(new Authorization.AccessUser(
+                user.Id, user.UserName, Roles.All.FirstOrDefault(roles.Contains), byUser[user.Id].ToList()));
+        }
+
+        return (users, groupSlugs);
     }
 
     public async Task<AdminActionResult> AddMembershipAsync(string userId, MembershipTargetType targetType, string? targetId, SiteRole role)

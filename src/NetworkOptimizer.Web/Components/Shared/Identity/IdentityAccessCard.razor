@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Models.Identity
 @using NetworkOptimizer.Web.Services.Identity
+@using NetworkOptimizer.Web.Services.Authorization
 @inject IIdentityAdminService IdentityAdmin
 @inject IAuthPolicyOptions AuthPolicy
 @inject IAuthPolicyAdminService AuthPolicyAdmin
@@ -10,9 +11,12 @@
 @inject NetworkOptimizer.Web.Services.Identity.ICurrentUserAccessor CurrentUser
 @implements IDisposable
 
-@* Settings - Identity: who can reach which site, and at what role. At global scope this lists every
-   grant across all sites; scoped to a site it lists and edits only that site's members. Grants go
-   through IdentityAdminService, which bumps the membership version so live sessions revalidate. *@
+@* Settings - Identity: who can access which site, and at what role. Effective access, not a grant
+   list: a global role gets people in with no grant while the restriction is off, and outranks a
+   lower grant, so each row carries the role that applies and says where it comes from. At global
+   scope one row per grant plus an All sites row per global role; scoped to a site, one row per
+   person who can open it. Grants go through IdentityAdminService, which bumps the membership
+   version so live sessions revalidate. *@
 
 <div class="card settings-tab-identity" id="identity-access">
     <div class="card-header">
@@ -66,11 +70,11 @@
             <div class="alert alert-@_messageClass">@_message</div>
         }
 
-        @if (_grants is null)
+        @if (_rows is null)
         {
             <div class="identity-loading"><span class="spinner spinner-sm"></span></div>
         }
-        else if (_grants.Count == 0)
+        else if (_rows.Count == 0)
         {
             <div class="empty-state empty-state-small">
                 <div class="empty-icon">
@@ -78,8 +82,8 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
                     </svg>
                 </div>
-                <h3>No per-site grants yet</h3>
-                <p>Everyone can access @(SiteSlug is null ? "every site" : "this site") through their global role.</p>
+                <h3>Nobody can access @(SiteSlug is null ? "any site" : "this site") yet</h3>
+                <p>Grant access below, or give an account a global role under Users.</p>
             </div>
         }
         else
@@ -98,26 +102,47 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var grant in _grants)
+                        @foreach (var row in _rows)
                         {
                             <tr>
-                                <td><span class="identity-user-name">@grant.UserName</span></td>
+                                <td><span class="identity-user-name">@row.UserName</span></td>
                                 @if (SiteSlug is null)
                                 {
-                                    <td>@grant.SiteLabel</td>
+                                    <td>@LabelFor(row.TargetType, row.TargetId)</td>
                                 }
-                                <td>@Describe(grant.SiteRole)</td>
+                                <td>
+                                    <div class="identity-role-cell">
+                                        @if (row.GrantRole is SiteRole granted && CanEdit(row))
+                                        {
+                                            <select class="form-control identity-role-select" value="@granted"
+                                                    @onchange="e => ChangeRoleAsync(row, e.Value?.ToString())"
+                                                    disabled="@(_busyMembershipId == row.MembershipId)">
+                                                <option value="@SiteRole.SiteViewer">Site Viewer</option>
+                                                <option value="@SiteRole.SiteOperator">Site Operator</option>
+                                                <option value="@SiteRole.SiteAdmin">Site Admin</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <span>@Describe(row.GrantRole ?? row.EffectiveRole)</span>
+                                        }
+                                        @if (Explain(row) is string note)
+                                        {
+                                            <span class="identity-actions-note">@note</span>
+                                        }
+                                    </div>
+                                </td>
                                 <td class="identity-actions-col">
-                                    @if (IsOwnGrant(grant))
+                                    @if (row.MembershipId is not null && IsOwnGrant(row))
                                     {
                                         @* Refused at the service, so offering it would only invite a
                                            refusal. Losing your own grant strands you outside the page
                                            you would undo it from. *@
                                         <span class="identity-actions-note" data-tooltip="Ask another administrator to change your own access">Your access</span>
                                     }
-                                    else
+                                    else if (CanEdit(row))
                                     {
-                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RevokeAsync(grant)">Revoke</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RevokeAsync(row)" disabled="@(_busyMembershipId == row.MembershipId)">Revoke</button>
                                     }
                                 </td>
                             </tr>
@@ -191,9 +216,8 @@
 
     private const string AllSitesTarget = "*";
 
-    private sealed record AccessRow(int MembershipId, string UserId, string? UserName, string SiteLabel, SiteRole SiteRole);
-
-    private List<AccessRow>? _grants;
+    private List<AccessEntry>? _rows;
+    private int? _busyMembershipId;
     private IReadOnlyList<ApplicationUser> _users = Array.Empty<ApplicationUser>();
     private List<Site> _sites = new();
     private bool _restrictSites;
@@ -204,11 +228,32 @@
     private bool _callerIsGlobalAdmin;
 
     /// <summary>
-    /// A grant belonging to the caller, where the caller's reach depends on it. A global Admin opens
+    /// A grant belonging to the caller, where the caller's access depends on it. A global Admin opens
     /// every site by role, so their own rows are bookkeeping and stay editable.
     /// </summary>
-    private bool IsOwnGrant(AccessRow grant)
-        => !_callerIsGlobalAdmin && _selfUserId is not null && grant.UserId == _selfUserId;
+    private bool IsOwnGrant(AccessEntry row)
+        => !_callerIsGlobalAdmin && _selfUserId is not null && row.UserId == _selfUserId;
+
+    /// <summary>
+    /// Whether this caller may change the grant on a row. A Site Admin owns only grants on their own
+    /// site; an All sites or group grant is an Admin's to change, and the service refuses anyone else.
+    /// </summary>
+    private bool CanEdit(AccessEntry row)
+        => row.MembershipId is not null && !IsOwnGrant(row)
+            && (_callerIsGlobalAdmin || row.TargetType == MembershipTargetType.Site);
+
+    /// <summary>
+    /// The note beside the role: where the access comes from when it is not simply the grant, and
+    /// what applies when the grant is not what applies.
+    /// </summary>
+    private static string? Explain(AccessEntry row) => row.Source switch
+    {
+        AccessSource.GlobalAdmin when row.GrantRole is null => "via global Admin",
+        AccessSource.GlobalAdmin => "Site Admin via global Admin; this grant has no effect for an Admin",
+        AccessSource.GlobalRole when row.GrantRole is null => "via global role",
+        AccessSource.GlobalRole => $"{Describe(row.EffectiveRole)} applies via global role while the restriction is off",
+        _ => null,
+    };
     private string _grantTarget = AllSitesTarget;
     private SiteRole _grantRole = SiteRole.SiteViewer;
     private bool _granting;
@@ -243,9 +288,7 @@
     /// </summary>
     public async Task RefreshAsync()
     {
-        // The global view derives grants by walking _users, so a new account has to be in that list
-        // before its grant can be found at all. Deletion only looked correct because the account was
-        // already there and simply stopped returning memberships.
+        // The grant picker is built from _users, so a new account has to be re-read to be offered.
         _users = await IdentityAdmin.ListUsersAsync();
         if (string.IsNullOrEmpty(_grantUserId) || _users.All(u => u.Id != _grantUserId))
             _grantUserId = _users.FirstOrDefault()?.Id ?? "";
@@ -258,27 +301,21 @@
     {
         if (SiteSlug is not null)
         {
-            var siteGrants = await IdentityAdmin.GetSiteAccessAsync(SiteSlug);
-            _grants = siteGrants
-                .Select(g => new AccessRow(g.MembershipId, g.UserId, g.UserName, SiteName ?? SiteSlug, g.SiteRole))
-                .ToList();
+            _rows = (await IdentityAdmin.GetEffectiveSiteAccessAsync(SiteSlug)).OrderBy(r => r.UserName).ToList();
             return;
         }
 
-        var rows = new List<AccessRow>();
-        foreach (var user in _users)
-        {
-            foreach (var membership in await IdentityAdmin.GetMembershipsAsync(user.Id))
-                rows.Add(new AccessRow(membership.Id, user.Id, user.UserName, LabelFor(membership), membership.SiteRole));
-        }
-        _grants = rows.OrderBy(r => r.UserName).ThenBy(r => r.SiteLabel).ToList();
+        _rows = (await IdentityAdmin.GetAccessOverviewAsync())
+            .OrderBy(r => r.UserName)
+            .ThenBy(r => LabelFor(r.TargetType, r.TargetId))
+            .ToList();
     }
 
-    private string LabelFor(SiteMembership membership) => membership.TargetType switch
+    private string LabelFor(MembershipTargetType targetType, string? targetId) => targetType switch
     {
         MembershipTargetType.AllSites => "All sites",
-        MembershipTargetType.Group => $"Group: {membership.TargetId}",
-        _ => _sites.FirstOrDefault(s => s.Slug == membership.TargetId)?.Name ?? membership.TargetId ?? "",
+        MembershipTargetType.Group => $"Group: {targetId}",
+        _ => _sites.FirstOrDefault(s => s.Slug == targetId)?.Name ?? targetId ?? "",
     };
 
     private static string Describe(SiteRole role) => role switch
@@ -328,12 +365,40 @@
         }
     }
 
-    private async Task RevokeAsync(AccessRow grant)
+    /// <summary>Granting is an upsert on the same target, so a role change is a grant at the new role.</summary>
+    private async Task ChangeRoleAsync(AccessEntry row, string? value)
     {
-        var result = await IdentityAdmin.RemoveMembershipAsync(grant.UserId, grant.MembershipId);
-        Report(result, $"Revoked {grant.UserName}'s access to {grant.SiteLabel}.", "info");
-        if (result.Succeeded)
+        if (!Enum.TryParse<SiteRole>(value, out var role) || role == row.GrantRole)
+            return;
+
+        _busyMembershipId = row.MembershipId;
+        try
+        {
+            var result = await IdentityAdmin.AddMembershipAsync(row.UserId, row.TargetType, row.TargetId, role);
+            Report(result, $"{row.UserName} is now {Describe(role)} on {LabelFor(row.TargetType, row.TargetId)}.");
+        }
+        finally
+        {
+            _busyMembershipId = null;
             await ReloadAsync();
+        }
+    }
+
+    private async Task RevokeAsync(AccessEntry row)
+    {
+        if (row.MembershipId is not int membershipId) return;
+
+        _busyMembershipId = membershipId;
+        try
+        {
+            var result = await IdentityAdmin.RemoveMembershipAsync(row.UserId, membershipId);
+            Report(result, $"Revoked {row.UserName}'s access to {LabelFor(row.TargetType, row.TargetId)}.", "info");
+        }
+        finally
+        {
+            _busyMembershipId = null;
+            await ReloadAsync();
+        }
     }
 
     /// <summary>

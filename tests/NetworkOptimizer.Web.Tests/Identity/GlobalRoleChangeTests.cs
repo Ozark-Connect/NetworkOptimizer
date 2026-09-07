@@ -40,6 +40,7 @@ public sealed class GlobalRoleChangeTests : IDisposable
             new NetworkOptimizerDbContextFactory(mainOptions));
 
         services.AddNetOptIdentityCore(_dbPath);
+        services.AddSingleton<IAuthPolicyOptions, GateHarness.UnrestrictedAuthPolicy>();
         services.AddSingleton<IAuditLogger>(new NoOpAuditLogger());
         services.AddScoped<ICallerContext, CallerContext>();
         services.AddScoped<NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver, UnusedSiteRoleResolver>();
