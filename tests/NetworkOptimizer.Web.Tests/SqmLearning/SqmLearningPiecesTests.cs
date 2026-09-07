@@ -163,7 +163,8 @@ public class SqmLearningExecutorLiftTests
 
         // Cellular MaxDownload is 1.2x nominal (240); the speedtest probe sits 3% above that.
         lift.DownloadProbeMbps.Should().Be(247);
-        lift.UploadProbeMbps.Should().Be(31);
+        // Upload starts 10% above nominal so a line delivering its full 30 is not read as clipped.
+        lift.UploadProbeMbps.Should().Be(33);
         lift.RateProportionalDownloadBurst.Should().BeTrue();
     }
 
@@ -205,10 +206,24 @@ public class SqmLearningExecutorLiftTests
     }
 
     [Fact]
-    public void NextLift_RaisesByHalf_AndStopsAtTheCeiling()
+    public void NextLift_RaisesByTheDirectionsFactor_AndStopsAtTheCeiling()
     {
-        SqmLearningExecutor.NextLift(240, null).Should().Be(360);
-        SqmLearningExecutor.NextLift(240, 300).Should().Be(300);
+        SqmLearningExecutor.NextLift(240, null, SqmLearningExecutor.DownloadLiftRaiseFactor).Should().Be(360);
+        SqmLearningExecutor.NextLift(240, 300, SqmLearningExecutor.DownloadLiftRaiseFactor).Should().Be(300);
+        SqmLearningExecutor.NextLift(28, null, SqmLearningExecutor.UploadLiftRaiseFactor).Should().Be(35);
+    }
+
+    [Fact]
+    public void ALineAtNominalUpload_IsNotReadAsProbeLimited()
+    {
+        var lift = SqmLearningExecutor.BuildLift(new SqmWanConfiguration
+        {
+            ConnectionType = (int)ConnectionType.DocsisCable,
+            NominalDownloadMbps = 280,
+            NominalUploadMbps = 28,
+        })!;
+
+        SqmLearningExecutor.IsProbeLimited(28, lift.UploadProbeMbps).Should().BeFalse();
     }
 
     [Fact]

@@ -30,8 +30,20 @@ public class SqmLearningExecutor
     /// <summary>A direction that lands at or above this fraction of its lift measured the lift, not the line.</summary>
     public const double ProbeLimitedFraction = 0.95;
 
-    /// <summary>How far the lift is raised after a probe-limited sample.</summary>
-    public const double LiftRaiseFactor = 1.5;
+    /// <summary>How far the download lift is raised after a probe-limited sample.</summary>
+    public const double DownloadLiftRaiseFactor = 1.5;
+
+    /// <summary>
+    /// How far the upload lift is raised after a probe-limited sample. Smaller steps than download:
+    /// a lifted window costs the most upstream on cable and cellular, where bufferbloat lands first.
+    /// </summary>
+    public const double UploadLiftRaiseFactor = 1.25;
+
+    /// <summary>
+    /// The upload lift starts this far above nominal. A line that delivers its full nominal upload
+    /// (most do) would otherwise sit inside the probe-limited band on every first sample.
+    /// </summary>
+    public const double UploadLiftHeadroom = 1.10;
 
     /// <summary>Sanity ceiling for a raised lift when the link speed is unknown.</summary>
     public const int MaxLiftMbps = 100_000;
@@ -185,9 +197,9 @@ public class SqmLearningExecutor
 
         // A direction that hit its lift gets a higher lift next time, up to the link ceiling.
         if (limitedDown)
-            profile.LiftDownloadMbps = Math.Max(profile.LiftDownloadMbps ?? 0, NextLift(result.DownloadMbps, ceiling));
+            profile.LiftDownloadMbps = Math.Max(profile.LiftDownloadMbps ?? 0, NextLift(result.DownloadMbps, ceiling, DownloadLiftRaiseFactor));
         if (limitedUp)
-            profile.LiftUploadMbps = Math.Max(profile.LiftUploadMbps ?? 0, NextLift(result.UploadMbps, ceiling));
+            profile.LiftUploadMbps = Math.Max(profile.LiftUploadMbps ?? 0, NextLift(result.UploadMbps, ceiling, UploadLiftRaiseFactor));
 
         profile.LastSampleAt = sample.SampledAt;
         profile.LastError = null;
@@ -266,11 +278,11 @@ public class SqmLearningExecutor
     }
 
     /// <summary>
-    /// The same probe the deployed Adaptive SQM speed test uses: download 3% above the highest rate
-    /// the WAN ever shapes to, upload just above nominal. The link stays shaped during the sample,
-    /// so a learning run never turns bufferbloat loose for its test window; a sample that clips at
-    /// this probe raises it for the next one (<see cref="RaiseLift"/>). Never above the link
-    /// ceiling. Null when the WAN has no configuration to size from.
+    /// The same download probe the deployed Adaptive SQM speed test uses (3% above the highest rate
+    /// the WAN ever shapes to) and an upload lift 10% above nominal. The link stays shaped during
+    /// the sample, so a learning run never turns bufferbloat loose for its test window; a sample
+    /// that clips at this probe raises it for the next one (<see cref="RaiseLift"/>). Never above
+    /// the link ceiling. Null when the WAN has no configuration to size from.
     /// </summary>
     internal static SqmShaperLift? BuildLift(SqmWanConfiguration? wanConfig)
     {
@@ -287,7 +299,7 @@ public class SqmLearningExecutor
         sqm.ApplyProfileSettings(wanConfig.LinkSpeedOverrideMbps);
 
         var down = sqm.SpeedtestProbeRateMbps;
-        var up = Math.Max(nominalUp + 1, (int)Math.Ceiling(nominalUp * 1.03));
+        var up = Math.Max(nominalUp + 1, (int)Math.Ceiling(nominalUp * UploadLiftHeadroom));
         if (LinkCeiling(wanConfig) is { } ceiling)
         {
             down = Math.Min(down, ceiling);
@@ -324,8 +336,8 @@ public class SqmLearningExecutor
         liftMbps > 0 && measuredMbps >= liftMbps * ProbeLimitedFraction;
 
     /// <summary>The lift to use after a direction clipped at <paramref name="clippedMbps"/>.</summary>
-    internal static int NextLift(double clippedMbps, int? ceiling) =>
-        Math.Min((int)Math.Ceiling(clippedMbps * LiftRaiseFactor), ceiling ?? MaxLiftMbps);
+    internal static int NextLift(double clippedMbps, int? ceiling, double raiseFactor) =>
+        Math.Min((int)Math.Ceiling(clippedMbps * raiseFactor), ceiling ?? MaxLiftMbps);
 
     /// <summary>The configured lift raised to any remembered per-direction lift, never above the ceiling.</summary>
     internal static SqmShaperLift? RaiseLift(SqmShaperLift? baseLift, int? liftDown, int? liftUp, int? ceiling)
