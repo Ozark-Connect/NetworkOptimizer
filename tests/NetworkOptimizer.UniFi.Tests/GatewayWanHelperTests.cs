@@ -225,4 +225,24 @@ public class GatewayWanHelperTests
     {
         GatewayWanHelper.ResolveWanName(network, port).Should().BeNull();
     }
+
+    [Theory]
+    [InlineData("Acme Fiber (WAN2)", "Acme Fiber", "WAN2")]
+    [InlineData("Yelcot Cable (wan4)", "Yelcot Cable", "WAN4")]
+    [InlineData("(WAN1)", null, "WAN1")]
+    [InlineData("Acme Fiber", "Acme Fiber", null)]
+    [InlineData("Acme (Fiber)", "Acme (Fiber)", null)]
+    [InlineData("  ", null, null)]
+    public void SplitWanLabelInProse_inverts_the_prose_form(string? label, string? name, string? token)
+    {
+        GatewayWanHelper.SplitWanLabelInProse(label).Should().Be((name, token));
+    }
+
+    [Fact]
+    public void SplitWanLabelInProse_round_trips_FormatWanLabelInProse()
+    {
+        var prose = GatewayWanHelper.FormatWanLabelInProse("Acme Fiber WAN2", 2);
+        prose.Should().Be("Acme Fiber (WAN2)");
+        GatewayWanHelper.SplitWanLabelInProse(prose).Should().Be(("Acme Fiber", "WAN2"));
+    }
 }

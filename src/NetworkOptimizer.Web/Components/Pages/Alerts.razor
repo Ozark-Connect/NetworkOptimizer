@@ -108,18 +108,12 @@
                         var endsAt = GetLearningEndsAt(learnCfg);
                         var ended = endsAt.HasValue && endsAt.Value <= DateTime.UtcNow;
                         // The WAN group suffix ("(WAN4)") is dropped from the detail, as on the speed test cards.
-                        var learnRawName = GetConfigValue(learnCfg, "wanName") ?? "";
-                        var learnWanName = System.Text.RegularExpressions.Regex.Replace(learnRawName, @"\s*\(WAN\d*\)\s*$", "");
-                        // The WAN group tag: from the stored config, else the name's suffix, else the interface.
-                        var learnWanGroup = GetConfigValue(learnCfg, "wanGroup");
-                        if (string.IsNullOrEmpty(learnWanGroup))
-                        {
-                            var m = System.Text.RegularExpressions.Regex.Match(learnRawName, @"\((WAN\d*)\)\s*$");
-                            learnWanGroup = m.Success ? m.Groups[1].Value : task.TargetId;
-                        }
-                        // UniFi calls the first WAN's group "WAN"; to a reader that is WAN1.
-                        if (string.Equals(learnWanGroup, "WAN", StringComparison.OrdinalIgnoreCase))
-                            learnWanGroup = "WAN1";
+                        // The Adaptive SQM connection name carries its WAN token in prose form ("Name (WAN4)");
+                        // the tag shows the group, so the detail shows the name alone.
+                        var (learnWanName, learnNameToken) = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabelInProse(GetConfigValue(learnCfg, "wanName"));
+                        var learnWanGroup = GetConfigValue(learnCfg, "wanGroup") ?? learnNameToken ?? task.TargetId;
+                        if (!string.IsNullOrEmpty(learnWanGroup))
+                            learnWanGroup = DisplayFormatters.NormalizeWanDisplay(learnWanGroup);
                         <div class="schedule-card">
                             <div class="schedule-card-header">
                                 <div class="schedule-card-title">
