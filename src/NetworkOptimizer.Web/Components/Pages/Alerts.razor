@@ -108,7 +108,18 @@
                         var endsAt = GetLearningEndsAt(learnCfg);
                         var ended = endsAt.HasValue && endsAt.Value <= DateTime.UtcNow;
                         // The WAN group suffix ("(WAN4)") is dropped from the detail, as on the speed test cards.
-                        var learnWanName = System.Text.RegularExpressions.Regex.Replace(GetConfigValue(learnCfg, "wanName") ?? "", @"\s*\(WAN\d*\)\s*$", "");
+                        var learnRawName = GetConfigValue(learnCfg, "wanName") ?? "";
+                        var learnWanName = System.Text.RegularExpressions.Regex.Replace(learnRawName, @"\s*\(WAN\d*\)\s*$", "");
+                        // The WAN group tag: from the stored config, else the name's suffix, else the interface.
+                        var learnWanGroup = GetConfigValue(learnCfg, "wanGroup");
+                        if (string.IsNullOrEmpty(learnWanGroup))
+                        {
+                            var m = System.Text.RegularExpressions.Regex.Match(learnRawName, @"\((WAN\d*)\)\s*$");
+                            learnWanGroup = m.Success ? m.Groups[1].Value : task.TargetId;
+                        }
+                        // UniFi calls the first WAN's group "WAN"; to a reader that is WAN1.
+                        if (string.Equals(learnWanGroup, "WAN", StringComparison.OrdinalIgnoreCase))
+                            learnWanGroup = "WAN1";
                         <div class="schedule-card">
                             <div class="schedule-card-header">
                                 <div class="schedule-card-title">
@@ -151,9 +162,9 @@
                             </div>
                             <div class="schedule-card-body">
                                 <div class="schedule-detail-row">
-                                    @if (!string.IsNullOrEmpty(task.TargetId))
+                                    @if (!string.IsNullOrEmpty(learnWanGroup))
                                     {
-                                        <span class="schedule-detail-tag tag-muted">@task.TargetId</span>
+                                        <span class="schedule-detail-tag">@learnWanGroup</span>
                                     }
                                     <span class="schedule-detail-tag tag-muted">Hourly when idle</span>
                                     @if (endsAt.HasValue)
