@@ -136,7 +136,8 @@ public static class CongestionProfileLearner
         profile.PeakDownloadMbps = Math.Round(peakDown, 1);
         profile.PeakUploadMbps = Math.Round(peakUp, 1);
         profile.ProbeLimitedSampleCount = kept.Count - unclipped.Count;
-        profile.DaysSpanned = kept.Select(s => s.SampledAt.Date).Distinct().Count();
+        // Gateway-local weekdays, not SampledAt's UTC dates: those roll over mid-evening in the Americas.
+        profile.DaysSpanned = kept.Select(s => s.DayOfWeek).Distinct().Count();
         profile.IsReliable = kept.Count >= MinReliableSamples
             && profile.Coverage >= MinReliableCoverage
             && profile.DaysSpanned >= MinReliableDays;

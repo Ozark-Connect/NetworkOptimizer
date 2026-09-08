@@ -241,4 +241,30 @@ public class CongestionProfileLearnerTests
         avg[20].Should().Be(0.5);
         avg[3].Should().Be(1.0);
     }
+
+    [Fact]
+    public void DaysSpanned_CountsGatewayLocalDays_NotUtcDates()
+    {
+        // Nine hours of samples on one local afternoon and evening, stored in UTC so the dates straddle midnight.
+        var start = new DateTime(2026, 9, 7, 18, 0, 0, DateTimeKind.Utc);
+        var samples = Enumerable.Range(0, 9)
+            .Select(i => new LearningSample(i + 1, 0, 13 + i, 250, 28, start.AddHours(i)))
+            .ToList();
+
+        var p = CongestionProfileLearner.Learn(samples).Profile;
+
+        p.DaysSpanned.Should().Be(1);
+        p.HasFullDayCycle.Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasFullDayCycle_OnceEveryHourHasASample()
+    {
+        var start = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+        var samples = Enumerable.Range(0, 24)
+            .Select(i => new LearningSample(i + 1, i < 12 ? 0 : 1, i, 250, 28, start.AddHours(i)))
+            .ToList();
+
+        CongestionProfileLearner.Learn(samples).Profile.HasFullDayCycle.Should().BeTrue();
+    }
 }

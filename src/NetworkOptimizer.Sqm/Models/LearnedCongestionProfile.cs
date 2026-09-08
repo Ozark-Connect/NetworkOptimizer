@@ -28,8 +28,11 @@ public class LearnedCongestionProfile
     /// <summary>Samples that survived validation and outlier rejection.</summary>
     public int ValidSampleCount { get; set; }
 
-    /// <summary>Distinct calendar days with at least one valid sample.</summary>
+    /// <summary>Distinct gateway-local days of the week with at least one valid sample.</summary>
     public int DaysSpanned { get; set; }
+
+    /// <summary>Every hour of the day has been sampled on at least one day: the shape of a whole day is known.</summary>
+    public bool HasFullDayCycle => Enumerable.Range(0, 24).All(h => Enumerable.Range(0, 7).Any(d => SampleCounts[SlotIndex(d, h)] > 0));
 
     /// <summary>Fraction of the 168 slots that hold at least one valid sample of their own.</summary>
     public double Coverage => SampleCounts.Count(c => c > 0) / (double)Slots;

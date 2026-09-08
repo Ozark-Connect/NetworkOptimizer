@@ -80,6 +80,8 @@ public class CongestionProfileInsightsTests
 
         insight.Comparison.Should().Be(CongestionProfileInsights.Comparison.Flat);
         insight.ComparisonSentence("Fixed LTE/5G").Should().Contain("barely varies");
+        // No band is named on a flat line: it would wrap most of the clock.
+        insight.SlowestSentence.Should().Be("no slow band yet, your line stays within about 3% all day");
     }
 
     [Fact]

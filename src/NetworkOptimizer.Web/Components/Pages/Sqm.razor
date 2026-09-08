@@ -1856,7 +1856,9 @@
                 }
                 @if (status.ObservedMinDownloadMbps.HasValue)
                 {
-                    var insight = learned != null && status.DaysSpanned >= 2 ? NetworkOptimizer.Sqm.CongestionProfileInsights.Describe(learned, model.ConnectionType) : null;
+                    // Only once a whole day's shape is known: every hour sampled and two days of running.
+                    var insightReady = learned is { HasFullDayCycle: true } && status.StartedAt is { } startedAt && DateTime.UtcNow - startedAt >= TimeSpan.FromHours(48);
+                    var insight = insightReady ? NetworkOptimizer.Sqm.CongestionProfileInsights.Describe(learned!, model.ConnectionType) : null;
                     <div class="learning-insights">
                         <span class="insight-label">So far</span>
                         <span>@status.ObservedMinDownloadMbps.Value.ToString("F0") to @status.ObservedMaxDownloadMbps!.Value.ToString("F0") Mbps down, @status.ObservedMinUploadMbps!.Value.ToString("F0") to @status.ObservedMaxUploadMbps!.Value.ToString("F0") up.</span>
@@ -1869,7 +1871,7 @@
                         }
                         else if (status.IsActive)
                         {
-                            <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear after two days of samples.</span>
+                            <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear once every hour of the day has been sampled, after two days.</span>
                         }
                     </div>
                 }

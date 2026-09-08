@@ -26,17 +26,23 @@ public static class CongestionProfileInsights
     /// <param name="EndHour">Last hour of the slow band (0-23); the band can wrap midnight.</param>
     /// <param name="Depth">How far below the best hour the band sits (0.3 = 30% below).</param>
     /// <param name="DefaultDepth">The built-in curve's depth over the same hours.</param>
+    /// <param name="Variation">How far the worst hour sits below the best (0.05 = 5%).</param>
     public sealed record Insight(
         string SlowestLabel,
         int StartHour,
         int EndHour,
         double Depth,
         double DefaultDepth,
-        Comparison Comparison)
+        Comparison Comparison,
+        double Variation = 0)
     {
-        /// <summary>"weekday evenings (19:00 to 22:00), about 70% of your best hour"</summary>
-        public string SlowestSentence =>
-            $"{SlowestLabel} ({StartHour:00}:00 to {EndHour:00}:00), about {Math.Round((1 - Depth) * 100):F0}% of your best hour";
+        /// <summary>
+        /// "weekday evenings (19:00 to 22:00), about 70% of your best hour". A flat line has no band
+        /// to name, so it says how little the line moves instead.
+        /// </summary>
+        public string SlowestSentence => Comparison == Comparison.Flat
+            ? $"no slow band yet, your line stays within about {Math.Max(1, Math.Round(Variation * 100)):F0}% all day"
+            : $"{SlowestLabel} ({StartHour:00}:00 to {EndHour:00}:00), about {Math.Round((1 - Depth) * 100):F0}% of your best hour";
 
         /// <summary>One sentence against the connection type's default curve.</summary>
         public string ComparisonSentence(string connectionTypeName) => Comparison switch
@@ -92,7 +98,7 @@ public static class CongestionProfileInsights
         else if (defaultDepth > depth + ComparisonTolerance) comparison = Comparison.Shallower;
         else comparison = Comparison.Similar;
 
-        return new Insight(Label(learned, bandHours, start, end), start, end, depth, Math.Max(0, defaultDepth), comparison);
+        return new Insight(Label(learned, bandHours, start, end), start, end, depth, Math.Max(0, defaultDepth), comparison, variation);
     }
 
     private static int Span(int start, int end) => ((end - start) % 24 + 24) % 24;
