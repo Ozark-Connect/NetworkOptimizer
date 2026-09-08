@@ -69,6 +69,25 @@ public static class GatewayWanHelper
     }
 
     /// <summary>
+    /// The inverse of <see cref="FormatWanLabelInProse"/>: splits "Acme Fiber (WAN2)" into
+    /// ("Acme Fiber", "WAN2"). A label without a trailing parenthesised WAN token comes back whole
+    /// as the name with a null token, so nothing is silently trimmed.
+    /// </summary>
+    public static (string? Name, string? WanToken) SplitWanLabelInProse(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return (null, null);
+        var trimmed = label.Trim();
+        var open = trimmed.LastIndexOf('(');
+        if (open < 0 || !trimmed.EndsWith(')'))
+            return (trimmed, null);
+        var token = trimmed[(open + 1)..^1].Trim();
+        if (!token.StartsWith("WAN", StringComparison.OrdinalIgnoreCase) || !token[3..].All(char.IsDigit))
+            return (trimmed, null);
+        var name = trimmed[..open].Trim();
+        return (string.IsNullOrEmpty(name) ? null : name, token.ToUpperInvariant());
+    }
+
+    /// <summary>
     /// UniFi network-group convention for a 1-based WAN index: wan1 → "WAN",
     /// wanN → "WANn".
     /// </summary>

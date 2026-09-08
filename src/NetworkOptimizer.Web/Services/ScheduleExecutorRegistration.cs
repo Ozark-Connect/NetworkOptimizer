@@ -24,6 +24,30 @@ public static class ScheduleExecutorRegistration
             ExecuteWanSpeedTestAsync(app.Services, siteKey, taskId, targetId, targetConfig, ct);
         scheduleService.LanSpeedTestExecutor = (siteKey, targetId, _, ct) =>
             ExecuteLanSpeedTestAsync(app.Services, siteKey, targetId, ct);
+        scheduleService.SqmLearningExecutor = (siteKey, taskId, targetId, targetConfig, ct) =>
+            ExecuteSqmLearningAsync(app.Services, siteKey, taskId, targetId, targetConfig, ct);
+    }
+
+    /// <summary>
+    /// One Adaptive SQM learning sample. Quiet on a restricted site: an hourly failure alert for a
+    /// week would be the wrong way to say the site is not operational.
+    /// </summary>
+    private static async Task<NetworkOptimizer.Alerts.ScheduleRunOutcome> ExecuteSqmLearningAsync(
+        IServiceProvider services, string siteKey, int taskId, string? targetId, string? targetConfig, CancellationToken ct)
+    {
+        if (IsLicenseRestricted(services, siteKey))
+            return new NetworkOptimizer.Alerts.ScheduleRunOutcome(false, null, LicenseRestrictedError, Notify: false);
+
+        using var scope = CreatePinnedScope(services, siteKey);
+        try
+        {
+            var executor = scope.ServiceProvider.GetRequiredService<SqmLearning.SqmLearningExecutor>();
+            return await executor.RunAsync(taskId, targetId, targetConfig, ct);
+        }
+        catch (Exception ex)
+        {
+            return new NetworkOptimizer.Alerts.ScheduleRunOutcome(false, null, ex.Message, Notify: false);
+        }
     }
 
     /// <summary>Scheduled operations record a clean failure for license-restricted sites.</summary>

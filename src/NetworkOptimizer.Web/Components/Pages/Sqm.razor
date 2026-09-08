@@ -9,6 +9,7 @@
 @inject SiteContextService SiteContext
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject IGatewaySshService GatewaySshService
+@inject NetworkOptimizer.Web.Services.SqmLearning.ISqmLearningService LearningService
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
 @inject PullToRefreshState PtrState
@@ -19,6 +20,7 @@
 @using NetworkOptimizer.Sqm.Models
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Ssh
+@using NetworkOptimizer.Web.Services.SqmLearning
 
 <PageTitle>Adaptive SQM - Network Optimizer</PageTitle>
 
@@ -599,23 +601,12 @@
                 </div>
             </div>
 
-            @{ var wan1CongestionRange = wan1Config.GetCongestionRange(); }
-            <div class="calculated-params" style="margin-top: 0.75rem;">
-                <h4>Congestion Schedule <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much the shaping rate drops during peak hours. The schedule varies by time of day based on your connection type's congestion profile.">?</span></h4>
-                <div class="params-grid">
-                    <div class="param">
-                        <span class="param-label">Congestion Range</span>
-                        <span class="param-value">@wan1CongestionRange.Min–@wan1CongestionRange.Max</span>
-                        <span class="param-unit">Mbps</span>
-                    </div>
-                    <div class="param">
-                        <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
-                        <div class="wan-time-slider" style="padding: 0; gap: 0.5rem; justify-content: center;">
-                            <input type="range" min="0" max="2" step="0.01" style="width: 100px;" @bind="wan1Config.CongestionSeverity" @bind:event="oninput" />
-                            <span class="param-value">@wan1Config.CongestionSeverity.ToString("F2")</span>
-                        </div>
-                    </div>
-                </div>
+            @* Tour anchors sit on WAN 1 only, like the burst toggle below. *@
+            <div data-tour="sqm-congestion-profile">
+                @CongestionProfilePanel(wan1Config)
+            </div>
+            <div data-tour="sqm-learning">
+                @LearningPanel(wan1Config)
             </div>
 
             <div class="form-group">
@@ -670,7 +661,7 @@
                 </div>
                 @* Tour anchor sits on WAN 1 only; a duplicate selector would just resolve to this one. *@
                 <div class="form-group" data-tour="sqm-download-burst">
-                    <label class="toggle-label">
+                    <label class="checkbox-label">
                         <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
                         <span>Larger download burst</span>
                     </label>
@@ -789,24 +780,8 @@
                 </div>
             </div>
 
-            @{ var wan2CongestionRange = wan2Config.GetCongestionRange(); }
-            <div class="calculated-params" style="margin-top: 0.75rem;">
-                <h4>Congestion Schedule <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much the shaping rate drops during peak hours. The schedule varies by time of day based on your connection type's congestion profile.">?</span></h4>
-                <div class="params-grid">
-                    <div class="param">
-                        <span class="param-label">Congestion Range</span>
-                        <span class="param-value">@wan2CongestionRange.Min–@wan2CongestionRange.Max</span>
-                        <span class="param-unit">Mbps</span>
-                    </div>
-                    <div class="param">
-                        <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
-                        <div class="wan-time-slider" style="padding: 0; gap: 0.5rem; justify-content: center;">
-                            <input type="range" min="0" max="2" step="0.01" style="width: 100px;" @bind="wan2Config.CongestionSeverity" @bind:event="oninput" />
-                            <span class="param-value">@wan2Config.CongestionSeverity.ToString("F2")</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            @CongestionProfilePanel(wan2Config)
+            @LearningPanel(wan2Config)
 
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
@@ -859,7 +834,7 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="toggle-label">
+                    <label class="checkbox-label">
                         <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
                         <span>Larger download burst</span>
                     </label>
@@ -1603,10 +1578,531 @@
         font-weight: 600;
         color: var(--text-secondary);
     }
+
+    .param-select {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 2px 4px;
+        max-width: 100%;
+    }
+
+    .param-select:hover, .param-select:focus {
+        border-color: var(--primary-color);
+        outline: none;
+    }
+
+    .param-value.is-off {
+        color: var(--text-muted);
+    }
+
+    .learning-text {
+        margin: 0 0 0.75rem 0;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .learning-status {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 1.25rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .learning-status > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .learning-status .detail-label {
+        color: var(--text-secondary);
+    }
+
+    .learning-insights {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 0.75rem;
+        row-gap: 0.3rem;
+        align-items: baseline;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+    }
+
+    .insight-label {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+
+    .insight-pending {
+        grid-column: 1 / -1;
+        margin: 0;
+    }
+
+    .learn-tip-pct {
+        color: var(--text-muted);
+    }
+
+    @@media (max-width: 768px) {
+        .learning-insights {
+            grid-template-columns: 1fr;
+            row-gap: 0.15rem;
+        }
+
+        .learning-insights > span:not(.insight-label) {
+            margin-bottom: 0.4rem;
+        }
+    }
+
+    .learning-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .learn-strip {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .learn-strip-label {
+        width: 2.5rem;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        padding-bottom: 2px;
+    }
+
+    .learn-strip-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 44px;
+        flex: 1;
+    }
+
+    .learn-bar {
+        flex: 1;
+        min-height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--speed-download-color);
+        opacity: 0.85;
+    }
+
+    .learn-bar.up {
+        background: var(--speed-upload-color);
+    }
+
+    .learn-strip-axis {
+        display: flex;
+        justify-content: space-between;
+        margin-left: 3rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+    }
 </style>
 
 @code {
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
+
+    // ========== Congestion profile: schedule tuning, upload strength, learning ==========
+
+    private bool _learningBusy;
+
+    private RenderFragment<WanConfigModel> CongestionProfilePanel => model =>
+    @<div class="congestion-profile">
+        @{
+            var range = model.GetCongestionRange();
+            var uploadRange = model.GetUploadRange();
+            var supportsUpload = ConnectionProfile.SupportsDynamicUpload(model.ConnectionType);
+            var status = model.LearningStatus;
+            var learned = status?.Profile;
+            var learnedAvailable = learned != null;
+            var useLearned = model.UseLearnedProfile && learnedAvailable;
+        }
+        <div class="calculated-params" style="margin-top: 0.75rem;">
+            <h4>Congestion Schedule <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much the shaping rate drops during peak hours. The schedule varies by time of day based on the congestion profile: your connection type's default, or one learned on this line.">?</span></h4>
+            <div class="params-grid">
+                <div class="param">
+                    <span class="param-label">Profile <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Default follows the built-in weekly curve for your connection type. Learned follows the curve measured on this WAN by Congestion Profile Learning below.">?</span></span>
+                    <select class="param-select" value="@(useLearned ? "learned" : "default")" disabled="@(!_canOperate)"
+                            @onchange="e => OnProfileSourceChanged(model, e.Value?.ToString())">
+                        <option value="default">Default</option>
+                        <option value="learned" disabled="@(!learnedAvailable)">@(learnedAvailable ? "Learned" : "Learned (none yet)")</option>
+                    </select>
+                </div>
+                <div class="param">
+                    <span class="param-label">Congestion Range</span>
+                    <span class="param-value">@range.Min–@range.Max</span>
+                    <span class="param-unit">Mbps</span>
+                </div>
+                <div class="param">
+                    <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = the profile as is. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
+                    <div class="wan-time-slider" style="padding: 0; gap: 0.5rem; justify-content: center;">
+                        <input type="range" min="0" max="2" step="0.01" style="width: 100px;" @bind="model.CongestionSeverity" @bind:event="oninput" />
+                        <span class="param-value">@model.CongestionSeverity.ToString("F2")</span>
+                    </div>
+                </div>
+                @if (supportsUpload)
+                {
+                    <div class="param">
+                        <span class="param-label">Upload Range <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Where the upload rate sits over the week when upload shaping strength is above 0. It never drops below half of nominal upload.">?</span></span>
+                        <span class="param-value @(model.UploadCongestionSeverity <= 0 ? "is-off" : "")">@uploadRange.Min–@uploadRange.Max</span>
+                        <span class="param-unit">Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Upload Strength <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much of the congestion profile applies to upload. 0 = upload stays at nominal (the old behavior). 0.5 = half the dip. 1.0 = the full dip. Shared media (cellular, satellite, fixed wireless) lose upstream at peak too, so this defaults to 0.5 for them.">?</span></span>
+                        <div class="wan-time-slider" style="padding: 0; gap: 0.5rem; justify-content: center;">
+                            <input type="range" min="0" max="1" step="0.05" style="width: 100px;" @bind="model.UploadCongestionSeverity" @bind:event="oninput" />
+                            <span class="param-value @(model.UploadCongestionSeverity <= 0 ? "is-off" : "")">@(model.UploadCongestionSeverity <= 0 ? "Off" : model.UploadCongestionSeverity.ToString("F2"))</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            @if (useLearned && learned != null)
+            {
+                var peaksMatch = model.NominalDownload == (int)Math.Round(learned.PeakDownloadMbps)
+                                 && model.NominalUpload == (int)Math.Round(learned.PeakUploadMbps);
+                <small class="form-hint" style="display: block; margin-top: 0.5rem;">
+                    The learned curve is relative to its best hour: @learned.PeakDownloadMbps.ToString("F0") / @learned.PeakUploadMbps.ToString("F0") Mbps.
+                    @if (!peaksMatch)
+                    {
+                        <text>Your nominal speeds differ, so hours above nominal are capped at it. </text>
+                        <button type="button" class="btn btn-sm btn-secondary" style="margin-left: 0.25rem;" @onclick="() => ApplyLearnedPeaks(model)" disabled="@(!_canOperate)">Use learned peaks as nominal</button>
+                    }
+                </small>
+            }
+        </div>
+    </div>;
+
+    // Sits directly under Congestion Schedule as its peer, so it shares the card body's enable gate.
+    private RenderFragment<WanConfigModel> LearningPanel => model =>
+    @<div class="calculated-params" style="margin-top: 0.75rem;">
+        @{
+            var status = model.LearningStatus;
+            var learned = status?.Profile;
+        }
+            <h4>Congestion Profile Learning <span class="tooltip-icon tooltip-icon-sm" data-tooltip="A week of brief hourly speed tests, taken only while the WAN is quiet, builds this connection's own congestion curve.">?</span></h4>
+            @if (status == null || (!status.IsActive && !status.HasProfile && !status.IsCompleted))
+            {
+                <p class="learning-text">
+                    Learn this connection's real weekly congestion pattern instead of the @ConnectionProfile.GetConnectionTypeName(model.ConnectionType) default.
+                    One brief gateway speed test each idle hour for 7 days.
+                </p>
+                <p class="learning-text">
+                    Data use: about <strong>@EstimateSampleMb(model).ToString("F0") MB per sample</strong>, up to <strong>@EstimateWeekGb(model).ToString("F0") GB over the week</strong>.
+                </p>
+                @if (ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
+                {
+                    <p class="learning-text">Especially useful here. These are shared, limited-capacity links where the hour-by-hour speed follows how busy the tower, cell, or beam is.</p>
+                }
+                else
+                {
+                    <p class="learning-text">Useful here if speeds sag at prime time. Cable nodes and PON splits are shared with the neighborhood, and the learned curve follows what your line actually delivers hour by hour instead of a generic one.</p>
+                }
+                <div class="learning-actions">
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => StartLearning(model)"
+                            disabled="@(!_canOperate || _learningBusy || string.IsNullOrEmpty(model.Interface) || model.NominalDownload <= 0 || model.NominalUpload <= 0)">
+                        Start Learning
+                    </button>
+                    @if (string.IsNullOrEmpty(model.Interface) || model.NominalDownload <= 0 || model.NominalUpload <= 0)
+                    {
+                        <small class="form-hint" style="margin: 0;">Select the interface and enter nominal speeds first.</small>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="learning-status">
+                    @if (status.IsActive)
+                    {
+                        var day = status.StartedAt.HasValue ? Math.Clamp((int)Math.Floor((DateTime.UtcNow - status.StartedAt.Value).TotalDays) + 1, 1, 7) : 1;
+                        <span><span class="detail-label">Status:</span><span class="status-badge status-active">Learning</span> day @day of 7</span>
+                    }
+                    else if (status.IsCompleted)
+                    {
+                        <span><span class="detail-label">Status:</span>@(status.IsReliable ? "Complete" : "Ended") @(status.CompletedAt.HasValue ? status.CompletedAt.Value.ToLocalTime().ToString("MMM d, HH:mm") : "")</span>
+                    }
+                    <span><span class="detail-label">Samples:</span>@status.ValidSampleCount valid of @status.TotalSampleCount</span>
+                    <span><span class="detail-label">Week covered:</span>@status.CoveragePercent.ToString("F0")%</span>
+                    @if (status.LastSampleAt.HasValue)
+                    {
+                        <span><span class="detail-label">Last sample:</span>@status.LastSampleAt.Value.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                    }
+                    @if (status.IsRunning)
+                    {
+                        <span><span class="spinner-sm"></span> sampling now</span>
+                    }
+                    else if (status.IsActive && status.NextRunAt.HasValue)
+                    {
+                        <span><span class="detail-label">Next check:</span>@status.NextRunAt.Value.ToLocalTime().ToString("HH:mm")</span>
+                    }
+                    @if (status.IsActive && status.LastSummary?.StartsWith("Waiting", StringComparison.Ordinal) == true)
+                    {
+                        <span class="form-hint" style="margin: 0;">@status.LastSummary</span>
+                    }
+                </div>
+                @if (status.HasProfile && !status.IsReliable && status.IsCompleted)
+                {
+                    <p class="learning-text">Not enough of the week was sampled to rely on this profile yet. You can still select it, or relearn for a fuller picture.</p>
+                }
+                @if (status.ObservedMinDownloadMbps.HasValue)
+                {
+                    // Only once a whole day's shape is known: every hour sampled and two days of running.
+                    var insightReady = learned is { HasFullDayCycle: true } && status.StartedAt is { } startedAt && DateTime.UtcNow - startedAt >= TimeSpan.FromHours(48);
+                    var insight = insightReady ? NetworkOptimizer.Sqm.CongestionProfileInsights.Describe(learned!, model.ConnectionType) : null;
+                    <div class="learning-insights">
+                        <span class="insight-label">So far</span>
+                        <span>@status.ObservedMinDownloadMbps.Value.ToString("F0") to @status.ObservedMaxDownloadMbps!.Value.ToString("F0") Mbps down, @status.ObservedMinUploadMbps!.Value.ToString("F0") to @status.ObservedMaxUploadMbps!.Value.ToString("F0") up.</span>
+                        @if (insight != null)
+                        {
+                            <span class="insight-label">Slowest</span>
+                            <span>@insight.SlowestSentence.</span>
+                            <span class="insight-label">vs default</span>
+                            <span>@insight.ComparisonSentence(ConnectionProfile.GetConnectionTypeName(model.ConnectionType)).</span>
+                        }
+                        else if (status.IsActive)
+                        {
+                            <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear once every hour of the day has been sampled, after two days.</span>
+                        }
+                    </div>
+                }
+                @if (learned != null)
+                {
+                    var down = LearnedCongestionProfile.HourOfDayAverages(learned.DownloadMultipliers);
+                    var up = LearnedCongestionProfile.HourOfDayAverages(learned.UploadMultipliers);
+                    <div class="learn-strip">
+                        <div class="learn-strip-label">Down</div>
+                        <div class="learn-strip-bars">
+                            @for (var h = 0; h < 24; h++)
+                            {
+                                var hour = h;
+                                <div class="learn-bar" style="height: @((down[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {down[hour] * learned.PeakDownloadMbps:F0} Mbps <span class=\"learn-tip-pct\">{Math.Round(down[hour] * 100):F0}%</span>")"></div>
+                            }
+                        </div>
+                    </div>
+                    <div class="learn-strip">
+                        <div class="learn-strip-label">Up</div>
+                        <div class="learn-strip-bars">
+                            @for (var h = 0; h < 24; h++)
+                            {
+                                var hour = h;
+                                <div class="learn-bar up" style="height: @((up[hour] * 100).ToString("F0"))%" data-tooltip-html data-tooltip="@($"{hour:00}:00 · {up[hour] * learned.PeakUploadMbps:F0} Mbps <span class=\"learn-tip-pct\">{Math.Round(up[hour] * 100):F0}%</span>")"></div>
+                            }
+                        </div>
+                    </div>
+                    <div class="learn-strip-axis"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+                }
+                @if (deploymentStatus?.IsDeployed == true && deploymentStatus.PingScriptsWithoutProbeGuard > 0)
+                {
+                    <div class="alert alert-warning" style="margin-bottom: 0.75rem;">Redeploy Adaptive SQM so it doesn't interfere with congestion learning.</div>
+                }
+                @if (!string.IsNullOrEmpty(status.LastError))
+                {
+                    <div class="alert alert-warning" style="margin-bottom: 0.75rem;">Last sample problem: @status.LastError</div>
+                }
+                <div class="learning-actions">
+                    @if (status.IsActive)
+                    {
+                        <button type="button" class="btn btn-sm btn-secondary" @onclick="() => RunLearningSampleNow(model)" disabled="@(!_canOperate || _learningBusy || status.IsRunning)">
+                            @(status.IsRunning ? "Sampling..." : "Run Sample Now")
+                        </button>
+                        <button type="button" class="btn btn-sm btn-secondary" @onclick="() => StopLearning(model)" disabled="@(!_canOperate || _learningBusy)">Stop Learning</button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="() => StartLearning(model)"
+                                disabled="@(!_canOperate || _learningBusy || string.IsNullOrEmpty(model.Interface) || model.NominalDownload <= 0 || model.NominalUpload <= 0)">
+                            @(status.HasProfile ? "Relearn" : "Start Learning")
+                        </button>
+                    }
+                    @if (status.HasProfile)
+                    {
+                        <button type="button" class="btn btn-sm btn-secondary" @onclick="() => ExportLearnedProfile(model)" disabled="@_learningBusy">Export JSON</button>
+                    }
+                    @if (!status.IsActive)
+                    {
+                        <button type="button" class="btn btn-sm btn-danger" @onclick="() => ClearLearning(model)" disabled="@(!_canOperate || _learningBusy)">Clear</button>
+                    }
+                    <a href="/alerts?tab=schedule" class="form-hint" style="margin: 0;">View on Schedule</a>
+                </div>
+            }
+    </div>;
+
+    private static double EstimateSampleMb(WanConfigModel model)
+    {
+        // Both directions for the sample duration, plus ramp-up and control traffic.
+        var seconds = SqmLearningTaskConfig.DefaultDurationSeconds;
+        return (model.NominalDownload + model.NominalUpload) * seconds / 8.0 * 1.15;
+    }
+
+    private static double EstimateWeekGb(WanConfigModel model) =>
+        EstimateSampleMb(model) * 24 * SqmLearningTaskConfig.DefaultDays / 1024.0;
+
+    private async Task LoadLearningStatusAsync()
+    {
+        foreach (var config in new[] { wan1Config, wan2Config })
+        {
+            try
+            {
+                config.LearningStatus = await LearningService.GetStatusAsync(config.WanNumber);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Could not load learning status for WAN {Wan}", config.WanNumber);
+            }
+        }
+    }
+
+    private void OnProfileSourceChanged(WanConfigModel model, string? value)
+    {
+        model.UseLearnedProfile = value == "learned" && model.LearningStatus?.Profile != null;
+    }
+
+    private void ApplyLearnedPeaks(WanConfigModel model)
+    {
+        if (model.LearningStatus?.Profile is not { } learned) return;
+        model.NominalDownload = Math.Max(10, (int)Math.Round(learned.PeakDownloadMbps));
+        model.NominalUpload = Math.Max(1, (int)Math.Round(learned.PeakUploadMbps));
+        UpdateCalculatedSpeeds(model, resetLatency: false);
+    }
+
+    private async Task StartLearning(WanConfigModel model)
+    {
+        if (!_canOperate || _learningBusy) return;
+        _learningBusy = true;
+        try
+        {
+            // The schedule carries the sizing facts itself, so learning can start before the WAN
+            // is saved or deployed and never writes the SQM configuration row.
+            var wan = wanInterfaces.FirstOrDefault(w => w.Interface.Equals(model.Interface, StringComparison.OrdinalIgnoreCase));
+            model.LearningStatus = await LearningService.StartAsync(new SqmLearningStartRequest
+            {
+                WanNumber = model.WanNumber,
+                Interface = model.Interface,
+                Name = model.Name,
+                ConnectionType = model.ConnectionType,
+                WanGroup = wan?.NetworkGroup,
+                NominalDownloadMbps = model.NominalDownload,
+                NominalUploadMbps = model.NominalUpload,
+                LinkSpeedOverrideMbps = model.EffectiveLinkSpeedMbps,
+                RateProportionalDownloadBurst = model.RateProportionalDownloadBurst,
+            });
+            StatusMessage($"Learning started for {model.Name}. The first sample runs within a minute once the WAN is idle; it also shows on Alerts & Schedule - Schedule.", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to start congestion profile learning for WAN {Wan}", model.WanNumber);
+            StatusMessage($"Could not start learning: {ex.Message}", false);
+        }
+        finally
+        {
+            _learningBusy = false;
+        }
+    }
+
+    private async Task StopLearning(WanConfigModel model)
+    {
+        if (!_canOperate || _learningBusy) return;
+        _learningBusy = true;
+        try
+        {
+            await LearningService.StopAsync(model.WanNumber);
+            model.LearningStatus = await LearningService.GetStatusAsync(model.WanNumber);
+            StatusMessage($"Learning stopped for {model.Name}. What was learned so far is kept.", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to stop congestion profile learning for WAN {Wan}", model.WanNumber);
+            StatusMessage($"Could not stop learning: {ex.Message}", false);
+        }
+        finally
+        {
+            _learningBusy = false;
+        }
+    }
+
+    private async Task RunLearningSampleNow(WanConfigModel model)
+    {
+        if (!_canOperate || _learningBusy) return;
+        _learningBusy = true;
+        try
+        {
+            var started = await LearningService.RunSampleNowAsync(model.WanNumber);
+            StatusMessage(started
+                ? $"Taking a sample on {model.Name} now (it waits for the WAN to be idle)."
+                : "A sample is already running.", started);
+            // Give the schedule loop a moment to mark the task running, then show it.
+            await Task.Delay(1500);
+            model.LearningStatus = await LearningService.GetStatusAsync(model.WanNumber);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run a learning sample for WAN {Wan}", model.WanNumber);
+            StatusMessage($"Could not run a sample: {ex.Message}", false);
+        }
+        finally
+        {
+            _learningBusy = false;
+        }
+    }
+
+    private async Task ClearLearning(WanConfigModel model)
+    {
+        if (!_canOperate || _learningBusy) return;
+        _learningBusy = true;
+        try
+        {
+            await LearningService.ClearAsync(model.WanNumber);
+            model.LearningStatus = null;
+            model.UseLearnedProfile = false;
+            StatusMessage($"Learned profile and samples cleared for {model.Name}.", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to clear the learned profile for WAN {Wan}", model.WanNumber);
+            StatusMessage($"Could not clear the learned profile: {ex.Message}", false);
+        }
+        finally
+        {
+            _learningBusy = false;
+        }
+    }
+
+    private async Task ExportLearnedProfile(WanConfigModel model)
+    {
+        try
+        {
+            var json = await LearningService.ExportProfileJsonAsync(model.WanNumber);
+            if (string.IsNullOrEmpty(json))
+            {
+                StatusMessage("There is no learned profile to export yet.", false);
+                return;
+            }
+            var fileName = $"congestion-profile-{SanitizeWanName(model.Name).ToLowerInvariant().Replace(' ', '-')}.json";
+            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
+            await JS.InvokeVoidAsync("downloadFile", fileName, "application/json", base64);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export the learned profile for WAN {Wan}", model.WanNumber);
+            StatusMessage($"Could not export the profile: {ex.Message}", false);
+        }
+    }
 
     private const string BurstOptInHint =
         "Helps downloads that fall short of full speed, especially to Wi-Fi clients. " +
@@ -1695,6 +2191,7 @@
     // WAN configurations (defaults overwritten by ApplyDetectedWanInterfaces)
     private WanConfigModel wan1Config = new()
     {
+        WanNumber = 1,
         Enabled = false,  // Start disabled - user must select interface and enable
         Name = "WAN1",
         Interface = "",
@@ -1707,6 +2204,7 @@
 
     private WanConfigModel wan2Config = new()
     {
+        WanNumber = 2,
         Enabled = false,
         Name = "WAN2",
         Interface = "",
@@ -1832,6 +2330,7 @@
                     if (!isRefreshingDashboard)
                     {
                         await LoadSqmMonitorDataAsync(); // Also adjusts polling interval
+                        await LoadLearningStatusAsync();
                         StateHasChanged();
                     }
                 }),
@@ -1998,12 +2497,16 @@
                         config.LatencyThreshold = saved.LatencyThresholdMs.Value;
 
                     config.CongestionSeverity = saved.CongestionSeverity;
+                    config.UploadCongestionSeverity = saved.UploadCongestionSeverity;
+                    config.UseLearnedProfile = saved.UseLearnedProfile;
 
                     // Track this interface as loaded
                     if (!string.IsNullOrEmpty(saved.Interface))
                         loadedInterfaces.Add(saved.Interface);
                 }
             }
+
+            await LoadLearningStatusAsync();
 
             // Set initial collapsed state: collapsed if config exists, expanded if needs setup
             _wan1Collapsed = wan1HasSavedConfig;
@@ -2043,6 +2546,8 @@
                     LatencyThresholdMs = Math.Abs(wan1Config.LatencyThreshold - wan1Config.DefaultLatencyThreshold) > 0.01
                         ? wan1Config.LatencyThreshold : null,
                     CongestionSeverity = wan1Config.CongestionSeverity,
+                    UploadCongestionSeverity = wan1Config.UploadCongestionSeverity,
+                    UseLearnedProfile = wan1Config.UseLearnedProfile,
                     LinkSpeedOverrideMbps = wan1Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan1Config.BootDelaySeconds,
                     RateProportionalDownloadBurst = wan1Config.RateProportionalDownloadBurst,
@@ -2073,6 +2578,8 @@
                     LatencyThresholdMs = Math.Abs(wan2Config.LatencyThreshold - wan2Config.DefaultLatencyThreshold) > 0.01
                         ? wan2Config.LatencyThreshold : null,
                     CongestionSeverity = wan2Config.CongestionSeverity,
+                    UploadCongestionSeverity = wan2Config.UploadCongestionSeverity,
+                    UseLearnedProfile = wan2Config.UseLearnedProfile,
                     LinkSpeedOverrideMbps = wan2Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan2Config.BootDelaySeconds,
                     RateProportionalDownloadBurst = wan2Config.RateProportionalDownloadBurst,
@@ -2232,6 +2739,7 @@
         {
             config.BaselineLatency = profile.BaselineLatency;
             config.LatencyThreshold = profile.LatencyThreshold;
+            config.UploadCongestionSeverity = ConnectionProfile.DefaultUploadCongestionSeverity(config.ConnectionType);
         }
         config.DefaultLatencyThreshold = profile.LatencyThreshold;
 
@@ -2291,6 +2799,7 @@
         wan1Config.EveningMinute = 0;
         wan1Config.BootDelaySeconds = null;
         wan1Config.RateProportionalDownloadBurst = true;
+        wan1Config.UseLearnedProfile = false;
         UpdateCalculatedSpeeds(wan1Config);
 
         // Reset WAN2 to defaults
@@ -2308,6 +2817,7 @@
         wan2Config.EveningMinute = 0;
         wan2Config.BootDelaySeconds = null;
         wan2Config.RateProportionalDownloadBurst = true;
+        wan2Config.UseLearnedProfile = false;
         UpdateCalculatedSpeeds(wan2Config);
     }
 
@@ -3212,6 +3722,18 @@
         config.LatencyThreshold = model.LatencyThreshold;
         config.CongestionSeverity = model.CongestionSeverity;
 
+        // Upload strength only where the medium supports it; a learned profile replaces the
+        // built-in curve, scaled so the deployed schedule reproduces the learned throughput under
+        // the user's nominal speeds.
+        config.UploadCongestionSeverity = ConnectionProfile.SupportsDynamicUpload(model.ConnectionType)
+            ? Math.Clamp(model.UploadCongestionSeverity, 0, 1)
+            : 0;
+        if (model.UseLearnedProfile && model.LearningStatus?.Profile is { } learned)
+        {
+            config.LearnedDownloadPattern = LearnedCongestionProfile.ScaledPattern(learned.DownloadMultipliers, learned.PeakDownloadMbps, model.NominalDownload);
+            config.LearnedUploadPattern = LearnedCongestionProfile.ScaledPattern(learned.UploadMultipliers, learned.PeakUploadMbps, model.NominalUpload);
+        }
+
         return config;
     }
 
@@ -3318,6 +3840,18 @@
         // Congestion severity (0.9-1.1, scales dip magnitude)
         public double CongestionSeverity { get; set; } = 1.0;
 
+        // WAN slot this model is bound to (1 or 2); the learning state and profile are keyed on it
+        public int WanNumber { get; init; }
+
+        // Upload shaping strength (0 = static nominal upload, the pre-existing behavior)
+        public double UploadCongestionSeverity { get; set; }
+
+        // Deploy with the learned profile instead of the connection type's default curve
+        public bool UseLearnedProfile { get; set; }
+
+        // Learning state and learned curves for this WAN, refreshed with the page
+        public SqmLearningStatus? LearningStatus { get; set; }
+
         // Speedtest schedule
         public int MorningHour { get; set; } = 6;
         public int MorningMinute { get; set; } = 0;
@@ -3351,13 +3885,45 @@
 
         // Congestion schedule range (effective shaping rates from baseline-proportional safety cap)
         // Keep this formula in sync with the bash clamp in ScriptGenerator.cs.
-        public (int Min, int Max) GetCongestionRange()
+        // The profile the schedule previews and deploys from: the connection type's curve, or the
+        // learned one scaled to the nominal speeds (same scaling as CreateSqmConfiguration).
+        public ConnectionProfile BuildProfile()
         {
             var profile = new ConnectionProfile
             {
                 Type = ConnectionType,
-                NominalDownloadMbps = NominalDownload
+                NominalDownloadMbps = NominalDownload,
+                NominalUploadMbps = NominalUpload
             };
+            if (UseLearnedProfile && LearningStatus?.Profile is { } learned)
+            {
+                profile.CustomDownloadPattern = LearnedCongestionProfile.ScaledPattern(learned.DownloadMultipliers, learned.PeakDownloadMbps, NominalDownload);
+                profile.CustomUploadPattern = LearnedCongestionProfile.ScaledPattern(learned.UploadMultipliers, learned.PeakUploadMbps, NominalUpload);
+            }
+            return profile;
+        }
+
+        // Upload range over the week at the current strength (nominal when strength is 0).
+        public (int Min, int Max) GetUploadRange()
+        {
+            if (NominalUpload <= 0) return (0, 0);
+            var pattern = BuildProfile().GetUploadPatternPublic();
+            double minRate = double.MaxValue, maxRate = double.MinValue;
+            for (int day = 0; day < 7; day++)
+            {
+                for (int hour = 0; hour < 24; hour++)
+                {
+                    var rate = ConnectionProfile.EffectiveUploadMultiplier(pattern[day, hour], UploadCongestionSeverity) * NominalUpload;
+                    if (rate < minRate) minRate = rate;
+                    if (rate > maxRate) maxRate = rate;
+                }
+            }
+            return (Math.Max(1, (int)minRate), Math.Max(1, (int)maxRate));
+        }
+
+        public (int Min, int Max) GetCongestionRange()
+        {
+            var profile = BuildProfile();
             var pattern = profile.GetBaselinePatternPublic();
             double absoluteMax = profile.AbsoluteMaxDownloadMbps;
             double safetyCap = profile.SafetyCapPercent;
@@ -3418,7 +3984,7 @@
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
             BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps,
-            BootDelaySeconds, RateProportionalDownloadBurst);
+            BootDelaySeconds, RateProportionalDownloadBurst, UploadCongestionSeverity, UseLearnedProfile);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3441,7 +4007,9 @@
                    Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001 ||
                    LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps ||
                    BootDelaySeconds != snapshot.BootDelaySeconds ||
-                   RateProportionalDownloadBurst != snapshot.RateProportionalDownloadBurst;
+                   RateProportionalDownloadBurst != snapshot.RateProportionalDownloadBurst ||
+                   Math.Abs(UploadCongestionSeverity - snapshot.UploadCongestionSeverity) > 0.001 ||
+                   UseLearnedProfile != snapshot.UseLearnedProfile;
         }
     }
 
@@ -3451,7 +4019,8 @@
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
         double BaselineLatency, double LatencyThreshold, double CongestionSeverity,
-        int? LinkSpeedOverrideMbps, int? BootDelaySeconds, bool RateProportionalDownloadBurst);
+        int? LinkSpeedOverrideMbps, int? BootDelaySeconds, bool RateProportionalDownloadBurst,
+        double UploadCongestionSeverity, bool UseLearnedProfile);
 
     public void Dispose()
     {

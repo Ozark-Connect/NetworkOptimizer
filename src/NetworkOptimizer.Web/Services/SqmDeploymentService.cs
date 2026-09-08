@@ -145,7 +145,10 @@ public class SqmDeploymentService : ISqmDeploymentService
                 "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
                 "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
                 "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
+                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+                // Ping scripts from before the probe lock existed keep adjusting during a congestion
+                // learning sample; a redeploy installs the guard.
+                $"echo '---PING_GUARD_MISSING---'; for f in {SqmDir}/*-ping.sh; do [ -f \"$f\" ] && ! grep -q PROBE_LOCK \"$f\" && echo \"$f\"; done | wc -l";
 
             var result = await RunCommandAsync(combinedCommand);
             var sections = ParseDelimitedOutput(result.output);
@@ -180,6 +183,11 @@ public class SqmDeploymentService : ISqmDeploymentService
             status.SpeedtestCliInstalled = result.success && GetSection(sections, "SPEEDTEST_CLI").Contains("installed");
 
             status.BcInstalled = result.success && GetSection(sections, "BC_CHECK").Contains("installed");
+
+            if (int.TryParse(GetSection(sections, "PING_GUARD_MISSING").Trim(), out int unguarded))
+            {
+                status.PingScriptsWithoutProbeGuard = unguarded;
+            }
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
         }
@@ -405,7 +413,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             steps.Add("Generating SQM boot script...");
             var generator = new ScriptGenerator(config, initialDelaySeconds);
             baseline ??= GenerateDefaultBaseline(config);
-            var scripts = generator.GenerateAllScripts(baseline);
+            var scripts = generator.GenerateAllScripts(baseline, GenerateUploadBaseline(config));
             var bootScriptName = generator.GetBootScriptName();
 
             // Step 3: Deploy the boot script
@@ -871,19 +879,17 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// </summary>
     private Dictionary<string, string> GenerateDefaultBaseline(SqmConfig config)
     {
-        // Create a ConnectionProfile to get the hourly baseline pattern
-        var profile = new ConnectionProfile
-        {
-            Type = config.ConnectionType,
-            Name = config.ConnectionName ?? "",
-            Interface = config.Interface,
-            NominalDownloadMbps = config.NominalDownloadSpeed,
-            NominalUploadMbps = config.NominalUploadSpeed
-        };
-
-        // Get the 168-hour baseline scaled to nominal speed, with congestion severity applied
-        return profile.GetHourlyBaseline(config.CongestionSeverity);
+        // The configuration's profile carries the learned curves when a learned profile is in use;
+        // otherwise this is the connection type's built-in pattern, as before.
+        return config.GetProfile().GetHourlyBaseline(config.CongestionSeverity);
     }
+
+    /// <summary>
+    /// The 168-hour upload schedule, or null when upload stays static (strength 0, the default),
+    /// in which case the generated scripts are identical to those before dynamic upload existed.
+    /// </summary>
+    private static Dictionary<string, string>? GenerateUploadBaseline(SqmConfig config) =>
+        config.DynamicUpload ? config.GetProfile().GetHourlyUploadBaseline(config.UploadCongestionSeverity) : null;
 
     /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs
@@ -1383,6 +1389,12 @@ public class SqmDeploymentStatus
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Deployed ping scripts that predate the probe lock and so keep adjusting during a congestion
+    /// learning sample. Zero once Adaptive SQM has been redeployed from a build that has the guard.
+    /// </summary>
+    public int PingScriptsWithoutProbeGuard { get; set; }
 
     /// <summary>
     /// True when the gateway is unreachable only because this site's on-site agent

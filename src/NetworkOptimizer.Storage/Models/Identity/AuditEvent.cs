@@ -126,6 +126,9 @@ public static class AuditActions
     public const string SettingsChanged = "settings.changed";
     public const string SqmApplied = "sqm.applied";
     public const string SqmReverted = "sqm.reverted";
+    public const string SqmLearningStarted = "sqm.learning.started";
+    public const string SqmLearningStopped = "sqm.learning.stopped";
+    public const string SqmLearningCleared = "sqm.learning.cleared";
     public const string OptimizerApplied = "optimizer.applied";
     public const string PerfTweakApplied = "perftweak.applied";
     public const string AuditScanRun = "audit_scan.run";
