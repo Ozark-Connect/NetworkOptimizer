@@ -22,6 +22,7 @@
 @inject ILogger<Alerts> Logger
 @inject NavigationManager NavigationManager
 @inject ISqmService SqmService
+@inject NetworkOptimizer.Web.Services.SqmLearning.ISqmLearningService LearningService
 @inject IIperf3SpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
@@ -150,7 +151,7 @@
                                     <a class="btn btn-sm btn-secondary" href="/sqm">Open Adaptive SQM</a>
                                     @if (_canConfigure)
                                     {
-                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => RemoveLearningSchedule(task)">Remove</button>
                                     }
                                 </div>
                             </div>
@@ -3744,6 +3745,26 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error deleting schedule {Id}", task.Id);
+        }
+    }
+
+    // Through the learning service so the profile is stamped stopped, as Stop Learning on Adaptive SQM does.
+    private async Task RemoveLearningSchedule(ScheduledTask task)
+    {
+        var wan = NetworkOptimizer.Web.Services.SqmLearning.SqmLearningTaskConfig.Parse(task.TargetConfig)?.WanNumber;
+        if (wan is null)
+        {
+            await DeleteSchedule(task);
+            return;
+        }
+        try
+        {
+            await LearningService.RemoveScheduleAsync(wan.Value);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error removing learning schedule {Id}", task.Id);
         }
     }
 

@@ -148,6 +148,14 @@ public class SqmLearningService : ISqmLearningService
         _logger.LogInformation("Adaptive SQM learning stopped for WAN {Wan} on site {Site}", wanNumber, _siteContext.Slug);
     }
 
+    public async Task RemoveScheduleAsync(int wanNumber)
+    {
+        await StopAsync(wanNumber);
+        var profile = await _repo.GetProfileAsync(wanNumber);
+        if (profile != null && await FindTaskAsync(profile) is { } task)
+            await _schedules.DeleteAsync(task.Id);
+    }
+
     public async Task ClearAsync(int wanNumber)
     {
         var profile = await _repo.GetProfileAsync(wanNumber);

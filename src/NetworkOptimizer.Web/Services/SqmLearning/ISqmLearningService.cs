@@ -32,6 +32,11 @@ public interface ISqmLearningService
     [AuditAction(AuditActions.SqmLearningStopped, TargetType = "wan")]
     Task StopAsync(int wanNumber);
 
+    /// <summary>Stops the run and takes its schedule off the Schedule tab, keeping the samples and profile.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SqmLearningStopped, TargetType = "wan")]
+    Task RemoveScheduleAsync(int wanNumber);
+
     /// <summary>Removes the schedule, the samples, and the learned profile for the WAN.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmLearningCleared, TargetType = "wan")]
