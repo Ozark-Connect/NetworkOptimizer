@@ -31,6 +31,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WiFiRadioPreference> WiFiRadioPreferences { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
+    public DbSet<SqmCongestionProfile> SqmCongestionProfiles { get; set; }
+    public DbSet<SqmLearningSample> SqmLearningSamples { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
     public DbSet<UpnpNote> UpnpNotes { get; set; }
     public DbSet<ApLocation> ApLocations { get; set; }
@@ -353,6 +355,19 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SqmWanConfigurations");
             entity.HasIndex(e => e.WanNumber).IsUnique();
+        });
+
+        // Adaptive SQM learned congestion profile (one row per WAN) and its raw samples
+        modelBuilder.Entity<SqmCongestionProfile>(entity =>
+        {
+            entity.ToTable("SqmCongestionProfiles");
+            entity.HasIndex(e => e.WanNumber).IsUnique();
+        });
+
+        modelBuilder.Entity<SqmLearningSample>(entity =>
+        {
+            entity.ToTable("SqmLearningSamples");
+            entity.HasIndex(e => new { e.WanNumber, e.SampledAt });
         });
 
         // AdminSettings configuration (singleton - only one row)

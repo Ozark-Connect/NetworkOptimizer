@@ -36,13 +36,19 @@ public class ScriptGenerator
     /// Generate all scripts required for SQM deployment.
     /// Returns a single self-contained boot script that creates everything else.
     /// </summary>
-    public Dictionary<string, string> GenerateAllScripts(Dictionary<string, string> baseline)
+    /// <param name="baseline">Download schedule keyed "day_hour".</param>
+    /// <param name="uploadBaseline">Upload schedule keyed "day_hour"; ignored unless the configuration shapes upload dynamically.</param>
+    public Dictionary<string, string> GenerateAllScripts(Dictionary<string, string> baseline, Dictionary<string, string>? uploadBaseline = null)
     {
         return new Dictionary<string, string>
         {
-            [$"20-sqm-{_name}.sh"] = GenerateBootScript(baseline)
+            [$"20-sqm-{_name}.sh"] = GenerateBootScript(baseline, uploadBaseline)
         };
     }
+
+    /// <summary>Whether the generated scripts carry an upload schedule at all.</summary>
+    private bool UsesDynamicUpload(Dictionary<string, string>? uploadBaseline) =>
+        _config.DynamicUpload && uploadBaseline is { Count: > 0 };
 
     /// <summary>
     /// Get the boot script filename for this configuration
@@ -57,7 +63,7 @@ public class ScriptGenerator
     /// 4. Sets up IFB device and TC classes
     /// 5. Configures crontab entries
     /// </summary>
-    public string GenerateBootScript(Dictionary<string, string> baseline)
+    public string GenerateBootScript(Dictionary<string, string> baseline, Dictionary<string, string>? uploadBaseline = null)
     {
         var sb = new StringBuilder();
 
@@ -135,7 +141,7 @@ public class ScriptGenerator
         sb.AppendLine("# ============================================");
         sb.AppendLine();
         sb.AppendLine("cat > \"$SPEEDTEST_SCRIPT\" << 'SPEEDTEST_EOF'");
-        sb.Append(GenerateSpeedtestScript(baseline));
+        sb.Append(GenerateSpeedtestScript(baseline, uploadBaseline));
         sb.AppendLine("SPEEDTEST_EOF");
         sb.AppendLine("chmod +x \"$SPEEDTEST_SCRIPT\"");
         sb.AppendLine();
@@ -146,7 +152,7 @@ public class ScriptGenerator
         sb.AppendLine("# ============================================");
         sb.AppendLine();
         sb.AppendLine("cat > \"$PING_SCRIPT\" << 'PING_EOF'");
-        sb.Append(GeneratePingScript(baseline));
+        sb.Append(GeneratePingScript(baseline, uploadBaseline));
         sb.AppendLine("PING_EOF");
         sb.AppendLine("chmod +x \"$PING_SCRIPT\"");
         sb.AppendLine();
@@ -225,8 +231,11 @@ public class ScriptGenerator
     /// <summary>
     /// Generate the speedtest adjustment script content (embedded in boot script)
     /// </summary>
-    private string GenerateSpeedtestScript(Dictionary<string, string> baseline)
+    private string GenerateSpeedtestScript(Dictionary<string, string> baseline, Dictionary<string, string>? uploadBaseline)
     {
+        var dynamicUpload = UsesDynamicUpload(uploadBaseline);
+        var uploadRateVar = dynamicUpload ? "$upload_rate" : "$UPLOAD_SPEED";
+
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/bash");
         sb.AppendLine();
@@ -244,6 +253,8 @@ public class ScriptGenerator
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
+        if (dynamicUpload)
+            sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
@@ -263,6 +274,8 @@ public class ScriptGenerator
             sb.AppendLine($"BASELINE[{key}]=\"{value}\"");
         }
         sb.AppendLine();
+        if (dynamicUpload)
+            AppendUploadBaseline(sb, uploadBaseline!);
 
         // Check for speedtest
         sb.AppendLine("# Check if speedtest is installed");
@@ -273,6 +286,11 @@ public class ScriptGenerator
         sb.AppendLine();
 
         sb.AppendLine("echo \"[$(date)] Starting speedtest adjustment on $INTERFACE...\" >> $LOG_FILE");
+        sb.AppendLine();
+
+        // A probe (congestion learning sample) may hold the shaper lifted for ~15 s; calibrating on
+        // top of it would measure against its lift and then write over its restore.
+        sb.AppendLine(GetProbeLockWait());
         sb.AppendLine();
 
         // Verify IFB device exists (created by UniFi Smart Queues)
@@ -323,6 +341,11 @@ public class ScriptGenerator
         // Baseline blending
         sb.AppendLine(GetBaselineBlendingLogic());
         sb.AppendLine();
+        if (dynamicUpload)
+        {
+            sb.AppendLine(GetUploadRateLogic());
+            sb.AppendLine();
+        }
 
         // Apply ceiling
         sb.AppendLine("# Apply ceiling");
@@ -353,13 +376,13 @@ public class ScriptGenerator
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $download_speed_mbps $DOWNLOAD_BURST_MODE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
-        sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
+        sb.AppendLine($"    update_all_tc_classes $INTERFACE {uploadRateVar}");
         sb.AppendLine("else");
         sb.AppendLine("    tune_tc_performance $INTERFACE");
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
-        sb.AppendLine("    echo \"[$(date)] Adjusted to $download_speed_mbps Mbps (down), $UPLOAD_SPEED Mbps (up)\" >> $LOG_FILE");
+        sb.AppendLine($"    echo \"[$(date)] Adjusted to $download_speed_mbps Mbps (down), {uploadRateVar} Mbps (up)\" >> $LOG_FILE");
         sb.AppendLine("else");
         sb.AppendLine("    echo \"[$(date)] Adjusted to $download_speed_mbps Mbps (down), upstream perf-tuned\" >> $LOG_FILE");
         sb.AppendLine("fi");
@@ -370,8 +393,11 @@ public class ScriptGenerator
     /// <summary>
     /// Generate the ping adjustment script content (embedded in boot script)
     /// </summary>
-    private string GeneratePingScript(Dictionary<string, string> baseline)
+    private string GeneratePingScript(Dictionary<string, string> baseline, Dictionary<string, string>? uploadBaseline)
     {
+        var dynamicUpload = UsesDynamicUpload(uploadBaseline);
+        var uploadRateVar = dynamicUpload ? "$upload_rate" : "$UPLOAD_SPEED";
+
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/bash");
         sb.AppendLine();
@@ -393,6 +419,8 @@ public class ScriptGenerator
         sb.AppendLine($"MAX_DOWNLOAD_SPEED_CONFIG=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
+        if (dynamicUpload)
+            sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
@@ -411,6 +439,14 @@ public class ScriptGenerator
         {
             sb.AppendLine($"BASELINE[{key}]=\"{value}\"");
         }
+        sb.AppendLine();
+        if (dynamicUpload)
+            AppendUploadBaseline(sb, uploadBaseline!);
+
+        // A probe (congestion learning sample) holds the shaper lifted for ~15 s and leaves this
+        // lock while it does. Adjusting in that window would write a latency-driven cut over the
+        // lift and shorten the measurement; the probe restores the rates itself when it exits.
+        sb.AppendLine(GetProbeLockGuard());
         sb.AppendLine();
 
         // Check for result file
@@ -456,6 +492,11 @@ public class ScriptGenerator
         // Baseline lookup for ping
         sb.AppendLine(GetBaselineBlendingLogicForPing());
         sb.AppendLine();
+        if (dynamicUpload)
+        {
+            sb.AppendLine(GetUploadRateLogic());
+            sb.AppendLine();
+        }
 
         // Apply safety cap to MAX_DOWNLOAD_SPEED BEFORE latency adjustment.
         // This sets the schedule-derived ceiling as the starting point, then latency
@@ -551,6 +592,18 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
+        if (dynamicUpload)
+        {
+            // The ping cannot tell which direction is saturated, so a latency cut scales upload
+            // by the same fraction it took off download. The floor still holds.
+            sb.AppendLine("# Latency cut applies to upload in the same proportion");
+            sb.AppendLine("if (( $(echo \"$new_rate < $MAX_DOWNLOAD_SPEED\" | bc) )); then");
+            sb.AppendLine("    upload_rate=$(echo \"scale=0; $upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\" | bc)");
+            sb.AppendLine("    if [ \"$upload_rate\" -lt \"$MIN_UPLOAD_SPEED\" ]; then upload_rate=$MIN_UPLOAD_SPEED; fi");
+            sb.AppendLine("fi");
+            sb.AppendLine();
+        }
+
         // TC update function and apply
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
@@ -558,7 +611,15 @@ public class ScriptGenerator
         // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
         sb.AppendLine("# Skip tc update if rate unchanged");
         sb.AppendLine("current_rate=$(tc class show dev $IFB_DEVICE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
-        sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ]; then");
+        if (dynamicUpload)
+        {
+            sb.AppendLine("current_up_rate=$(tc class show dev $INTERFACE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+            sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ] && [ \"$upload_rate\" = \"$current_up_rate\" ]; then");
+        }
+        else
+        {
+            sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ]; then");
+        }
         sb.AppendLine("    exit 0");
         sb.AppendLine("fi");
         sb.AppendLine();
@@ -566,13 +627,13 @@ public class ScriptGenerator
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int $DOWNLOAD_BURST_MODE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
-        sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
+        sb.AppendLine($"    update_all_tc_classes $INTERFACE {uploadRateVar}");
         sb.AppendLine("else");
         sb.AppendLine("    tune_tc_performance $INTERFACE");
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
-        sb.AppendLine("    echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (down), $UPLOAD_SPEED Mbps (up) (latency: ${latency}ms)\" >> $LOG_FILE");
+        sb.AppendLine($"    echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (down), {uploadRateVar} Mbps (up) (latency: ${{latency}}ms)\" >> $LOG_FILE");
         sb.AppendLine("else");
         sb.AppendLine("    echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (down), upstream perf-tuned (latency: ${latency}ms)\" >> $LOG_FILE");
         sb.AppendLine("fi");
@@ -580,12 +641,89 @@ public class ScriptGenerator
         return sb.ToString();
     }
 
+    /// <summary>Path of the lock a probe holds while it has the shaper lifted on an interface.</summary>
+    public static string ProbeLockPath(string interfaceName) => $"/data/sqm/probe-{interfaceName}.lock";
+
+    /// <summary>Seconds after which a lock left behind by a killed probe is ignored and removed.</summary>
+    public const int ProbeLockMaxAgeSeconds = 120;
+
+    /// <summary>
+    /// Speedtest-script wait: let a fresh probe lock clear (up to 90 s) before calibrating, and
+    /// drop a stale one so a killed probe can never block calibration for good.
+    /// </summary>
+    private static string GetProbeLockWait()
+    {
+        return $@"# Wait for a probe (congestion learning sample) to release the shaper
+PROBE_LOCK=""/data/sqm/probe-${{INTERFACE}}.lock""
+for _ in $(seq 1 90); do
+    [ -f ""$PROBE_LOCK"" ] || break
+    lock_age=$(( $(date +%s) - $(stat -c %Y ""$PROBE_LOCK"" 2>/dev/null || echo 0) ))
+    if [ ""$lock_age"" -ge {ProbeLockMaxAgeSeconds} ]; then rm -f ""$PROBE_LOCK""; break; fi
+    sleep 1
+done";
+    }
+
+    /// <summary>
+    /// Ping-script guard: stand down while a fresh probe lock exists for this interface.
+    /// </summary>
+    private static string GetProbeLockGuard()
+    {
+        return $@"# Stand down while a probe (congestion learning sample) has the shaper lifted
+PROBE_LOCK=""/data/sqm/probe-${{INTERFACE}}.lock""
+if [ -f ""$PROBE_LOCK"" ]; then
+    lock_age=$(( $(date +%s) - $(stat -c %Y ""$PROBE_LOCK"" 2>/dev/null || echo 0) ))
+    if [ ""$lock_age"" -lt {ProbeLockMaxAgeSeconds} ]; then
+        exit 0
+    fi
+    rm -f ""$PROBE_LOCK""
+fi";
+    }
+
+    /// <summary>
+    /// Emit the upload schedule array (same "day_hour" keys as BASELINE).
+    /// </summary>
+    private static void AppendUploadBaseline(StringBuilder sb, Dictionary<string, string> uploadBaseline)
+    {
+        sb.AppendLine("# Upload schedule by day of week (0=Mon, 6=Sun) and hour");
+        sb.AppendLine("declare -A UPLOAD_BASELINE");
+        foreach (var (key, value) in uploadBaseline.OrderBy(b => b.Key))
+        {
+            sb.AppendLine($"UPLOAD_BASELINE[{key}]=\"{value}\"");
+        }
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Upload rate for the current quarter hour. Runs after the download baseline lookup, which
+    /// set lookup_key, next_key, and current_min; the same 15-minute interpolation applies.
+    /// </summary>
+    private static string GetUploadRateLogic()
+    {
+        return @"# Upload schedule (interpolated at the same quarter-hour breakpoints as the download baseline)
+upload_rate=$UPLOAD_SPEED
+upload_baseline=${UPLOAD_BASELINE[$lookup_key]}
+next_upload_baseline=${UPLOAD_BASELINE[$next_key]}
+if [ -n ""$upload_baseline"" ] && [ -n ""$next_upload_baseline"" ]; then
+    upload_weight=$(( (current_min / 15) * 25 ))
+    upload_rate=$(( (upload_baseline * (100 - upload_weight) + next_upload_baseline * upload_weight) / 100 ))
+elif [ -n ""$upload_baseline"" ]; then
+    upload_rate=$upload_baseline
+fi
+if [ ""$upload_rate"" -lt ""$MIN_UPLOAD_SPEED"" ]; then upload_rate=$MIN_UPLOAD_SPEED; fi
+if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; fi";
+    }
+
     /// <summary>
     /// Get TC update function (common to both scripts)
     /// </summary>
-    private string GetTcUpdateFunction()
-    {
-        return @"# Burst sizing. Mode 0 (default) is the conservative sizing: 5KB burst eliminates
+    private string GetTcUpdateFunction() => TcFunctionsText;
+
+    /// <summary>
+    /// The shell functions that size burst and fq_codel memory and rewrite the HTB classes. Shared
+    /// with the shaper-lift wrapper so there is exactly one copy of the tc logic.
+    /// </summary>
+    internal static string TcFunctionsText =>
+        @"# Burst sizing. Mode 0 (default) is the conservative sizing: 5KB burst eliminates
 # downstream drop_overmemory for bulk flows at gig speeds, and 8KB+ creates bursty HTB
 # send patterns that increase queue depth variance in fq_codel.
 #
@@ -722,7 +860,6 @@ tune_tc_performance() {
 
     update_all_tc_classes $device $current_rate
 }";
-    }
 
     /// <summary>
     /// Get baseline blending logic for speedtest script

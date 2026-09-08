@@ -43,6 +43,25 @@ public class SqmConfiguration
     public bool RateProportionalDownloadBurst { get; set; } = false;
 
     /// <summary>
+    /// Upload shaping strength (0-1). 0 keeps the upload rate static at nominal, which is what
+    /// every deployment did before this setting existed. Above 0 the upload rate follows the
+    /// congestion schedule, its dips scaled by this value, never below <see cref="MinUploadSpeed"/>.
+    /// </summary>
+    public double UploadCongestionSeverity { get; set; } = 0.0;
+
+    /// <summary>Floor for dynamic upload shaping: half of nominal upload.</summary>
+    public int MinUploadSpeed => Math.Max(1, (int)(NominalUploadSpeed * ConnectionProfile.MinUploadFraction));
+
+    /// <summary>True when the generated scripts vary the upload rate over the week.</summary>
+    public bool DynamicUpload => ShapeUpload && UploadCongestionSeverity > 0;
+
+    /// <summary>Learned 7x24 download curve that replaces the connection type's pattern; null = built-in.</summary>
+    public double[,]? LearnedDownloadPattern { get; set; }
+
+    /// <summary>Learned 7x24 upload curve; null = follow the download curve.</summary>
+    public double[,]? LearnedUploadPattern { get; set; }
+
+    /// <summary>
     /// WAN interface name (e.g., "eth2", "eth4")
     /// </summary>
     public string Interface { get; set; } = "eth2";
@@ -193,7 +212,9 @@ public class SqmConfiguration
             NominalDownloadMbps = NominalDownloadSpeed,
             NominalUploadMbps = NominalUploadSpeed,
             PingHost = PingHost,
-            PreferredSpeedtestServerId = PreferredSpeedtestServerId
+            PreferredSpeedtestServerId = PreferredSpeedtestServerId,
+            CustomDownloadPattern = LearnedDownloadPattern,
+            CustomUploadPattern = LearnedUploadPattern
         };
     }
 
@@ -286,6 +307,8 @@ public class SqmConfiguration
             Overhead: {(OverheadMultiplier - 1) * 100:F0}%
             Latency: {BaselineLatency}ms baseline, {LatencyThreshold}ms threshold
             Rate Adjust: -{(1 - LatencyDecrease) * 100:F0}% / +{(LatencyIncrease - 1) * 100:F0}%
+            Upload: {(DynamicUpload ? $"dynamic, strength {UploadCongestionSeverity:F2}, floor {MinUploadSpeed} Mbps" : ShapeUpload ? "static" : "perf-tuned only")}
+            Profile: {(LearnedDownloadPattern != null ? "learned" : "connection type default")}
             """;
     }
 }

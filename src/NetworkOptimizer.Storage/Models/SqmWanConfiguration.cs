@@ -73,6 +73,12 @@ public class SqmWanConfiguration
     /// <summary>Opt-in rate-proportional download burst (~1 ms of line time) instead of the conservative 5 KB clamp. False = conservative (default).</summary>
     public bool RateProportionalDownloadBurst { get; set; } = false;
 
+    /// <summary>Upload shaping strength (0-1). 0 = static nominal upload, the behavior before this setting existed.</summary>
+    public double UploadCongestionSeverity { get; set; } = 0.0;
+
+    /// <summary>Deploy with this WAN's learned congestion profile instead of the connection type's default curve.</summary>
+    public bool UseLearnedProfile { get; set; } = false;
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907120000_AddSqmLearningMode")]
+    partial class AddSqmLearningMode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -3118,15 +3121,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime?>("LearningStartedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("LiftCeilingMbps")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("LiftDownloadMbps")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("LiftUploadMbps")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -3134,9 +3128,6 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<double>("PeakDownloadMbps")
                         .HasColumnType("REAL");
-
-                    b.Property<bool>("PeakIsLowerBound")
-                        .HasColumnType("INTEGER");
 
                     b.Property<double>("PeakUploadMbps")
                         .HasColumnType("REAL");
@@ -3210,19 +3201,10 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("LatencyMs")
                         .HasColumnType("REAL");
 
-                    b.Property<int?>("LiftDownloadMbps")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("LiftUploadMbps")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int>("LocalDayOfWeek")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("LocalHour")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ProbeLimited")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("SampledAt")

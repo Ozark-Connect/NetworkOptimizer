@@ -232,8 +232,10 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
         IReadOnlyList<WanInterfaceInfo>? allInterfaces = null,
         bool maxMode = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        GatewayWanTestOptions? options = null)
     {
+        options ??= new GatewayWanTestOptions();
         if (_licenseState != null && !_licenseState.IsSiteOperational(_siteSlug))
         {
             _logger.LogWarning("Gateway WAN speed test refused: site {Site} is license-restricted", _siteSlug);
@@ -250,7 +252,10 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 return null;
             }
             _isRunning = true;
-            _lastCompletedResult = null;
+            // An ephemeral run (a learning sample) is not the page's run, so it leaves the last
+            // shown result alone.
+            if (!options.Ephemeral)
+                _lastCompletedResult = null;
         }
 
         try
@@ -277,7 +282,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 if (!deploySuccess)
                 {
                     Report("Error", 0, deployError);
-                    return SaveFailedResult(deployError, wanNetworkGroup, wanName);
+                    return FailResult(deployError, wanNetworkGroup, wanName, options);
                 }
             }
             Report("Preparing", 8, "Binary ready");
@@ -288,7 +293,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 return await RunParallelWanTests(allInterfaces!, maxMode, Report, cancellationToken);
             }
 
-            return await RunSingleWanTest(interfaceName, wanNetworkGroup, wanName, maxMode, Report, cancellationToken);
+            return await RunSingleWanTest(interfaceName, wanNetworkGroup, wanName, maxMode, options, Report, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -302,7 +307,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             _logger.LogError(ex, "Gateway WAN speed test failed");
             lock (_lock) { _currentPhase = "Error"; _currentPercent = 0; _currentStatus = ex.Message; }
             onProgress?.Invoke(("Error", 0, ex.Message));
-            return SaveFailedResult(ex.Message, wanNetworkGroup, wanName);
+            return FailResult(ex.Message, wanNetworkGroup, wanName, options);
         }
         finally
         {
@@ -315,6 +320,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         string? wanNetworkGroup,
         string? wanName,
         bool maxMode,
+        GatewayWanTestOptions options,
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
@@ -326,7 +332,25 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
 
         var (servers, streams) = maxMode ? (6, 24) : (4, 20);
-        var command = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration 8 2>/dev/null";
+        if (options.Streams is > 0)
+            streams = Math.Clamp(options.Streams.Value, 1, 48);
+        var duration = Math.Clamp(options.DurationSeconds, 2, 60);
+        var binaryCommand = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration {duration}";
+
+        // With a shaper lift the binary runs inside a wrapper that raises the WAN's HTB roots to
+        // the probe rates first and restores them from an EXIT trap, all in the one SSH session.
+        string command;
+        if (options.ShaperLift is { } lift && !string.IsNullOrEmpty(interfaceName))
+        {
+            var wrapper = NetworkOptimizer.Sqm.SqmShaperLiftScript.Wrap(
+                binaryCommand, interfaceName, lift.DownloadProbeMbps, lift.UploadProbeMbps, lift.RateProportionalDownloadBurst);
+            command = NetworkOptimizer.Sqm.SqmShaperLiftScript.ToRemoteCommand(wrapper, interfaceName);
+        }
+        else
+        {
+            command = binaryCommand + " 2>/dev/null";
+        }
+
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
 
@@ -339,7 +363,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var error = $"Gateway speed test failed: {result.output}";
             _logger.LogWarning(error);
             report("Error", 0, error);
-            return SaveFailedResult(error, wanNetworkGroup, wanName);
+            return FailResult(error, wanNetworkGroup, wanName, options);
         }
 
         report("Parsing", 95, "Processing results...");
@@ -349,11 +373,25 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         {
             var error = "Failed to parse speed test output";
             report("Error", 0, error);
-            return SaveFailedResult(error, wanNetworkGroup, wanName);
+            return FailResult(error, wanNetworkGroup, wanName, options);
+        }
+
+        if (options.Ephemeral)
+        {
+            // The caller keeps its own record. Nothing is stored, alerted, or analyzed, and the
+            // page's "last result" is left alone so a learning sample never shows up as a run.
+            report("Complete", 100, $"Down: {testResult.DownloadMbps:F1} / Up: {testResult.UploadMbps:F1} Mbps");
+            return testResult;
         }
 
         return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken);
     }
+
+    /// <summary>A failed result: stored for a normal run, returned unstored for an ephemeral one.</summary>
+    private Iperf3Result? FailResult(string? errorMessage, string? wanNetworkGroup, string? wanName, GatewayWanTestOptions options) =>
+        options.Ephemeral
+            ? BuildFailedResult(errorMessage, wanNetworkGroup, wanName)
+            : SaveFailedResult(errorMessage, wanNetworkGroup, wanName);
 
     private async Task<Iperf3Result?> RunParallelWanTests(
         IReadOnlyList<WanInterfaceInfo> interfaces,
@@ -731,22 +769,24 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
     }
 
+    private static Iperf3Result BuildFailedResult(string? errorMessage, string? wanNetworkGroup, string? wanName) => new()
+    {
+        Direction = SpeedTestDirection.UwnWanGateway,
+        DeviceHost = "UWN Test",
+        DeviceName = "Gateway",
+        DeviceType = "WAN",
+        WanNetworkGroup = wanNetworkGroup,
+        WanName = wanName,
+        TestTime = DateTime.UtcNow,
+        Success = false,
+        ErrorMessage = errorMessage,
+    };
+
     private Iperf3Result? SaveFailedResult(string? errorMessage, string? wanNetworkGroup, string? wanName)
     {
         try
         {
-            var failedResult = new Iperf3Result
-            {
-                Direction = SpeedTestDirection.UwnWanGateway,
-                DeviceHost = "UWN Test",
-                DeviceName = "Gateway",
-                DeviceType = "WAN",
-                WanNetworkGroup = wanNetworkGroup,
-                WanName = wanName,
-                TestTime = DateTime.UtcNow,
-                Success = false,
-                ErrorMessage = errorMessage,
-            };
+            var failedResult = BuildFailedResult(errorMessage, wanNetworkGroup, wanName);
             using var context = CreateSiteDb();
             context.Iperf3Results.Add(failedResult);
             context.SaveChanges();
