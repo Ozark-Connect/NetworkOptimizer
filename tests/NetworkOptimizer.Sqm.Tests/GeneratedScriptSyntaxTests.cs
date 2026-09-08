@@ -31,7 +31,7 @@ public class GeneratedScriptSyntaxTests
         {
             ConnectionType = ConnectionType.CellularHome,
             ConnectionName = "Test WAN",
-            Interface = "eth6.228",
+            Interface = "eth6.100",
             NominalDownloadSpeed = 200,
             NominalUploadSpeed = 30,
             ShapeUpload = true,
@@ -99,7 +99,7 @@ public class GeneratedScriptSyntaxTests
         var bash = BashPath();
         if (bash == null) return;
 
-        var wrapper = SqmShaperLiftScript.Wrap("/data/uwnspeedtest --interface eth6.228 -streams 10 -servers 4 -duration 4", "eth6.228", 273, 33, true);
+        var wrapper = SqmShaperLiftScript.Wrap("/data/uwnspeedtest --interface eth6.100 -streams 10 -servers 4 -duration 4", "eth6.100", 273, 33, true);
         AssertParses(bash, wrapper, "shaper-lift wrapper");
     }
 }
