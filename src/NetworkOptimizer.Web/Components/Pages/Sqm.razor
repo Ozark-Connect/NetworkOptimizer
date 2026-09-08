@@ -1773,19 +1773,6 @@
                     </div>
                 }
             </div>
-            @if (useLearned && learned != null)
-            {
-                var peaksMatch = model.NominalDownload == (int)Math.Round(learned.PeakDownloadMbps)
-                                 && model.NominalUpload == (int)Math.Round(learned.PeakUploadMbps);
-                <small class="form-hint" style="display: block; margin-top: 0.5rem;">
-                    The learned curve is relative to its best hour: @learned.PeakDownloadMbps.ToString("F0") / @learned.PeakUploadMbps.ToString("F0") Mbps.
-                    @if (!peaksMatch)
-                    {
-                        <text>Your nominal speeds differ, so hours above nominal are capped at it. </text>
-                        <button type="button" class="btn btn-sm btn-secondary" style="margin-left: 0.25rem;" @onclick="() => ApplyLearnedPeaks(model)" disabled="@(!_canOperate)">Use learned peaks as nominal</button>
-                    }
-                </small>
-            }
         </div>
     </div>;
 
@@ -1960,6 +1947,8 @@
             try
             {
                 config.LearningStatus = await LearningService.GetStatusAsync(config.WanNumber);
+                if (config.LearnedInUse != null)
+                    UpdateCalculatedSpeeds(config, resetLatency: false);
             }
             catch (Exception ex)
             {
@@ -1971,13 +1960,6 @@
     private void OnProfileSourceChanged(WanConfigModel model, string? value)
     {
         model.UseLearnedProfile = value == "learned" && model.LearningStatus?.Profile != null;
-    }
-
-    private void ApplyLearnedPeaks(WanConfigModel model)
-    {
-        if (model.LearningStatus?.Profile is not { } learned) return;
-        model.NominalDownload = Math.Max(10, (int)Math.Round(learned.PeakDownloadMbps));
-        model.NominalUpload = Math.Max(1, (int)Math.Round(learned.PeakUploadMbps));
         UpdateCalculatedSpeeds(model, resetLatency: false);
     }
 
@@ -2732,6 +2714,15 @@
         config.MinSpeed = profile.MinDownloadMbps;
         config.AbsoluteMax = profile.AbsoluteMaxDownloadMbps;
         config.Overhead = profile.OverheadMultiplier;
+        if (config.LearnedInUse is { } learnedInUse)
+        {
+            // Learned mode: the envelope is the measured peak as a shaper rate (SqmConfiguration.ApplyLearnedProfile).
+            var ceiling = LearnedCongestionProfile.ShapingCeiling(learnedInUse.PeakDownloadMbps, config.ConnectionType);
+            config.MaxSpeed = ceiling;
+            config.AbsoluteMax = ceiling;
+            config.MinSpeed = new ConnectionProfile { Type = config.ConnectionType, NominalDownloadMbps = ceiling }.MinDownloadMbps;
+            config.Overhead = 1.0;
+        }
 
         // Only reset latency values when connection type changes or on initial load,
         // not when the user adjusts nominal speed (which would overwrite their overrides)
@@ -3722,17 +3713,13 @@
         config.LatencyThreshold = model.LatencyThreshold;
         config.CongestionSeverity = model.CongestionSeverity;
 
-        // Upload strength only where the medium supports it; a learned profile replaces the
-        // built-in curve, scaled so the deployed schedule reproduces the learned throughput under
-        // the user's nominal speeds.
+        // Upload strength only where the medium supports it. A learned profile replaces the
+        // built-in curve and derives the whole envelope from the measured peaks.
         config.UploadCongestionSeverity = ConnectionProfile.SupportsDynamicUpload(model.ConnectionType)
             ? Math.Clamp(model.UploadCongestionSeverity, 0, 1)
             : 0;
-        if (model.UseLearnedProfile && model.LearningStatus?.Profile is { } learned)
-        {
-            config.LearnedDownloadPattern = LearnedCongestionProfile.ScaledPattern(learned.DownloadMultipliers, learned.PeakDownloadMbps, model.NominalDownload);
-            config.LearnedUploadPattern = LearnedCongestionProfile.ScaledPattern(learned.UploadMultipliers, learned.PeakUploadMbps, model.NominalUpload);
-        }
+        if (model.LearnedInUse is { } learned)
+            config.ApplyLearnedProfile(learned);
 
         return config;
     }
@@ -3885,8 +3872,11 @@
 
         // Congestion schedule range (effective shaping rates from baseline-proportional safety cap)
         // Keep this formula in sync with the bash clamp in ScriptGenerator.cs.
+        /// <summary>The learned profile the page previews and deploys, when Learned is selected and one exists.</summary>
+        public LearnedCongestionProfile? LearnedInUse => UseLearnedProfile ? LearningStatus?.Profile : null;
+
         // The profile the schedule previews and deploys from: the connection type's curve, or the
-        // learned one scaled to the nominal speeds (same scaling as CreateSqmConfiguration).
+        // learned one with the measured peaks as its ceilings (as SqmConfiguration.ApplyLearnedProfile).
         public ConnectionProfile BuildProfile()
         {
             var profile = new ConnectionProfile
@@ -3895,10 +3885,13 @@
                 NominalDownloadMbps = NominalDownload,
                 NominalUploadMbps = NominalUpload
             };
-            if (UseLearnedProfile && LearningStatus?.Profile is { } learned)
+            if (LearnedInUse is { } learned)
             {
-                profile.CustomDownloadPattern = LearnedCongestionProfile.ScaledPattern(learned.DownloadMultipliers, learned.PeakDownloadMbps, NominalDownload);
-                profile.CustomUploadPattern = LearnedCongestionProfile.ScaledPattern(learned.UploadMultipliers, learned.PeakUploadMbps, NominalUpload);
+                profile.NominalDownloadMbps = LearnedCongestionProfile.ShapingCeiling(learned.PeakDownloadMbps, ConnectionType);
+                if (UploadCongestionSeverity > 0)
+                    profile.NominalUploadMbps = LearnedCongestionProfile.ShapingCeiling(learned.PeakUploadMbps, ConnectionType);
+                profile.CustomDownloadPattern = learned.DownloadPattern();
+                profile.CustomUploadPattern = learned.UploadPattern();
             }
             return profile;
         }
@@ -3907,13 +3900,14 @@
         public (int Min, int Max) GetUploadRange()
         {
             if (NominalUpload <= 0) return (0, 0);
-            var pattern = BuildProfile().GetUploadPatternPublic();
+            var profile = BuildProfile();
+            var pattern = profile.GetUploadPatternPublic();
             double minRate = double.MaxValue, maxRate = double.MinValue;
             for (int day = 0; day < 7; day++)
             {
                 for (int hour = 0; hour < 24; hour++)
                 {
-                    var rate = ConnectionProfile.EffectiveUploadMultiplier(pattern[day, hour], UploadCongestionSeverity) * NominalUpload;
+                    var rate = ConnectionProfile.EffectiveUploadMultiplier(pattern[day, hour], UploadCongestionSeverity) * profile.NominalUploadMbps;
                     if (rate < minRate) minRate = rate;
                     if (rate > maxRate) maxRate = rate;
                 }
@@ -3924,6 +3918,8 @@
         public (int Min, int Max) GetCongestionRange()
         {
             var profile = BuildProfile();
+            if (LearnedInUse != null)
+                return GetLearnedRange(profile);
             var pattern = profile.GetBaselinePatternPublic();
             double absoluteMax = profile.AbsoluteMaxDownloadMbps;
             double safetyCap = profile.SafetyCapPercent;
@@ -3972,6 +3968,27 @@
                 }
             }
 
+            return ((int)minRate, (int)maxRate);
+        }
+
+        // Learned mode: each hour is the ceiling times its multiplier (severity still scales the
+        // dips); only the link clamp applies on top.
+        private (int Min, int Max) GetLearnedRange(ConnectionProfile profile)
+        {
+            var pattern = profile.GetBaselinePatternPublic();
+            double? linkCeiling = EffectiveLinkSpeedMbps is > 0 ? EffectiveLinkSpeedMbps.Value * 0.98 : null;
+            double minRate = double.MaxValue, maxRate = double.MinValue;
+            for (int day = 0; day < 7; day++)
+            {
+                for (int hour = 0; hour < 24; hour++)
+                {
+                    var multiplier = 1.0 - (1.0 - pattern[day, hour]) * CongestionSeverity;
+                    var rate = Math.Max(5, multiplier * profile.NominalDownloadMbps);
+                    if (linkCeiling is { } ceiling && rate > ceiling) rate = ceiling;
+                    if (rate < minRate) minRate = rate;
+                    if (rate > maxRate) maxRate = rate;
+                }
+            }
             return ((int)minRate, (int)maxRate);
         }
 

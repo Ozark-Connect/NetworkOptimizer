@@ -212,23 +212,6 @@ public class CongestionProfileLearnerTests
     }
 
     [Fact]
-    public void ScaledPattern_ReproducesLearnedThroughput_UnderNominal()
-    {
-        var multipliers = Enumerable.Repeat(0.5, LearnedCongestionProfile.Slots).ToArray();
-        multipliers[0] = 1.0;
-
-        // Nominal equals the peak: identity.
-        var same = LearnedCongestionProfile.ScaledPattern(multipliers, 200, 200);
-        same[0, 0].Should().Be(1.0);
-        same[0, 1].Should().Be(0.5);
-
-        // Nominal set lower than the peak: the best hour caps at nominal, the dip keeps its absolute value.
-        var lower = LearnedCongestionProfile.ScaledPattern(multipliers, 200, 150);
-        lower[0, 0].Should().Be(1.0);
-        lower[0, 1].Should().BeApproximately(100.0 / 150.0, 0.0001);
-    }
-
-    [Fact]
     public void HourOfDayAverages_AverageAcrossTheWeek()
     {
         var multipliers = new double[LearnedCongestionProfile.Slots];

@@ -172,6 +172,10 @@ public class SqmLearningExecutor
         if (result == null)
             return Wait("Waiting for another WAN speed test to finish");
 
+        // A run that reports no throughput is a failure (the line is down), never a sample.
+        var success = result.Success && HasThroughput(result.DownloadMbps, result.UploadMbps);
+        var error = !result.Success ? result.ErrorMessage : success ? null : NoThroughputError;
+
         var sample = new SqmLearningSample
         {
             WanNumber = cfg.WanNumber,
@@ -188,16 +192,16 @@ public class SqmLearningExecutor
             IdleSource = idle.Source,
             LiftDownloadMbps = lift?.DownloadProbeMbps,
             LiftUploadMbps = lift?.UploadProbeMbps,
-            Success = result.Success,
-            Error = result.Success ? null : Trim(result.ErrorMessage),
+            Success = success,
+            Error = success ? null : Trim(error),
         };
-        var limitedDown = result.Success && lift != null && IsProbeLimited(result.DownloadMbps, lift.DownloadProbeMbps);
-        var limitedUp = result.Success && lift != null && IsProbeLimited(result.UploadMbps, lift.UploadProbeMbps);
+        var limitedDown = success && lift != null && IsProbeLimited(result.DownloadMbps, lift.DownloadProbeMbps);
+        var limitedUp = success && lift != null && IsProbeLimited(result.UploadMbps, lift.UploadProbeMbps);
         sample.ProbeLimited = limitedDown || limitedUp;
         await _repo.AddSampleAsync(sample, ct);
 
-        if (!result.Success)
-            return await FailAsync(profile, result.ErrorMessage ?? "The gateway speed test reported a failure.", ct);
+        if (!success)
+            return await FailAsync(profile, error ?? "The gateway speed test reported a failure.", ct);
 
         // A direction that hit its lift gets a higher lift next time, up to the link ceiling.
         if (limitedDown)
@@ -220,6 +224,11 @@ public class SqmLearningExecutor
         static ScheduleRunOutcome Wait(string why) =>
             new(true, why, null, NextRunAt: DateTime.UtcNow + BusyRetry, Notify: false, Status: "waiting");
     }
+
+    internal const string NoThroughputError = "The speed test measured no throughput.";
+
+    /// <summary>Both directions moved data; a zero means the line was down, not slow.</summary>
+    internal static bool HasThroughput(double downloadMbps, double uploadMbps) => downloadMbps > 0 && uploadMbps > 0;
 
     /// <summary>Re-learns the profile from every sample of the current run and stores it.</summary>
     public async Task RecomputeAsync(SqmCongestionProfile profile, CancellationToken ct)
