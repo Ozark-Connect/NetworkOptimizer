@@ -1800,14 +1800,16 @@
             @if (status == null || (!status.IsActive && !status.HasProfile && !status.IsCompleted))
             {
                 <p class="learning-text">
-                    Learn this connection's real weekly congestion pattern instead of relying on the @ConnectionProfile.GetConnectionTypeName(model.ConnectionType) default.
-                    One brief gateway speed test per idle hour for 7 days (@SqmLearningTaskConfig.DefaultDurationSeconds s per direction),
-                    about @EstimateSampleMb(model).ToString("F0") MB per sample and up to @EstimateWeekGb(model).ToString("F1") GB over the week at your nominal speeds.
-                    @if (!ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
-                    {
-                        <text> Most useful on cellular, satellite, and fixed wireless: shared, limited-capacity access where the hour-by-hour speed follows how congested the tower, cell, or beam is.</text>
-                    }
+                    Learn this connection's real weekly congestion pattern instead of the @ConnectionProfile.GetConnectionTypeName(model.ConnectionType) default.
+                    One brief gateway speed test each idle hour for 7 days.
                 </p>
+                <p class="learning-text">
+                    Data use: about <strong>@EstimateSampleMb(model).ToString("F0") MB per sample</strong>, up to <strong>@EstimateWeekGb(model).ToString("F0") GB over the week</strong>.
+                </p>
+                @if (!ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
+                {
+                    <p class="learning-text">Most useful on cellular, satellite, and fixed wireless: shared, limited-capacity access where the hour-by-hour speed follows how congested the tower, cell, or beam is.</p>
+                }
                 <div class="learning-actions">
                     <button type="button" class="btn btn-sm btn-primary" @onclick="() => StartLearning(model)"
                             disabled="@(!_canOperate || _learningBusy || string.IsNullOrEmpty(model.Interface) || model.NominalDownload <= 0 || model.NominalUpload <= 0)">
