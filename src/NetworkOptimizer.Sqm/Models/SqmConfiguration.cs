@@ -62,6 +62,15 @@ public class SqmConfiguration
     public double[,]? LearnedUploadPattern { get; set; }
 
     /// <summary>
+    /// Multiplier the speedtest script applies to a measured payload figure before blending it
+    /// with the schedule, so both are shaper rates. 1.0 (the default curve) leaves the script as is.
+    /// </summary>
+    public double MeasuredToShapedFactor { get; set; } = 1.0;
+
+    /// <summary>A learned curve is deployed in place of the connection type's.</summary>
+    public bool LearnedMode => LearnedDownloadPattern != null;
+
+    /// <summary>
     /// WAN interface name (e.g., "eth2", "eth4")
     /// </summary>
     public string Interface { get; set; } = "eth2";
@@ -260,6 +269,33 @@ public class SqmConfiguration
 
         // Apply default speedtest server if not specified
         PreferredSpeedtestServerId ??= profile.PreferredSpeedtestServerId;
+    }
+
+    /// <summary>
+    /// Deploys a learned curve instead of the connection type's. The measured peak, converted with
+    /// the type's shaper factor, is the ceiling the whole envelope derives from, and each hour is
+    /// that ceiling times its learned multiplier. Nominal, the overhead buffer, and the type's
+    /// absolute max no longer apply; severity, the ping loop, the floor, and the link clamp do not
+    /// change. Call after <see cref="ApplyProfileSettings"/>.
+    /// </summary>
+    public void ApplyLearnedProfile(LearnedCongestionProfile learned)
+    {
+        var ceiling = LearnedCongestionProfile.ShapingCeiling(learned.PeakDownloadMbps, ConnectionType);
+        var sized = new ConnectionProfile { Type = ConnectionType, NominalDownloadMbps = ceiling };
+        var dynamicUpload = DynamicUpload;
+
+        NominalDownloadSpeed = ceiling;
+        MaxDownloadSpeed = ceiling;
+        AbsoluteMaxDownloadSpeed = ceiling;
+        MinDownloadSpeed = sized.MinDownloadMbps;
+        OverheadMultiplier = 1.0;
+        SafetyCapPercent = 1.0;
+        MeasuredToShapedFactor = LearnedCongestionProfile.ShaperFactor(ConnectionType);
+        LearnedDownloadPattern = learned.DownloadPattern();
+        LearnedUploadPattern = learned.UploadPattern();
+
+        if (dynamicUpload)
+            NominalUploadSpeed = LearnedCongestionProfile.ShapingCeiling(learned.PeakUploadMbps, ConnectionType);
     }
 
     /// <summary>

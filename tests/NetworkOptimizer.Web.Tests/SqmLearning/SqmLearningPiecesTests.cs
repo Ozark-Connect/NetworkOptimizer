@@ -220,6 +220,16 @@ public class SqmLearningExecutorLiftTests
         lift.UploadProbeMbps.Should().Be(3);
     }
 
+    [Theory]
+    [InlineData(258, 28, true)]
+    [InlineData(0, 0, false)]     // line down: the test "succeeds" with nothing moved
+    [InlineData(258, 0, false)]
+    [InlineData(0, 28, false)]
+    public void HasThroughput_RejectsAZeroInEitherDirection(double down, double up, bool expected)
+    {
+        SqmLearningExecutor.HasThroughput(down, up).Should().Be(expected);
+    }
+
     [Fact]
     public void ProbeLimited_IsWithinFivePercentOfTheLift()
     {

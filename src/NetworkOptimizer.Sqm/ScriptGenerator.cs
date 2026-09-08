@@ -257,6 +257,8 @@ public class ScriptGenerator
             sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
+        if (_config.MeasuredToShapedFactor != 1.0)
+            sb.AppendLine($"MEASURED_TO_SHAPED=\"{Inv(_config.MeasuredToShapedFactor)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
         // headroom below physical line rate so HTB can shape without buffering at the NIC.
@@ -332,6 +334,12 @@ public class ScriptGenerator
         sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] Measured: $download_speed_mbps Mbps\" >> $LOG_FILE");
         sb.AppendLine();
+        if (_config.MeasuredToShapedFactor != 1.0)
+        {
+            sb.AppendLine("# Learned profile: the schedule is in shaper rates, so convert the payload figure first");
+            sb.AppendLine("download_speed_mbps=$(echo \"scale=0; $download_speed_mbps * $MEASURED_TO_SHAPED / 1\" | bc)");
+            sb.AppendLine();
+        }
 
         // Apply floor
         sb.AppendLine("# Apply minimum floor");
