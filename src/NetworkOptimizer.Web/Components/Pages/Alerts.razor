@@ -107,7 +107,8 @@
                         var learnCfg = ParseTargetConfig(task.TargetConfig);
                         var endsAt = GetLearningEndsAt(learnCfg);
                         var ended = endsAt.HasValue && endsAt.Value <= DateTime.UtcNow;
-                        var learnWanName = GetConfigValue(learnCfg, "wanName");
+                        // The WAN group suffix ("(WAN4)") is dropped from the detail, as on the speed test cards.
+                        var learnWanName = System.Text.RegularExpressions.Regex.Replace(GetConfigValue(learnCfg, "wanName") ?? "", @"\s*\(WAN\d*\)\s*$", "");
                         <div class="schedule-card">
                             <div class="schedule-card-header">
                                 <div class="schedule-card-title">
