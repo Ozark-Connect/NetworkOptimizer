@@ -1806,9 +1806,13 @@
                 <p class="learning-text">
                     Data use: about <strong>@EstimateSampleMb(model).ToString("F0") MB per sample</strong>, up to <strong>@EstimateWeekGb(model).ToString("F0") GB over the week</strong>.
                 </p>
-                @if (!ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
+                @if (ConnectionProfile.SupportsDynamicUpload(model.ConnectionType))
                 {
-                    <p class="learning-text">Most useful on cellular, satellite, and fixed wireless: shared, limited-capacity access where the hour-by-hour speed follows how congested the tower, cell, or beam is.</p>
+                    <p class="learning-text">Especially useful here. These are shared, limited-capacity links where the hour-by-hour speed follows how busy the tower, cell, or beam is.</p>
+                }
+                else
+                {
+                    <p class="learning-text">Useful here if speeds sag at prime time. Cable nodes and PON splits are shared with the neighborhood, and the learned curve follows what your line actually delivers hour by hour instead of a generic one.</p>
                 }
                 <div class="learning-actions">
                     <button type="button" class="btn btn-sm btn-primary" @onclick="() => StartLearning(model)"
