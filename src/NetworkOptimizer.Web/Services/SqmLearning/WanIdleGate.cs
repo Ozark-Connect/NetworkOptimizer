@@ -13,8 +13,19 @@ namespace NetworkOptimizer.Web.Services.SqmLearning;
 /// </summary>
 public class WanIdleGate
 {
-    /// <summary>Below this, in both directions, the link counts as idle.</summary>
+    /// <summary>Floor of the idle bar: no link is asked to be quieter than this.</summary>
     public const double IdleThresholdMbps = 1.0;
+
+    /// <summary>
+    /// The idle bar scales with the line: 1 Mbps for slow lines, 1.5% of nominal once that is
+    /// larger (from 67 Mbps up), so a gigabit line that always carries a little background traffic
+    /// can still be sampled, with under 1.5% of error from it.
+    /// </summary>
+    public const double IdleFractionOfNominal = 0.015;
+
+    /// <summary>Idle bar for a direction of the given nominal speed.</summary>
+    public static double IdleThresholdFor(int nominalMbps) =>
+        Math.Max(IdleThresholdMbps, nominalMbps * IdleFractionOfNominal);
 
     /// <summary>How far back a reading may be and still describe "now"; matches the live tiles' 90 s.</summary>
     public static readonly TimeSpan MaxReadingAge = TimeSpan.FromSeconds(90);
@@ -50,7 +61,9 @@ public class WanIdleGate
     /// <summary>A traffic reading for the WAN and where it came from.</summary>
     public sealed record IdleReading(double DownloadMbps, double UploadMbps, string Source)
     {
-        public bool IsIdle => DownloadMbps <= IdleThresholdMbps && UploadMbps <= IdleThresholdMbps;
+        /// <summary>Quiet enough to sample a line with these nominal speeds.</summary>
+        public bool IsIdleFor(int nominalDownloadMbps, int nominalUploadMbps) =>
+            DownloadMbps <= IdleThresholdFor(nominalDownloadMbps) && UploadMbps <= IdleThresholdFor(nominalUploadMbps);
     }
 
     /// <summary>

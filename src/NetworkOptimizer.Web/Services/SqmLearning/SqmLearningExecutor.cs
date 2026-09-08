@@ -135,11 +135,15 @@ public class SqmLearningExecutor
         var idle = monitored ?? new WanIdleGate.IdleReading(gateway.DownloadMbps, gateway.UploadMbps, "gateway");
 
         if (gateway.SqmSpeedtestRunning)
-            return Wait($"Waiting: the Adaptive SQM speed test is running on {profile.Name}");
+            return Wait("Waiting for the Adaptive SQM speed test to finish");
         if (saved != null && ScheduledProbeImminent(gateway.Hour, gateway.Minute, saved, ScheduledProbeClearanceMinutes))
-            return Wait($"Waiting: an Adaptive SQM speed test is due within {ScheduledProbeClearanceMinutes} minutes");
-        if (!idle.IsIdle)
-            return Wait($"Waiting for an idle stretch: {profile.Name} at {FormatMbps(idle.DownloadMbps)} down / {FormatMbps(idle.UploadMbps)} up");
+            return Wait("Waiting for the scheduled Adaptive SQM speed test to pass");
+        if (!idle.IsIdleFor(wanConfig.NominalDownloadMbps, wanConfig.NominalUploadMbps))
+        {
+            _logger.LogDebug("Learning sample deferred on {Iface}: {Down} down / {Up} up ({Source})",
+                iface, FormatMbps(idle.DownloadMbps), FormatMbps(idle.UploadMbps), idle.Source);
+            return Wait("Waiting for a quiet moment on the WAN");
+        }
 
         // The lift starts from the configuration and rises after any sample that ran into it, so a
         // conservative nominal cannot cap what learning sees.
@@ -166,7 +170,7 @@ public class SqmLearningExecutor
         }
 
         if (result == null)
-            return Wait($"Waiting: another WAN speed test is running");
+            return Wait("Waiting for another WAN speed test to finish");
 
         var sample = new SqmLearningSample
         {
@@ -212,8 +216,9 @@ public class SqmLearningExecutor
         _logger.LogInformation("Adaptive SQM learning sample for WAN {Wan} ({Iface}): {Summary}", cfg.WanNumber, iface, summary);
         return new ScheduleRunOutcome(true, summary, null, Notify: false);
 
+        // A deferral is recorded as "waiting", never "success": the row must not read as a result.
         static ScheduleRunOutcome Wait(string why) =>
-            new(true, why, null, NextRunAt: DateTime.UtcNow + BusyRetry, Notify: false);
+            new(true, why, null, NextRunAt: DateTime.UtcNow + BusyRetry, Notify: false, Status: "waiting");
     }
 
     /// <summary>Re-learns the profile from every sample of the current run and stores it.</summary>

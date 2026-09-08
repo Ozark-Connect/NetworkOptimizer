@@ -254,7 +254,7 @@ public class ScheduleService : BackgroundService
             }
             var (success, summary, error) = (outcome.Success, outcome.Summary, outcome.Error);
 
-            var status = success ? "success" : "failed";
+            var status = outcome.Status ?? (success ? "success" : "failed");
             var nextRun = outcome.NextRunAt ?? CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
 
             // DB update - failure here shouldn't change the task's reported status
@@ -450,11 +450,13 @@ public class ScheduleService : BackgroundService
 /// <summary>
 /// What a schedule executor reports back. <paramref name="NextRunAt"/> overrides the task's
 /// regular cadence for one cycle (null keeps it); <paramref name="Notify"/> false records the run
-/// on the task without raising the completed/failed alert.
+/// on the task without raising the completed/failed alert; <paramref name="Status"/> replaces the
+/// recorded "success"/"failed" (a deferred check is neither, and must not read as a result).
 /// </summary>
 public sealed record ScheduleRunOutcome(
     bool Success,
     string? Summary,
     string? Error,
     DateTime? NextRunAt = null,
-    bool Notify = true);
+    bool Notify = true,
+    string? Status = null);

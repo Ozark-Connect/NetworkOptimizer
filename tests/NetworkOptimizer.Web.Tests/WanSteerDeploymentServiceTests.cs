@@ -138,21 +138,21 @@ public class WanSteerDeploymentServiceTests
                 "32505:	from all fwmark 0x21960000/0x3ffe0000 lookup 202.eth0",
                 "32506:	from all iif eth1 goto 32508",
                 "32507:	from all fwmark 0x216e0000/0x3ffe0000 lookup 182.eth1",
-                "32508:	from all iif eth6.228 goto 32510",
-                "32509:	from all fwmark 0x21940000/0x3ffe0000 lookup 201.eth6.228",
+                "32508:	from all iif eth6.100 goto 32510",
+                "32509:	from all fwmark 0x21940000/0x3ffe0000 lookup 201.eth6.100",
                 "32510:	from all iif gre1 goto 32512",
                 "32511:	from all fwmark 0x216a0000/0x3ffe0000 lookup 180.gre1",
                 "32520:	from 192.0.2.10 lookup 202.eth0",
-                "32766:	from all lookup 201.eth6.228",
+                "32766:	from all lookup 201.eth6.100",
                 "32767:	from all lookup default");
 
             var result = WanSteerDeploymentService.ParseIpRules(output);
 
-            result.Should().ContainKeys("eth0", "eth1", "eth6.228", "gre1");
+            result.Should().ContainKeys("eth0", "eth1", "eth6.100", "gre1");
             result["eth1"].FWMark.Should().Be("0x216e0000");
             result["eth1"].FWMask.Should().Be("0x3ffe0000");
             result["eth1"].RouteTable.Should().Be("182.eth1");
-            result["eth6.228"].FWMark.Should().Be("0x21940000");
+            result["eth6.100"].FWMark.Should().Be("0x21940000");
         }
     }
 

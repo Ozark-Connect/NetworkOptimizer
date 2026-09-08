@@ -1796,7 +1796,7 @@
             var status = model.LearningStatus;
             var learned = status?.Profile;
         }
-            <h4>Congestion Profile Learning <span class="tooltip-icon tooltip-icon-sm" data-tooltip="A one-time, hourly schedule for 7 days. Each hour, once the WAN has been idle (under 1 Mbps each way), the gateway runs a brief speed test on this interface with Adaptive SQM lifted out of the way, so the result is the line, not the current shaping rate. Errant samples are discarded and the curve is smoothed across neighboring hours and days. It also appears on Alerts & Schedule - Schedule.">?</span></h4>
+            <h4>Congestion Profile Learning <span class="tooltip-icon tooltip-icon-sm" data-tooltip="A week of brief hourly speed tests, taken only while the WAN is quiet, builds this connection's own congestion curve.">?</span></h4>
             @if (status == null || (!status.IsActive && !status.HasProfile && !status.IsCompleted))
             {
                 <p class="learning-text">

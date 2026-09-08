@@ -95,6 +95,29 @@ public class GatewayInterfaceRateProbeTests
     }
 }
 
+public class WanIdleGateThresholdTests
+{
+    [Theory]
+    [InlineData(28, 1.0)]      // slow lines keep the 1 Mbps floor
+    [InlineData(66, 1.0)]
+    [InlineData(280, 4.2)]
+    [InlineData(1000, 15.0)]
+    [InlineData(1043, 15.645)]
+    public void IdleBar_IsOneMbps_ThenOnePointFivePercent(int nominal, double expected)
+    {
+        WanIdleGate.IdleThresholdFor(nominal).Should().BeApproximately(expected, 0.01);
+    }
+
+    [Fact]
+    public void BackgroundTrafficOnAGigabitLine_IsStillIdle()
+    {
+        var reading = new WanIdleGate.IdleReading(9.4, 14.0, "snmp");
+
+        reading.IsIdleFor(1043, 990).Should().BeTrue();
+        reading.IsIdleFor(280, 28).Should().BeFalse();
+    }
+}
+
 public class SqmLearningTaskConfigTests
 {
     [Fact]
