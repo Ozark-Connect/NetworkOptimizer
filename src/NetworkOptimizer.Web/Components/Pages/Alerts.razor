@@ -107,6 +107,7 @@
                         var learnCfg = ParseTargetConfig(task.TargetConfig);
                         var endsAt = GetLearningEndsAt(learnCfg);
                         var ended = endsAt.HasValue && endsAt.Value <= DateTime.UtcNow;
+                        var learnWanName = GetConfigValue(learnCfg, "wanName");
                         <div class="schedule-card">
                             <div class="schedule-card-header">
                                 <div class="schedule-card-title">
@@ -117,7 +118,11 @@
                                         <span class="toggle-slider"></span>
                                     </label>
                                     }
-                                    <span>@task.Name</span>
+                                    <span>Adaptive SQM Learning</span>
+                                    @if (!string.IsNullOrEmpty(learnWanName))
+                                    {
+                                        <span class="schedule-name-detail">@learnWanName</span>
+                                    }
                                 </div>
                                 <div class="schedule-card-actions">
                                     @if (_canOperate && task.Enabled && !ended)
@@ -145,10 +150,6 @@
                             </div>
                             <div class="schedule-card-body">
                                 <div class="schedule-detail-row">
-                                    @if (GetConfigValue(learnCfg, "wanName") is string learnWan && !string.IsNullOrEmpty(learnWan))
-                                    {
-                                        <span class="schedule-detail-tag">@learnWan</span>
-                                    }
                                     @if (!string.IsNullOrEmpty(task.TargetId))
                                     {
                                         <span class="schedule-detail-tag tag-muted">@task.TargetId</span>
