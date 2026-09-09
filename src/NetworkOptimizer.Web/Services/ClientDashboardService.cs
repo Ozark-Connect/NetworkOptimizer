@@ -1584,6 +1584,8 @@ public class ClientDashboardService
             : TimeSpan.FromDays(1);
         var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
         if (string.IsNullOrEmpty(client.Mac)) return usage;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        long dpiMs = 0, measuredMs = 0;
 
         try
         {
@@ -1600,6 +1602,7 @@ public class ClientDashboardService
         {
             _logger.LogDebug(ex, "WAN usage unavailable for {Mac}", client.Mac);
         }
+        dpiMs = sw.ElapsedMilliseconds;
 
         // Where the gateway agent's conntrack feed covers, the measured client_wan series
         // replaces the DPI report's bucket - picked per bucket, never blended, and pre-agent
@@ -1621,6 +1624,7 @@ public class ClientDashboardService
         {
             _logger.LogDebug(ex, "Measured WAN usage unavailable for {Mac}", client.Mac);
         }
+        measuredMs = sw.ElapsedMilliseconds - dpiMs;
 
         try
         {
@@ -1655,6 +1659,8 @@ public class ClientDashboardService
         {
             _logger.LogDebug(ex, "LAN usage unavailable for {Mac}", client.Mac);
         }
+        _logger.LogDebug("Data usage for {Mac} over {Hours} h: DPI rate {Dpi} ms, measured WAN {Measured} ms, LAN {Lan} ms",
+            client.Mac, (int)span.TotalHours, dpiMs, measuredMs, sw.ElapsedMilliseconds - dpiMs - measuredMs);
 
         return usage;
     }
@@ -1814,7 +1820,9 @@ public class ClientDashboardService
         if (string.IsNullOrEmpty(client.Mac)) return Array.Empty<AppUsageRow>();
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var traffic = await GetSiteTrafficAsync(from, to);
+            _logger.LogDebug("App usage for {Mac} over {Hours} h: site DPI report {Ms} ms", client.Mac, (int)(to - from).TotalHours, sw.ElapsedMilliseconds);
             var mine = traffic?.ClientUsageByApp.FirstOrDefault(c => string.Equals(c.Client?.Mac, client.Mac, StringComparison.OrdinalIgnoreCase));
             if (mine == null) return Array.Empty<AppUsageRow>();
             return BuildAppRows(mine.UsageByApp);
