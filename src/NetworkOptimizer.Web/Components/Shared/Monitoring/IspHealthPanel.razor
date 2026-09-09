@@ -1862,6 +1862,8 @@ else
             }
             return;
         }
+        // TODO: the shared half-second scan in App.razor now refreshes every icon tooltip whose
+        // data-tooltip changed, so this per-panel refresh is redundant.
         // Absolved-jitter tooltip-icons cache their content when Tippy first builds them; on a window
         // recompute Blazor swaps only their data-tooltip attribute (no node re-add, so the global
         // observer never re-fires) and the value goes stale. When the report changes, push the current
