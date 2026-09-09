@@ -1127,6 +1127,7 @@
                                 </ApexChart>
                             </div>
                         </div>
+                        }
                         @if (_appUsage.Count > 0 || _appLoading)
                         {
                             <div class="card results-card">
@@ -1188,7 +1189,6 @@
                                 }
                                 }
                             </div>
-                        }
                         }
                     }
                 </div>
@@ -2542,6 +2542,8 @@
         // Fetch everything first and publish in one go: a render between the totals landing and
         // the series being built created the chart empty, and the tab-switch path never updates a
         // chart after creating it.
+        // Started first so the Applications report loads alongside the totals, not after them.
+        _ = LoadAppUsageAsync(from, to);
         var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
@@ -2551,10 +2553,6 @@
         _lanUpData = Series(usage.Lan, r => r.UploadBytes, "upload");
         _dataUsage = usage;
         _dataLoadedAt = DateTime.UtcNow;
-        // The Applications report is the console's site-wide DPI for the window, and on a long
-        // window it can take longer than everything above. It loads on its own so the chart
-        // shows as soon as it is ready and the table gets its own spinner.
-        _ = LoadAppUsageAsync(from, to);
         // A day bar is a date; a time on it only says which midnight the day began at.
         _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
         // Keep the user's pick unless that side has nothing to plot.
