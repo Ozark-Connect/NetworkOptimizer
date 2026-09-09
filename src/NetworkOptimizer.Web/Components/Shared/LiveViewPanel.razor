@@ -333,7 +333,10 @@ else
                     // WAN rates and gateway CPU/Mem/Temp/RTT until a manual nav away and back.
                     // Re-load once the connection lands to resolve the gateway (and flip _ready so
                     // the map mounts); the map's own polling re-fetches its topology from there.
-                    if (ConnectionService.IsConnected && (!_ready || _gatewayMac == null))
+                    // Also while the WAN scope is unsettled: a console outage leaves it on context
+                    // fallback (secondaries only, no primary), and the cached device list resolves
+                    // the gateway without ever re-asking for the WANs. Same gate as Live View's.
+                    if (ConnectionService.IsConnected && (!_ready || _gatewayMac == null || !LiveWan.Loaded))
                         await LoadDataAsync();
                     StateHasChanged();
                 });
