@@ -2101,6 +2101,9 @@
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static DateTime _lastStatusCheck = DateTime.MinValue;
+    // The status alert holds a connection error rather than a deploy result, so a refresh that
+    // connects may clear it; a deploy result is left for the user to read.
+    private bool _statusFromConnection;
     // Site the cache was populated for. The cache is static (shared across circuits),
     // but a site switch is a full reload into the same static state - without this the
     // new site would show the previous site's deployment status until the next refresh.
@@ -3003,6 +3006,13 @@
 
             if (gatewayConnected)
             {
+                // A connection error from an earlier refresh is over; only a deploy result stays up.
+                if (_statusFromConnection)
+                {
+                    statusMessage = null;
+                    _statusFromConnection = false;
+                }
+
                 // Start deployment status and WAN interface detection in parallel
                 var deploymentTask = DeploymentService.CheckDeploymentStatusAsync();
                 var wanInterfacesTask = SqmService.GetWanInterfacesFromControllerAsync();
@@ -3069,8 +3079,18 @@
                 tcInterfaces = null;
                 _cachedTcInterfaces = null;
                 _lastStatusCheck = DateTime.UtcNow;
-                statusMessage = connectionResult.message;
-                statusSuccess = false;
+                // The waiting note above already says it; a red error on top would say it twice.
+                if (awaitingAgent)
+                {
+                    if (_statusFromConnection) statusMessage = null;
+                    _statusFromConnection = false;
+                }
+                else
+                {
+                    statusMessage = connectionResult.message;
+                    statusSuccess = false;
+                    _statusFromConnection = true;
+                }
             }
         }
         catch (Exception ex)
@@ -3086,6 +3106,7 @@
             _lastStatusCheck = DateTime.UtcNow;
             statusMessage = $"Error: {ex.Message}";
             statusSuccess = false;
+            _statusFromConnection = true;
         }
         finally
         {
