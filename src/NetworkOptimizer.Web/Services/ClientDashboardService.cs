@@ -1613,10 +1613,18 @@ public class ClientDashboardService
             await using var scope = _scopeFactory.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
-            var coverage = await influx.QueryClientWanCoverageHoursAsync(from, to);
+            // Hour buckets read the conntrack rollup as far as it has reached and raw windows
+            // from there to now, coverage and bytes alike. The raw stretch is not capped: an hour
+            // the rollup has not written yet still reads as covered from the raw heartbeat, and
+            // only the raw windows keep it from showing as measured-idle zero. A 5-minute chart
+            // cannot be served by hours and reads raw over its whole (short) window.
+            DateTime? rawFrom = null;
+            if (bucket >= TimeSpan.FromHours(1) && await influx.QueryLastClientWanRollupHourAsync() is { } lastRolled)
+                rawFrom = lastRolled.AddHours(1);
+            var coverage = await influx.QueryClientWanCoverageHoursAsync(from, to, rawFrom);
             if (coverage.Count > 0)
             {
-                var measured = await MeasuredWanUsageAsync(influx, client.Mac, from, to, bucket);
+                var measured = await MeasuredWanUsageAsync(influx, client.Mac, from, to, bucket, rawFrom);
                 usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to);
             }
         }
@@ -1666,27 +1674,19 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// The client's measured WAN bytes: the hourly conntrack rollup as far as it has reached, raw
-    /// windows from there to now. The raw stretch is not capped: an hour the rollup has not
-    /// written yet still reads as covered from the raw heartbeat, and only the raw windows keep it
-    /// from showing as measured-idle zero. A 5-minute chart cannot be served by hours and reads
-    /// raw over its whole (short) window.
+    /// The client's measured WAN bytes: rolled hours before <paramref name="rawFrom"/>, raw
+    /// windows from there to now; all raw when there is no rolled edge to split on.
     /// </summary>
     private static async Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint>> MeasuredWanUsageAsync(
-        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, string mac, DateTime from, DateTime to, TimeSpan bucket)
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, string mac, DateTime from, DateTime to, TimeSpan bucket, DateTime? rawFrom)
     {
-        if (bucket < TimeSpan.FromHours(1))
-            return await influx.QueryClientWanUsageAsync(mac, from, to, bucket);
+        if (bucket < TimeSpan.FromHours(1) || rawFrom is not { } split || split <= from)
+            return await influx.QueryClientWanUsageAsync(mac, from, to, bucket < TimeSpan.FromHours(1) ? bucket : TimeSpan.FromHours(1));
 
         // Hours, whatever the chart bucket: Flux truncates days to UTC, the interleave sums local ones.
-        var lastRolled = await influx.QueryLastClientWanRollupHourAsync();
-        var rawFrom = lastRolled.HasValue ? lastRolled.Value.AddHours(1) : from;
-        if (rawFrom < from) rawFrom = from;
-        var rolled = rawFrom > from
-            ? await influx.QueryClientWanUsageRollupAsync(mac, from, rawFrom)
-            : Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint>();
-        if (rawFrom >= to) return rolled;
-        var raw = await influx.QueryClientWanUsageAsync(mac, rawFrom, to, TimeSpan.FromHours(1));
+        var rolled = await influx.QueryClientWanUsageRollupAsync(mac, from, split);
+        if (split >= to) return rolled;
+        var raw = await influx.QueryClientWanUsageAsync(mac, split, to, TimeSpan.FromHours(1));
         return rolled.Concat(raw).ToList();
     }
 
