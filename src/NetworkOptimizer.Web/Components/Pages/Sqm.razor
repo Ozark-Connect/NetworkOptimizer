@@ -561,7 +561,7 @@
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
                     <input type="number" class="form-control" @bind="wan1Config.NominalUpload" min="1" max="10000" />
-                    <small class="form-hint">Advertised/paid-for upload speed</small>
+                    <small class="form-hint">@NominalUploadHint(wan1Config)</small>
                 </div>
             </div>
 
@@ -745,6 +745,10 @@
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
                     <input type="number" class="form-control" @bind="wan2Config.NominalUpload" min="1" max="10000" />
+                    @if (LearnedShapesUpload(wan2Config))
+                    {
+                        <small class="form-hint">@NominalUploadHint(wan2Config)</small>
+                    }
                 </div>
             </div>
 
@@ -2712,6 +2716,16 @@
     private static string NominalDownloadHint(WanConfigModel config) => config.LearnedInUse != null
         ? "Shaping follows the learned profile, but learning still uses this as a rough plan speed."
         : "Advertised/paid-for download speed";
+
+    /// <summary>A learned profile shapes upload only where Upload Strength is on; otherwise nominal upload is the rate.</summary>
+    private static bool LearnedShapesUpload(WanConfigModel config) =>
+        config.LearnedInUse != null
+        && ConnectionProfile.SupportsDynamicUpload(config.ConnectionType)
+        && config.UploadCongestionSeverity > 0;
+
+    private static string NominalUploadHint(WanConfigModel config) => LearnedShapesUpload(config)
+        ? "Upload shaping follows the learned profile, but learning still uses this as a rough plan speed."
+        : "Advertised/paid-for upload speed";
 
     private static string SpeedMarginTooltip(WanConfigModel config) => config.LearnedInUse != null
         ? "How far the shaper sits above what your line measured. Set by the learned curve for your connection type."
