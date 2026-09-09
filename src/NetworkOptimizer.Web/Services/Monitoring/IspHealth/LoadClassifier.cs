@@ -84,7 +84,7 @@ public static class LoadClassifier
         DemoteIsolated(result, options);
         if (excluded > 0)
             logger?.LogDebug(
-                "ISP Health: excluded {Count} window(s) overlapping SQM probe schedule, {Loaded} of which would have classified as loaded",
+                "ISP Health: excluded {Count} window(s) overlapping SQM probe and learning sample windows, {Loaded} of which would have classified as loaded",
                 excluded, excludedLoaded);
 
         // What the classifier actually saw. Guarded, and built from values gathered in the pass above:
