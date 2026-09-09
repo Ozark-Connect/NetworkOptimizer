@@ -10429,18 +10429,21 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Sortable column headers */
-.data-table th.sortable {
+.data-table th.sortable,
+.results-table th.sortable {
     cursor: pointer;
     user-select: none;
     position: relative;
     padding-right: 1.5rem;
 }
 
-.data-table th.sortable:hover {
+.data-table th.sortable:hover,
+.results-table th.sortable:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
-.data-table th.sortable::after {
+.data-table th.sortable::after,
+.results-table th.sortable::after {
     content: '↕';
     position: absolute;
     right: 0.5rem;
@@ -10448,12 +10451,14 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.75rem;
 }
 
-.data-table th.sortable.sort-asc::after {
+.data-table th.sortable.sort-asc::after,
+.results-table th.sortable.sort-asc::after {
     content: '↑';
     opacity: 1;
 }
 
-.data-table th.sortable.sort-desc::after {
+.data-table th.sortable.sort-desc::after,
+.results-table th.sortable.sort-desc::after {
     content: '↓';
     opacity: 1;
 }
