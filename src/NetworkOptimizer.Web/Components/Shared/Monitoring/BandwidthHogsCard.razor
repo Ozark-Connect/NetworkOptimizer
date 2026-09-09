@@ -642,10 +642,10 @@
         (SortColumn.Download, Mode.Throughput, _) => row.DownBps,
         (SortColumn.Download, Mode.Data, View.Wan) => row.WanDownBytes,
         (SortColumn.Download, _, _) => row.DownBytes,
-        (SortColumn.Upload, Mode.Throughput, View.Wan) => row.WanUpBps,
-        (SortColumn.Upload, Mode.Throughput, _) => row.UpBps,
-        (SortColumn.Upload, Mode.Data, View.Wan) => row.WanUpBytes,
-        (SortColumn.Upload, _, _) => row.UpBytes,
+        (_, Mode.Throughput, View.Wan) => row.WanUpBps,
+        (_, Mode.Throughput, _) => row.UpBps,
+        (_, Mode.Data, View.Wan) => row.WanUpBytes,
+        _ => row.UpBytes,
     };
 
     private List<(HogRow Row, bool Fading)> Sorted(List<(HogRow Row, bool Fading)> rows)
