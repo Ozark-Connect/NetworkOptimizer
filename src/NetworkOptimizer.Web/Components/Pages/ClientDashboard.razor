@@ -458,7 +458,8 @@
 
         @* Tab Content *@
         <div class="tab-content">
-            @if (_tabLoading)
+            @* The Data tab spins inside its two totals cards instead. *@
+            @if (_tabLoading && _activeTab != "data")
             {
                 <div class="tab-loading">
                     <span class="spinner"></span>
@@ -1042,7 +1043,7 @@
             {
                 @* ===== DATA TAB ===== *@
                 <div class="tab-pane" data-tour="client-data">
-                    @if (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0))
+                    @if (!_tabLoading && (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0)))
                     {
                         <div class="empty-state">
                             <p>No usage recorded for this time range.</p>
@@ -1053,6 +1054,12 @@
                         <div class="usage-grid">
                             <div class="card results-card usage-card @(_usageView == "wan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">
                                 <h3>WAN</h3>
+                                @if (_tabLoading || _dataUsage == null)
+                                {
+                                    <div class="loading-container"><div class="spinner"></div></div>
+                                }
+                                else
+                                {
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
                                         <span class="speed-label">Download</span>
@@ -1066,9 +1073,16 @@
                                 <div class="speed-hero-meta">
                                     <span>WAN traffic totals, per UniFi Network</span>
                                 </div>
+                                }
                             </div>
                             <div class="card results-card usage-card @(_usageView == "lan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("lan"))">
                                 <h3>LAN + WAN</h3>
+                                @if (_tabLoading || _dataUsage == null)
+                                {
+                                    <div class="loading-container"><div class="spinner"></div></div>
+                                }
+                                else
+                                {
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
                                         <span class="speed-label">Download</span>
@@ -1083,12 +1097,17 @@
                                     <span>@(_dataUsage.LanIsPortTotal ? "Everything through its switch port" : "Everything through the Wi-Fi network")</span>
                                     <span>Local ≈ <span class="speed-down">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanDownloadBytes - _dataUsage.WanDownloadBytes))</span> / <span class="speed-up">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanUploadBytes - _dataUsage.WanUploadBytes))</span></span>
                                 </div>
+                                }
                             </div>
                         </div>
                         @if (_selectedTimeFilter == 0)
                         {
                             <p class="form-hint">Usage covers the last 30 days.</p>
                         }
+                        @* Not until the first load: a chart created empty during it is never given
+                           its series (the tab-switch path relies on the render creating it filled). *@
+                        @if (_dataUsage != null)
+                        {
                         <div class="card chart-card">
                             <div class="usage-chart-header">
                                 <h3>Usage</h3>
@@ -1169,6 +1188,7 @@
                                 }
                                 }
                             </div>
+                        }
                         }
                     }
                 </div>
