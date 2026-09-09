@@ -16221,10 +16221,6 @@ th[data-sort-col]:hover {
     color: var(--text-primary);
 }
 
-th.stats-sort-active {
-    color: var(--primary-color);
-}
-
 tr.stats-row-filtered {
     opacity: 0.35;
 }
