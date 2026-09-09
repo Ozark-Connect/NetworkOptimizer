@@ -61,10 +61,10 @@ export function renderStatsTable(el, container, opts) {
         if (col.sortable === false) {
             return `<th${col.cls ? ` class="${col.cls}"` : ''}>${col.header}</th>`;
         }
+        // The app-wide sortable header look: the data-table style draws the arrow.
         const active = i === sortCol;
-        const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
-        const classes = [active ? 'stats-sort-active' : '', col.cls || ''].filter(Boolean).join(' ');
-        return `<th data-sort-col="${i}"${classes ? ` class="${classes}"` : ''}>${col.header}${arrow}</th>`;
+        const classes = ['sortable', active ? `sort-${sortDir}` : '', col.cls || ''].filter(Boolean).join(' ');
+        return `<th data-sort-col="${i}" class="${classes}">${col.header}</th>`;
     }).join('');
 
     // The clear sits in the name column's header, at its right edge. Only while something is
