@@ -595,7 +595,7 @@
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="@SpeedMarginTooltip(wan1Config)">?</span></span>
                         <span class="param-value">@SpeedMarginText(wan1Config)</span>
                     </div>
                 </div>
@@ -774,7 +774,7 @@
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="@SpeedMarginTooltip(wan2Config)">?</span></span>
                         <span class="param-value">@SpeedMarginText(wan2Config)</span>
                     </div>
                 </div>
@@ -2705,6 +2705,10 @@
     /// Speed Margin as shown: the connection type's overhead, or with a learned curve in use the
     /// learner's own shaper factor, since the overhead field is 1.0 then and read as "no margin".
     /// </summary>
+    private static string SpeedMarginTooltip(WanConfigModel config) => config.LearnedInUse != null
+        ? "How far the shaper sits above what your line measured. Set by the learned curve for your connection type."
+        : "How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.";
+
     private static string SpeedMarginText(WanConfigModel config)
     {
         var multiplier = config.LearnedInUse != null
