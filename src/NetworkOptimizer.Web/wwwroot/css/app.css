@@ -10442,25 +10442,34 @@ a.path-hop.hop-clickable:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
+/* The glyph is an SVG chevron drawn through a mask, so it takes the color it is given:
+   muted at rest, the app blue on the active column. */
 .data-table th.sortable::after,
 .results-table th.sortable::after {
-    content: '↕';
+    content: '';
     position: absolute;
     right: 0.5rem;
-    opacity: 0.3;
-    font-size: 0.75rem;
+    top: 50%;
+    width: 10px;
+    height: 12px;
+    transform: translateY(-50%);
+    background-color: var(--text-muted);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 4.5 5 1.5 8 4.5M2 7.5 5 10.5 8 7.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 4.5 5 1.5 8 4.5M2 7.5 5 10.5 8 7.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .data-table th.sortable.sort-asc::after,
 .results-table th.sortable.sort-asc::after {
-    content: '↑';
-    opacity: 1;
+    background-color: var(--primary-color);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 7.5 5 4.5 8 7.5' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 7.5 5 4.5 8 7.5' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .data-table th.sortable.sort-desc::after,
 .results-table th.sortable.sort-desc::after {
-    content: '↓';
-    opacity: 1;
+    background-color: var(--primary-color);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 4.5 5 7.5 8 4.5' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 4.5 5 7.5 8 4.5' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* Client selector combo (View All + filterable select) */
