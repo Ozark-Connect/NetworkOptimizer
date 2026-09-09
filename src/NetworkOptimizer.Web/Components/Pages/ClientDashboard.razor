@@ -820,11 +820,11 @@
                                 <table class="results-table">
                                     <thead>
                                         <tr>
-                                            <th class="sortable @(_signalSortCol == "time" ? "sorted" : "")" @onclick='() => ToggleSignalSort("time")'>Time @SortIndicator("time")</th>
-                                            <th class="sortable @(_signalSortCol == "signal" ? "sorted" : "")" @onclick='() => ToggleSignalSort("signal")'>Signal @SortIndicator("signal")</th>
-                                            <th class="sortable @(_signalSortCol == "band" ? "sorted" : "")" @onclick='() => ToggleSignalSort("band")'>Band @SortIndicator("band")</th>
-                                            <th class="sortable @(_signalSortCol == "ap" ? "sorted" : "")" @onclick='() => ToggleSignalSort("ap")'>AP @SortIndicator("ap")</th>
-                                            <th class="sortable @(_signalSortCol == "channel" ? "sorted" : "")" @onclick='() => ToggleSignalSort("channel")'>Channel @SortIndicator("channel")</th>
+                                            <th class="sortable @SignalSortClass("time")" @onclick='() => ToggleSignalSort("time")'>Time</th>
+                                            <th class="sortable @SignalSortClass("signal")" @onclick='() => ToggleSignalSort("signal")'>Signal</th>
+                                            <th class="sortable @SignalSortClass("band")" @onclick='() => ToggleSignalSort("band")'>Band</th>
+                                            <th class="sortable @SignalSortClass("ap")" @onclick='() => ToggleSignalSort("ap")'>AP</th>
+                                            <th class="sortable @SignalSortClass("channel")" @onclick='() => ToggleSignalSort("channel")'>Channel</th>
                                             <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
                                             <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                         </tr>
@@ -1145,11 +1145,11 @@
                                     <table class="results-table app-table">
                                         <thead>
                                             <tr>
-                                                <th class="sortable @(_appSortCol == "app" ? "sorted" : "")" @onclick='() => ToggleAppSort("app")'>Application @AppSortIndicator("app")</th>
-                                                <th class="sortable hide-mobile @(_appSortCol == "category" ? "sorted" : "")" @onclick='() => ToggleAppSort("category")'>Category @AppSortIndicator("category")</th>
-                                                <th class="sortable @(_appSortCol == "download" ? "sorted" : "")" @onclick='() => ToggleAppSort("download")'>Download @AppSortIndicator("download")</th>
-                                                <th class="sortable @(_appSortCol == "upload" ? "sorted" : "")" @onclick='() => ToggleAppSort("upload")'>Upload @AppSortIndicator("upload")</th>
-                                                <th class="sortable hide-mobile @(_appSortCol == "share" ? "sorted" : "")" @onclick='() => ToggleAppSort("share")'>Share @AppSortIndicator("share")</th>
+                                                <th class="sortable @AppSortClass("app")" @onclick='() => ToggleAppSort("app")'>Application</th>
+                                                <th class="sortable hide-mobile @AppSortClass("category")" @onclick='() => ToggleAppSort("category")'>Category</th>
+                                                <th class="sortable @AppSortClass("download")" @onclick='() => ToggleAppSort("download")'>Download</th>
+                                                <th class="sortable @AppSortClass("upload")" @onclick='() => ToggleAppSort("upload")'>Upload</th>
+                                                <th class="sortable hide-mobile @AppSortClass("share")" @onclick='() => ToggleAppSort("share")'>Share</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1278,8 +1278,8 @@
         else if (_appSortAsc == textCol) _appSortAsc = !textCol;
         else _appSortCol = null;
     }
-    private string AppSortIndicator(string col) =>
-        _appSortCol != col ? "" : _appSortAsc ? "▲" : "▼";
+    private string AppSortClass(string col) =>
+        _appSortCol != col ? "" : _appSortAsc ? "sort-asc" : "sort-desc";
     private IEnumerable<AppUsageRow> SortedAppUsage
     {
         get
@@ -3051,11 +3051,8 @@
         _signalPage = 1;
     }
 
-    private string SortIndicator(string col)
-    {
-        if (_signalSortCol != col) return "";
-        return _signalSortAsc ? "\u25B2" : "\u25BC";
-    }
+    private string SignalSortClass(string col) =>
+        _signalSortCol != col ? "" : _signalSortAsc ? "sort-asc" : "sort-desc";
 
     private int MaxSignalChartPoints => _isMobile ? 30 : 60;
     private int MaxSpeedChartPoints => _isMobile ? 30 : 60;
@@ -4770,18 +4767,6 @@
     @@keyframes skeleton-shimmer {
         0% { background-position: 200% 0; }
         100% { background-position: -200% 0; }
-    }
-
-    /* Sortable table headers */
-    .sortable {
-        cursor: pointer;
-        user-select: none;
-    }
-    .sortable:hover {
-        color: var(--text-primary);
-    }
-    .sortable.sorted {
-        color: var(--primary-color);
     }
 
     /* Trace change cell */
