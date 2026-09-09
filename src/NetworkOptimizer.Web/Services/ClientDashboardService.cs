@@ -1636,12 +1636,17 @@ public class ClientDashboardService
                 : await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
             // No rollup yet, or one that does not reach the window's start (a rebuild rolls
             // newest first, and partial coverage reads silently low): the counters still answer,
-            // up to a week - measured at ~2 s for a wireless client's 7 days, and a wired port's
-            // series filter pushes down to storage. Past a week the rollup is the only answer,
-            // and it fills in behind on its own.
-            if (bucket >= TimeSpan.FromHours(1) && span <= TimeSpan.FromDays(7)
-                && (points.Count == 0 || points[0].Time > from.AddHours(1)))
-                points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
+            // up to a week. Past a week the rollup is the only answer, and it fills in behind on
+            // its own. Judged by how far back the SITE's rollup reaches, never by this client's
+            // first point: a client idle at the window's start has no rows there from either
+            // source, and the counter scan reads the whole measurement (client_mac is a field).
+            if (bucket >= TimeSpan.FromHours(1) && span <= TimeSpan.FromDays(7))
+            {
+                var firstRolled = await influx.QueryFirstUsageRollupHourAsync(
+                    NetworkOptimizer.Storage.Services.MonitoringInfluxClient.RollupVersion);
+                if (firstRolled == null || firstRolled.Value > from.AddHours(1))
+                    points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
+            }
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
             usage.Lan = bucket >= TimeSpan.FromDays(1) ? SumToDays(lan, usage.Wan) : lan;
