@@ -1613,9 +1613,7 @@ public class ClientDashboardService
             var coverage = await influx.QueryClientWanCoverageHoursAsync(from, to);
             if (coverage.Count > 0)
             {
-                // Flux truncates to UTC days; read hours and let the interleave sum local days.
-                var readBucket = bucket < TimeSpan.FromDays(1) ? bucket : TimeSpan.FromHours(1);
-                var measured = await influx.QueryClientWanUsageAsync(client.Mac, from, to, readBucket);
+                var measured = await MeasuredWanUsageAsync(influx, client.Mac, from, to, bucket);
                 usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to);
             }
         }
@@ -1654,6 +1652,31 @@ public class ClientDashboardService
         }
 
         return usage;
+    }
+
+    /// <summary>
+    /// The client's measured WAN bytes: the hourly conntrack rollup as far as it has reached, raw
+    /// windows from there to now. The raw stretch is not capped: an hour the rollup has not
+    /// written yet still reads as covered from the raw heartbeat, and only the raw windows keep it
+    /// from showing as measured-idle zero. A 5-minute chart cannot be served by hours and reads
+    /// raw over its whole (short) window.
+    /// </summary>
+    private static async Task<IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint>> MeasuredWanUsageAsync(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, string mac, DateTime from, DateTime to, TimeSpan bucket)
+    {
+        if (bucket < TimeSpan.FromHours(1))
+            return await influx.QueryClientWanUsageAsync(mac, from, to, bucket);
+
+        // Hours, whatever the chart bucket: Flux truncates days to UTC, the interleave sums local ones.
+        var lastRolled = await influx.QueryLastClientWanRollupHourAsync();
+        var rawFrom = lastRolled.HasValue ? lastRolled.Value.AddHours(1) : from;
+        if (rawFrom < from) rawFrom = from;
+        var rolled = rawFrom > from
+            ? await influx.QueryClientWanUsageRollupAsync(mac, from, rawFrom)
+            : Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint>();
+        if (rawFrom >= to) return rolled;
+        var raw = await influx.QueryClientWanUsageAsync(mac, rawFrom, to, TimeSpan.FromHours(1));
+        return rolled.Concat(raw).ToList();
     }
 
     /// <summary>The live counters, differenced on read; fine for hours, expensive for days.</summary>
