@@ -27,6 +27,9 @@ public class SqmLearningExecutor
     /// <summary>A sample stays this far clear of a scheduled Adaptive SQM speed test so the two never overlap.</summary>
     public const int ScheduledProbeClearanceMinutes = 3;
 
+    /// <summary>Lets the sample's own flows finish before the post-flight read of the line.</summary>
+    public static readonly TimeSpan PostSampleSettle = TimeSpan.FromSeconds(2);
+
     /// <summary>A direction that lands at or above this fraction of its lift measured the lift, not the line.</summary>
     public const double ProbeLimitedFraction = 0.95;
 
@@ -122,9 +125,7 @@ public class SqmLearningExecutor
         // The gateway probe always runs: it supplies the gateway's local day and hour (the slot the
         // deployed schedule reads) and whether the SQM speed test script is busy. Its traffic
         // reading is the fallback; the monitored SNMP series decides idleness when it is available.
-        var (ok, output) = await _gatewaySsh.RunCommandAsync(
-            GatewayInterfaceRateProbe.BuildCommand(iface), TimeSpan.FromSeconds(30), ct);
-        var gateway = ok ? GatewayInterfaceRateProbe.Parse(output) : null;
+        var (gateway, output) = await ReadGatewayAsync(iface, ct);
         if (gateway == null)
             return await FailAsync(profile, $"Could not read WAN traffic from the gateway: {Trim(output)}", ct);
         if (!gateway.InterfacePresent)
@@ -160,6 +161,12 @@ public class SqmLearningExecutor
             ShaperLift = lift,
         };
 
+        // Pre-flight, last before launch: the monitored reading can be a minute and a half old,
+        // so the gateway's own three seconds decide what the line is doing now. Skipped when that
+        // read was the idle decision itself, taken moments ago.
+        if (monitored != null && !await GatewayIdleAsync(iface, wanConfig, ct))
+            return Wait("Waiting for a quiet moment on the WAN");
+
         Iperf3Result? result;
         try
         {
@@ -177,6 +184,15 @@ public class SqmLearningExecutor
         // A run that reports no throughput is a failure (the line is down), never a sample.
         var success = result.Success && HasThroughput(result.DownloadMbps, result.UploadMbps);
         var error = !result.Success ? result.ErrorMessage : success ? null : NoThroughputError;
+
+        // Post-flight: a load still on the line once our own flows have drained was there during
+        // the sample too, and the reading is contended, not a sample.
+        if (success)
+        {
+            await Task.Delay(PostSampleSettle, ct);
+            if (!await GatewayIdleAsync(iface, wanConfig, ct))
+                return Wait("The WAN was busy during the sample; waiting for a quiet moment");
+        }
 
         var sample = new SqmLearningSample
         {
@@ -321,6 +337,30 @@ public class SqmLearningExecutor
             up = Math.Min(up, ceiling);
         }
         return new SqmShaperLift(down, up, wanConfig.RateProportionalDownloadBurst);
+    }
+
+    /// <summary>The gateway's three-second counter read for the interface, with the raw output for an error message.</summary>
+    private async Task<(GatewayInterfaceRateProbe.Reading? Reading, string Output)> ReadGatewayAsync(string iface, CancellationToken ct)
+    {
+        var (ok, output) = await _gatewaySsh.RunCommandAsync(
+            GatewayInterfaceRateProbe.BuildCommand(iface), TimeSpan.FromSeconds(30), ct);
+        return (ok ? GatewayInterfaceRateProbe.Parse(output) : null, output);
+    }
+
+    /// <summary>
+    /// Whether the gateway's own read says the WAN is idle right now. A read that fails counts as
+    /// idle: the earlier read succeeded, and a transient SSH failure should not cost the sample.
+    /// </summary>
+    private async Task<bool> GatewayIdleAsync(string iface, SqmWanConfiguration wanConfig, CancellationToken ct)
+    {
+        var (reading, _) = await ReadGatewayAsync(iface, ct);
+        if (reading == null || !reading.InterfacePresent) return true;
+        var idle = new WanIdleGate.IdleReading(reading.DownloadMbps, reading.UploadMbps, "gateway")
+            .IsIdleFor(wanConfig.NominalDownloadMbps, wanConfig.NominalUploadMbps);
+        if (!idle)
+            _logger.LogDebug("Learning sample held on {Iface}: {Down} down / {Up} up at the gateway",
+                iface, FormatMbps(reading.DownloadMbps), FormatMbps(reading.UploadMbps));
+        return idle;
     }
 
     /// <summary>
