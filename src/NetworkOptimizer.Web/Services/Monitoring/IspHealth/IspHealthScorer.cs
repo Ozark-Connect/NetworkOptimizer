@@ -64,10 +64,15 @@ public class IspHealthScorer
             _gatewayFloor.ReadingCount, _gatewayFloor.FirstReading, _gatewayFloor.LastReading,
             _gatewayFloor.MeanLossPct.ToString("0.###", CultureInfo.InvariantCulture),
             _gatewayFloor.PeakLossPct.ToString("0.###", CultureInfo.InvariantCulture));
-        if (inputs.LoadExclusionWindows.Count > 0)
+        // Two probes a day list fine; a week of hourly learning samples does not.
+        if (inputs.LoadExclusionWindows.Count is > 0 and <= 20)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
                 _logger?.LogDebug("ISP Health: excluding SQM probe window {Start} to {End}", exStart.ToString("u"), exEnd.ToString("u"));
+        }
+        else if (inputs.LoadExclusionWindows.Count > 20)
+        {
+            _logger?.LogDebug("ISP Health: excluding {Count} SQM probe and learning sample windows", inputs.LoadExclusionWindows.Count);
         }
         var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger);
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;

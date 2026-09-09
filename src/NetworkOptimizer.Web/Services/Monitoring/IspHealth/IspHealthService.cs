@@ -1369,6 +1369,7 @@ public class IspHealthService
         // data-path interface (SqmWanConfigurations rows are per interface).
         var scoredDataPathInterface = await GetScoredWanDataPathInterfaceAsync(ct);
         var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, scoredDataPathInterface, ct);
+        loadExclusions.AddRange(await BuildLearningSampleExclusionsAsync(windowStart, windowEnd, scoredDataPathInterface, ct));
         var (adaptiveSqmEnabled, sqmNominalDown, sqmNominalUp) = await GetAdaptiveSqmStateAsync(scoredDataPathInterface, ct);
 
         // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
@@ -2333,6 +2334,44 @@ public class IspHealthService
             _logger.LogDebug(ex, "Could not read the remembered primary WAN interface");
             return null;
         }
+    }
+
+    /// <summary>Setup before a learning sample moves traffic, and the drain after it, both covered by its window.</summary>
+    private static readonly TimeSpan LearningSampleSetup = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan LearningSampleTail = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Adaptive SQM learning samples are brief gateway speed tests with the shaper lifted, taken
+    /// at a different minute each hour and never stored as speed test results, so nothing else
+    /// marks them. One window per sample on the scored WAN, reaching back from the stamp (written
+    /// after the run) over both directions plus setup.
+    /// </summary>
+    private async Task<List<(DateTime Start, DateTime End)>> BuildLearningSampleExclusionsAsync(
+        DateTime windowStart, DateTime windowEnd, string? primaryWanInterface, CancellationToken ct)
+    {
+        var exclusions = new List<(DateTime Start, DateTime End)>();
+        if (string.IsNullOrEmpty(primaryWanInterface)) return exclusions;
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var profiles = await db.SqmCongestionProfiles.AsNoTracking().ToListAsync(ct);
+            var profile = profiles.FirstOrDefault(p => string.Equals(p.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
+            if (profile == null) return exclusions;
+            var reach = LearningSampleSetup + TimeSpan.FromSeconds(2 * Math.Max(1, profile.SampleDurationSeconds));
+            var from = windowStart - LearningSampleTail;
+            var to = windowEnd + reach;
+            var stamps = await db.SqmLearningSamples.AsNoTracking()
+                .Where(s => s.WanNumber == profile.WanNumber && s.SampledAt >= from && s.SampledAt <= to)
+                .Select(s => s.SampledAt)
+                .ToListAsync(ct);
+            foreach (var at in stamps)
+                exclusions.Add((at - reach, at + LearningSampleTail));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read Adaptive SQM learning samples for load exclusion");
+        }
+        return exclusions;
     }
 
     private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
