@@ -1108,11 +1108,17 @@
                                 </ApexChart>
                             </div>
                         </div>
-                        @if (_appUsage.Count > 0)
+                        @if (_appUsage.Count > 0 || _appLoading)
                         {
                             <div class="card results-card">
                                 <h3>Applications</h3>
                                 <p class="form-hint app-table-hint">WAN traffic by application, as UniFi Network identifies it.</p>
+                                @if (_appUsage.Count == 0)
+                                {
+                                    <div class="loading-container"><div class="spinner"></div></div>
+                                }
+                                else
+                                {
                                 <div class="results-table-container">
                                     <table class="results-table app-table">
                                         <thead>
@@ -1160,6 +1166,7 @@
                                     <button type="button" class="btn btn-secondary btn-sm app-show-more" @onclick="() => _appShowAll = !_appShowAll">
                                         @(_appShowAll ? "Show fewer" : $"Show {_appUsage.Count - AppRowsShown} more{(_appSortCol == null ? " with less traffic" : "")}")
                                     </button>
+                                }
                                 }
                             </div>
                         }
@@ -1231,6 +1238,10 @@
     // Data tab
     private ClientDataUsage? _dataUsage;
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
+    private bool _appLoading;
+    // The range the rows on screen belong to; a different range clears them before its own load.
+    private int? _appUsageFilter;
+    private int _appUsageGeneration;
     private DateTime _dataLoadedAt;
     private const int AppRowsShown = 25;
     private bool _appShowAll;
@@ -2512,7 +2523,6 @@
         // the series being built created the chart empty, and the tab-switch path never updates a
         // chart after creating it.
         var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
-        var apps = await DashboardService.GetAppUsageAsync(_client, from, to);
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
         _wanDownData = Series(usage.Wan, r => r.DownloadBytes, "download");
@@ -2520,13 +2530,52 @@
         _lanDownData = Series(usage.Lan, r => r.DownloadBytes, "download");
         _lanUpData = Series(usage.Lan, r => r.UploadBytes, "upload");
         _dataUsage = usage;
-        _appUsage = apps;
         _dataLoadedAt = DateTime.UtcNow;
+        // The Applications report is the console's site-wide DPI for the window, and on a long
+        // window it can take longer than everything above. It loads on its own so the chart
+        // shows as soon as it is ready and the table gets its own spinner.
+        _ = LoadAppUsageAsync(from, to);
         // A day bar is a date; a time on it only says which midnight the day began at.
         _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
         // Keep the user's pick unless that side has nothing to plot.
         if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
         else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
+    }
+
+    /// <summary>
+    /// Loads the Applications rows for a window on its own. Rows already on screen for the same
+    /// range stay up while a refresh runs; a new range clears them and shows the spinner. Only
+    /// the newest request may publish, so a slow earlier window cannot overwrite a later one.
+    /// </summary>
+    private async Task LoadAppUsageAsync(DateTime from, DateTime to)
+    {
+        if (_client == null) return;
+        var generation = ++_appUsageGeneration;
+        if (_appUsageFilter != _selectedTimeFilter)
+        {
+            _appUsage = Array.Empty<AppUsageRow>();
+            _appUsageFilter = _selectedTimeFilter;
+        }
+        _appLoading = true;
+        StateHasChanged();
+        try
+        {
+            var apps = await DashboardService.GetAppUsageAsync(_client, from, to);
+            if (generation != _appUsageGeneration) return;
+            _appUsage = apps;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Applications rows unavailable for {Mac}", _client.Mac);
+        }
+        finally
+        {
+            if (generation == _appUsageGeneration)
+            {
+                _appLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
     }
 
     /// <summary>
