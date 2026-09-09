@@ -556,7 +556,7 @@
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
                     <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config, resetLatency: false)" min="10" max="10000" />
-                    <small class="form-hint">Advertised/paid-for download speed</small>
+                    <small class="form-hint">@NominalDownloadHint(wan1Config)</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
@@ -737,6 +737,10 @@
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
                     <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config, resetLatency: false)" min="10" max="10000" />
+                    @if (wan2Config.LearnedInUse != null)
+                    {
+                        <small class="form-hint">@NominalDownloadHint(wan2Config)</small>
+                    }
                 </div>
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
@@ -2705,6 +2709,10 @@
     /// Speed Margin as shown: the connection type's overhead, or with a learned curve in use the
     /// learner's own shaper factor, since the overhead field is 1.0 then and read as "no margin".
     /// </summary>
+    private static string NominalDownloadHint(WanConfigModel config) => config.LearnedInUse != null
+        ? "Shaping follows the learned profile, but learning still uses this as a rough plan speed."
+        : "Advertised/paid-for download speed";
+
     private static string SpeedMarginTooltip(WanConfigModel config) => config.LearnedInUse != null
         ? "How far the shaper sits above what your line measured. Set by the learned curve for your connection type."
         : "How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.";
