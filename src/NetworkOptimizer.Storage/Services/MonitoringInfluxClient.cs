@@ -952,6 +952,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 }
             }
         }
+        // A playback window entirely inside the rolled hours has no raw stretch; Flux rejects an
+        // empty range rather than returning nothing.
+        if (rolledThrough >= to)
+            return totals.Select(kv => new ClientWanTotal(kv.Key, kv.Value.Down, kv.Value.Up)).ToList();
         var rawFlux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rolledThrough)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
@@ -1042,7 +1046,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var coverage = new Dictionary<DateTime, long>();
         if (!IsConfigured) return coverage;
         var rawStart = rawFrom.HasValue && rawFrom.Value > from ? rawFrom.Value : from;
-        var rawFlux = $@"from(bucket: ""{_bucket}"")
+        // A playback window that ends before the rolled edge has no raw stretch; Flux rejects an
+        // empty range rather than returning nothing.
+        if (rawStart < to)
+        {
+            var rawFlux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rawStart)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{ClientWanCoverageMarker}"")
   |> filter(fn: (r) => r._field == ""window_seconds"")
@@ -1050,13 +1058,14 @@ public class MonitoringInfluxClient : IAsyncDisposable
   |> group(columns: [""_time""])
   |> sum()
   |> group()";
-        await foreach (var record in QueryFluxAsync(rawFlux, ct))
-        {
-            var time = record.GetTimeInDateTime();
-            if (time == null) continue;
-            var hour = ToUtc(time.Value);
-            var seconds = (long)(AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0);
-            coverage[hour] = Math.Max(coverage.TryGetValue(hour, out var c) ? c : 0, seconds);
+            await foreach (var record in QueryFluxAsync(rawFlux, ct))
+            {
+                var time = record.GetTimeInDateTime();
+                if (time == null) continue;
+                var hour = ToUtc(time.Value);
+                var seconds = (long)(AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0);
+                coverage[hour] = Math.Max(coverage.TryGetValue(hour, out var c) ? c : 0, seconds);
+            }
         }
         if (!string.IsNullOrEmpty(_longtermBucket))
         {
