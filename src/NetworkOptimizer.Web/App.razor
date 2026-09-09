@@ -417,6 +417,14 @@
                 el.removeAttribute('data-tooltip-bound');
             });
 
+            // Icons Blazor kept but whose data-tooltip changed: initTooltips only runs when nodes
+            // are added, so this scan is what sees an attribute-only change.
+            document.querySelectorAll('.tooltip-icon[data-tooltip]').forEach(function(icon) {
+                if (icon._tippy && icon._tippy.props.content !== tooltipContent(icon)) {
+                    icon._tippy.setContent(tooltipContent(icon));
+                }
+            });
+
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
                 var isInteractive = el.hasAttribute('data-tooltip-interactive');
                 var opts = {
