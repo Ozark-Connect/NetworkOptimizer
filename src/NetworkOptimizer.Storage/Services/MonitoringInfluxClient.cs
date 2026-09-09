@@ -930,9 +930,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
             // Rolled hours first, then the raw windows from the first un-rolled hour on. The
             // boundary comes from the rollup's own cursor, so the two ranges cannot overlap.
             var lastRolled = await QueryLastClientWanRollupHourAsync(ct);
-            if (lastRolled is { } lr && lr >= from)
+            // Never past the hour the window ends in: a rolled hour is a whole hour, and a
+            // playback window ending mid-hour takes that hour's raw windows instead.
+            var hourOfTo = new DateTime(to.Ticks - to.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
+            if (lastRolled is { } lr && lr >= from && hourOfTo > from)
             {
-                rolledThrough = lr.AddHours(1);
+                rolledThrough = lr.AddHours(1) < hourOfTo ? lr.AddHours(1) : hourOfTo;
                 var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(rolledThrough)})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
