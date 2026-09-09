@@ -138,6 +138,8 @@ public class SqmLearningExecutor
             return Wait("Waiting for the Adaptive SQM speed test to finish");
         if (saved != null && ScheduledProbeImminent(gateway.Hour, gateway.Minute, saved, ScheduledProbeClearanceMinutes))
             return Wait("Waiting for the scheduled Adaptive SQM speed test to pass");
+        if (ScheduledWanTestImminent(await _schedules.GetEnabledAsync(ct), taskId, DateTime.UtcNow, ScheduledProbeClearanceMinutes))
+            return Wait("Waiting for a scheduled WAN speed test to pass");
         if (!idle.IsIdleFor(wanConfig.NominalDownloadMbps, wanConfig.NominalUploadMbps))
         {
             _logger.LogDebug("Learning sample deferred on {Iface}: {Down} down / {Up} up ({Source})",
@@ -339,6 +341,17 @@ public class SqmLearningExecutor
         }
         return false;
     }
+
+    /// <summary>
+    /// True when another enabled WAN speed test schedule is due within the window either side of
+    /// now: ahead so the sample is not started under it, behind because the scheduler runs a task
+    /// up to two minutes past its time. Only the idle gate sees a test that is already moving
+    /// traffic, and it misses one starting seconds later. The learning task is a schedule itself.
+    /// </summary>
+    internal static bool ScheduledWanTestImminent(
+        IEnumerable<NetworkOptimizer.Alerts.Models.ScheduledTask> tasks, int ownTaskId, DateTime nowUtc, int windowMinutes) =>
+        tasks.Any(t => t.Enabled && t.Id != ownTaskId && t.TaskType == "wan_speedtest"
+            && t.NextRunAt is { } due && Math.Abs((due - nowUtc).TotalMinutes) <= windowMinutes);
 
     /// <summary>The highest lift the WAN allows: link speed with HTB headroom, or null when unknown.</summary>
     internal static int? LinkCeiling(SqmWanConfiguration wanConfig) =>

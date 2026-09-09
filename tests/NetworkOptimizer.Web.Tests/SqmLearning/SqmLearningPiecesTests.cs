@@ -75,6 +75,26 @@ public class GatewayInterfaceRateProbeTests
         SqmLearningExecutor.ScheduledProbeImminent(hour, minute, wan, 3).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("wan_speedtest", true, 2, true)]     // due in two minutes
+    [InlineData("wan_speedtest", true, -2, true)]    // due two minutes ago: the scheduler may be running it
+    [InlineData("wan_speedtest", true, 4, false)]    // four minutes out
+    [InlineData("wan_speedtest", false, 1, false)]   // disabled
+    [InlineData("lan_speedtest", true, 1, false)]    // never touches the WAN
+    [InlineData("audit", true, 0, false)]
+    public void ScheduledWanTestImminent_ReadsTheOtherSchedulesNextRun(string type, bool enabled, int minutesAhead, bool expected)
+    {
+        var now = new DateTime(2026, 9, 9, 18, 0, 0, DateTimeKind.Utc);
+        var tasks = new[]
+        {
+            new NetworkOptimizer.Alerts.Models.ScheduledTask { Id = 7, TaskType = type, Enabled = enabled, NextRunAt = now.AddMinutes(minutesAhead) },
+            // The learning task itself, due now, is never a reason to wait.
+            new NetworkOptimizer.Alerts.Models.ScheduledTask { Id = 3, TaskType = "sqm_learning", Enabled = true, NextRunAt = now },
+        };
+
+        SqmLearningExecutor.ScheduledWanTestImminent(tasks, ownTaskId: 3, now, 3).Should().Be(expected);
+    }
+
     [Fact]
     public void Parse_TreatsAWrappedCounterAsBusy()
     {
