@@ -1273,13 +1273,21 @@
     private bool _appSortAsc;
     private void ToggleAppSort(string col)
     {
+        // The default order is Share descending, so Share only flips to ascending and back.
+        if (col == "share")
+        {
+            _appSortAsc = _appSortCol != "share";
+            _appSortCol = _appSortAsc ? "share" : null;
+            return;
+        }
         var textCol = col is "app" or "category";
         if (_appSortCol != col) { _appSortCol = col; _appSortAsc = textCol; }
         else if (_appSortAsc == textCol) _appSortAsc = !textCol;
         else _appSortCol = null;
     }
     private string AppSortClass(string col) =>
-        _appSortCol != col ? "" : _appSortAsc ? "sort-asc" : "sort-desc";
+        _appSortCol == null ? (col == "share" ? "sort-desc" : "")
+        : _appSortCol != col ? "" : _appSortAsc ? "sort-asc" : "sort-desc";
     private IEnumerable<AppUsageRow> SortedAppUsage
     {
         get
