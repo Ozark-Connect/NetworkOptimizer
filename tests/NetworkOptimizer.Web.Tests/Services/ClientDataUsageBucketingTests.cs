@@ -59,6 +59,29 @@ public class ClientDataUsageBucketingTests
     }
 
     [Fact]
+    public void DayBucketsStartAtLocalMidnight()
+    {
+        // Any instant; the day edge must read 00:00 on the server's clock, not UTC's.
+        var t = new DateTime(2026, 8, 30, 17, 30, 0, DateTimeKind.Utc);
+        var start = ClientDashboardService.BucketStart(t, TimeSpan.FromDays(1));
+
+        Assert.Equal(DateTimeKind.Utc, start.Kind);
+        Assert.True(start <= t && t - start < TimeSpan.FromHours(25));
+        Assert.Equal(TimeSpan.Zero, TimeZoneInfo.ConvertTimeFromUtc(start, TimeZoneInfo.Local).TimeOfDay);
+        // Every instant of that local day files under the same edge.
+        Assert.Equal(start, ClientDashboardService.BucketStart(start, TimeSpan.FromDays(1)));
+        Assert.Equal(start, ClientDashboardService.BucketStart(start.AddHours(23), TimeSpan.FromDays(1)));
+    }
+
+    [Fact]
+    public void SubDayBucketsTruncateOnTheUtcClock()
+    {
+        var t = new DateTime(2026, 8, 30, 17, 37, 0, DateTimeKind.Utc);
+        Assert.Equal(t.AddMinutes(-2), ClientDashboardService.BucketStart(t, TimeSpan.FromMinutes(5)));
+        Assert.Equal(t.AddMinutes(-37), ClientDashboardService.BucketStart(t, TimeSpan.FromHours(1)));
+    }
+
+    [Fact]
     public void EmptyInputIsAnEmptyList()
     {
         Assert.Empty(ClientDashboardService.BucketTrafficRate(Array.Empty<UniFiTrafficRateBucket>(), TimeSpan.FromHours(1)));

@@ -1613,7 +1613,9 @@ public class ClientDashboardService
             var coverage = await influx.QueryClientWanCoverageHoursAsync(from, to);
             if (coverage.Count > 0)
             {
-                var measured = await influx.QueryClientWanUsageAsync(client.Mac, from, to, bucket);
+                // Flux truncates to UTC days; read hours and let the interleave sum local days.
+                var readBucket = bucket < TimeSpan.FromDays(1) ? bucket : TimeSpan.FromHours(1);
+                var measured = await influx.QueryClientWanUsageAsync(client.Mac, from, to, readBucket);
                 usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to);
             }
         }
@@ -1694,15 +1696,15 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// Hourly buckets summed into days on the same day boundaries UniFi's daily report used, so
-    /// the two charts line up bar for bar; UTC days when there is no report to follow.
+    /// Hourly buckets summed into days on the WAN series' own day edges, so the two charts line
+    /// up bar for bar; <see cref="BucketStart"/> days when there is no WAN series to follow.
     /// </summary>
     private static List<UsageBucket> SumToDays(List<UsageBucket> hourly, IReadOnlyList<UsageBucket> wanDays)
     {
         var edges = wanDays.Select(w => w.Time).OrderBy(t => t).ToList();
         DateTime EdgeFor(DateTime t)
         {
-            if (edges.Count == 0) return t.Date;
+            if (edges.Count == 0) return BucketStart(t, TimeSpan.FromDays(1));
             var idx = edges.FindLastIndex(e => e <= t);
             if (idx >= 0) return edges[idx];
             // Before the report's first day: the same day boundary, a day earlier.
@@ -1830,7 +1832,7 @@ public class ClientDashboardService
     /// Picks ONE WAN source per bucket: the conntrack-measured figure where the feed covered the
     /// bucket - a covered bucket with nothing measured is measured-idle, shown as zero, never
     /// backfilled from DPI - and the DPI report's everywhere else. The two are never summed
-    /// inside a bucket. Bucket edges are UTC-truncated on both sides, so the lists align.
+    /// inside a bucket. Both sides bucket through <see cref="BucketStart"/>, so the lists align.
     /// </summary>
     internal static List<UsageBucket> InterleaveWanBuckets(
         IReadOnlyList<UsageBucket> dpi,
@@ -1839,8 +1841,7 @@ public class ClientDashboardService
         TimeSpan bucket,
         DateTime to)
     {
-        var ticks = bucket.Ticks;
-        DateTime BucketOf(DateTime t) => new(t.Ticks - t.Ticks % ticks, DateTimeKind.Utc);
+        DateTime BucketOf(DateTime t) => BucketStart(t, bucket);
 
         bool Covered(DateTime bucketStart)
         {
@@ -1858,7 +1859,9 @@ public class ClientDashboardService
             }
             long seconds = 0;
             var end = bucketStart + bucket;
-            for (var h = bucketStart; h < end; h = h.AddHours(1))
+            // Coverage is keyed by UTC hour; a local day in a half-hour zone starts between two.
+            var firstHour = new DateTime(bucketStart.Ticks - bucketStart.Ticks % TimeSpan.TicksPerHour, DateTimeKind.Utc);
+            for (var h = firstHour; h < end; h = h.AddHours(1))
                 seconds += coverageHours.GetValueOrDefault(h);
             var expected = Math.Min(bucket.TotalSeconds, Math.Max(0, (to - bucketStart).TotalSeconds));
             return expected > 0 && seconds >= ConntrackBucketCoverageFraction * expected;
@@ -1901,13 +1904,27 @@ public class ClientDashboardService
 
     public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
     {
-        var ticks = bucket.Ticks;
         return rate
             .Select(b => (Start: b.Time.AddSeconds(-b.IntervalSeconds), Bucket: b))
-            .GroupBy(x => new DateTime(x.Start.Ticks - x.Start.Ticks % ticks, DateTimeKind.Utc), x => x.Bucket)
+            .GroupBy(x => BucketStart(x.Start, bucket), x => x.Bucket)
             .Select(g => new UsageBucket(g.Key, g.Sum(b => b.DownloadBytes), g.Sum(b => b.UploadBytes)))
             .OrderBy(b => b.Time)
             .ToList();
+    }
+
+    /// <summary>
+    /// The start of the bucket holding an instant. Sub-day buckets truncate on the UTC clock, which
+    /// every whole-hour zone shares. A day starts at local midnight in the server's zone (the clock
+    /// Firmware Rollout shows too): a UTC day drawn in a local clock lands its bars at 19:00.
+    /// </summary>
+    internal static DateTime BucketStart(DateTime utc, TimeSpan bucket)
+    {
+        if (bucket < TimeSpan.FromDays(1))
+            return new DateTime(utc.Ticks - utc.Ticks % bucket.Ticks, DateTimeKind.Utc);
+        var tz = TimeZoneInfo.Local;
+        var midnight = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz).Date;
+        // GetUtcOffset never throws on a skipped or repeated midnight, so one date is one key.
+        return new DateTimeOffset(midnight, tz.GetUtcOffset(midnight)).UtcDateTime;
     }
 
     /// <summary>
