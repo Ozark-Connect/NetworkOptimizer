@@ -166,7 +166,7 @@ public class ClientUsageRollupService : BackgroundService
             }
             else
             {
-                var coverage = await _influx.QueryClientWanCoverageHoursAsync(horizon, lastComplete.AddHours(1), ct);
+                var coverage = await _influx.QueryClientWanCoverageHoursAsync(horizon, lastComplete.AddHours(1), ct: ct);
                 _wanNext = coverage.Count > 0 ? coverage.Keys.Min() : lastComplete.AddHours(1);
             }
             if (_wanNext < horizon) _wanNext = horizon;

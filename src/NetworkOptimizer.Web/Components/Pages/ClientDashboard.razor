@@ -2539,11 +2539,11 @@
     private async Task LoadDataUsageAsync(DateTime from, DateTime to)
     {
         if (_client == null) return;
-        // Fetch everything first and publish in one go: a render between the totals landing and
-        // the series being built created the chart empty, and the tab-switch path never updates a
-        // chart after creating it.
         // Started first so the Applications report loads alongside the totals, not after them.
         _ = LoadAppUsageAsync(from, to);
+        // Fetch the totals first and publish in one go: a render between the totals landing and
+        // the series being built created the chart empty, and the tab-switch path never updates a
+        // chart after creating it.
         var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
         static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
             rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
@@ -2591,7 +2591,8 @@
             if (generation == _appUsageGeneration)
             {
                 _appLoading = false;
-                await InvokeAsync(StateHasChanged);
+                // Nothing awaits this load, so a circuit that has gone away must not throw out of it.
+                try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
             }
         }
     }

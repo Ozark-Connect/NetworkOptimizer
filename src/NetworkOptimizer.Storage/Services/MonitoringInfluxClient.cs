@@ -1032,15 +1032,18 @@ public class MonitoringInfluxClient : IAsyncDisposable
     /// <summary>
     /// Per-hour conntrack coverage seconds over a window, from the coverage heartbeat series -
     /// raw windows and rolled hours merged (max wins where both answer). The interleave rule
-    /// reads this to pick client_wan or the DPI report per stretch.
+    /// reads this to pick client_wan or the DPI report per stretch. <paramref name="rawFrom"/>
+    /// starts the raw scan later than the window when the rollup already answers for the
+    /// hours before it; the raw heartbeat over a month is seconds of scan for nothing new.
     /// </summary>
     public async Task<IReadOnlyDictionary<DateTime, long>> QueryClientWanCoverageHoursAsync(
-        DateTime from, DateTime to, CancellationToken ct = default)
+        DateTime from, DateTime to, DateTime? rawFrom = null, CancellationToken ct = default)
     {
         var coverage = new Dictionary<DateTime, long>();
         if (!IsConfigured) return coverage;
+        var rawStart = rawFrom.HasValue && rawFrom.Value > from ? rawFrom.Value : from;
         var rawFlux = $@"from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> range(start: {ToFluxInstant(rawStart)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{ClientWanCoverageMarker}"")
   |> filter(fn: (r) => r._field == ""window_seconds"")
   |> truncateTimeColumn(unit: 1h)

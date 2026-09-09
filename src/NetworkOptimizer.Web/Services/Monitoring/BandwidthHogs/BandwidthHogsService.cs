@@ -696,7 +696,7 @@ public class BandwidthHogsService
     {
         try
         {
-            var coverage = await _influx.QueryClientWanCoverageHoursAsync(from, to, ct);
+            var coverage = await _influx.QueryClientWanCoverageHoursAsync(from, to, ct: ct);
             return coverage.Count == 0 ? to : CoverageBoundary(coverage, from, to);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
