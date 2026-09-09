@@ -255,8 +255,14 @@
         function initTooltips() {
             // Find all tooltip icons with content siblings
             document.querySelectorAll('.tooltip-icon').forEach(function(icon) {
-                // Skip if already initialized
-                if (icon._tippy) return;
+                // Already built: a Blazor re-render swaps only the attribute, so push the new text
+                // into the instance rather than leaving the text it was built with.
+                if (icon._tippy) {
+                    if (icon.dataset.tooltip && icon._tippy.props.content !== tooltipContent(icon)) {
+                        icon._tippy.setContent(tooltipContent(icon));
+                    }
+                    return;
+                }
 
                 // Get content from sibling or data attribute
                 const contentEl = icon.nextElementSibling;
