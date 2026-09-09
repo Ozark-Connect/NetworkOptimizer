@@ -2522,6 +2522,8 @@
         _dataUsage = usage;
         _appUsage = apps;
         _dataLoadedAt = DateTime.UtcNow;
+        // A day bar is a date; a time on it only says which midnight the day began at.
+        _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
         // Keep the user's pick unless that side has nothing to plot.
         if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
         else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
@@ -2894,7 +2896,12 @@
                 if (_connectionChart != null) await WithChartRetry(() => _connectionChart.UpdateSeriesAsync(true));
                 break;
             case "data":
-                if (_usageChart != null) await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
+                if (_usageChart != null)
+                {
+                    // Options first, so the tooltip format matches the bucket the series carries.
+                    await WithChartRetry(() => _usageChart.UpdateOptionsAsync(true, true, false));
+                    await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
+                }
                 break;
         }
     }
