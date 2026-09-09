@@ -101,6 +101,52 @@ public class IspHealthWanScopingTests
         IspHealthService.ResolvePrimaryWanKey(contexts).Should().Be("wan2");
     }
 
+    // ─── Console primary reconciled against discovery ───
+    // A never-cabled Internet 2 at failover priority 1 makes the console name wan2 as primary
+    // while discovery only ever traced and stamped the cabled wan.
+
+    [Fact]
+    public void ReconcilePrimaryWanKey_FallsBackToTheLoneContextWhenTheConsoleKeyMatchesNone()
+    {
+        var contexts = new[] { new WanDiscoveryContext { WanInterface = "wan" } };
+        IspHealthService.ReconcilePrimaryWanKey("wan2", contexts).Should().Be("wan");
+    }
+
+    [Fact]
+    public void ReconcilePrimaryWanKey_LeavesAMatchingKeyAlone()
+    {
+        var contexts = new[] { new WanDiscoveryContext { WanInterface = "wan1" } };
+        IspHealthService.ReconcilePrimaryWanKey("WAN", contexts).Should().BeNull();
+    }
+
+    [Fact]
+    public void ReconcilePrimaryWanKey_LeavesTheKeyAloneWithNoContexts()
+    {
+        IspHealthService.ReconcilePrimaryWanKey("wan2", Array.Empty<WanDiscoveryContext>()).Should().BeNull();
+    }
+
+    [Fact]
+    public void ReconcilePrimaryWanKey_LeavesTheKeyAloneWhenTwoContextsCouldClaimIt()
+    {
+        var contexts = new[]
+        {
+            new WanDiscoveryContext { WanInterface = "wan" },
+            new WanDiscoveryContext { WanInterface = "wan3" },
+        };
+        IspHealthService.ReconcilePrimaryWanKey("wan2", contexts).Should().BeNull();
+    }
+
+    [Fact]
+    public void ReconcilePrimaryWanKey_IgnoresContextsWithNoWan()
+    {
+        var contexts = new[]
+        {
+            new WanDiscoveryContext { WanInterface = null },
+            new WanDiscoveryContext { WanInterface = "wan" },
+        };
+        IspHealthService.ReconcilePrimaryWanKey("wan2", contexts).Should().Be("wan");
+    }
+
     // ─── Influx wan-tag scope ───
 
     [Fact]

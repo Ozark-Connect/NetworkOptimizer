@@ -784,6 +784,12 @@ public class UpstreamTracerService
                     wanInterfaceName = firstWan.Value.Key;
                     wanUplinkIfName = firstWan.Value.Uplink;
                     wanIp = firstWan.Value.Ip;
+                    // Targets get stamped with this key, and ISP Health scopes on the configured
+                    // primary's - say so when the two diverge (a primary with no wan object).
+                    if (primaryNg != null)
+                        _logger.LogInformation(
+                            "UpstreamTracer: configured primary {PrimaryGroup} has no WAN on the gateway; tracing {Wan} instead",
+                            primaryNg, wanInterfaceName);
                 }
 
                 if (wanInterfaceName != null) break;

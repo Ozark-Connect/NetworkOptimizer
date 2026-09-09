@@ -183,8 +183,7 @@ public class IspHealthService
             // setting it when it is currently unset is the whole point. Create it if missing,
             // matching Upstream Discovery's create-if-missing on commit.
             var writeKey = _scopedWanKey
-                ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
-                ?? ResolvePrimaryWanKey(rows);
+                ?? ReconcileScoredKey(await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(rows), rows);
             var ctxRow = rows.FirstOrDefault(c => string.Equals(
                 GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
                 GatewayWanHelper.WanInterfaceKeyFromKey(writeKey), StringComparison.OrdinalIgnoreCase));
@@ -627,7 +626,8 @@ public class IspHealthService
             var wanContexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
             // Primary is a ROLE: ask the console which group holds it (any wanN can); the
             // name-ordered context guess is the offline fallback only.
-            primaryWanKey = await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(wanContexts);
+            primaryWanKey = ReconcileScoredKey(
+                await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(wanContexts), wanContexts);
             scoredWanKey = _scopedWanKey ?? primaryWanKey;
 
             // The scored WAN's OWN discovery context decides its technology; the legacy global
@@ -655,7 +655,10 @@ public class IspHealthService
             // Scope to the WAN being graded. In memory (case-insensitive like every other
             // WanInterface comparison), and null-WanInterface rows go to the primary only -
             // hand-added and legacy targets were always primary-path measurements.
+            var unscopedTargetCount = targets.Count;
             targets = ScopeTargetsToWan(targets, scoredWanKey, includeUnassigned: primaryScope);
+            _logger.LogDebug("ISP Health: scoring WAN {Wan}; {Kept} of {Total} enabled upstream targets are in its scope",
+                scoredWanKey, targets.Count, unscopedTargetCount);
 
             // Fabric targets stay unscoped: the LAN gateway is shared by every WAN, and its
             // series only scopes outages (gateway-unreachable => LAN outage, not WAN).
@@ -1537,6 +1540,44 @@ public class IspHealthService
             .FirstOrDefault(w => !string.IsNullOrEmpty(w)) ?? "wan");
 
     /// <summary>
+    /// The key the primary instance should score instead of <paramref name="resolvedKey"/> when
+    /// that key matches no discovery context and exactly one context exists; null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A console can name a primary that carries no traffic (a pre-configured, never-cabled
+    /// Internet 2 at failover priority 1) while discovery traced and stamped the cabled WAN.
+    /// Scoring the console's key then drops every target and reports "run discovery" on a site
+    /// that has. One context is unambiguous; none, two or more, or a match leave the key alone.
+    /// </remarks>
+    internal static string? ReconcilePrimaryWanKey(string resolvedKey, IEnumerable<WanDiscoveryContext> contexts)
+    {
+        var keys = contexts
+            .Select(c => c.WanInterface)
+            .Where(k => !string.IsNullOrEmpty(k))
+            .Select(k => GatewayWanHelper.WanInterfaceKeyFromKey(k!))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var resolved = GatewayWanHelper.WanInterfaceKeyFromKey(resolvedKey);
+        return keys.Count == 1 && !string.Equals(keys[0], resolved, StringComparison.OrdinalIgnoreCase)
+            ? keys[0]
+            : null;
+    }
+
+    /// <summary>
+    /// The primary's scored key: the console's answer, or the lone discovery context's key when
+    /// the console's matches none (see <see cref="ReconcilePrimaryWanKey"/>). Logs the swap.
+    /// </summary>
+    private string ReconcileScoredKey(string resolvedKey, IEnumerable<WanDiscoveryContext> contexts)
+    {
+        var fallback = ReconcilePrimaryWanKey(resolvedKey, contexts);
+        if (fallback == null) return resolvedKey;
+        _logger.LogWarning(
+            "ISP Health: the console names {Resolved} as the primary WAN but Upstream Discovery only traced {Fallback}; scoring {Fallback}",
+            resolvedKey, fallback, fallback);
+        return fallback;
+    }
+
+    /// <summary>
     /// The Influx wan-tag scope for the WAN being scored. Primary: untagged points (every point
     /// the primary path has ever written), plus the tag values of any context bound to the
     /// primary WAN - so a primary probed through an explicit context keeps those points too.
@@ -1915,9 +1956,13 @@ public class IspHealthService
         // Same WAN scope as the compute (ScopeTargetsToWan there), so the Investigate highlight
         // averages exactly the pool this instance's score is graded on - configured primary
         // first, name-ordered guess only offline, like the compute.
-        var scoredKey = _scopedWanKey
-            ?? await ResolveConfiguredPrimaryWanKeyAsync(ct)
-            ?? ResolvePrimaryWanKey(await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct));
+        var scoredKey = _scopedWanKey;
+        if (scoredKey == null)
+        {
+            var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+            scoredKey = ReconcileScoredKey(
+                await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(contexts), contexts);
+        }
         targets = ScopeTargetsToWan(targets, scoredKey, includeUnassigned: _scopedWanKey == null);
         // Flat-lined targets the last computed report dropped come out here too. Subtracting from the
         // report rather than re-deriving it keeps this the single definition: the exclusion is a
