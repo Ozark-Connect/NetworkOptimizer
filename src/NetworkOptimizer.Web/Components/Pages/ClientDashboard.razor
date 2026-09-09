@@ -1051,53 +1051,55 @@
                     }
                     else
                     {
+                        @* While loading, the figures stay in the layout but hidden, so the cards keep
+                           their height on every breakpoint and the spinner sits over them. *@
+                        var usageLoading = _tabLoading || _dataUsage == null;
+                        var u = _dataUsage ?? new ClientDataUsage();
                         <div class="usage-grid">
                             <div class="card results-card usage-card @(_usageView == "wan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">
                                 <h3>WAN</h3>
-                                @if (_tabLoading || _dataUsage == null)
-                                {
-                                    <div class="loading-container"><div class="spinner"></div></div>
-                                }
-                                else
-                                {
+                                <div class="usage-card-body @(usageLoading ? "is-loading" : "")">
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
                                         <span class="speed-label">Download</span>
-                                        <span class="speed-value speed-down">@DisplayFormatters.FormatBytes(_dataUsage.WanDownloadBytes)</span>
+                                        <span class="speed-value speed-down">@DisplayFormatters.FormatBytes(u.WanDownloadBytes)</span>
                                     </div>
                                     <div class="speed-metric upload">
                                         <span class="speed-label">Upload</span>
-                                        <span class="speed-value speed-up">@DisplayFormatters.FormatBytes(_dataUsage.WanUploadBytes)</span>
+                                        <span class="speed-value speed-up">@DisplayFormatters.FormatBytes(u.WanUploadBytes)</span>
                                     </div>
                                 </div>
                                 <div class="speed-hero-meta">
                                     <span>WAN traffic totals, per UniFi Network</span>
                                 </div>
+                                @if (usageLoading)
+                                {
+                                    <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
+                                </div>
                             </div>
                             <div class="card results-card usage-card @(_usageView == "lan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("lan"))">
                                 <h3>LAN + WAN</h3>
-                                @if (_tabLoading || _dataUsage == null)
-                                {
-                                    <div class="loading-container"><div class="spinner"></div></div>
-                                }
-                                else
-                                {
+                                <div class="usage-card-body @(usageLoading ? "is-loading" : "")">
                                 <div class="speed-hero-results">
                                     <div class="speed-metric download">
                                         <span class="speed-label">Download</span>
-                                        <span class="speed-value speed-down">@DisplayFormatters.FormatBytes(_dataUsage.LanDownloadBytes)</span>
+                                        <span class="speed-value speed-down">@DisplayFormatters.FormatBytes(u.LanDownloadBytes)</span>
                                     </div>
                                     <div class="speed-metric upload">
                                         <span class="speed-label">Upload</span>
-                                        <span class="speed-value speed-up">@DisplayFormatters.FormatBytes(_dataUsage.LanUploadBytes)</span>
+                                        <span class="speed-value speed-up">@DisplayFormatters.FormatBytes(u.LanUploadBytes)</span>
                                     </div>
                                 </div>
                                 <div class="speed-hero-meta">
-                                    <span>@(_dataUsage.LanIsPortTotal ? "Everything through its switch port" : "Everything through the Wi-Fi network")</span>
-                                    <span>Local ≈ <span class="speed-down">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanDownloadBytes - _dataUsage.WanDownloadBytes))</span> / <span class="speed-up">@DisplayFormatters.FormatBytes(Math.Max(0, _dataUsage.LanUploadBytes - _dataUsage.WanUploadBytes))</span></span>
+                                    <span>@(u.LanIsPortTotal ? "Everything through its switch port" : "Everything through the Wi-Fi network")</span>
+                                    <span>Local ≈ <span class="speed-down">@DisplayFormatters.FormatBytes(Math.Max(0, u.LanDownloadBytes - u.WanDownloadBytes))</span> / <span class="speed-up">@DisplayFormatters.FormatBytes(Math.Max(0, u.LanUploadBytes - u.WanUploadBytes))</span></span>
                                 </div>
+                                @if (usageLoading)
+                                {
+                                    <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
+                                </div>
                             </div>
                         </div>
                         @if (_selectedTimeFilter == 0)
@@ -4439,6 +4441,20 @@
     }
     .usage-card.is-active {
         box-shadow: inset 0 0 0 1px var(--primary-color);
+    }
+    .usage-card-body {
+        position: relative;
+    }
+    .usage-card-body.is-loading > .speed-hero-results,
+    .usage-card-body.is-loading > .speed-hero-meta {
+        visibility: hidden;
+    }
+    .usage-card-spinner {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
     .usage-card .speed-hero-results {
         margin-bottom: 12px;
