@@ -131,7 +131,7 @@
                 </SiteAdminOnly>
             }
         }
-        @{ var rows = TopRows(); }
+        @{ var rows = Sorted(TopRows()); }
         @if (_result == null && !_error)
         {
             <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
@@ -168,8 +168,8 @@
                             {
                                 <th class="hide-mobile">Via</th>
                             }
-                            <th>Download</th>
-                            <th>Upload</th>
+                            <th class="sortable @SortClass(SortColumn.Download)" @onclick="() => ToggleSort(SortColumn.Download)">Download</th>
+                            <th class="sortable @SortClass(SortColumn.Upload)" @onclick="() => ToggleSort(SortColumn.Upload)">Upload</th>
                             <th><span data-tooltip="@ShareTooltip">Share</span></th>
                         </tr>
                     </thead>
@@ -618,6 +618,42 @@
         // The playhead moved while this was answering: answer for where it is now. The seek that
         // moved it armed the debounce, but it may have fired into the loading guard and been dropped.
         if ((HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey) && !AwaitingPlayheadRate) ScheduleSeekRefresh();
+    }
+
+    // Column sort, three states per header: largest first, smallest first, then back to the
+    // default order by total. It reorders the rows the card would show anyway; it never changes
+    // which rows those are.
+    private enum SortColumn { Download, Upload }
+    private SortColumn? _sortCol;
+    private bool _sortAsc;
+
+    private void ToggleSort(SortColumn col)
+    {
+        if (_sortCol != col) { _sortCol = col; _sortAsc = false; }
+        else if (!_sortAsc) _sortAsc = true;
+        else _sortCol = null;
+    }
+
+    private string SortClass(SortColumn col) => _sortCol != col ? "" : _sortAsc ? "sort-asc" : "sort-desc";
+
+    private double SortKey(HogRow row, SortColumn col) => (col, _mode, _view) switch
+    {
+        (SortColumn.Download, Mode.Throughput, View.Wan) => row.WanDownBps,
+        (SortColumn.Download, Mode.Throughput, _) => row.DownBps,
+        (SortColumn.Download, Mode.Data, View.Wan) => row.WanDownBytes,
+        (SortColumn.Download, _, _) => row.DownBytes,
+        (SortColumn.Upload, Mode.Throughput, View.Wan) => row.WanUpBps,
+        (SortColumn.Upload, Mode.Throughput, _) => row.UpBps,
+        (SortColumn.Upload, Mode.Data, View.Wan) => row.WanUpBytes,
+        (SortColumn.Upload, _, _) => row.UpBytes,
+    };
+
+    private List<(HogRow Row, bool Fading)> Sorted(List<(HogRow Row, bool Fading)> rows)
+    {
+        if (_sortCol is not { } col) return rows;
+        return _sortAsc
+            ? rows.OrderBy(x => SortKey(x.Row, col)).ToList()
+            : rows.OrderByDescending(x => SortKey(x.Row, col)).ToList();
     }
 
     private double RowValue(HogRow row) => RowValue(row, _view);
