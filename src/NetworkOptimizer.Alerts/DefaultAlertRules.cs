@@ -672,6 +672,17 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            // The console refused the channel the plan needs and offers another channel's build,
+            // so the UniFi OS step declined rather than install a build nobody chose.
+            Name = "Firmware Rollout: UniFi OS Update Refused",
+            IsEnabled = true,
+            EventTypePattern = "rollout.unifi_os_update_refused",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Heavier After Upgrade",
             IsEnabled = true,
             EventTypePattern = "rollout.resource_regression",

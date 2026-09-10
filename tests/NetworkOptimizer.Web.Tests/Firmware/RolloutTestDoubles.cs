@@ -182,6 +182,9 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(true);
     }
 
+    /// <summary>False models a console that answers the channel PATCH with 403, as a UCG Fiber did.</summary>
+    public bool ConsoleChannelsAccepted { get; set; } = true;
+
     /// <summary>Writes the channels through to the console info, so a later read sees them.</summary>
     public Task<bool> SetConsoleChannelsAsync(string? networkAppChannel, string? unifiOsChannel, CancellationToken cancellationToken = default)
     {
@@ -190,6 +193,8 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
         ConsoleChannelWrites.Add((networkAppChannel, unifiOsChannel));
         Calls.Add("console-channels");
+        if (!ConsoleChannelsAccepted)
+            return Task.FromResult(false);
 
         if (networkAppChannel != null && ConsoleInfo?.NetworkApplication != null)
             ConsoleInfo.NetworkApplication.ReleaseChannel = networkAppChannel;
