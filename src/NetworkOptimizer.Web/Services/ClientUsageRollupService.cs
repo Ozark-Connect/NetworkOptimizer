@@ -1,4 +1,4 @@
-using NetworkOptimizer.Storage.Services;
+﻿using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -89,6 +89,22 @@ public class ClientUsageRollupService : BackgroundService
     private bool _wanSeeded;
     private DateTime _wanNext;
 
+    // wifi_client_daily rolls whole UTC days on its own cursors: a day-wide scan costs barely more
+    // than an hour-wide one, and slicing it finer would turn a 14-unit backfill into a 336-unit one.
+    // Its horizon follows the width lookback, so moving one moves both.
+    private static readonly TimeSpan DailyBackfillHorizon = ApAgent.ApAgentWidthDemand.Lookback + TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// Days get their own budget, not a share of the hourly one. A day-wide scan measured 1.29 s
+    /// against an hour-wide 75 ms, so four of them in a pass is eight times the query load the
+    /// hourly pacing was built for, on a box already serving charts. One per pass keeps a pass
+    /// bounded and still finishes the backfill in about fifteen minutes.
+    /// </summary>
+    private const int MaxDaysPerPass = 1;
+    private bool _dailySeeded;
+    private DateTime _dailyNext;
+    private DateTime _dailyOldest;
+
     // Earliest hour a late client_wan batch landed in (spool replay after a tunnel outage) -
     // hours the cursor already passed hold new points until this is consumed. long.MaxValue =
     // nothing pending.
@@ -143,10 +159,49 @@ public class ClientUsageRollupService : BackgroundService
         var hours = 0;
         var wifi = 0;
         var ports = 0;
+
+        // Days run before hours so the 720-unit hourly backfill cannot starve the 14-unit daily
+        // one and leave the width rule silent for hours on an install that looks healthy.
+        var lastCompleteDay = DayStart(DateTime.UtcNow).AddDays(-1);
+        var dailyHorizon = lastCompleteDay - DailyBackfillHorizon;
+        if (!_dailySeeded)
+        {
+            var lastDay = await _influx.QueryLastWifiClientDailyRollupDayAsync(ct);
+            var firstDay = await _influx.QueryFirstWifiClientDailyRollupDayAsync(ct);
+            if (lastDay.HasValue && firstDay.HasValue)
+            {
+                _dailyNext = lastDay.Value.AddDays(1);
+                _dailyOldest = firstDay.Value;
+            }
+            else
+            {
+                _dailyNext = lastCompleteDay.AddDays(1);
+                _dailyOldest = lastCompleteDay.AddDays(1);
+            }
+            if (_dailyNext < dailyHorizon) _dailyNext = dailyHorizon;
+            if (_dailyOldest < dailyHorizon) _dailyOldest = dailyHorizon;
+            _dailySeeded = true;
+        }
+
+        var daily = 0;
+        var days = 0;
+        async Task RollDayAsync(DateTime day)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (days > 0) await Task.Delay(PauseBetweenHours, ct);
+            daily += await _influx.RollupWifiClientDayAsync(day, ct);
+            days++;
+        }
+
+        for (; _dailyNext <= lastCompleteDay && days < MaxDaysPerPass; _dailyNext = _dailyNext.AddDays(1))
+            await RollDayAsync(_dailyNext);
+        for (; _dailyOldest.AddDays(-1) >= dailyHorizon && days < MaxDaysPerPass; _dailyOldest = _dailyOldest.AddDays(-1))
+            await RollDayAsync(_dailyOldest.AddDays(-1));
+
         async Task RollAsync(DateTime hour)
         {
             ct.ThrowIfCancellationRequested();
-            if (hours > 0) await Task.Delay(PauseBetweenHours, ct);
+            if (hours + days > 0) await Task.Delay(PauseBetweenHours, ct);
             wifi += await _influx.RollupWifiClientUsageHourAsync(hour, ct);
             ports += await _influx.RollupPortUsageHourAsync(hour, ct);
             hours++;
@@ -191,12 +246,18 @@ public class ClientUsageRollupService : BackgroundService
         var ahead = _next <= lastComplete ? (int)(lastComplete - _next).TotalHours + 1 : 0;
         var behind = _oldest > horizon ? (int)(_oldest - horizon).TotalHours : 0;
         var wanAhead = _wanNext <= lastComplete ? (int)(lastComplete - _wanNext).TotalHours + 1 : 0;
-        if (hours > 0)
-            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s), rolled {From:u} to {To:u}, {Wifi} wireless, {Ports} port, and {Wan} WAN points, {Remaining} hour(s) to go",
-                _siteSlug, hours, _oldest, _next.AddHours(-1), wifi, ports, wan, ahead + behind + wanAhead);
-        return ahead + behind + wanAhead > 0;
+        var dailyAhead = _dailyNext <= lastCompleteDay ? (int)(lastCompleteDay - _dailyNext).TotalDays + 1 : 0;
+        var dailyBehind = _dailyOldest > dailyHorizon ? (int)(_dailyOldest - dailyHorizon).TotalDays : 0;
+        var remaining = ahead + behind + wanAhead + dailyAhead + dailyBehind;
+        if (hours + days > 0)
+            _logger.LogInformation("Client usage rollup for site {Site}: {Hours} hour(s) and {Days} day(s), rolled {From:u} to {To:u}, {Wifi} wireless, {Ports} port, {Wan} WAN, and {Daily} per-client daily points, {Remaining} unit(s) to go",
+                _siteSlug, hours, days, _oldest, _next.AddHours(-1), wifi, ports, wan, daily, remaining);
+        return remaining > 0;
     }
 
     private static DateTime HourStart(DateTime utc) =>
         new(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc);
+
+    private static DateTime DayStart(DateTime utc) =>
+        new(utc.Year, utc.Month, utc.Day, 0, 0, 0, DateTimeKind.Utc);
 }
