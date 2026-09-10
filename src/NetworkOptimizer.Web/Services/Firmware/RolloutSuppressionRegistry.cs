@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
@@ -156,8 +156,9 @@ public class RolloutSuppressionRegistry
     {
         var site = NormalizeSite(siteSlug);
         _siteActiveAt.TryRemove(site, out _);
-        _consoleCyclingAt.TryRemove(site, out _);
-        _osCyclingAt.TryRemove(site, out _);
+        // The console and OS cycle windows are deliberately NOT cleared: they lapse on their own.
+        // A console restart takes devices dark for a minute or two AFTER the plan completes, and
+        // clearing here let four devices alert 87 s past a rollout that had already finished.
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
         foreach (var key in _agentHoldAt.Keys.Where(k => k.Site == site).ToList())

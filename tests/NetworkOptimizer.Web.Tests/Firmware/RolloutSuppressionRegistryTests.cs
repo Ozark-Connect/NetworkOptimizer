@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Web.Services;
@@ -139,14 +139,20 @@ public class RolloutSuppressionRegistryTests
     }
 
     [Fact]
-    public void ClearSiteDropsConsoleCycle()
+    public void ClearSiteLeavesTheConsoleCycleToLapse()
     {
+        // A console restart takes devices dark for a minute or two after the plan completes, so
+        // this window must outlive ClearSite and expire on its own.
         var registry = new RolloutSuppressionRegistry();
         registry.RefreshConsoleCycle(Site, Now);
         registry.ClearSite(Site);
 
-        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeFalse();
-        registry.IsSiteActiveRollout(Site, Now).Should().BeFalse();
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue();
+        registry.IsSiteActiveRollout(Site, Now).Should().BeTrue();
+
+        var lapsed = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        registry.IsInRolloutWindow(Site, Mac, lapsed).Should().BeFalse();
+        registry.IsSiteActiveRollout(Site, lapsed).Should().BeFalse();
     }
 
     // --- OS cycling (UniFi OS update specifically) --------------------------------------------
@@ -180,13 +186,15 @@ public class RolloutSuppressionRegistryTests
     }
 
     [Fact]
-    public void ClearSiteDropsOsCycle()
+    public void ClearSiteLeavesTheOsCycleToLapse()
     {
         var registry = new RolloutSuppressionRegistry();
         registry.RefreshOsCycle(Site, Now);
         registry.ClearSite(Site);
 
-        registry.IsOsCycling(Site, Now).Should().BeFalse();
+        registry.IsOsCycling(Site, Now).Should().BeTrue();
+        registry.IsOsCycling(Site, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
     }
 
     // --- Site-active rollout (device steps in flight) -----------------------------------------
