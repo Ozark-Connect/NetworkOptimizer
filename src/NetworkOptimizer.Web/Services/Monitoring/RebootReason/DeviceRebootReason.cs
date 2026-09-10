@@ -88,6 +88,9 @@ public enum RebootReasonSource
 /// and firmware upgrades name the version from the UniFi device data when the evidence cannot.
 /// v7: a kernel crash dump only explains this boot when the console ring did NOT end deliberately
 /// and the dump dates to this boot - dumps outlive the boot that produced them.
+/// v8: the console's own reason log is dated against the boot, so a probe that beats the console to
+/// writing this boot's entry no longer reads the previous one (a UCG-Fiber's 6.0.7 upgrade was
+/// reported as the power loss five days earlier).
 /// </summary>
 /// <remarks>
 /// The commanded-restart override (UniFi event overriding an unexpected pstore classification)
@@ -97,7 +100,7 @@ public enum RebootReasonSource
 public static class RebootClassifier
 {
     /// <summary>Current rule-set version.</summary>
-    public const int Version = 7;
+    public const int Version = 8;
 }
 
 /// <summary>
@@ -113,6 +116,13 @@ public record DeviceRebootReason(
     string? Detail,
     RebootReasonSource Source)
 {
+    /// <summary>
+    /// True when a stronger source is still expected to answer for this boot, so the reason is
+    /// displayed but must be probed again rather than treated as settled. Set when the console
+    /// keeps a reason log it has not yet written this boot's entry into.
+    /// </summary>
+    public bool Provisional { get; init; }
+
     /// <summary>True when the reason is a real finding rather than a "nothing found" placeholder.</summary>
     public bool IsConclusive => Category != RebootCategory.Unknown;
 

@@ -23,6 +23,7 @@ public class DeviceRebootProbe
     private const string ConsoleMarker = "###CONSOLE";
     private const string CrashMarker = "###CRASH";
     private const string RebootLogMarker = "###REBOOTLOG";
+    private const string RebootLogAgeMarker = "###REBOOTLOGAGE";
     private const string UpgradeMarker = "###UPGRADE";
     private const string UpgradeAgeMarker = "###UPGRADEAGE";
     private const string ConsoleRingMarker = "###CONSOLERING";
@@ -51,6 +52,13 @@ public class DeviceRebootProbe
         "if [ -n \"$M\" ] && [ -n \"$U\" ] && [ -n \"$N\" ]; then echo $((M - N + U)); fi",
         $"echo '{RebootLogMarker}'",
         "tail -n 2 /var/log/reboot-time.log 2>/dev/null",
+        // The console writes this boot's entry minutes after the kernel is up, so a probe can
+        // arrive while the last line still describes the PREVIOUS boot. Date the file against this
+        // boot and let the parser decide, same shape as the markers above.
+        $"echo '{RebootLogAgeMarker}'",
+        "M=$(stat -c %Y /var/log/reboot-time.log 2>/dev/null); " +
+        "U=$(awk '{print int($1)}' /proc/uptime 2>/dev/null); N=$(date +%s 2>/dev/null); " +
+        "if [ -n \"$M\" ] && [ -n \"$U\" ] && [ -n \"$N\" ]; then echo $((M - N + U)); fi",
         // Whether this platform writes a console ring at all. Without it an empty pstore is
         // meaningless; with it, an empty pstore means the RAM was lost, i.e. power was removed.
         $"echo '{ConsoleRingMarker}'",
@@ -125,9 +133,10 @@ public class DeviceRebootProbe
         }
 
         var sections = SplitSections(output);
+        var rebootLogAge = ParseSeconds(sections.GetValueOrDefault(RebootLogAgeMarker));
 
         var reason = RebootReasonParser.Best(
-            RebootReasonParser.ParseConsoleRebootLog(sections.GetValueOrDefault(RebootLogMarker)),
+            RebootReasonParser.ParseConsoleRebootLog(sections.GetValueOrDefault(RebootLogMarker), rebootLogAge),
             RebootReasonParser.ParsePstore(
                 sections.GetValueOrDefault(PstoreMarker),
                 sections.GetValueOrDefault(ConsoleMarker),
@@ -151,6 +160,19 @@ public class DeviceRebootProbe
                 "Reboot reason probe found no evidence on {Host} ({DeviceType}): {Evidence}",
                 host, deviceType, DescribeEvidence(sections));
             return null;
+        }
+
+        // This console keeps a reason log and has not written this boot's entry into it yet, so the
+        // strongest source has still to speak. Answer from what is here, but come back for it.
+        if (HasContent(sections.GetValueOrDefault(RebootLogMarker)) &&
+            RebootReasonParser.ConsoleRebootLogPredatesBoot(rebootLogAge))
+        {
+            _logger.LogDebug(
+                "Reboot reason probe on {Host} ({DeviceType}) resolved {Category} from {Source}, provisionally: " +
+                "the console's reason log still holds the previous boot's entry; evidence: {Evidence}",
+                host, deviceType, reason.Category, reason.Source, DescribeEvidence(sections));
+
+            return reason with { Provisional = true };
         }
 
         _logger.LogDebug(
@@ -180,6 +202,7 @@ public class DeviceRebootProbe
             Describe(RebootLogMarker, "reboot-time.log"),
             Describe(UpgradeMarker, "post_upgrade_pending"),
             Describe(ConsoleRingMarker, "console-ring-configured"),
+            $"reboot-log-vs-boot={ParseSeconds(sections.GetValueOrDefault(RebootLogAgeMarker))?.ToString() ?? "unknown"}s",
             $"marker-vs-boot={ParseSeconds(sections.GetValueOrDefault(UpgradeAgeMarker))?.ToString() ?? "unknown"}s",
             $"crash-vs-boot={ParseSeconds(sections.GetValueOrDefault(CrashAgeMarker))?.ToString() ?? "unknown"}s");
     }
@@ -233,7 +256,8 @@ public class DeviceRebootProbe
             var trimmed = line.Trim();
 
             if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
-                or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker or CrashAgeMarker)
+                or RebootLogAgeMarker or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker
+                or CrashAgeMarker)
             {
                 Flush();
                 current = trimmed;

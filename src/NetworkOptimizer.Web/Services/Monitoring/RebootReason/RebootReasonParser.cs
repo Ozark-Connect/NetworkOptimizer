@@ -29,11 +29,23 @@ public static class RebootReasonParser
 
     /// <summary>
     /// Parse the last line of a UniFi OS console's <c>/var/log/reboot-time.log</c>.
+    ///
+    /// The console appends this boot's entry minutes AFTER the kernel comes up, not at shutdown, so
+    /// a probe that reaches the box first reads the previous boot's line - which is this source's
+    /// strongest rank applied to an event days old. The entry has to be dated against the boot, the
+    /// same way the upgrade marker and the crash dump are.
     /// </summary>
     /// <param name="logTail">One or more trailing lines of the log; the last non-empty one is used.</param>
+    /// <param name="logAgeVsBootSeconds">
+    /// Log mtime minus this boot's start, in seconds, or null when the device could not report it.
+    /// Normally a small positive number; anything clearly negative belongs to an earlier boot.
+    /// </param>
     /// <returns>The reason, or null when the text does not look like a reboot-time entry.</returns>
-    public static DeviceRebootReason? ParseConsoleRebootLog(string? logTail)
+    public static DeviceRebootReason? ParseConsoleRebootLog(string? logTail, int? logAgeVsBootSeconds = null)
     {
+        if (ConsoleRebootLogPredatesBoot(logAgeVsBootSeconds))
+            return null;
+
         var line = LastNonEmptyLine(logTail);
         if (line == null || !line.Contains("Experience", StringComparison.OrdinalIgnoreCase))
             return null;
@@ -256,6 +268,22 @@ public static class RebootReasonParser
 
     /// <summary>How close a crash record's mtime must sit to the boot to be read as its cause.</summary>
     private const int CrashBootWindowSeconds = 900;
+
+    /// <summary>
+    /// How far BEFORE the boot the console's reason log may be dated and still describe it. The
+    /// entry is written after the boot, so this only absorbs clock jitter; there is no upper bound
+    /// because a slow console can take many minutes to get round to writing it.
+    /// </summary>
+    private const int RebootLogBootGraceSeconds = 60;
+
+    /// <summary>
+    /// Whether the console's reason log is known to still hold the PREVIOUS boot's entry, so its
+    /// verdict on this one is still to come. False when the device could not date it: an undatable
+    /// log is read as before.
+    /// </summary>
+    /// <param name="logAgeVsBootSeconds">Log mtime minus this boot's start, in seconds.</param>
+    internal static bool ConsoleRebootLogPredatesBoot(int? logAgeVsBootSeconds) =>
+        logAgeVsBootSeconds < -RebootLogBootGraceSeconds;
 
     /// <summary>
     /// Last-resort mapping of a UniFi Network event key. These are generic: the "unknown reason"
