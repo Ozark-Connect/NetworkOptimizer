@@ -385,8 +385,9 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
         await using var db = await dbFactory.CreateDbContextAsync();
 
+        // Ordered so the fallback is stable across calls, not whatever the scan returns first.
         return await db.ExternalSpeedTestServers.FirstOrDefaultAsync(s => s.IsDefault)
-            ?? await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+            ?? await db.ExternalSpeedTestServers.OrderBy(s => s.Id).FirstOrDefaultAsync();
     }
 
     public async Task<ExternalSpeedTestServer?> GetExternalSpeedTestServerAsync(int id)
@@ -448,7 +449,8 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
 
         if (wasDefault)
         {
-            var next = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+            // Ordered so the promoted server is stable, not whatever the scan returns first.
+            var next = await db.ExternalSpeedTestServers.OrderBy(s => s.Id).FirstOrDefaultAsync();
             if (next != null)
             {
                 next.IsDefault = true;

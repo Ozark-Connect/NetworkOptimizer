@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Threats.Models;
 
@@ -12,6 +13,17 @@ public class NetworkOptimizerDbContext : DbContext
     public NetworkOptimizerDbContext(DbContextOptions<NetworkOptimizerDbContext> options)
         : base(options)
     {
+    }
+
+    /// <summary>
+    /// Every settings table this app reads with a bare FirstOrDefault holds exactly one row by
+    /// construction, so EF's warning about the missing order has nothing to choose between and
+    /// only fills the log. Set here rather than on the options: five call sites build this
+    /// context, and three of them assemble their own options.
+    /// </summary>
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(CoreEventId.FirstWithoutOrderByAndFilterWarning));
     }
 
     public DbSet<AuditResult> AuditResults { get; set; }
