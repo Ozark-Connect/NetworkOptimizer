@@ -1559,7 +1559,7 @@ public class ChannelRecommendationService
             rec.WidthReason = null;
             if (node.WidthEvidence is not { } e || finalAssignment[i].Width == node.CurrentWidth) continue;
             rec.WidthReason = finalAssignment[i].Width < node.CurrentWidth
-                ? $"Narrower because no client that can roam to it has negotiated more than {e.MaxNegotiatedWidth} MHz in the last 7 days; the rest of the width only overlaps neighbors."
+                ? $"Narrower because no client that can roam to it has negotiated more than {e.MaxNegotiatedWidth} MHz in the last 14 days; the rest of the width only overlaps neighbors."
                 : $"Wider because its clients can use {finalAssignment[i].Width} MHz and the air is quiet ({e.MeasuredUtilization ?? 0}% busy).";
         }
 

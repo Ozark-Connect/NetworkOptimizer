@@ -90,7 +90,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                         ? BuildWeakSignalIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160, weakClients, totalClients, weakPct, meshAps)
                         : BuildInfoIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 160, meshAps);
                     if (unusedWidth)
-                        issue.Description += $" No client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 7 days.";
+                        issue.Description += $" No client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 14 days.";
                     yield return WithIntent(issue, radio);
                     continue;
                 }
@@ -105,7 +105,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                             BuildWeakSignalIssue(ap.Mac, ap.Name, radio.Band, currentWidth, 80, weakClients, totalClients, weakPct, meshAps), radio);
                     else if (unusedWidth)
                         yield return WithIntent(
-                            BuildUnusedWidthIssue(ap.Mac, ap.Name, radio.Band, currentWidth, maxNegotiated!.Value, totalClients, meshAps), radio);
+                            BuildUnusedWidthIssue(ap.Mac, ap.Name, radio.Band, currentWidth, maxNegotiated!.Value, meshAps), radio);
                 }
             }
         }
@@ -131,8 +131,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                 $"{siteWideVerb} {bandName} to {suggestedWidth} MHz, then Save and Apply to All APs.";
 
         return $"In UniFi Network: Devices > {apName} > Settings > Radios > {bandName} > Channel Width - " +
-            $"set it to {suggestedWidth} MHz on this AP only. Do not use Apply to All APs here: {JoinNames(meshAps)} " +
-            $"carry a mesh backhaul on {bandName}, and narrowing them would cut the link's capacity.";
+            $"set it to {suggestedWidth} MHz on this AP only. Do not set the Default WiFi Speeds and Apply to All APs. " +
+            $"{JoinNames(meshAps)} carry a mesh backhaul on {bandName}, and narrowing them would cut the link's capacity.";
     }
 
     private static string JoinNames(IReadOnlyList<string> names) => names.Count switch
@@ -193,7 +193,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
     /// half the width.
     /// </summary>
     private HealthIssue BuildUnusedWidthIssue(
-        string apMac, string apName, RadioBand band, int currentWidth, int maxNegotiated, int totalClients, IReadOnlyList<string> meshAps)
+        string apMac, string apName, RadioBand band, int currentWidth, int maxNegotiated, IReadOnlyList<string> meshAps)
     {
         var bandName = band.ToDisplayString();
         return new HealthIssue
@@ -203,8 +203,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Radio(apMac, band)),
             Title = $"Unused Width on {bandName}: {apName}",
-            Description = $"{apName} is using {currentWidth} MHz on {bandName}, and no client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 7 days ({totalClients} on it now). " +
-                "The extra width is not carrying traffic, and it makes the radio easier to interfere with.",
+            Description = $"{apName} is using {currentWidth} MHz on {bandName}, and no client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 14 days. " +
+                "The extra width is not carrying traffic, and it makes the radio more susceptible to interference.",
             AffectedEntity = apName,
             Recommendation = Recommendation(apName, band, maxNegotiated, meshAps, "set"),
             ScoreImpact = -3
