@@ -1259,6 +1259,8 @@
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     // Data tab
     private ClientDataUsage? _dataUsage;
+    // The range the totals and chart series belong to.
+    private int? _dataUsageFilter;
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
     private bool _appLoading;
     // The range the rows on screen belong to; a different range clears them before its own load.
@@ -2549,6 +2551,13 @@
     private async Task LoadDataUsageAsync(DateTime from, DateTime to)
     {
         if (_client == null) return;
+        // A range changed on another tab: drop the old totals so the chart is not created from
+        // their series while this loads (the tab-switch path never updates a chart it created).
+        if (_dataUsageFilter != _selectedTimeFilter)
+        {
+            _dataUsage = null;
+            _dataUsageFilter = _selectedTimeFilter;
+        }
         // Started first so the Applications report loads alongside the totals, not after them.
         _ = LoadAppUsageAsync(from, to);
         // Fetch the totals first and publish in one go: a render between the totals landing and
