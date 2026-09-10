@@ -82,9 +82,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     /// <summary>
     /// How long the UniFi Network application gets to restart into its new build. Past this the
-    /// rollout stops waiting and upgrades devices anyway.
+    /// rollout retries over SSH once, on a fresh budget, and then upgrades devices anyway.
     /// </summary>
-    public static readonly TimeSpan NetworkAppUpdateBudget = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan NetworkAppUpdateBudget = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// No Network-app judgment before this much has passed since the trigger: the application
@@ -1154,11 +1154,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (ElapsedReachable(triggeredAt) < NetworkAppJudgeDelay)
             return false;
 
+        string? installed = null;
+        var standalone = false;
+        var failed = false;
         if (!consoleDark)
         {
             // Answering is not updated: the app downloads its build and keeps answering on the old
             // version until the restart, so the reported version decides where it can be read.
-            var installed = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.NetworkApplication?.Version;
+            var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+            installed = console?.NetworkApplication?.Version;
+            standalone = console?.IsStandaloneConsole == true;
+            failed = console?.NetworkApplication?.UpdateFailed == true;
             var verifiable = !string.IsNullOrWhiteSpace(installed) && !string.IsNullOrWhiteSpace(state.TargetVersion);
             if (!verifiable
                 || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(installed, state.TargetVersion)
@@ -1174,24 +1180,73 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
 
-        if (ElapsedReachable(triggeredAt) < NetworkAppUpdateBudget)
+        // A console that says the install failed has nothing left to wait for; otherwise the
+        // budget decides, because a console that is quietly mid-install reads the same as one
+        // that already gave up.
+        if (!failed && ElapsedReachable(triggeredAt) < NetworkAppUpdateBudget)
+            return false;
+
+        if (!consoleDark && await RetryNetworkAppOverSshAsync(plan, document, installed, standalone, failed, cancellationToken))
             return false;
 
         state.Settled = true;
         state.Outcome = "stuck";
         await PersistDocumentAsync(plan, document, cancellationToken);
 
+        var retried = state.SshRetriedAt != null ? " and an SSH retry did not finish either" : string.Empty;
         await PublishAsync(
             RolloutAlerts.NetworkAppUpdateStuck,
             AlertSeverity.Warning,
             $"UniFi Network Application Not Back{_siteSuffix}",
-            $"The UniFi Network application update has not finished after {NetworkAppUpdateBudget.TotalMinutes:0} minutes. The device upgrades are going ahead anyway.",
+            $"The UniFi Network application update has not finished after {NetworkAppUpdateBudget.TotalMinutes:0} minutes{retried}. The device upgrades are going ahead anyway.",
             null, null, cancellationToken);
 
         _logger.LogError(
             "The UniFi Network application on site {Site} has not finished its update within {Budget}; upgrading devices anyway",
             _siteSlug, NetworkAppUpdateBudget);
         return true;
+    }
+
+    /// <summary>
+    /// The console accepted the Network app command and the install died inside it: either it says
+    /// so (installState "updateFailed"; a Cloud Gateway aborts when its apt refresh fails and
+    /// keeps the old build), or it is still answering on the old build past the budget. One retry
+    /// over SSH with the package the plan captured, on a fresh budget. False when there is nothing
+    /// to retry with, or the retry was refused.
+    /// </summary>
+    private async Task<bool> RetryNetworkAppOverSshAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, string? installed, bool standalone, bool failed,
+        CancellationToken cancellationToken)
+    {
+        var state = document.NetworkAppUpdate;
+        if (state.SshRetriedAt != null
+            || standalone
+            || string.IsNullOrWhiteSpace(state.Url)
+            || string.IsNullOrWhiteSpace(installed)
+            || string.IsNullOrWhiteSpace(state.TargetVersion)
+            || !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, installed))
+            return false;
+
+        _logger.LogWarning(
+            "The console on site {Site} took the Network app update but {Why}; retrying over SSH ({Url})",
+            _siteSlug,
+            failed ? "reports the install failed" : $"is still on {installed} after {NetworkAppUpdateBudget}",
+            state.Url);
+
+        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+        state.SshRetriedAt = Now;
+        if (ssh.IsOk)
+            state.TriggeredAt = Now;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+
+        if (ssh.IsOk)
+        {
+            _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
+            return true;
+        }
+
+        _logger.LogWarning("SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        return false;
     }
 
     /// <summary>

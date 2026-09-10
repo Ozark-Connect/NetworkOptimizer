@@ -124,6 +124,18 @@ public class UniFiConsoleController
     public UniFiConsoleControllerRollback? Rollback { get; set; }
 
     /// <summary>
+    /// The console's own install state for this application. "updateFailed" is the only word
+    /// the console says when an update it accepted died before installing anything; the version
+    /// and updateAvailable read exactly as before the attempt.
+    /// </summary>
+    [JsonPropertyName("installState")]
+    public string? InstallState { get; set; }
+
+    /// <summary>Whether the console reports the last update attempt as failed.</summary>
+    [JsonIgnore]
+    public bool UpdateFailed => string.Equals(InstallState, "updateFailed", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// This application's own auto-update schedule. Separate from the console's
     /// firmware.autoUpdate.includeApplications rider, and set independently of it, so an
     /// application can update itself while that rider reads false.
