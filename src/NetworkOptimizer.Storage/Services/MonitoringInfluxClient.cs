@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
@@ -4272,11 +4272,108 @@ span |> last() |> yield(name: ""last"")";
     /// distinct() on the single client_mac field is what keeps this cheap over a long range; do not
     /// widen the field filter, which would turn it into a full pivot over the measurement.
     /// </summary>
+    // ---- Per-client daily rollup (wifi_client_daily) ----
+    // wifi_client tags only device_mac and band, so client_mac is a field and any aggregation
+    // ahead of the pivot pairs one client's MAC with another's reading. That is unfixable in the
+    // query: most client_mac points come from the throughput writer, which carries no width, so
+    // the two fields' "last" in a window are different clients. This measurement is the answer -
+    // client_mac, band, device_mac and channel are real tags, written once per day, so readers get
+    // a cheap tagged max instead of a pivot over every raw point.
+    // AP Agent rows only (nss is agent-only): the console's per-client width is the radio's, not
+    // the client's, and requiring the agent's fields also keeps the pivoted schema homogeneous.
+
+    /// <summary>1: width, nss, PHY maxima and signal range per client, band, AP and channel.</summary>
+    public const int WifiClientDailyRollupVersion = 1;
+
     /// <summary>
-    /// The widest channel each client negotiated per band over the range, from AP Agent rows only
-    /// (the ones carrying <c>nss</c>): the console's per-client width is the radio's, not the
-    /// client's. Keyed by client MAC, then band tag ("2.4ghz" / "5ghz" / "6ghz"). Empty when
-    /// InfluxDB is not configured, the query fails, or no agent has written.
+    /// Rolls one UTC day of wifi_client agent rows into the longterm bucket. The pivot runs before
+    /// any aggregation, which is what makes a row's client and its readings the same client.
+    /// </summary>
+    public async Task<int> RollupWifiClientDayAsync(DateTime dayStart, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(dayStart)}, stop: {ToFluxInstant(dayStart.AddDays(1))})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""channel_width"" or r._field == ""nss"" or r._field == ""channel"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"")
+  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac and exists r.nss and exists r.channel_width and exists r.channel and exists r.signal_dbm and exists r.tx_rate_kbps and exists r.rx_rate_kbps)
+  |> group(columns: [""client_mac"", ""band"", ""device_mac"", ""channel""])
+  |> reduce(
+       fn: (r, accumulator) => ({{
+         width: if r.channel_width > accumulator.width then r.channel_width else accumulator.width,
+         nss: if r.nss > accumulator.nss then r.nss else accumulator.nss,
+         tx: if r.tx_rate_kbps > accumulator.tx then r.tx_rate_kbps else accumulator.tx,
+         rx: if r.rx_rate_kbps > accumulator.rx then r.rx_rate_kbps else accumulator.rx,
+         sigmax: if accumulator.n == 0 or r.signal_dbm > accumulator.sigmax then r.signal_dbm else accumulator.sigmax,
+         sigmin: if accumulator.n == 0 or r.signal_dbm < accumulator.sigmin then r.signal_dbm else accumulator.sigmin,
+         n: accumulator.n + 1
+       }}),
+       identity: {{width: 0, nss: 0, tx: 0, rx: 0, sigmax: 0.0, sigmin: 0.0, n: 0}}
+     )
+  |> group()";
+        var written = 0;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("client_mac") is not string mac || mac.Length == 0) continue;
+            if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
+            var samples = (long)(AsDoubleOrNull(record.GetValueByKey("n")) ?? 0);
+            if (samples <= 0) continue;
+
+            var point = PointData.Measurement("wifi_client_daily")
+                .Tag("client_mac", mac)
+                .Tag("band", band)
+                .Field("width_max", (long)(AsDoubleOrNull(record.GetValueByKey("width")) ?? 0))
+                .Field("nss_max", (long)(AsDoubleOrNull(record.GetValueByKey("nss")) ?? 0))
+                .Field("tx_rate_max_kbps", (long)(AsDoubleOrNull(record.GetValueByKey("tx")) ?? 0))
+                .Field("rx_rate_max_kbps", (long)(AsDoubleOrNull(record.GetValueByKey("rx")) ?? 0))
+                .Field("signal_max_dbm", AsDoubleOrNull(record.GetValueByKey("sigmax")) ?? 0)
+                .Field("signal_min_dbm", AsDoubleOrNull(record.GetValueByKey("sigmin")) ?? 0)
+                .Field("samples", samples)
+                .Field("rollup_v", (long)WifiClientDailyRollupVersion)
+                .Timestamp(dayStart.ToUniversalTime(), WritePrecision.Ns);
+
+            if (record.GetValueByKey("device_mac") is string ap && ap.Length > 0) point = point.Tag("device_mac", ap);
+            if (AsDoubleOrNull(record.GetValueByKey("channel")) is { } ch && ch > 0)
+                point = point.Tag("channel", ((int)ch).ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            Enqueue(point, longterm: true);
+            written++;
+        }
+        return written;
+    }
+
+    /// <summary>The newest UTC day the per-client rollup has written at the current version, or null.</summary>
+    public Task<DateTime?> QueryLastWifiClientDailyRollupDayAsync(CancellationToken ct = default) =>
+        WifiClientDailyRollupEdgeAsync("max", ct);
+
+    /// <summary>The oldest such day, or null.</summary>
+    public Task<DateTime?> QueryFirstWifiClientDailyRollupDayAsync(CancellationToken ct = default) =>
+        WifiClientDailyRollupEdgeAsync("min", ct);
+
+    private async Task<DateTime?> WifiClientDailyRollupEdgeAsync(string edge, CancellationToken ct)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""rollup_v"" and r._value >= {WifiClientDailyRollupVersion})
+  |> keep(columns: [""_time""])
+  |> group()
+  |> {edge}(column: ""_time"")";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var t = record.GetTimeInDateTime();
+            if (t != null) return ToUtc(t.Value);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The widest channel each client negotiated per band over the range, read from the daily
+    /// rollup: client_mac is a tag there, so this is a tagged max rather than a pivot over raw
+    /// points. Keyed by client MAC, then band tag ("2.4ghz" / "5ghz" / "6ghz"). Empty when
+    /// InfluxDB is not configured or the rollup has not written yet, which keeps a caller's
+    /// width judgment silent rather than made from nothing.
     /// </summary>
     public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>> QueryNegotiatedWidthsAsync(
         DateTime from,
@@ -4284,26 +4381,20 @@ span |> last() |> yield(name: ""last"")";
         CancellationToken ct = default)
     {
         var result = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
-        if (!IsConfigured) return result;
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return result;
 
-        // Windowed before the pivot for the same pushdown reason as the client-rate query; last()
-        // per window keeps a width a width rather than averaging two into one that never existed.
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""channel_width"" or r._field == ""nss"")
-  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)
-  |> pivot(rowKey: [""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.client_mac and exists r.channel_width and exists r.nss)
+  |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""width_max"")
   |> group(columns: [""client_mac"", ""band""])
-  |> max(column: ""channel_width"")
+  |> max()
   |> group()";
 
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             if (record.GetValueByKey("client_mac") is not string mac || mac.Length == 0) continue;
             if (record.GetValueByKey("band") is not string band || band.Length == 0) continue;
-            var width = (int)(AsDoubleOrNull(record.GetValueByKey("channel_width")) ?? 0);
+            var width = (int)(AsDoubleOrNull(record.GetValue()) ?? 0);
             if (width <= 0) continue;
 
             if (!result.TryGetValue(mac, out var byBand))
