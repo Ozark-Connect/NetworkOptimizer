@@ -523,6 +523,12 @@ public class RolloutConsoleStepState
     /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
     public string? Url { get; set; }
 
+    /// <summary>
+    /// When the SSH retry ran because the console took the command and never installed it.
+    /// Null until then; it runs once.
+    /// </summary>
+    public DateTime? SshRetriedAt { get; set; }
+
     /// <summary>Resource stats captured before the update was triggered.</summary>
     public string? PreStatsJson { get; set; }
 

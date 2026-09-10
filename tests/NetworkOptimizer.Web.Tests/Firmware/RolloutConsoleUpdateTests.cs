@@ -80,6 +80,79 @@ public class RolloutConsoleUpdateTests
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
     }
 
+    private static async Task<FirmwareRolloutPlan> SeedNetworkAppPlanWithDebAsync(RolloutHarness harness)
+    {
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.Url = "https://example.test/unifi-native.deb";
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        return plan;
+    }
+
+    [Fact]
+    public async Task NetworkAppUpdateTakenButNeverInstalled_IsRetriedOverSshOnAFreshBudget()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedNetworkAppPlanWithDebAsync(harness);
+
+        // The console accepted the command and keeps answering on the old build, saying nothing:
+        // the install died inside it. The budget runs out before anything is judged.
+        await harness.TickAsync();
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+        harness.Commands.Calls.Should().NotContain("ssh-network-app-update");
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.NetworkAppUpdateBudget);
+
+        harness.Commands.Calls.Where(c => c == "ssh-network-app-update").Should().HaveCount(1);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateStuck);
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.NetworkAppUpdate.SshRetriedAt.Should().NotBeNull();
+        stored.NetworkAppUpdate.Settled.Should().BeFalse();
+
+        harness.Commands.ConsoleInfo!.NetworkApplication!.Version = "9.1.0";
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate.Outcome.Should().Be("updated");
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task AConsoleThatReportsTheInstallFailed_IsRetriedOverSshWithoutWaitingOutTheBudget()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedNetworkAppPlanWithDebAsync(harness);
+
+        await harness.TickAsync();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.InstallState = "updateFailed";
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        harness.Commands.Calls.Where(c => c == "ssh-network-app-update").Should().HaveCount(1);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateStuck);
+        Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate.Settled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AnSshRetryThatAlsoFails_IsStuckAndTriedOnce()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshNetworkAppResult = FirmwareCommandResult.Failed("no route to host");
+        var plan = await SeedNetworkAppPlanWithDebAsync(harness);
+
+        await harness.TickAsync();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.InstallState = "updateFailed";
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        harness.Commands.Calls.Where(c => c == "ssh-network-app-update").Should().HaveCount(1);
+        var alert = harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.NetworkAppUpdateStuck);
+        alert.Message.Should().Contain("SSH retry");
+        Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate.Outcome.Should().Be("stuck");
+
+        await harness.TickAsync(TimeSpan.FromMinutes(1));
+        harness.Commands.Calls.Where(c => c == "ssh-network-app-update").Should().HaveCount(1);
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
     [Fact]
     public async Task NetworkAppUpdateNotComingBack_WarnsAndUpgradesTheDevicesAnyway()
     {
