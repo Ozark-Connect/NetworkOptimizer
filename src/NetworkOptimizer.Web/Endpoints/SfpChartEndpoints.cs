@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
@@ -9,6 +10,60 @@ namespace NetworkOptimizer.Web.Endpoints;
 
 public static class SfpChartEndpoints
 {
+    /// <summary>
+    /// A PON module's series with the DDM read artifact removed, built from RAW points: the chart
+    /// query aggregates by mean, which smears a one-poll spike into its bucket where no filter can
+    /// see it. Raw points are judged by their neighbours, the artifacts dropped, and the rest
+    /// re-aggregated onto the same buckets the chart query would have used. Stored points are
+    /// untouched. <paramref name="dropped"/> carries the artifact times so their alert marks go too.
+    /// </summary>
+    private static List<MonitoringInfluxClient.SfpPoint> CleanPonSeries(
+        List<MonitoringInfluxClient.SfpPoint> raw, TimeSpan window, out List<DateTime> dropped)
+    {
+        dropped = new List<DateTime>();
+        var kept = new List<MonitoringInfluxClient.SfpPoint>(raw.Count);
+        for (var i = 0; i < raw.Count; i++)
+        {
+            if (i > 0 && i < raw.Count - 1)
+            {
+                var (prev, cur, next) = (raw[i - 1], raw[i], raw[i + 1]);
+                if (prev.TemperatureC is { } pt && prev.RxPowerDbm is { } pr
+                    && cur.TemperatureC is { } ct && cur.RxPowerDbm is { } cr
+                    && next.TemperatureC is { } nt && next.RxPowerDbm is { } nr
+                    && SfpDdmSpikeFilter.IsArtifact(pt, pr, ct, cr, nt, nr))
+                {
+                    dropped.Add(cur.Time);
+                    continue;
+                }
+            }
+            kept.Add(raw[i]);
+        }
+
+        if (window <= TimeSpan.FromSeconds(5)) return kept;
+
+        // Same buckets as Flux aggregateWindow: epoch-aligned, stamped at the bucket stop, mean of
+        // whatever each field has, a bucket with no points omitted.
+        var ticks = window.Ticks;
+        return kept
+            .GroupBy(p => (p.Time.Ticks / ticks + 1) * ticks)
+            .OrderBy(g => g.Key)
+            .Select(g => new MonitoringInfluxClient.SfpPoint
+            {
+                Time = new DateTime(g.Key, DateTimeKind.Utc),
+                RxPowerDbm = Mean(g.Select(p => p.RxPowerDbm)),
+                TxPowerDbm = Mean(g.Select(p => p.TxPowerDbm)),
+                TemperatureC = Mean(g.Select(p => p.TemperatureC)),
+                VoltageV = Mean(g.Select(p => p.VoltageV)),
+            })
+            .ToList();
+    }
+
+    private static double? Mean(IEnumerable<double?> values)
+    {
+        var present = values.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+        return present.Count == 0 ? null : present.Average();
+    }
+
     public static void Map(WebApplication app)
     {
         // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
@@ -61,11 +116,33 @@ public static class SfpChartEndpoints
                 .GroupBy(t => t.DeviceMac!.Replace("-", ":").ToLowerInvariant())
                 .ToDictionary(g => g.Key, g => g.First().Name);
 
+            // Alerts already recorded against a dropped sample are dropped with it. Suppressing
+            // new ones does nothing for the history already on disk, and a mark with no data point
+            // under it is worse than either.
+            var artifactTimes = new Dictionary<string, List<DateTime>>();
+            var ignoreSpikes = (await db.MonitoringSettings.AsNoTracking()
+                .OrderBy(m => m.Id).FirstOrDefaultAsync(ct))?.IgnoreSfpDdmSpikes ?? false;
+            var ponModules = ignoreSpikes
+                ? sfps.Where(s => s.IsPon).Select(s => (s.DeviceMac, s.PortName)).ToList()
+                : new List<(string DeviceMac, string PortName)>();
+            var rawPon = ponModules.Count > 0
+                ? await influx.QuerySfpByModulesAsync(ponModules, queryFrom, queryTo, TimeSpan.Zero, ct)
+                : new Dictionary<string, List<MonitoringInfluxClient.SfpPoint>>();
+            var chartWindow = MonitoringInfluxClient.SfpChartWindow(queryTo - queryFrom);
+
+            // Materialized before the marks are built: the lambda is what fills artifactTimes, and a
+            // deferred Select would run it during serialization, after BuildSfpEventsAsync had
+            // already read an empty dictionary and left every artifact's mark on the chart.
             var result = sfps.Select(s =>
             {
                 var key = $"{s.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{s.PortName}";
                 data.TryGetValue(key, out var points);
                 var pts = points ?? new List<MonitoringInfluxClient.SfpPoint>();
+                if (ignoreSpikes && s.IsPon && rawPon.TryGetValue(key, out var raw))
+                {
+                    pts = CleanPonSeries(raw, chartWindow, out var dropped);
+                    if (dropped.Count > 0) artifactTimes[key] = dropped;
+                }
                 var deviceName = nameMap.TryGetValue(
                     s.DeviceMac.Replace("-", ":").ToLowerInvariant(), out var n) ? n : s.DeviceMac;
                 var label = !string.IsNullOrEmpty(s.FriendlyName)
@@ -88,7 +165,7 @@ public static class SfpChartEndpoints
                     }),
                     pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null)
                 };
-            });
+            }).ToList();
 
             // Grouped rather than ToDictionary'd: a duplicate module row would otherwise throw
             // out of the whole response, series included, for the sake of the marks.
@@ -101,7 +178,7 @@ public static class SfpChartEndpoints
                             ? dn
                             : g.First().DeviceMac));
 
-            var events = await BuildSfpEventsAsync(db, modulesById, queryFrom, queryTo, ct);
+            var events = await BuildSfpEventsAsync(db, modulesById, artifactTimes, queryFrom, queryTo, ct);
 
             return Results.Ok(new { modules = result, events });
         });
@@ -170,6 +247,19 @@ public static class SfpChartEndpoints
 
 
     /// <summary>
+    /// How far an alert's timestamp may sit from the sample that caused it. The alert is published
+    /// during the poll that read the value, so the gap is the collection pass, not a poll interval.
+    /// </summary>
+    private static readonly TimeSpan ArtifactMarkWindow = TimeSpan.FromMinutes(3);
+
+    /// <summary>Only the two an artifact can raise. TX and PON link-down are never dropped.</summary>
+    private static readonly HashSet<string> ArtifactEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "monitoring.sfp_temperature",
+        "monitoring.sfp_rx_power",
+    };
+
+    /// <summary>
     /// Marks for the charted modules over the same window as the series.
     ///
     /// An SFP alert names its module in the event context rather than in a column, so the match
@@ -178,6 +268,7 @@ public static class SfpChartEndpoints
     private static async Task<List<object>> BuildSfpEventsAsync(
         NetworkOptimizerDbContext db,
         Dictionary<string, (string Port, string Device)> modulesById,
+        Dictionary<string, List<DateTime>> artifactTimes,
         DateTime from,
         DateTime to,
         CancellationToken ct)
@@ -213,6 +304,11 @@ public static class SfpChartEndpoints
 
             var key = ModuleKey(deviceMac, portName);
             if (!modulesById.TryGetValue(key, out var module)) continue;
+
+            if (ArtifactEventTypes.Contains(alert.EventType)
+                && artifactTimes.TryGetValue(key, out var artifacts)
+                && artifacts.Any(t => (DateTime.SpecifyKind(alert.TriggeredAt, DateTimeKind.Utc) - t).Duration() <= ArtifactMarkWindow))
+                continue;
 
             // Written as UtcNow but read back from SQLite as Unspecified, and "o" on an
             // Unspecified value emits no zone - which the browser then reads as local time.

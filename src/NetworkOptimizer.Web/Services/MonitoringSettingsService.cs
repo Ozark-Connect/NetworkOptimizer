@@ -87,6 +87,7 @@ public class MonitoringSettingsService : IMonitoringSettingsService
             s.AeRxPowerLowDbm = edit.AeRxPowerLowDbm;
             s.AeTxPowerHighDbm = edit.AeTxPowerHighDbm;
             s.SfpTempHighGenericC = NormalizeTemp(edit.SfpTempHighGenericC);
+            s.IgnoreSfpDdmSpikes = edit.IgnoreSfpDdmSpikes;
             var after = Snapshot(s);
             return before == after ? null : new { from = before, to = after };
         });
@@ -108,9 +109,9 @@ public class MonitoringSettingsService : IMonitoringSettingsService
             };
         });
 
-    private static (double?, double?, double?, double?, double?, double?, double?) Snapshot(MonitoringSettings s) =>
+    private static (double?, double?, double?, double?, double?, double?, double?, bool) Snapshot(MonitoringSettings s) =>
         (s.PonTempHighC, s.PonRxPowerLowDbm, s.PonTxPowerHighDbm,
-         s.AeTempHighC, s.AeRxPowerLowDbm, s.AeTxPowerHighDbm, s.SfpTempHighGenericC);
+         s.AeTempHighC, s.AeRxPowerLowDbm, s.AeTxPowerHighDbm, s.SfpTempHighGenericC, s.IgnoreSfpDdmSpikes);
 
     /// <summary>
     /// Loads the site's settings row (creating it on first save), applies an edit, and records the

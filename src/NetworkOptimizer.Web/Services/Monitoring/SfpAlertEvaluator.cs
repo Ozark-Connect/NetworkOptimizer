@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -12,6 +13,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class SfpAlertEvaluator
 {
+    /// <summary>Where to turn this off, named as it reads on screen.</summary>
+    private const string DdmSpikeHint =
+        "If these are chronic, SFP Stats - SFP Alert Thresholds has a setting to ignore single-poll DDM spikes.";
+
     private const double TempHysteresisC = PonThresholds.TempHysteresisC;
     private const double PowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
 
@@ -46,6 +51,34 @@ public class SfpAlertEvaluator
         var portLabel = deviceName != null ? $"{deviceName} port {portName}" : $"port {portName}";
         var catLabel = category switch { SfpCategory.Pon => "PON", SfpCategory.ActiveEthernet => "AE", _ => "SFP" };
 
+        var samples = ResolveSamples(state, category, temperatureC, rxPowerDbm, portLabel, thresholds.IgnoreDdmSpikes);
+        foreach (var (evalTemp, evalRx, looksLikeArtifact) in samples)
+            await EvaluateTempAndRxAsync(state, deviceMac, portName, deviceName, category, catLabel, portLabel,
+                evalTemp, evalRx, looksLikeArtifact, thresholds, ct);
+
+        // TX is never deferred: the PON artifact leaves TX power alone - under 0.08 dB across all
+        // 19 measured events - so holding it would delay a real TX fault to guard against something
+        // that does not touch it.
+        if (category != SfpCategory.Standard && txPowerDbm.HasValue)
+        {
+            var txThreshold = category == SfpCategory.Pon ? thresholds.PonTxPowerHighDbm : thresholds.AeTxPowerHighDbm;
+            await CheckHighThreshold(state, "tx", txPowerDbm.Value, txThreshold, PowerHysteresisDbm,
+                "monitoring.sfp_tx_power",
+                $"{catLabel} TX power on {portLabel}",
+                $"{catLabel} TX power {txPowerDbm.Value:0.##} dBm exceeds {txThreshold} dBm on {portLabel}",
+                deviceMac, portName, deviceName, category, ct);
+        }
+    }
+
+    private async ValueTask EvaluateTempAndRxAsync(
+        SfpAlertState state, string deviceMac, string portName, string? deviceName,
+        SfpCategory category, string catLabel, string portLabel,
+        double? temperatureC, double? rxPowerDbm, bool looksLikeArtifact,
+        SfpDdmThresholds thresholds, CancellationToken ct)
+    {
+        // Only on a reading that matches the pattern, and only while the setting is off - once it
+        // is on, a released alert held for two polls and the setting would not have helped.
+        var hint = looksLikeArtifact ? " " + DdmSpikeHint : "";
         if (temperatureC.HasValue)
         {
             var threshold = category switch
@@ -57,7 +90,7 @@ public class SfpAlertEvaluator
             await CheckHighThreshold(state, "temp", temperatureC.Value, threshold, TempHysteresisC,
                 "monitoring.sfp_temperature",
                 $"SFP temperature on {portLabel}",
-                $"SFP temperature {temperatureC.Value:0.#} °C exceeds {threshold} °C threshold on {portLabel}",
+                $"SFP temperature {temperatureC.Value:0.#} °C exceeds {threshold} °C threshold on {portLabel}.{hint}",
                 deviceMac, portName, deviceName, category, ct);
         }
 
@@ -67,19 +100,77 @@ public class SfpAlertEvaluator
             await CheckLowThreshold(state, "rx", rxPowerDbm.Value, rxThreshold, PowerHysteresisDbm,
                 "monitoring.sfp_rx_power",
                 $"{catLabel} RX power on {portLabel}",
-                $"{catLabel} RX power {rxPowerDbm.Value:0.##} dBm is below {rxThreshold} dBm on {portLabel}",
+                $"{catLabel} RX power {rxPowerDbm.Value:0.##} dBm is below {rxThreshold} dBm on {portLabel}.{hint}",
                 deviceMac, portName, deviceName, category, ct);
+        }
+    }
+
+    /// <summary>
+    /// Which temperature/RX readings this poll evaluates. For anything but a PON stick carrying
+    /// both readings, that is simply this poll's own pair.
+    ///
+    /// On a PON stick a joint temperature+RX jump is held back one poll, because the only thing
+    /// separating the module's DDM read artifact from a real fault is whether the next reading
+    /// comes back. A confirmed artifact is dropped and never reaches a threshold or an event; a
+    /// jump that holds is released and evaluated one poll late. Readings that did not jump are
+    /// evaluated immediately, so ordinary alerts are never delayed.
+    ///
+    /// Never widen this to Active Ethernet or standard optics. The artifact is specific to PON ONT
+    /// sticks, and on anything else this only delays real alerts.
+    /// </summary>
+    private List<(double? Temp, double? Rx, bool LooksLikeArtifact)> ResolveSamples(
+        SfpAlertState state, SfpCategory category, double? temperatureC, double? rxPowerDbm,
+        string portLabel, bool ignoreSpikes)
+    {
+        if (category != SfpCategory.Pon || temperatureC is not { } curTemp || rxPowerDbm is not { } curRx)
+            return [(temperatureC, rxPowerDbm, false)];
+
+        // Off: nothing is held, but a reading that jumped jointly still carries the pointer to the
+        // setting. Whether it returns is unknowable now, and the alert has to go out either way.
+        if (!ignoreSpikes)
+        {
+            var jumped = state.LastTemp is { } lt0 && state.LastRx is { } lr0
+                && SfpDdmSpikeFilter.IsJointJump(lt0, lr0, curTemp, curRx);
+            state.LastTemp = curTemp;
+            state.LastRx = curRx;
+            state.PendingTemp = null;
+            state.PendingRx = null;
+            return [(curTemp, curRx, jumped)];
         }
 
-        if (category != SfpCategory.Standard && txPowerDbm.HasValue)
+        var release = new List<(double? Temp, double? Rx, bool LooksLikeArtifact)>();
+
+        if (state.PendingTemp is { } pendTemp && state.PendingRx is { } pendRx
+            && state.LastTemp is { } lastTemp && state.LastRx is { } lastRx)
         {
-            var txThreshold = category == SfpCategory.Pon ? thresholds.PonTxPowerHighDbm : thresholds.AeTxPowerHighDbm;
-            await CheckHighThreshold(state, "tx", txPowerDbm.Value, txThreshold, PowerHysteresisDbm,
-                "monitoring.sfp_tx_power",
-                $"{catLabel} TX power on {portLabel}",
-                $"{catLabel} TX power {txPowerDbm.Value:0.##} dBm exceeds {txThreshold} dBm on {portLabel}",
-                deviceMac, portName, deviceName, category, ct);
+            state.PendingTemp = null;
+            state.PendingRx = null;
+            if (SfpDdmSpikeFilter.IsArtifact(lastTemp, lastRx, pendTemp, pendRx, curTemp, curRx))
+            {
+                _logger.LogDebug(
+                    "SFP DDM artifact discarded on {Port}: temp {Temp:0.#} C, RX {Rx:0.##} dBm returned to {BackTemp:0.#} C / {BackRx:0.##} dBm",
+                    portLabel, pendTemp, pendRx, curTemp, curRx);
+            }
+            else
+            {
+                release.Add((pendTemp, pendRx, false));
+                state.LastTemp = pendTemp;
+                state.LastRx = pendRx;
+            }
         }
+
+        if (state.LastTemp is { } prevTemp && state.LastRx is { } prevRx
+            && SfpDdmSpikeFilter.IsJointJump(prevTemp, prevRx, curTemp, curRx))
+        {
+            state.PendingTemp = curTemp;
+            state.PendingRx = curRx;
+            return release;
+        }
+
+        state.LastTemp = curTemp;
+        state.LastRx = curRx;
+        release.Add((curTemp, curRx, false));
+        return release;
     }
 
     private async ValueTask CheckHighThreshold(
@@ -157,5 +248,13 @@ public class SfpAlertEvaluator
     private class SfpAlertState
     {
         public HashSet<string> Breached { get; } = new();
+
+        /// <summary>Last temperature/RX pair accepted as real, for the PON artifact check.</summary>
+        public double? LastTemp { get; set; }
+        public double? LastRx { get; set; }
+
+        /// <summary>A joint jump held back until the next poll says whether it returned.</summary>
+        public double? PendingTemp { get; set; }
+        public double? PendingRx { get; set; }
     }
 }

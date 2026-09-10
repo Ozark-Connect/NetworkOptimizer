@@ -4481,6 +4481,10 @@ span |> last() |> yield(name: ""last"")";
         return TimeSpan.FromSeconds(windowSeconds);
     }
 
+    /// <summary>The window <see cref="QuerySfpByModulesAsync"/> aggregates on for a range, for a caller
+    /// that filters raw points and must re-aggregate onto the same buckets.</summary>
+    public static TimeSpan SfpChartWindow(TimeSpan range) => PickAggregateWindow(range);
+
     /// <summary>
     /// A range bound as Flux wants it. Callers pass UTC: an Unspecified DateTime is read as LOCAL
     /// here, so a timestamp straight out of SQLite has to be stamped by its caller first.

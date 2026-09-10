@@ -82,7 +82,8 @@ public sealed record SfpDdmThresholds(
     double AeRxPowerLowDbm,
     double AeTxPowerHighDbm,
     double AeTempHighC,
-    double SfpTempHighGenericC)
+    double SfpTempHighGenericC,
+    bool IgnoreDdmSpikes = false)
 {
     /// <summary>The built-in defaults, used when no monitoring settings exist.</summary>
     public static SfpDdmThresholds Defaults { get; } = new(
@@ -102,5 +103,6 @@ public sealed record SfpDdmThresholds(
         s.AeRxPowerLowDbm ?? PonThresholds.AeRxPowerLowDbm,
         s.AeTxPowerHighDbm ?? PonThresholds.AeTxPowerHighDbm,
         s.AeTempHighC ?? PonThresholds.AeTempHighC,
-        s.SfpTempHighGenericC ?? PonThresholds.SfpTempHighGenericC);
+        s.SfpTempHighGenericC ?? PonThresholds.SfpTempHighGenericC,
+        s.IgnoreSfpDdmSpikes);
 }
