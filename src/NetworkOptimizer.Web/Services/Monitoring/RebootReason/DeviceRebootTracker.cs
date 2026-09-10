@@ -31,6 +31,13 @@ public class DeviceRebootTracker
     /// <summary>Don't re-probe a device that just failed; SSH may be unconfigured or the box down.</summary>
     private static readonly TimeSpan ProbeRetryDelay = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How soon to go back for a provisional reason. A UniFi OS console takes minutes after the
+    /// kernel is up to write its own reason for the boot, so this is a short wait for one file to
+    /// appear, not the cool-off after a failed probe.
+    /// </summary>
+    private static readonly TimeSpan ProvisionalRetryDelay = TimeSpan.FromMinutes(2);
+
     private readonly ConcurrentDictionary<string, DeviceBootRecord> _records = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -230,7 +237,8 @@ public class DeviceRebootTracker
             // Answered for this boot, nothing to do. An inconclusive answer (the UniFi Network
             // fallback saying only "restarted") does NOT count: it is displayed, but the probe
             // keeps retrying in case the device becomes reachable and can say what really happened.
-            if (known!.Reason?.IsConclusive == true) return;
+            // Neither does a provisional one, whose stronger source has yet to write its verdict.
+            if (known!.Reason?.IsConclusive == true && !known.Reason.Provisional) return;
         }
         else if (known != null)
         {
@@ -448,14 +456,17 @@ public class DeviceRebootTracker
         // One probe per device at a time, and a cool-off after a miss. Devices whose SSH is not
         // set up land here on every health sample, so the skip is logged at Debug once per hour
         // rather than every 30 seconds.
+        var provisional = _records.TryGetValue(mac, out var held) && held.Reason?.Provisional == true;
+        var retryDelay = provisional ? ProvisionalRetryDelay : ProbeRetryDelay;
+
         if (_lastProbeAttempt.TryGetValue(mac, out var last))
         {
             var since = DateTime.UtcNow - last;
-            if (since < ProbeRetryDelay)
+            if (since < retryDelay)
             {
                 _logger.LogTrace(
                     "Reboot reason probe for {Device} ({Mac}) skipped: last attempt {Minutes:F0} min ago, retrying after {Retry}",
-                    deviceName ?? "unknown", mac, since.TotalMinutes, ProbeRetryDelay);
+                    deviceName ?? "unknown", mac, since.TotalMinutes, retryDelay);
                 return;
             }
         }
@@ -552,6 +563,12 @@ public class DeviceRebootTracker
             // The reason is still recorded; only the notification was lost.
             _logger.LogWarning(ex, "Could not publish the reboot alert for {Mac}", mac);
         }
+
+        // A provisional reason stays in memory only. Persisting it would let a server restart in
+        // the couple of minutes before the console writes its own verdict seed the record back as
+        // settled, which is the failure this whole path exists to close; with nothing on file the
+        // device is simply probed again.
+        if (reason.Provisional) return;
 
         // Reuse the point already on file for this boot so the write replaces it instead of
         // creating a second point a few seconds away; otherwise the read can keep returning the

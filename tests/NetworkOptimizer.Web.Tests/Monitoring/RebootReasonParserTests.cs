@@ -601,4 +601,38 @@ public class RebootReasonParserTests
     {
         Assert.Equal(expected, RebootReasonParser.NamesADifferentImage(previous, current));
     }
+
+    [Fact]
+    public void ConsoleRebootLog_EntryPredatesThisBoot_IsIgnored()
+    {
+        // The console appends this boot's entry minutes after the kernel is up, so a probe that
+        // arrives first reads the previous boot's line - here a power loss five days earlier.
+        const string log = "2026-09-05T04:10:12-0400 Experience an improper shutdown(Power on Reset [0x20])";
+
+        Assert.Null(RebootReasonParser.ParseConsoleRebootLog(log, logAgeVsBootSeconds: -434_000));
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_EntryWrittenAfterThisBoot_IsUsed()
+    {
+        const string log = "2026-09-10T10:24:31-0400 Experience an upgrade reboot from " +
+            "UCGF.ipq9574.v5.1.31.5acc35d.260819.1714 to UCGF.ipq9574.v6.0.7.5e82c39.260902.1411, " +
+            "and takes 525.197s (0:08:45.197476)";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log, logAgeVsBootSeconds: 301);
+
+        Assert.Equal(RebootCategory.FirmwareUpgrade, reason!.Category);
+        Assert.Equal("Upgraded from 5.1.31 to 6.0.7", reason.Detail);
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_UndatableEntry_IsUsed()
+    {
+        // Devices that cannot report the age keep the behavior they had before the boot check.
+        const string log = "2026-07-15T16:00:55-0500 Experience an improper shutdown(Power on Reset [0x20])";
+
+        var reason = RebootReasonParser.ParseConsoleRebootLog(log, logAgeVsBootSeconds: null);
+
+        Assert.Equal(RebootCategory.PowerLoss, reason!.Category);
+    }
 }

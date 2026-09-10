@@ -81,6 +81,12 @@ public class DeviceRebootAlertEvaluator
         if (!reason.IsConclusive)
             return false;
 
+        // A provisional reason is one a stronger source is about to overwrite. Alerting on it would
+        // mean a "power loss" notification followed minutes later by the console's own "firmware
+        // upgrade"; the re-probe that settles it is what alerts.
+        if (reason.Provisional)
+            return false;
+
         // A restart a rollout asked for is announced by the rollout, not here.
         if (_rolloutWindows?.IsInRolloutWindow(_siteSlug, deviceMac, now) == true)
         {
