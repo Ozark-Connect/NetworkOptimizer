@@ -1,4 +1,4 @@
-using NetworkOptimizer.WiFi.Models;
+﻿using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -53,6 +53,14 @@ public static class ApAgentWidthDemand
                     max = Math.Max(max, width);
                 }
 
+                // No history for this band leaves the radio unjudged, live clients or not. The
+                // snapshot is only ever an addition to the history, never a substitute: on its own
+                // it misses every client that was here an hour ago and calls the width unused.
+                // Never relax this - a rollup is empty for a minute after each deploy and for the
+                // whole backfill on a new install, and a width recommendation made in that window
+                // is wrong and actionable.
+                if (max <= 0) continue;
+
                 foreach (var c in clients)
                 {
                     if (!c.IsOnline || c.Band != radio.Band || c.NegotiatedWidth is not > 0) continue;
@@ -60,7 +68,6 @@ public static class ApAgentWidthDemand
                     max = Math.Max(max, c.NegotiatedWidth.Value);
                 }
 
-                if (max <= 0) continue;
                 radio.MeasuredMaxNegotiatedWidth = max;
                 set++;
             }
