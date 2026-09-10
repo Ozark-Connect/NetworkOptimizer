@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using NetworkOptimizer.Web.Services.ApAgent;
 using NetworkOptimizer.WiFi.Models;
 using Xunit;
@@ -27,6 +27,34 @@ public class ApAgentWidthDemandTests
             .ToDictionary(g => g.Key,
                 g => (IReadOnlyDictionary<string, int>)g.ToDictionary(r => r.Band, r => r.Width, StringComparer.OrdinalIgnoreCase),
                 StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void An_empty_history_leaves_the_radio_unjudged_however_many_clients_are_on_it()
+    {
+        var ap1 = Ap(Ap1);
+        var clients = new List<WirelessClientSnapshot>
+        {
+            Client("cc:00:00:00:00:01", Ap1, 80),
+            Client("cc:00:00:00:00:02", Ap1, 80),
+            Client("cc:00:00:00:00:03", Ap1, 80),
+        };
+
+        ApAgentWidthDemand.Apply([ap1], clients, History()).Should().Be(0);
+
+        ap1.Radios[0].MeasuredMaxNegotiatedWidth.Should().BeNull();
+    }
+
+    [Fact]
+    public void The_snapshot_still_raises_a_band_the_history_already_reached()
+    {
+        var ap1 = Ap(Ap1);
+        var clients = new List<WirelessClientSnapshot> { Client("cc:00:00:00:00:01", Ap1, 160) };
+        var history = History(("cc:00:00:00:00:02", "5ghz", 80));
+
+        ApAgentWidthDemand.Apply([ap1], clients, history).Should().Be(1);
+
+        ap1.Radios[0].MeasuredMaxNegotiatedWidth.Should().Be(160);
+    }
 
     [Fact]
     public void A_client_that_negotiated_wide_elsewhere_this_week_counts_because_it_can_roam_here()
