@@ -1043,7 +1043,7 @@
             {
                 @* ===== DATA TAB ===== *@
                 <div class="tab-pane" data-tour="client-data">
-                    @if (!_tabLoading && (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0)))
+                    @if (!_tabLoading && !_dataUsageLoading && (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0)))
                     {
                         <div class="empty-state">
                             <p>No usage recorded for this time range.</p>
@@ -1053,7 +1053,7 @@
                     {
                         @* While loading, the figures stay in the layout but hidden, so the cards keep
                            their height on every breakpoint and the spinner sits over them. *@
-                        var usageLoading = _tabLoading || _dataUsage == null;
+                        var usageLoading = _tabLoading || _dataUsageLoading || _dataUsage == null;
                         var u = _dataUsage ?? new ClientDataUsage();
                         <div class="usage-grid">
                             <div class="card results-card usage-card @(_usageView == "wan" ? "is-active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">
@@ -1261,6 +1261,8 @@
     private ClientDataUsage? _dataUsage;
     // The range the totals and chart series belong to.
     private int? _dataUsageFilter;
+    private int _dataUsageGeneration;
+    private bool _dataUsageLoading;
     private IReadOnlyList<AppUsageRow> _appUsage = Array.Empty<AppUsageRow>();
     private bool _appLoading;
     // The range the rows on screen belong to; a different range clears them before its own load.
@@ -2425,7 +2427,7 @@
                     // console and the store for days at a time.
                     // Not while a tab switch is already loading it: two loads at once is how the
                     // first visit's chart came up empty.
-                    "data" => !_tabLoading && DateTime.UtcNow - _dataLoadedAt >= (_selectedTimeFilter is > 0 and <= 24
+                    "data" => !_tabLoading && !_dataUsageLoading && DateTime.UtcNow - _dataLoadedAt >= (_selectedTimeFilter is > 0 and <= 24
                         ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5)),
                     _ => true,
                 };
@@ -2551,6 +2553,7 @@
     private async Task LoadDataUsageAsync(DateTime from, DateTime to)
     {
         if (_client == null) return;
+        var generation = ++_dataUsageGeneration;
         // A range changed on another tab: drop the old totals so the chart is not created from
         // their series while this loads (the tab-switch path never updates a chart it created).
         if (_dataUsageFilter != _selectedTimeFilter)
@@ -2558,25 +2561,36 @@
             _dataUsage = null;
             _dataUsageFilter = _selectedTimeFilter;
         }
+        _dataUsageLoading = true;
         // Started first so the Applications report loads alongside the totals, not after them.
         _ = LoadAppUsageAsync(from, to);
-        // Fetch the totals first and publish in one go: a render between the totals landing and
-        // the series being built created the chart empty, and the tab-switch path never updates a
-        // chart after creating it.
-        var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
-        static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
-            rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
-        _wanDownData = Series(usage.Wan, r => r.DownloadBytes, "download");
-        _wanUpData = Series(usage.Wan, r => r.UploadBytes, "upload");
-        _lanDownData = Series(usage.Lan, r => r.DownloadBytes, "download");
-        _lanUpData = Series(usage.Lan, r => r.UploadBytes, "upload");
-        _dataUsage = usage;
-        _dataLoadedAt = DateTime.UtcNow;
-        // A day bar is a date; a time on it only says which midnight the day began at.
-        _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
-        // Keep the user's pick unless that side has nothing to plot.
-        if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
-        else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
+        try
+        {
+            // Fetch the totals first and publish in one go: a render between the totals landing and
+            // the series being built created the chart empty, and the tab-switch path never updates a
+            // chart after creating it.
+            var usage = await DashboardService.GetDataUsageAsync(_client, from, to);
+            // Only the newest request may publish, so a slow earlier range cannot overwrite a later one.
+            if (generation != _dataUsageGeneration) return;
+            static List<SpeedChartPoint> Series(IReadOnlyList<UsageBucket> rows, Func<UsageBucket, long> pick, string name) =>
+                rows.Select(r => new SpeedChartPoint(r.Time, pick(r), name)).ToList();
+            _wanDownData = Series(usage.Wan, r => r.DownloadBytes, "download");
+            _wanUpData = Series(usage.Wan, r => r.UploadBytes, "upload");
+            _lanDownData = Series(usage.Lan, r => r.DownloadBytes, "download");
+            _lanUpData = Series(usage.Lan, r => r.UploadBytes, "upload");
+            _dataUsage = usage;
+            _dataLoadedAt = DateTime.UtcNow;
+            // A day bar is a date; a time on it only says which midnight the day began at.
+            _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
+            // Keep the user's pick unless that side has nothing to plot.
+            if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
+            else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
+        }
+        finally
+        {
+            // A superseded load leaves the flag to the one that replaced it.
+            if (generation == _dataUsageGeneration) _dataUsageLoading = false;
+        }
     }
 
     /// <summary>
