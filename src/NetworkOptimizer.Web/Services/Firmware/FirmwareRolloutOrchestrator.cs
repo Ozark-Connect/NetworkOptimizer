@@ -1414,12 +1414,32 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         // The channel decides which build is on offer, so it goes on before the offer is read.
-        await ApplyUniFiOsChannelAsync(plan, document, console, cancellationToken);
+        var channelInForce = await ApplyUniFiOsChannelAsync(plan, document, console, cancellationToken);
 
         var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
         var installedOs = (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.InstalledOsVersion;
 
+        // A console that refused the channel switch offers whichever build its own channel
+        // carries. Only the build the plan captured may go through the API then; anything else
+        // is another channel's release, and installing it would put the console on a track
+        // nobody chose. Version match, not "newer": a beta on offer is newer than the planned RC.
+        var offerIsPlanned = channelInForce
+            || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending?.Version, document.UniFiOsUpdate.TargetVersion);
+        if (pending?.Version != null && !offerIsPlanned)
+        {
+            _logger.LogError(
+                "Declining the UniFi OS update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
+                _siteSlug, pending.Version, document.UniFiOsUpdate.TargetVersion ?? "build");
+            await PublishAsync(
+                RolloutAlerts.UniFiOsUpdateRefused,
+                AlertSeverity.Warning,
+                $"UniFi OS Update Declined{_siteSuffix}",
+                $"The Console would not switch to the planned UniFi OS channel and is offering {ShortVersion(pending.Version) ?? pending.Version} instead of the planned {ShortVersion(document.UniFiOsUpdate.TargetVersion) ?? "build"}. It was not installed.",
+                document.ConsoleMac, document.ConsoleName, cancellationToken);
+        }
+
         var apiPathAvailable = pending?.Version != null
+            && offerIsPlanned
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pending.Version, installedOs);
 
@@ -1481,7 +1501,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
         }
 
-        var outcome = apiPathAvailable ? "refused" : "nothing-to-update";
+        var outcome = apiPathAvailable || (pending?.Version != null && !offerIsPlanned) ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
     }
@@ -2787,29 +2807,33 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Puts the console's UniFi OS on the channel this rollout wants, before the pending build is
     /// read. Cloud Gateways only - the caller has already refused a self-hosted console.
     /// </summary>
-    private async Task ApplyUniFiOsChannelAsync(
+    /// <summary>
+    /// Puts the plan's UniFi OS channel in force on the console. False only when the console
+    /// refused the switch: it is then offering its own channel's build, not the plan's.
+    /// </summary>
+    private async Task<bool> ApplyUniFiOsChannelAsync(
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
         UniFiConsoleSystemInfo? console,
         CancellationToken cancellationToken)
     {
         if (document.ConsoleChannels.UniFiOsChannel != null)
-            return;
+            return true;
 
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         var channel = settings.EffectiveUniFiOsChannel;
         if (string.IsNullOrWhiteSpace(channel))
-            return;
+            return true;
 
         var current = console?.Firmware?.ReleaseChannel;
         if (RolloutChannelManager.AlreadyOn(current, channel))
-            return;
+            return true;
 
         if (string.IsNullOrWhiteSpace(current))
         {
             _logger.LogWarning(
                 "Leaving the UniFi OS channel alone on site {Site}: the console does not report the one it is on", _siteSlug);
-            return;
+            return true;
         }
 
         plan.OriginalChannelSettingsJson = await _channels.CaptureAsync(
@@ -2817,10 +2841,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (!await _channels.ApplyUniFiOsChannelAsync(channel, console, cancellationToken))
-            return;
+            return false;
 
         document.ConsoleChannels.UniFiOsChannel = channel;
         await PersistDocumentAsync(plan, document, cancellationToken);
+        return true;
     }
 
     private async Task RestoreChannelsAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken)

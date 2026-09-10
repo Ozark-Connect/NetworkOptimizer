@@ -166,6 +166,75 @@ public class RolloutConsoleChannelTests
         OriginalChannelSettings.Parse(stored!.OriginalChannelSettingsJson)!.UniFiOsChannel.Should().Be("release");
     }
 
+    /// <summary>
+    /// A console on beta whose plan wants release-candidate. Whether the offer is taken must
+    /// depend on the switch going through, not on what happens to be on offer afterwards.
+    /// </summary>
+    private static async Task<FirmwareRolloutPlan> SeedRefusedChannelPlanAsync(
+        RolloutHarness harness, string plannedOs, string offeredOs, string? plannedUrl = null)
+    {
+        harness.Commands.ConsoleInfo = Console(osChannel: "beta");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = offeredOs };
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.ReleaseCandidate);
+        var document = UniFiOsPlan();
+        document.UniFiOsUpdate.TargetVersion = plannedOs;
+        document.UniFiOsUpdate.Url = plannedUrl;
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        return plan;
+    }
+
+    [Fact]
+    public async Task ARefusedChannelSwitch_DoesNotInstallAnotherChannelsBuild()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedRefusedChannelPlanAsync(harness, plannedOs: "v4.3.6+abc1234", offeredOs: "v5.0.0+def5678");
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        // The first write is the switch; a later one is the completed plan putting beta back.
+        harness.Commands.ConsoleChannelWrites.First().UniFiOs.Should().Be(FirmwareChannels.ReleaseCandidate);
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0, "the offer is the beta build, not the planned one");
+        harness.Commands.Calls.Should().NotContain("ssh-unifi-os-update", "the plan captured no image to fall back to");
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Outcome.Should().Be("refused");
+        stored.ConsoleChannels.UniFiOsChannel.Should().BeNull("a refused switch is not one this rollout put in force");
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.UniFiOsUpdateRefused);
+    }
+
+    [Fact]
+    public async Task ARefusedChannelSwitch_FallsBackToThePlannedImageOverSsh()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedRefusedChannelPlanAsync(
+            harness, plannedOs: "v4.3.6+abc1234", offeredOs: "v5.0.0+def5678", plannedUrl: "https://example.test/os-4.3.6.bin");
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0);
+        harness.Commands.Calls.Should().Contain("ssh-unifi-os-update");
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Triggered.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ARefusedChannelSwitch_StillInstallsWhenTheOfferIsThePlannedBuild()
+    {
+        using var harness = new RolloutHarness();
+        // Catalog shapes on both sides: the same build carries the same hash, and a comparison
+        // that trips on the hash would refuse the very build the plan chose.
+        var plan = await SeedRefusedChannelPlanAsync(harness, plannedOs: "v4.3.6+abc1234", offeredOs: "v4.3.6+abc1234");
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(1, "the console is offering exactly the build the plan captured");
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.UniFiOsUpdateRefused);
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Triggered.Should().BeTrue();
+    }
+
     [Fact]
     public async Task AStandaloneConsole_KeepsItsUniFiOsChannel()
     {
