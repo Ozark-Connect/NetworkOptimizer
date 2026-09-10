@@ -28,6 +28,27 @@ over any range has to bridge resets rather than subtracting endpoints; and WAN a
 different questions and must never be added together (WAN is what left the site, LAN includes
 traffic that never did).
 
+## Per-client daily rollup (`wifi_client_daily`): consumers still to adopt it
+
+Shipped: `RollupWifiClientDayAsync` writes one point per client, band, AP and channel per UTC day to
+the longterm bucket, from a pivot-first read of the AP Agent rows. Tags are `client_mac`, `band`,
+`device_mac` and `channel`, so per-client questions are a tagged max instead of a pivot over every
+raw point. Fields: `width_max`, `nss_max`, `tx_rate_max_kbps`, `rx_rate_max_kbps`, `signal_max_dbm`,
+`signal_min_dbm`, `samples`. Only `QueryNegotiatedWidthsAsync` reads it today.
+
+- **Channel Recommendation: a real distinct-client floor.** `ClientOutcomeHelper.MinDistinctDays = 3`
+  exists as a stand-in for one, because per-client aggregation over raw points measured 33 s against
+  1 s for the windowed form. With `client_mac` and `channel` both tags, counting distinct clients per
+  channel is now cheap. `ChannelMemory` carries the same note.
+- **Wi-Fi Optimizer: client capability without the console.** `nss_max` and the PHY maxima say what a
+  client actually achieved, per band and per AP. `BuildWidthEvidence` currently takes
+  `MaxSupportedWidth` from the console's `Capabilities.MaxChannelWidth`, which is a claim rather than
+  a measurement.
+- **Interpretation rule for anything rate-based:** a rate is only meaningful against the signal it was
+  measured at, which is why `signal_max_dbm` / `signal_min_dbm` sit in the same point. A daily
+  min/max bounds a client's RF distance, it does not pin it, so it suits a distinct-client floor and
+  does not replace `ChannelMemory`'s per-window `SignalBandDbm` bucketing for rate inference.
+
 ## SSH key placement on console gateways (udm-boot)
 
 TABLED, and quite likely overtaken by UniFi shipping key support for console SSH themselves.

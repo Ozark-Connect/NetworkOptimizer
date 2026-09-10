@@ -39,6 +39,9 @@ public static class ClientOutcomeHelper
     /// </summary>
     public const int MinDistinctDays = 3;
 
+    // TODO: wifi_client_daily tags client_mac and channel, so a real distinct-client floor is now a
+    // cheap tagged query rather than the 33 s pivot this proxy was chosen to avoid. See TODO.md.
+
     /// <summary>Candidate must beat the current channel by this much before it lowers the bar.</summary>
     public const double ImpetusRatio = 1.15;
 

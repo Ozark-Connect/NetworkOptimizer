@@ -102,6 +102,10 @@ public record RememberedNeighborSighting(
 /// the channel. Windows rather than raw samples because per-client aggregation is not affordable:
 /// client_mac is a field rather than a tag, so isolating clients requires a pivot over every raw
 /// point, which measured 33s against 1s for the windowed form.
+///
+/// TODO: wifi_client_daily now tags client_mac, band, device_mac and channel, so per-client
+/// evidence is affordable. The windowed form still owns rate inference: it bands signal per window,
+/// where the daily rollup only bounds it. See TODO.md.
 /// </summary>
 /// <param name="Channel">Control channel the radio was on for these windows</param>
 /// <param name="WidthMhz">
