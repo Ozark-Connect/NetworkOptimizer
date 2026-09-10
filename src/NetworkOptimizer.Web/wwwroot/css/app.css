@@ -2916,6 +2916,15 @@ select.form-control {
     margin-bottom: 0;
 }
 
+.sfp-ddm-toggle {
+    margin-top: 0.25rem;
+}
+
+/* Long enough to need a measure; the threshold fields above wrap at 180px, so this may not. */
+.sfp-ddm-help {
+    max-width: 68ch;
+}
+
 .input-with-button {
     display: flex;
     gap: 0.5rem;

@@ -127,6 +127,12 @@ public class MonitoringSettings
     public double? SfpTempHighGenericC { get; set; }
 
     /// <summary>
+    /// Ignore the SFP ONT DDM read artifact: one poll where temperature and RX power jump together
+    /// and the next returns. Off by default - it drops readings, so it is the operator's call.
+    /// </summary>
+    public bool IgnoreSfpDdmSpikes { get; set; }
+
+    /// <summary>
     /// When more than one monitored physical source (ONT, SFP, cable modem, cellular modem)
     /// matches the WAN's access technology, the user's chosen source for the ISP Health
     /// Physical Link factor, as a token: "cm:3", "ont:2", "modem:1",

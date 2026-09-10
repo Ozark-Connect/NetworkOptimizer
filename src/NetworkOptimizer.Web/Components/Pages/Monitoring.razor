@@ -1025,6 +1025,17 @@
                 </div>
                 <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
 
+                <h3 class="chart-title" style="margin-top: 1rem;">SFP ONT readings</h3>
+                <label class="checkbox-label sfp-ddm-toggle">
+                    <input type="checkbox" @bind="_ignoreSfpDdmSpikes" @bind:after="ResetThresholdSavedFlags" />
+                    Ignore single-poll DDM spikes on SFP ONTs
+                </label>
+                <p class="form-help sfp-ddm-help">
+                    A known DDM read pattern on SFP ONT sticks: temperature and RX power jump together for
+                    one poll, then return to normal. Drops that reading from alerts and charts. Anything
+                    that holds for two polls still alerts.
+                </p>
+
                 </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
@@ -3411,6 +3422,7 @@
     private double? _sfpPonTemp, _sfpPonRx, _sfpPonTx;
     private double? _sfpAeTemp, _sfpAeRx, _sfpAeTx;
     private double? _sfpGenericTemp;
+    private bool _ignoreSfpDdmSpikes;
     private bool _savingSfpThresholds;
     private bool _sfpThresholdsSaved;
 
@@ -3438,6 +3450,7 @@
         _sfpAeRx = settings.AeRxPowerLowDbm;
         _sfpAeTx = settings.AeTxPowerHighDbm;
         _sfpGenericTemp = settings.SfpTempHighGenericC;
+        _ignoreSfpDdmSpikes = settings.IgnoreSfpDdmSpikes;
     }
 
     private async Task SaveSfpThresholdsAsync()
@@ -3455,10 +3468,14 @@
                 AeTempHighC = _sfpAeTemp,
                 AeRxPowerLowDbm = _sfpAeRx,
                 AeTxPowerHighDbm = _sfpAeTx,
-                SfpTempHighGenericC = _sfpGenericTemp
+                SfpTempHighGenericC = _sfpGenericTemp,
+                IgnoreSfpDdmSpikes = _ignoreSfpDdmSpikes
             });
             LoadSfpThresholdInputs(settings);
             _sfpThresholdsSaved = true;
+            // The spike setting changes the series and marks the chart endpoint returns.
+            try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.reload();"); }
+            catch (JSException ex) { Logger.LogDebug(ex, "SFP chart reload after threshold save failed"); }
         }
         finally
         {

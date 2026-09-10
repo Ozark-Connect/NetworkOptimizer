@@ -709,6 +709,13 @@ export function soloModule(id) {
     if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
+/** Refetches and redraws on the current window. The thresholds card calls this after a save,
+ *  since the DDM spike setting changes what the endpoint returns for the same range. */
+export async function reload() {
+    if (!containerId) return;
+    await loadAndUpdate();
+}
+
 export function unmount() {
     stopPoll();
     window.removeEventListener('resize', onMarkResize);

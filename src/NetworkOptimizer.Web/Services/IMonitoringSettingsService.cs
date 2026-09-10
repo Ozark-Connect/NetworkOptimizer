@@ -67,4 +67,5 @@ public sealed record SfpThresholdEdit
     public double? AeRxPowerLowDbm { get; init; }
     public double? AeTxPowerHighDbm { get; init; }
     public double? SfpTempHighGenericC { get; init; }
+    public bool IgnoreSfpDdmSpikes { get; init; }
 }

@@ -26,6 +26,8 @@ public static class OpticalSampleStats
     /// the hard artifacts seen in the field jump 20-30+ C in one sample, so their temperature can't be
     /// trusted to detrend against either.
     /// </summary>
+    // Not the same rule as SfpDdmSpikeFilter, which judges a poll by its neighbours for alerts and
+    // SFP Stats. This one has a whole scoring window and rejects by distance from its median.
     public const double DdmTempArtifactDeltaC = 12.0;
 
     /// <summary>Coupling fit needs at least this many distinct 1 C temperature bins.</summary>
