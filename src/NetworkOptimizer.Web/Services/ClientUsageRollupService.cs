@@ -1,4 +1,4 @@
-﻿using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -39,6 +39,10 @@ public class ClientUsageRollupService : BackgroundService
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
         _influx = influx.GetFor(_siteSlug);
         _logger = logger;
+
+        var phase = StablePhaseSeconds(_siteSlug);
+        _sitePhase = TimeSpan.FromSeconds(phase % (int)PhaseSpread.TotalSeconds);
+        _catchUpJitter = TimeSpan.FromSeconds(phase % 20);
     }
 
     /// <summary>No-op: the registry owns start and stop.</summary>
@@ -46,6 +50,30 @@ public class ClientUsageRollupService : BackgroundService
 
     // Sites start half a minute apart, so a multi-site box does not open with every site's scans at once.
     private static int _started;
+
+    /// <summary>
+    /// Window the per-site phase spreads over. The startup stagger above only holds for the first
+    /// pass: every site then schedules from the same absolute HourStart, so a multi-site box ran
+    /// every site's scans on one instant every hour for the life of the process. The phase is
+    /// derived from the slug, so it is stable across restarts and needs no coordination.
+    /// </summary>
+    private static readonly TimeSpan PhaseSpread = TimeSpan.FromMinutes(20);
+
+    private readonly TimeSpan _sitePhase;
+    private readonly TimeSpan _catchUpJitter;
+
+    /// <summary>FNV-1a, because string.GetHashCode is randomized per process and a phase that
+    /// moves on every restart cannot keep two sites apart.</summary>
+    private static int StablePhaseSeconds(string slug)
+    {
+        var hash = 2166136261u;
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes(slug))
+        {
+            hash ^= b;
+            hash *= 16777619u;
+        }
+        return (int)(hash % int.MaxValue);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -70,7 +98,9 @@ public class ClientUsageRollupService : BackgroundService
             }
 
             var now = DateTime.UtcNow;
-            var next = behind ? now + CatchUpInterval : HourStart(now).AddHours(1) + SettleDelay;
+            var next = behind
+                ? now + CatchUpInterval + _catchUpJitter
+                : HourStart(now).AddHours(1) + SettleDelay + _sitePhase;
             try { await Task.Delay(next - now, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
