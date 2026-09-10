@@ -272,7 +272,15 @@ public class DeviceRebootTracker
 
             // Release the previous boot's point. Reusing it is only ever right for a re-probe of
             // the same boot; on a new one it would overwrite the record the previous boot left.
-            _storedBootAt.TryRemove(mac, out _);
+            //
+            // Only when a record is actually being displaced. A device with none is a first
+            // sighting, where the pointer came from the seed and is the ONLY thing that can make a
+            // re-probe overwrite - dropping it there is what left a classifier bump writing its
+            // correction beside the record it corrects, at an earlier instant, so the read kept
+            // returning the wrong one. StoreAsync's tolerance check already refuses a pointer that
+            // belongs to an older boot.
+            if (known != null)
+                _storedBootAt.TryRemove(mac, out _);
         }
 
         _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
