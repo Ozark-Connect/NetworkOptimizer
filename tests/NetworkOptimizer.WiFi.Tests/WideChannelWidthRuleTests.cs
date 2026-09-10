@@ -50,8 +50,8 @@ public class WideChannelWidthRuleTests
         issue.Title.Should().Be("Unused Width on 5 GHz: AP-1");
         issue.Class.Should().Be(HealthIssueClass.Measured);
         issue.Description.Should().Be(
-            "AP-1 is using 160 MHz on 5 GHz, and no client that can roam to it has negotiated more than 80 MHz in the last 7 days (4 on it now). " +
-            "The extra width is not carrying traffic, and it makes the radio easier to interfere with.");
+            "AP-1 is using 160 MHz on 5 GHz, and no client that can roam to it has negotiated more than 80 MHz in the last 14 days. " +
+            "The extra width is not carrying traffic, and it makes the radio more susceptible to interference.");
         issue.Recommendation.Should().Be(SiteWide);
     }
 
@@ -117,7 +117,7 @@ public class WideChannelWidthRuleTests
         issue.Title.Should().Be("Wide Channel with Weak Clients on 5 GHz: AP-Other");
         issue.Recommendation.Should().Be(
             "In UniFi Network: Devices > AP-Other > Settings > Radios > 5 GHz > Channel Width - set it to 80 MHz on this AP only. " +
-            "Do not use Apply to All APs here: AP-Parent and AP-Child carry a mesh backhaul on 5 GHz, and narrowing them would cut the link's capacity.");
+            "Do not set the Default WiFi Speeds and Apply to All APs. AP-Parent and AP-Child carry a mesh backhaul on 5 GHz, and narrowing them would cut the link's capacity.");
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public class WideChannelWidthRuleTests
         var issue = _rule.EvaluateAll(Context([ap], Clients(ap.Mac, RadioBand.Band6GHz, 4, -55, 160))).Single();
 
         issue.Severity.Should().Be(HealthIssueSeverity.Info);
-        issue.Description.Should().EndWith(" No client that can roam to it has negotiated more than 160 MHz in the last 7 days.");
+        issue.Description.Should().EndWith(" No client that can roam to it has negotiated more than 160 MHz in the last 14 days.");
     }
 
     [Fact]

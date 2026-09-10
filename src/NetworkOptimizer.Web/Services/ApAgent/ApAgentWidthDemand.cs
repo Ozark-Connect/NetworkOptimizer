@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 public static class ApAgentWidthDemand
 {
     /// <summary>How far back a client's negotiated width still counts as demand.</summary>
-    public static readonly TimeSpan Lookback = TimeSpan.FromDays(7);
+    public static readonly TimeSpan Lookback = TimeSpan.FromDays(14);
 
     /// <summary>
     /// Sets <see cref="RadioSnapshot.MeasuredMaxNegotiatedWidth"/> on every radio the evidence
