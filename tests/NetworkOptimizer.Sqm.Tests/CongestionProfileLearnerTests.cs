@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using NetworkOptimizer.Sqm.Models;
 using Xunit;
 
@@ -238,6 +238,21 @@ public class CongestionProfileLearnerTests
 
         p.DaysSpanned.Should().Be(1);
         p.HasFullDayCycle.Should().BeFalse();
+    }
+
+    [Fact]
+    public void UnsampledHours_NamesTheHoursHoldingTheDayCycleBack()
+    {
+        // Every hour but 22, the shape a WAN that is never quiet at 22:00 produces.
+        var start = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+        var samples = Enumerable.Range(0, 24).Where(h => h != 22)
+            .Select(h => new LearningSample(h + 1, h < 12 ? 0 : 1, h, 250, 28, start.AddHours(h)))
+            .ToList();
+
+        var p = CongestionProfileLearner.Learn(samples).Profile;
+
+        p.HasFullDayCycle.Should().BeFalse();
+        p.UnsampledHours.Should().Equal(22);
     }
 
     [Fact]

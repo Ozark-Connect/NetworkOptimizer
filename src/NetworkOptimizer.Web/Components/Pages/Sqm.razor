@@ -1725,6 +1725,19 @@
 </style>
 
 @code {
+    /// <summary>Gateway-local hours as "22:00", Oxford-comma joined.</summary>
+    private static string HourList(IReadOnlyList<int> hours)
+    {
+        var parts = hours.Select(h => $"{h:00}:00").ToList();
+        return parts.Count switch
+        {
+            0 => "",
+            1 => parts[0],
+            2 => $"{parts[0]} and {parts[1]}",
+            _ => string.Join(", ", parts.Take(parts.Count - 1)) + $", and {parts[^1]}"
+        };
+    }
+
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
 
     // ========== Congestion profile: schedule tuning, upload strength, learning ==========
@@ -1872,7 +1885,19 @@
                         }
                         else if (status.IsActive)
                         {
-                            <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear once every hour of the day has been sampled, after two days.</span>
+                            // Naming the outstanding hours matters more than a timescale: an hour the WAN
+                            // is never idle in can hold the insight back for the whole run, and the old
+                            // "after two days" copy read as a deadline for something that has none.
+                            var pendingHours = learned?.UnsampledHours ?? Array.Empty<int>();
+                            var twoDaysUp = status.StartedAt is { } began && DateTime.UtcNow - began >= TimeSpan.FromHours(48);
+                            if (twoDaysUp && pendingHours.Count > 0)
+                            {
+                                <span class="form-hint insight-pending">Waiting on @HourList(pendingHours) to be sampled before slowest hours and the default-curve comparison appear.</span>
+                            }
+                            else
+                            {
+                                <span class="form-hint insight-pending">Slowest hours, and how they compare with the default curve, appear once every hour of the day has been sampled and two days have passed.</span>
+                            }
                         }
                     </div>
                 }
