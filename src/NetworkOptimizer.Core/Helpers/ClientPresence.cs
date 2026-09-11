@@ -44,11 +44,8 @@ public static class ClientPresence
     public const long MaxIdleSeconds = 600;
 
     /// <summary>
-    /// The same judgement where the idle time was read from the access point's own station table
-    /// rather than the console's copy of it. Far tighter because the number is far better: measured
-    /// across four access points, every live station sat under 30 seconds, including a TV that had
-    /// sent no data in days and a sleeping console. The console's figure has to absorb its report
-    /// interval and its staleness, and this one does not.
+    /// The same judgement against the access point's own station table rather than the console's
+    /// copy. Measured across four access points, no live station exceeded 30 seconds.
     /// </summary>
     public const long MaxAgentIdleSeconds = 90;
 
@@ -57,10 +54,7 @@ public static class ClientPresence
     /// judged against whichever tolerance the idle time was measured for.
     /// </summary>
     /// <param name="idleSeconds">Seconds since the access point last heard from the client.</param>
-    /// <param name="agentMeasured">
-    /// Whether the idle time came from an agent reading the station table directly. False for the
-    /// console's figure, and for an agent too old to report which measure it is sending.
-    /// </param>
+    /// <param name="agentMeasured">Whether an agent read the idle time off the station table itself.</param>
     public static bool IsPresent(long? idleSeconds, bool agentMeasured)
         => idleSeconds is not { } idle || idle <= (agentMeasured ? MaxAgentIdleSeconds : MaxIdleSeconds);
 

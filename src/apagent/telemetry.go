@@ -58,10 +58,8 @@ type ClientLink struct {
 	PowerSave    bool       `json:"power_save,omitempty"`
 	Uptime       int64      `json:"uptime_seconds,omitempty"`
 	IdleSeconds  int64      `json:"idle_seconds"`
-	// DataIdleSeconds is mca-dump's idletime: seconds since the station last SENT data. It tracks
-	// wall clock on a device that is associated and answering keepalives but sending nothing, so it
-	// is not a presence measure and IdleSeconds is. Always emitted, so the server can tell a new
-	// agent from one still reporting idletime as IdleSeconds.
+	// mca-dump's idletime: seconds since the station last SENT data, so not a presence measure.
+	// Always emitted, which is how the server tells this agent from one that sent it as IdleSeconds.
 	DataIdleSeconds int64 `json:"data_idle_seconds"`
 	AssocSeconds    int   `json:"assoc_seconds,omitempty"`
 	// JoinRssi is the signal at authentication as stahtd reported it; absent for a link found by a
@@ -158,6 +156,9 @@ type memberState struct {
 	JoinRssi    *int
 	BtmRequests int
 	BtmAccepted int
+	// AP-STA-CONNECTED only follows a completed 4-Way, so it authorizes at once where mca-dump
+	// takes up to 30 s. A station found mid-handshake by a poll has no event and stays false.
+	AuthorizedByEvent bool
 }
 
 // pendingJoin holds a stahtd join RSSI that arrived before the link was a member, which the
@@ -301,6 +302,7 @@ func (t *Table) ApplyEvent(e Event) {
 		m.LastSeen = e.CollectedAt
 		// A new association learns afresh.
 		m.JoinRssi, m.BtmRequests, m.BtmAccepted = nil, 0, 0
+		m.AuthorizedByEvent = true
 		t.adoptPendingLocked(key, m, e.CollectedAt)
 		t.evictLocked()
 
@@ -626,6 +628,7 @@ func (t *Table) Clients(now time.Time) []Client {
 			JoinRssi:    m.JoinRssi,
 			BtmRequests: m.BtmRequests,
 			BtmAccepted: m.BtmAccepted,
+			Authorized:  m.AuthorizedByEvent,
 			CollectedAt: now,
 		}
 		if m.AssocAt != nil {
@@ -772,11 +775,8 @@ func applySlowToLink(link *ClientLink, s StaSlow) {
 	link.Satisfaction = s.Satisfaction
 	link.Authorized, link.PowerSave = s.Authorized, s.PowerSave
 	link.Uptime = s.Uptime
-	// Idle follows the same rule as RF above: the slow tier only supplies it when the fast tier
-	// has not. The two count different things - wlanconfig's IDLE is seconds since a frame was
-	// heard, mca's idletime is seconds since DATA arrived - and a quiet device answers keepalives
-	// for days while sending nothing, so overwriting made a live TV read as 10 hours idle. mca is
-	// still the only source where wlanconfig is absent, which is every MIPS access point.
+	// Idle follows the RF rule above: slow supplies it only where fast has not, which is every
+	// MIPS access point. Overwriting read a live but quiet device as hours idle.
 	link.DataIdleSeconds = s.IdleTime
 	if s.IdleTime > 0 && stale {
 		link.IdleSeconds = s.IdleTime

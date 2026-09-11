@@ -2745,10 +2745,8 @@ public class LanFlowMapService
             if (!snapshot.RecentClientNames.ContainsKey(clientMac)) continue;
 
             var band = NormalizeBand(live.Band);
-            // The console lists a client only once it has caught up with the roam, so everything it
-            // owns - address, SSID, network - is missing on the tick that draws the client from the
-            // agent alone. Carry the last console reading rather than render a node that cannot be
-            // opened; history is the fallback, and it only knows where the client used to live.
+            // Address, SSID and network are the console's, and it has not caught up with the roam
+            // yet, so carry its last reading. History behind it only knows where the client was.
             var known = _cache.ClientIdentities.GetValueOrDefault(clientMac);
             update.AddedClientNodes.Add(new LanNode
             {

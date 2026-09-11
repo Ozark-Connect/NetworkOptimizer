@@ -20,10 +20,8 @@ public sealed record LanClientIdentity(string? Ip, string? Ssid, string? Network
 public class LanFlowMapCache
 {
     /// <summary>
-    /// Last known console identity per client MAC, kept ACROSS rebuilds rather than with a
-    /// snapshot. A client caught mid-roam is in no console list, so the tick that draws it from
-    /// agent telemetry has nothing to label it with - and a node with no address renders without
-    /// one and cannot be opened, because double-click is gated on it.
+    /// Last known console identity per client MAC, kept ACROSS rebuilds: a client caught mid-roam
+    /// is in no console list, and a node with no address cannot be opened.
     /// </summary>
     public System.Collections.Concurrent.ConcurrentDictionary<string, LanClientIdentity> ClientIdentities { get; }
         = new(StringComparer.OrdinalIgnoreCase);

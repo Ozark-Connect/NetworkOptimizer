@@ -409,11 +409,8 @@ public sealed class ApAgentClientLink
     public long IdleSeconds { get; set; }
 
     /// <summary>
-    /// Seconds since the client last SENT data, which is not a presence measure: a device that is
-    /// associated and answering keepalives but sending nothing climbs this with the wall clock.
-    /// Null from an agent older than binary-version 25, which reported this value as
-    /// <see cref="IdleSeconds"/> - so its presence means the idle time above can be trusted as
-    /// liveness, and the tighter <see cref="ClientPresence.MaxAgentIdleSeconds"/> applies.
+    /// Seconds since the client last SENT data, which climbs with the wall clock on a device that
+    /// is connected and quiet. Null before binary-version 25, which sent it as <see cref="IdleSeconds"/>.
     /// </summary>
     [JsonPropertyName("data_idle_seconds")]
     public long? DataIdleSeconds { get; set; }

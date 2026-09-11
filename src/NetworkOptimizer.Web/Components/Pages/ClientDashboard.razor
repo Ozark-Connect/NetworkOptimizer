@@ -1598,11 +1598,8 @@
                 }
 
                 _tickCount++;
-                // A page sitting on an offline client ticks every second, but only to ask the
-                // membership ledger whether an access point is holding it again - a dictionary
-                // read, no console call and no access point to choose. The console takes a few
-                // seconds to relist a client that just associated, and that wait was most of the
-                // delay before the page came back. The stat/sta round trip keeps its own beat.
+                // Offline, the second-by-second tick only asks the ledger whether an access point
+                // holds the client again. The stat/sta round trip keeps its own slower beat.
                 var offline = _client?.IsOffline == true;
                 var backOnAir = offline && !string.IsNullOrEmpty(_clientIp)
                     && DashboardService.AgentHoldsClient(_clientIp);
@@ -2148,8 +2145,7 @@
     private TimeSpan LivePollInterval() =>
         _hasApAgentData ? TimeSpan.FromMilliseconds(500)
         : _hasWiFiManData ? TimeSpan.FromSeconds(1)
-        // Offline ticks are a ledger read, so they can be frequent; the console poll inside them
-        // still only runs every fifth one.
+        // An offline tick is a ledger read, so it can be frequent; only every fifth one polls.
         : _wasOffline ? TimeSpan.FromSeconds(1)
         : TimeSpan.FromSeconds(5);
 

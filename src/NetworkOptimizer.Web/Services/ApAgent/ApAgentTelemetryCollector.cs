@@ -652,10 +652,8 @@ public sealed class ApAgentTelemetryCollector
     }
 
     /// <summary>
-    /// Whether to keep writing and publishing for a client the access point still lists. The same
-    /// two tests the member gate uses, in the same order: heard from recently, or counters still
-    /// moving. They must agree, because presence comes from the ledger while historic playback
-    /// comes from whether these points exist.
+    /// Whether to keep writing for a client the access point still lists: the member gate's two
+    /// tests, which this must match, since playback reads presence from whether these points exist.
     /// </summary>
     private bool StillHere(string apMac, ApAgentWifiSample sample, DateTime now)
         => NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(sample.IdleSeconds, sample.AgentMeasuredIdle)

@@ -248,10 +248,8 @@ public sealed class ApAgentMembershipLedger
         => _superseded.ContainsKey(MarkKey(Normalize(apMac), Normalize(clientMac)));
 
     /// <summary>
-    /// Whether this claim's byte counters moved recently enough to vouch for the client on their
-    /// own. The same rescue the member gate applies, exposed so the telemetry gates cannot judge a
-    /// client more harshly than the presence gate does - a client kept Present while its points
-    /// stop is a client that vanishes from historic playback, which reads presence from the points.
+    /// The member gate's counter rescue, exposed so the telemetry gates cannot judge a client more
+    /// harshly than presence does: a client kept Present while its points stop vanishes from playback.
     /// </summary>
     public bool CountersMovedRecently(string? apMac, string? clientMac, DateTime now, bool agentMeasured)
         => _counters.TryGetValue(MarkKey(Normalize(apMac), Normalize(clientMac)), out var track)

@@ -1250,10 +1250,41 @@ func TestFastTierOwnsRFAgainstTheSlowTier(t *testing.T) {
 	}
 }
 
+func TestAssocEventAuthorizesWithoutWaitingForTheSlowTier(t *testing.T) {
+	// mca-dump carries authorized but runs every 30 s, which held a client that had just
+	// reconnected out of the member set for that long.
+	tbl := NewTable(defaultMaxTrackedClients, time.Minute)
+	now := time.Now().UTC()
+	tbl.ApplyEvent(Event{Type: EventAssoc, Vap: "wifi0ap0", MAC: "aa:bb:cc:dd:ee:ff", CollectedAt: now})
+
+	clients := tbl.Clients(now)
+	if len(clients) != 1 {
+		t.Fatalf("got %d clients, want 1", len(clients))
+	}
+	if !clients[0].Authorized {
+		t.Error("an AP-STA-CONNECTED association must authorize at once")
+	}
+}
+
+func TestAPollFoundStationIsNotAuthorized(t *testing.T) {
+	// A wrong-PSK station is 802.11 associated for a few seconds and the poll tier lists it, but
+	// hostapd never emits AP-STA-CONNECTED for it. It must not read as authorized.
+	tbl := NewTable(defaultMaxTrackedClients, time.Minute)
+	now := time.Now().UTC()
+	tbl.ApplyFast(map[string]StaFast{
+		stationKey("wifi0ap0", "aa:bb:cc:dd:ee:ff"): {MAC: "aa:bb:cc:dd:ee:ff", Vap: "wifi0ap0", CollectedAt: now},
+	}, map[string]bool{"wifi0ap0": true}, now)
+
+	for _, c := range tbl.Clients(now) {
+		if c.Authorized {
+			t.Error("a station found mid-handshake by a poll must not read as authorized")
+		}
+	}
+}
+
 func TestFastTierOwnsIdleAgainstTheSlowTier(t *testing.T) {
-	// wlanconfig's IDLE is seconds since a frame was heard; mca-dump's idletime is seconds since
-	// the station sent DATA. Measured on a TV associated for three days: IDLE 2, idletime 39248.
-	// Letting slow win reported a live device as ten hours idle and dropped it from telemetry.
+	// IDLE is seconds since a frame was heard; idletime is seconds since DATA was sent. Measured
+	// on a TV associated three days: IDLE 2, idletime 39248.
 	link := &ClientLink{}
 
 	applyFastToLink(link, StaFast{IdleSeconds: 2, CollectedAt: time.Now()})
