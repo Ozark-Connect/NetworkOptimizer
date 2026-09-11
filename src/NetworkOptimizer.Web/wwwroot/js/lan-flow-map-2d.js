@@ -1419,26 +1419,6 @@ class LanFlowMap2D {
 
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
-    // Children in array order put every leaf on one side of whichever sibling carries a subtree,
-    // so a switch's plain devices bunch left or right of its access point. Interleave instead:
-    // the ones with subtrees of their own take the middle, the leaves alternate outward.
-    //
-    // Ordered on structure and name, never on measured width: width moves when a client joins or
-    // leaves an access point, and ordering on it would reshuffle the row under live updates.
-    _balanceKids(infra){
-        if(infra.length<3)return [...infra];
-        const weight=k=>(k.infra&&k.infra.length?1:0);
-        const byDepth=[...infra].sort((a,b)=>
-            weight(b)-weight(a)||String(a.d.name||a.d.id).localeCompare(String(b.d.name||b.d.id)));
-        const out=[];
-        // Heaviest to the middle, then alternate: index 0 centre, 1 right, 2 left, 3 right...
-        for(let i=0;i<byDepth.length;i++){
-            if(i%2===1)out.push(byDepth[i]);
-            else out.unshift(byDepth[i]);
-        }
-        return out;
-    }
-
     _contourLayout(n){
         const cellCross=this._hz?G.clientCellH:G.clientCellW;
         const selfW=isClient(n.d.kind)?cellCross:(this._hz?G.boxH:G.boxW)+40;
@@ -1472,7 +1452,7 @@ class LanFlowMap2D {
         }
 
         // Infra children; clients always use a grid (placeholder in the kids array)
-        const kids=this._balanceKids(n.infra);
+        const kids=[...n.infra];
         if(nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
