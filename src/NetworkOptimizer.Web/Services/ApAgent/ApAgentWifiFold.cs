@@ -67,7 +67,8 @@ public sealed record ApAgentWifiSample(
     int? AssocSeconds = null,
     int? BtmRequests = null,
     int? BtmAccepted = null,
-    int? MaxSupportedWidth = null);
+    int? MaxSupportedWidth = null,
+    bool AgentMeasuredIdle = false);
 
 /// <summary>One client's samples folded into the single point written for a write window.</summary>
 /// <param name="Sample">Field values, averaged or latest per the fold rules.</param>
@@ -137,6 +138,9 @@ public static class ApAgentWifiFieldMapper
             // associates once per band under its own randomised MAC, and a link that carried a few
             // bytes at association looks alive forever while every link has actually gone quiet.
             IdleSeconds: client.Links.Count == 0 ? null : client.Links.Min(l => l.IdleSeconds),
+            // Whether that idle time is liveness or traffic. An agent before binary-version 25 sent
+            // mca-dump's idletime here, which climbs on a device that is merely quiet.
+            AgentMeasuredIdle: client.Links.Any(l => l.DataIdleSeconds.HasValue),
             IsMlo: client.IsMlo,
             TxRetries: active?.TxRetries,
             TxAttempts: active?.TxAttempts,

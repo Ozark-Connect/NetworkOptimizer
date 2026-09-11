@@ -1250,6 +1250,34 @@ func TestFastTierOwnsRFAgainstTheSlowTier(t *testing.T) {
 	}
 }
 
+func TestFastTierOwnsIdleAgainstTheSlowTier(t *testing.T) {
+	// wlanconfig's IDLE is seconds since a frame was heard; mca-dump's idletime is seconds since
+	// the station sent DATA. Measured on a TV associated for three days: IDLE 2, idletime 39248.
+	// Letting slow win reported a live device as ten hours idle and dropped it from telemetry.
+	link := &ClientLink{}
+
+	applyFastToLink(link, StaFast{IdleSeconds: 2, CollectedAt: time.Now()})
+	applySlowToLink(link, StaSlow{IdleTime: 39248})
+
+	if link.IdleSeconds != 2 {
+		t.Errorf("idle = %d, want the fast tier's 2", link.IdleSeconds)
+	}
+	if link.DataIdleSeconds != 39248 {
+		t.Errorf("data idle = %d, want the slow tier's 39248 carried separately", link.DataIdleSeconds)
+	}
+}
+
+func TestSlowTierSuppliesIdleWhenFastHasNotReported(t *testing.T) {
+	// Every MIPS access point lacks wlanconfig, so mca-dump is the only source there.
+	link := &ClientLink{}
+
+	applySlowToLink(link, StaSlow{IdleTime: 42})
+
+	if link.IdleSeconds != 42 {
+		t.Errorf("idle = %d, want the slow tier's 42 when fast is absent", link.IdleSeconds)
+	}
+}
+
 func TestSlowTierSuppliesRFWhenFastHasNotReported(t *testing.T) {
 	link := &ClientLink{}
 	slowSignal := -70

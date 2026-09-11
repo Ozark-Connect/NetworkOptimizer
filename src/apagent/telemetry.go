@@ -58,7 +58,12 @@ type ClientLink struct {
 	PowerSave    bool       `json:"power_save,omitempty"`
 	Uptime       int64      `json:"uptime_seconds,omitempty"`
 	IdleSeconds  int64      `json:"idle_seconds"`
-	AssocSeconds int        `json:"assoc_seconds,omitempty"`
+	// DataIdleSeconds is mca-dump's idletime: seconds since the station last SENT data. It tracks
+	// wall clock on a device that is associated and answering keepalives but sending nothing, so it
+	// is not a presence measure and IdleSeconds is. Always emitted, so the server can tell a new
+	// agent from one still reporting idletime as IdleSeconds.
+	DataIdleSeconds int64 `json:"data_idle_seconds"`
+	AssocSeconds    int   `json:"assoc_seconds,omitempty"`
 	// JoinRssi is the signal at authentication as stahtd reported it; absent for a link found by a
 	// poll, whose association predates the agent. The BTM counters are this association's BSS
 	// transition responses: answered, and answered with acceptance. All reset on a new assoc.
@@ -767,7 +772,13 @@ func applySlowToLink(link *ClientLink, s StaSlow) {
 	link.Satisfaction = s.Satisfaction
 	link.Authorized, link.PowerSave = s.Authorized, s.PowerSave
 	link.Uptime = s.Uptime
-	if s.IdleTime > 0 {
+	// Idle follows the same rule as RF above: the slow tier only supplies it when the fast tier
+	// has not. The two count different things - wlanconfig's IDLE is seconds since a frame was
+	// heard, mca's idletime is seconds since DATA arrived - and a quiet device answers keepalives
+	// for days while sending nothing, so overwriting made a live TV read as 10 hours idle. mca is
+	// still the only source where wlanconfig is absent, which is every MIPS access point.
+	link.DataIdleSeconds = s.IdleTime
+	if s.IdleTime > 0 && stale {
 		link.IdleSeconds = s.IdleTime
 	}
 	// A link whose idle time equals its uptime has never passed traffic: negotiated, not in use.

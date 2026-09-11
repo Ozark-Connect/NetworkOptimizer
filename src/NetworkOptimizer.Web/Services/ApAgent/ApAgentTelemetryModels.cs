@@ -409,6 +409,16 @@ public sealed class ApAgentClientLink
     public long IdleSeconds { get; set; }
 
     /// <summary>
+    /// Seconds since the client last SENT data, which is not a presence measure: a device that is
+    /// associated and answering keepalives but sending nothing climbs this with the wall clock.
+    /// Null from an agent older than binary-version 25, which reported this value as
+    /// <see cref="IdleSeconds"/> - so its presence means the idle time above can be trusted as
+    /// liveness, and the tighter <see cref="ClientPresence.MaxAgentIdleSeconds"/> applies.
+    /// </summary>
+    [JsonPropertyName("data_idle_seconds")]
+    public long? DataIdleSeconds { get; set; }
+
+    /// <summary>
     /// This link negotiated and never carried traffic: its idle time covers its whole association.
     /// An access point keeps such a link associated long after the client is gone, so it is the
     /// difference between a client that is quiet and one that left without being torn down.

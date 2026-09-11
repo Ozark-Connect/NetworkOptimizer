@@ -63,7 +63,8 @@ public sealed class ApAgentMembershipLedger
     /// association and then freezes, so "has ever carried traffic" reads dead clients as alive.
     /// Reuses the idle constant deliberately - the two are one judgement of "recently active".
     /// </summary>
-    private static readonly TimeSpan CounterMovementWindow = TimeSpan.FromSeconds(ClientPresence.MaxIdleSeconds);
+    private static TimeSpan CounterMovementWindow(bool agentMeasured) => TimeSpan.FromSeconds(
+        agentMeasured ? ClientPresence.MaxAgentIdleSeconds : ClientPresence.MaxIdleSeconds);
 
     private sealed record ApAnswer(
         DateTime At,
@@ -113,8 +114,12 @@ public sealed class ApAgentMembershipLedger
             var idle = c.Links.Count == 0 ? null : (long?)c.Links.Min(l => l.IdleSeconds);
             claimIdleByKey[key] = idle;
 
+            // Whether the idle time is the access point's own "heard a frame" measure or an older
+            // agent's traffic counter. It sets both tolerances below, which are one judgement.
+            var agentMeasured = c.Links.Any(l => l.DataIdleSeconds.HasValue);
+
             ReconcileClaim(ap, key, idle, at);
-            var countersAlive = NoteCounters(MarkKey(ap, key), c, at);
+            var countersAlive = NoteCounters(MarkKey(ap, key), c, at, agentMeasured);
 
             // One class per listed client. Vouched means a live association: authenticated, not
             // discarded by a newer association elsewhere, and recently active - by idle, or by
@@ -122,7 +127,7 @@ public sealed class ApAgentMembershipLedger
             // Everything else listed is positive evidence the client is NOT here.
             var vouched = !(authorizedIsReported && !c.Authorized)
                 && !_superseded.ContainsKey(MarkKey(ap, key))
-                && (ClientPresence.IsPresent(idle) || countersAlive);
+                && (ClientPresence.IsPresent(idle, agentMeasured) || countersAlive);
 
             var target = vouched ? macs : absentMacs;
             target.Add(key);
@@ -200,7 +205,7 @@ public sealed class ApAgentMembershipLedger
     /// Tracks the claim's byte counters and answers whether they moved recently. Only a CHANGE
     /// between two readings counts as movement; a first reading proves nothing either way.
     /// </summary>
-    private bool NoteCounters(string mark, ApAgentClient client, DateTime at)
+    private bool NoteCounters(string mark, ApAgentClient client, DateTime at, bool agentMeasured)
     {
         long total = 0;
         DateTime? bytesAt = null;
@@ -222,7 +227,7 @@ public sealed class ApAgentMembershipLedger
         if (readAt != prev.ReadAt || total != prev.Total)
             _counters[mark] = new CounterTrack(total, readAt, moved);
 
-        return moved is { } m && at - m <= CounterMovementWindow;
+        return moved is { } m && at - m <= CounterMovementWindow(agentMeasured);
     }
 
     /// <summary>
@@ -241,6 +246,17 @@ public sealed class ApAgentMembershipLedger
     /// </summary>
     public bool IsClaimSuperseded(string apMac, string clientMac)
         => _superseded.ContainsKey(MarkKey(Normalize(apMac), Normalize(clientMac)));
+
+    /// <summary>
+    /// Whether this claim's byte counters moved recently enough to vouch for the client on their
+    /// own. The same rescue the member gate applies, exposed so the telemetry gates cannot judge a
+    /// client more harshly than the presence gate does - a client kept Present while its points
+    /// stop is a client that vanishes from historic playback, which reads presence from the points.
+    /// </summary>
+    public bool CountersMovedRecently(string? apMac, string? clientMac, DateTime now, bool agentMeasured)
+        => _counters.TryGetValue(MarkKey(Normalize(apMac), Normalize(clientMac)), out var track)
+            && track.LastMovedAt is { } moved
+            && now - moved <= CounterMovementWindow(agentMeasured);
 
     /// <summary>Forgets one access point's answer, mirroring a coverage release.</summary>
     public void Release(string apMac)

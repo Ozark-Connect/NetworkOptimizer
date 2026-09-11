@@ -44,6 +44,27 @@ public static class ClientPresence
     public const long MaxIdleSeconds = 600;
 
     /// <summary>
+    /// The same judgement where the idle time was read from the access point's own station table
+    /// rather than the console's copy of it. Far tighter because the number is far better: measured
+    /// across four access points, every live station sat under 30 seconds, including a TV that had
+    /// sent no data in days and a sleeping console. The console's figure has to absorb its report
+    /// interval and its staleness, and this one does not.
+    /// </summary>
+    public const long MaxAgentIdleSeconds = 90;
+
+    /// <summary>
+    /// True when the access point has heard from this client recently enough to call it present,
+    /// judged against whichever tolerance the idle time was measured for.
+    /// </summary>
+    /// <param name="idleSeconds">Seconds since the access point last heard from the client.</param>
+    /// <param name="agentMeasured">
+    /// Whether the idle time came from an agent reading the station table directly. False for the
+    /// console's figure, and for an agent too old to report which measure it is sending.
+    /// </param>
+    public static bool IsPresent(long? idleSeconds, bool agentMeasured)
+        => idleSeconds is not { } idle || idle <= (agentMeasured ? MaxAgentIdleSeconds : MaxIdleSeconds);
+
+    /// <summary>
     /// True when the access point has heard from this client recently enough to call it present.
     /// A client reporting no idle time at all is treated as present: absent evidence is not
     /// evidence of absence, and dropping clients on a missing field would empty a map.
