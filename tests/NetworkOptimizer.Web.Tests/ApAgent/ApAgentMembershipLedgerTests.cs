@@ -29,7 +29,8 @@ public class ApAgentMembershipLedgerTests
         bool authorized = true,
         string? hostname = null,
         string? ip = null,
-        long txBytes = 0)
+        long txBytes = 0,
+        long? dataIdle = null)
         => new()
         {
             Key = mldMac ?? mac,
@@ -40,9 +41,52 @@ public class ApAgentMembershipLedgerTests
             Ip = ip,
             Links = new List<ApAgentClientLink>
             {
-                new() { Mac = linkMac ?? mac, IdleSeconds = idle, Active = true, TxBytes = txBytes },
+                new()
+                {
+                    Mac = linkMac ?? mac,
+                    IdleSeconds = idle,
+                    Active = true,
+                    TxBytes = txBytes,
+                    DataIdleSeconds = dataIdle,
+                },
             },
         };
+
+    [Fact]
+    public void AQuietDevice_StaysPresent_WhileTheAccessPointStillHearsIt()
+    {
+        // Measured: a TV associated for three days, answering keepalives every couple of seconds
+        // while sending no data at all, so mca-dump's idletime tracked the wall clock past ten
+        // hours. Judging it on that number is what silenced its telemetry for the whole day.
+        var ledger = new ApAgentMembershipLedger();
+        ledger.Record(Ap1, new[] { Client(idle: 2, dataIdle: 39248) }, Now);
+
+        ledger.PresenceFor(Ap1, StationMac, Now).Should().Be(AgentClientPresence.Present);
+    }
+
+    [Fact]
+    public void LivenessIdle_PastTheAgentTolerance_WithFrozenCounters_IsAbsent()
+    {
+        // A station that left the ESS: the access point holds the association until its own
+        // inactivity timer fires, but has heard nothing and cannot reach it, so nothing moves.
+        var ledger = new ApAgentMembershipLedger();
+        var departed = Client(idle: ClientPresence.MaxAgentIdleSeconds + 1, dataIdle: 200, txBytes: 1769);
+        ledger.Record(Ap1, new[] { departed }, Now);
+        ledger.Record(Ap1, new[] { departed }, Now.AddSeconds(10));
+
+        ledger.PresenceFor(Ap1, StationMac, Now.AddSeconds(10)).Should().Be(AgentClientPresence.Absent);
+    }
+
+    [Fact]
+    public void AnOlderAgent_KeepsTheConsoleTolerance_SoAnUpgradeWindowDropsNobody()
+    {
+        // Without data_idle_seconds the idle time is mca-dump's traffic counter, and the tighter
+        // tolerance would read every quiet device as departed until the fleet redeploys.
+        var ledger = new ApAgentMembershipLedger();
+        ledger.Record(Ap1, new[] { Client(idle: ClientPresence.MaxAgentIdleSeconds + 1, dataIdle: null) }, Now);
+
+        ledger.PresenceFor(Ap1, StationMac, Now).Should().Be(AgentClientPresence.Present);
+    }
 
     [Fact]
     public void NothingRecorded_IsUnknown_SoNonAgentInstallsAreUntouched()

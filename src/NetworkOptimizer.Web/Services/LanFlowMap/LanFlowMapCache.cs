@@ -14,8 +14,18 @@ namespace NetworkOptimizer.Web.Services.LanFlowMap;
 /// in the live-rate dictionary across requests; reads/writes there are
 /// guarded by <see cref="LiveRatesLock"/>.
 /// </summary>
+/// <summary>What the console last told us about a client, beyond where it is connected.</summary>
+public sealed record LanClientIdentity(string? Ip, string? Ssid, string? Network, bool IsGuest);
+
 public class LanFlowMapCache
 {
+    /// <summary>
+    /// Last known console identity per client MAC, kept ACROSS rebuilds: a client caught mid-roam
+    /// is in no console list, and a node with no address cannot be opened.
+    /// </summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, LanClientIdentity> ClientIdentities { get; }
+        = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>How long a built snapshot is considered fresh before we rebuild.</summary>
     public TimeSpan TopologyRefreshInterval { get; set; } = TimeSpan.FromSeconds(30);
 
