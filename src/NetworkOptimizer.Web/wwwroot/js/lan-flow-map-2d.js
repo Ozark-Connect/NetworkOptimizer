@@ -1419,13 +1419,24 @@ class LanFlowMap2D {
 
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
-    // Subtree-bearing children first, plain devices last, so a leaf can drop into a gap the wide
-    // ones opened - _gapSlot only searches siblings already placed. Ordered on structure and name,
-    // never on measured width: width moves when a client joins an access point.
-    _orderKids(infra){
-        const leaf=k=>((k.infra&&k.infra.length)||(k.clients&&k.clients.length)?0:1);
-        return [...infra].sort((a,b)=>
-            leaf(a)-leaf(b)||String(a.d.name||a.d.id).localeCompare(String(b.d.name||b.d.id)));
+    // Children in array order put every leaf on one side of whichever sibling carries a subtree,
+    // so a switch's plain devices bunch left or right of its access point. Interleave instead:
+    // the ones with subtrees of their own take the middle, the leaves alternate outward.
+    //
+    // Ordered on structure and name, never on measured width: width moves when a client joins or
+    // leaves an access point, and ordering on it would reshuffle the row under live updates.
+    _balanceKids(infra){
+        if(infra.length<3)return [...infra];
+        const weight=k=>(k.infra&&k.infra.length?1:0);
+        const byDepth=[...infra].sort((a,b)=>
+            weight(b)-weight(a)||String(a.d.name||a.d.id).localeCompare(String(b.d.name||b.d.id)));
+        const out=[];
+        // Heaviest to the middle, then alternate: index 0 centre, 1 right, 2 left, 3 right...
+        for(let i=0;i<byDepth.length;i++){
+            if(i%2===1)out.push(byDepth[i]);
+            else out.unshift(byDepth[i]);
+        }
+        return out;
     }
 
     _contourLayout(n){
@@ -1461,7 +1472,7 @@ class LanFlowMap2D {
         }
 
         // Infra children; clients always use a grid (placeholder in the kids array)
-        const kids=this._orderKids(n.infra);
+        const kids=this._balanceKids(n.infra);
         if(nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
@@ -1489,14 +1500,11 @@ class LanFlowMap2D {
                 offsets[0]=0;
                 groupRight=cc.map(c=>c.r);
             }else{
-                // Anything one tier deep fits a gap that deeper, wider levels forced apart, rather
-                // than trailing the last subtree: the client grid at three rows or fewer (a fourth
-                // reaches the tier where those subtrees' children sit), and a plain device, which
-                // is one tier by definition. That gap is the empty space beside a switch's
-                // access point, and it is where the devices on that switch belong.
-                const oneTier=kids[i]._isGridPlaceholder?kids[i]._rows<=3:cc.length===1;
-                if(oneTier){
-                    const slot=this._gapSlot(kids,offsets,i,cc[0],GAP);
+                // The client grid is one tier deep, so it fits a gap between two infra boxes that
+                // deeper, wider levels forced apart - rather than always trailing the last subtree.
+                // Three rows at most: a fourth reaches the tier where those subtrees' children sit.
+                if(kids[i]._isGridPlaceholder&&kids[i]._rows<=3){
+                    const slot=this._gridSlot(kids,offsets,i,cc[0],GAP);
                     if(slot!=null){offsets[i]=slot;continue;}
                 }
                 let minOff=0;
@@ -1561,17 +1569,11 @@ class LanFlowMap2D {
 
     // The first gap between two already-packed siblings' boxes that fits the grid, as an offset;
     // null when none does, in which case it packs after the last sibling as any kid would.
-    // The leftmost gap between two placed siblings wide enough to hold a one-tier child.
-    _gapSlot(kids,offsets,i,gc,gap){
+    _gridSlot(kids,offsets,i,gc,gap){
         const width=gc.r-gc.l;
-        // By position, not by index: a slotted sibling leaves the offsets out of order, and
-        // pairing by index would then measure gaps between boxes that are not neighbors.
-        const placed=[];
-        for(let j=0;j<i;j++)placed.push({l:offsets[j]+kids[j]._contour[0].l,r:offsets[j]+kids[j]._contour[0].r});
-        placed.sort((a,b)=>a.l-b.l);
-        for(let j=0;j+1<placed.length;j++){
-            const from=placed[j].r+gap;
-            const to=placed[j+1].l-gap;
+        for(let j=0;j+1<i;j++){
+            const from=offsets[j]+kids[j]._contour[0].r+gap;
+            const to=offsets[j+1]+kids[j+1]._contour[0].l-gap;
             if(to-from>=width)return from-gc.l;
         }
         return null;
