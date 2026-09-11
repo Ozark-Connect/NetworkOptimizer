@@ -130,7 +130,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---FAN_TEMPS---'; for f in /sys/class/hwmon/hwmon0/temp*_input; do [ -f \"$f\" ] && echo \"$(basename $f .input):$(($(cat $f)/1000))\"; done; " +
                 "echo '---CPU_DIE_TEMP---'; cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1 | awk '{printf \"%d\", $1/1000}'; echo; " +
                 "echo '---FAN_LOG---'; tail -3 /var/log/fan-control-tuning.log 2>/dev/null || echo 'no log'; " +
-                "echo '---UHWD_STATUS---'; systemctl is-active uhwd 2>/dev/null || echo 'inactive'; " +
+                // UniFi OS 6.0 moved the fan PID loop out of uhwd into a dedicated daemon,
+                // ufcd, which exists in no 5.1.x image. Report whichever one owns the loop.
+                "echo '---FAN_DAEMON---'; systemctl cat ufcd.service >/dev/null 2>&1 && echo 'ufcd' || echo 'uhwd'; " +
+                "echo '---FAN_DAEMON_STATUS---'; systemctl is-active \"$(systemctl cat ufcd.service >/dev/null 2>&1 && echo ufcd || echo uhwd)\" 2>/dev/null || echo 'inactive'; " +
                 // SSD availability (for MongoDB SSD tweak gating)
                 "echo '---SSD_VOLUME---'; (mountpoint -q /volume1 2>/dev/null && echo '/volume1') || (for d in /volume/*/; do [ -d \"$d\" ] && mountpoint -q \"${d%/}\" 2>/dev/null && echo \"${d%/}\" && break; done) || echo 'none'; " +
                 // MongoDB SSD
@@ -213,8 +216,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 fanStatus.IsActive = fanStatus.BootScriptDeployed;
                 var pwm = GetSection(sections, "FAN_PWM").Trim();
                 var rpm = GetSection(sections, "FAN_RPM").Trim();
-                var uhwdActive = GetSection(sections, "UHWD_STATUS").Trim() == "active";
-                fanStatus.HealthChecks.Add(new("Fan Speed", rpm != "N/A" ? $"{rpm} RPM (PWM {pwm})" : "N/A", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                var fanDaemon = GetSection(sections, "FAN_DAEMON").Trim();
+                if (string.IsNullOrEmpty(fanDaemon)) fanDaemon = "uhwd";
+                var fanDaemonActive = GetSection(sections, "FAN_DAEMON_STATUS").Trim() == "active";
+                fanStatus.HealthChecks.Add(new("Fan Speed", rpm != "N/A" ? $"{rpm} RPM (PWM {pwm})" : "N/A", fanDaemonActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
                 var cpuDieTemp = GetSection(sections, "CPU_DIE_TEMP").Trim();
                 if (int.TryParse(cpuDieTemp, out var cpuDie))
@@ -235,7 +240,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                         fanStatus.HealthChecks.Add(new("Board Temps", string.Join(" / ", tempValues), HealthCheckStatus.Ok));
                 }
 
-                fanStatus.HealthChecks.Add(new("uhwd Service", uhwdActive ? "Running" : "Not running", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                fanStatus.HealthChecks.Add(new($"{fanDaemon} Service", fanDaemonActive ? "Running" : "Not running", fanDaemonActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
                 var fanLog = GetSection(sections, "FAN_LOG").Trim();
                 if (fanLog.Contains("ERROR"))
@@ -646,9 +651,14 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             if (tweakId == "fan-control")
             {
                 // Remove boot script and log file. On UCG-Fiber/UXG-Fiber, restore stock
-                // PID setpoints via SDB (just restarting uhwd does NOT clear them).
+                // PID setpoints via SDB (restarting the fan daemon does NOT clear them).
                 // On UCG-Max we don't have confirmed stock values, so just remove and
                 // inform the user to reboot.
+                //
+                // The restart must target whichever daemon owns the PID loop: uhwd on
+                // 5.1.x and earlier, ufcd on 6.0.x. Restarting the wrong one leaves the
+                // gateway running the tuned setpoints until its next reboot, so a
+                // "successful" removal would silently fail to revert anything.
                 var modelLower = (status?.GatewayModel ?? "").Replace("-", "").ToLowerInvariant();
                 var canResetSdb = modelLower is "ucgfiber" or "uxgfiber";
 
@@ -674,7 +684,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                     var resetB64 = GatewayFile.ToBase64(resetScript);
                     removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
                         $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
-                        "systemctl restart uhwd 2>/dev/null; " +
+                        "systemctl restart \"$(systemctl cat ufcd.service >/dev/null 2>&1 && echo ufcd || echo uhwd)\" 2>/dev/null; " +
                         "rm -f /var/log/fan-control-tuning.log; echo 'removed'";
                 }
                 else

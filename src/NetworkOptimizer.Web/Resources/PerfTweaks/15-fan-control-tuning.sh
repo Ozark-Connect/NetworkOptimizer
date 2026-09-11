@@ -1,20 +1,29 @@
 #!/bin/sh
-# 15-fan-control-tuning.sh: Tune the built-in uhwd PID fan controller setpoints
+# 15-fan-control-tuning.sh: Tune the built-in PID fan controller setpoints
 #
 # UniFi Cloud Gateways ship with very conservative fan controller setpoints
 # (e.g., CPU setpoint of 100C). The fan barely runs, and components sit at
 # elevated temperatures unnecessarily.
 #
 # This script pushes lower setpoints via the Status Database (SDB) API so
-# uhwd's PID controller keeps temperatures in a healthier range. It runs
+# the PID controller keeps temperatures in a healthier range. It runs
 # once at boot, applies the config, and exits - no background process, no
 # continuous logging, zero eMMC wear.
+#
+# WHICH DAEMON OWNS THE FAN LOOP CHANGED IN UniFi OS 6.0:
+#   5.1.x and earlier - uhwd runs the PID loop.
+#   6.0.x and later   - fan control moved to a dedicated daemon, ufcd.
+#                       uhwd no longer writes PWM at all.
+# The SDB write alone never triggers a re-read, so the owning daemon must be
+# restarted. Restarting the wrong one silently does nothing: the setpoints
+# persist in SDB and read back correctly while the fan keeps running on the
+# factory values it loaded at boot. This script detects the owner at runtime.
 #
 # IMPORTANT: The PID categories (cpu, hdd, rtl8372, rtl8261) vary by model.
 # Run the monitoring command below to check YOUR gateway's config.fan before
 # applying. If your model has different category names, adjust the script.
 #
-# Compatible with any UCG model that uses uhwd + SDB for fan control.
+# Compatible with any UCG model that uses uhwd/ufcd + SDB for fan control.
 
 SCRIPT_NAME="fan-control-tuning"
 LOG_FILE="/var/log/${SCRIPT_NAME}.log"
@@ -46,25 +55,35 @@ RTL8372_SETPOINT=85
 RTL8261_SETPOINT=90
 STANDBY=20
 
-# ─── Wait for uhwd.service ───
-log "Waiting for uhwd.service..."
+# ─── Detect which daemon owns the fan PID loop ───
+# ufcd exists only on UniFi OS 6.0 and later. Where it exists it owns the
+# loop and uhwd is irrelevant to the fan; elsewhere uhwd still owns it.
+if systemctl cat ufcd.service >/dev/null 2>&1; then
+    FAN_SERVICE="ufcd.service"
+else
+    FAN_SERVICE="uhwd.service"
+fi
+log "Fan PID loop owned by ${FAN_SERVICE}"
+
+# ─── Wait for the fan daemon ───
+log "Waiting for ${FAN_SERVICE}..."
 WAIT=0
 MAX_WAIT=120
 while [ $WAIT -lt $MAX_WAIT ]; do
-    if systemctl is-active --quiet uhwd.service; then
+    if systemctl is-active --quiet "${FAN_SERVICE}"; then
         break
     fi
     sleep 5
     WAIT=$((WAIT + 5))
 done
 
-if ! systemctl is-active --quiet uhwd.service; then
-    log "ERROR: uhwd.service not active after ${MAX_WAIT}s, aborting"
+if ! systemctl is-active --quiet "${FAN_SERVICE}"; then
+    log "ERROR: ${FAN_SERVICE} not active after ${MAX_WAIT}s, aborting"
     exit 1
 fi
-log "uhwd.service is active (waited ${WAIT}s)"
+log "${FAN_SERVICE} is active (waited ${WAIT}s)"
 
-# Give uhwd a moment to initialize its default config
+# Give the daemon a moment to initialize its default config
 sleep 5
 
 # ─── Apply tuned fan config via SDB ───
@@ -115,17 +134,25 @@ else
     exit 1
 fi
 
-# Restart uhwd so it picks up the new PID setpoints.
+# Restart the fan daemon so it picks up the new PID setpoints.
 # The SDB update alone doesn't trigger the running PID loop to re-read config.
-log "Restarting uhwd.service to apply new config..."
-systemctl restart uhwd.service
+log "Restarting ${FAN_SERVICE} to apply new config..."
+systemctl restart "${FAN_SERVICE}"
 sleep 5
 
-if systemctl is-active --quiet uhwd.service; then
-    log "uhwd.service restarted successfully"
+if systemctl is-active --quiet "${FAN_SERVICE}"; then
+    log "${FAN_SERVICE} restarted successfully"
 else
-    log "ERROR: uhwd.service failed to restart"
+    log "ERROR: ${FAN_SERVICE} failed to restart"
     exit 1
+fi
+
+# Record live fan state for diagnostics. The fan correctly sits at its floor
+# whenever every component is below its setpoint, so a low PWM here is not a
+# failure - it is only a snapshot to correlate against temperatures later.
+HWMON=$(ls -d /sys/class/hwmon/hwmon* 2>/dev/null | head -1)
+if [ -n "${HWMON}" ] && [ -r "${HWMON}/pwm1" ]; then
+    log "Fan state: pwm=$(cat "${HWMON}/pwm1" 2>/dev/null) rpm=$(cat "${HWMON}/fan1_input" 2>/dev/null)"
 fi
 
 log "Done"
