@@ -1096,6 +1096,25 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// Whether an agent-covered access point holds this client right now, for a page sitting on one
+    /// it believes is offline. Reads the membership the collector already refreshes for every access
+    /// point on the site, so it costs a dictionary lookup and asks no access point anything - and it
+    /// is answered wherever the client came back, not only where it was last seen.
+    ///
+    /// The console takes a few seconds to relist a client that has just associated, so waiting for
+    /// it is most of the delay before the page comes back to life.
+    /// </summary>
+    public bool AgentHoldsClient(string clientIp)
+    {
+        if (_apAgentTelemetry == null) return false;
+        clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp) ?? clientIp;
+        if (!_ipToMacCache.TryGetValue(clientIp, out var mac)) return false;
+
+        return _apAgentTelemetry.GetFor(_siteContext.Slug).PresenceFor(null, mac)
+            == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present;
+    }
+
+    /// <summary>
     /// One AP Agent poll for the client at this IP, or null when the agent path cannot answer:
     /// no agents on the site, this access point not enrolled, the agent unreachable, or a roam
     /// still in flight. Every one of those is a fall-through to the console path, never an error.
