@@ -916,6 +916,20 @@ class LanFlowMap2D {
         // taken a frame earlier; only the Fit button overrides an active focus.
         if(this._focus?.zoomed&&!force)return;
         this._calcBounds(true);
+        // The fitted box only ever grows. A client leaving shrinks the tree, and re-fitting to it
+        // zooms and re-centres the whole map around one node's departure. Fit resets it.
+        const box={x:this._bx,y:this._by,w:this._bw,h:this._bh};
+        if(force||!this._fitBox)this._fitBox=box;
+        else{
+            const r=Math.max(this._fitBox.x+this._fitBox.w,box.x+box.w);
+            const b=Math.max(this._fitBox.y+this._fitBox.h,box.y+box.h);
+            this._fitBox.x=Math.min(this._fitBox.x,box.x);
+            this._fitBox.y=Math.min(this._fitBox.y,box.y);
+            this._fitBox.w=r-this._fitBox.x;
+            this._fitBox.h=b-this._fitBox.y;
+        }
+        this._bx=this._fitBox.x; this._by=this._fitBox.y;
+        this._bw=this._fitBox.w; this._bh=this._fitBox.h;
         const margin=10;
         // On desktop the scrubber bar overlays the bottom of the stage (on mobile
         // it's moved below the stage, so no overlap - no inset there). Reserve just

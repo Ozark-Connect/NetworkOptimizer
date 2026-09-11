@@ -409,6 +409,13 @@ public sealed class ApAgentClientLink
     public long IdleSeconds { get; set; }
 
     /// <summary>
+    /// Seconds since the client last SENT data, which climbs with the wall clock on a device that
+    /// is connected and quiet. Null before binary-version 25, which sent it as <see cref="IdleSeconds"/>.
+    /// </summary>
+    [JsonPropertyName("data_idle_seconds")]
+    public long? DataIdleSeconds { get; set; }
+
+    /// <summary>
     /// This link negotiated and never carried traffic: its idle time covers its whole association.
     /// An access point keeps such a link associated long after the client is gone, so it is the
     /// difference between a client that is quiet and one that left without being torn down.

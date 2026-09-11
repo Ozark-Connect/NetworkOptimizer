@@ -366,7 +366,7 @@ public sealed class ApAgentTelemetryCollector
 
             var sample = ApAgentWifiFieldMapper.ToSample(client, apMac, identityAt);
             if (sample == null) continue;
-            if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+            if (!StillHere(apMac, sample, now)) continue;
             if (_membership.IsClaimSuperseded(apMac, sample.ClientMac)) continue;
 
             PublishLive(sample, null, now, (null, null));
@@ -487,7 +487,7 @@ public sealed class ApAgentTelemetryCollector
                     // into the live cache, so a client the access point has not heard from went back
                     // onto the map once per write window and survived there until the add path found
                     // its entry too stale - in and out on a thirty second beat.
-                    if (sample.IdleSeconds is { } stale && stale > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+                    if (!StillHere(target.Mac, sample, now)) continue;
 
                     // A discarded claim is a dead entry for a client that associated elsewhere;
                     // writing or publishing it repaints the client onto the wrong access point.
@@ -651,6 +651,14 @@ public sealed class ApAgentTelemetryCollector
             _logger.LogWarning("Client claimed by several access points on site {Site} - {Claims}", _siteSlug, line);
     }
 
+    /// <summary>
+    /// Whether to keep writing for a client the access point still lists: the member gate's two
+    /// tests, which this must match, since playback reads presence from whether these points exist.
+    /// </summary>
+    private bool StillHere(string apMac, ApAgentWifiSample sample, DateTime now)
+        => NetworkOptimizer.Core.Helpers.ClientPresence.IsPresent(sample.IdleSeconds, sample.AgentMeasuredIdle)
+        || _membership.CountersMovedRecently(apMac, sample.ClientMac, now, sample.AgentMeasuredIdle);
+
     private void WriteFolded(string apMac, DateTime now)
     {
         if (!_accumulators.TryGetValue(apMac, out var accumulator)) return;
@@ -681,7 +689,7 @@ public sealed class ApAgentTelemetryCollector
             // active-link pick deliberately prefers the link that did carry something.
             if ((entry.TxThroughputBps ?? 0) <= 0 && (entry.RxThroughputBps ?? 0) <= 0)
             {
-                if (s.IdleSeconds is { } idle && idle > NetworkOptimizer.Core.Helpers.ClientPresence.MaxIdleSeconds) continue;
+                if (!StillHere(apMac, s, now)) continue;
 
                 _ = _influx.WriteWifiClientThroughputAsync(
                     apMac: s.ApMac,

@@ -1250,6 +1250,65 @@ func TestFastTierOwnsRFAgainstTheSlowTier(t *testing.T) {
 	}
 }
 
+func TestAssocEventAuthorizesWithoutWaitingForTheSlowTier(t *testing.T) {
+	// mca-dump carries authorized but runs every 30 s, which held a client that had just
+	// reconnected out of the member set for that long.
+	tbl := NewTable(defaultMaxTrackedClients, time.Minute)
+	now := time.Now().UTC()
+	tbl.ApplyEvent(Event{Type: EventAssoc, Vap: "wifi0ap0", MAC: "aa:bb:cc:dd:ee:ff", CollectedAt: now})
+
+	clients := tbl.Clients(now)
+	if len(clients) != 1 {
+		t.Fatalf("got %d clients, want 1", len(clients))
+	}
+	if !clients[0].Authorized {
+		t.Error("an AP-STA-CONNECTED association must authorize at once")
+	}
+}
+
+func TestAPollFoundStationIsNotAuthorized(t *testing.T) {
+	// A wrong-PSK station is 802.11 associated for a few seconds and the poll tier lists it, but
+	// hostapd never emits AP-STA-CONNECTED for it. It must not read as authorized.
+	tbl := NewTable(defaultMaxTrackedClients, time.Minute)
+	now := time.Now().UTC()
+	tbl.ApplyFast(map[string]StaFast{
+		stationKey("wifi0ap0", "aa:bb:cc:dd:ee:ff"): {MAC: "aa:bb:cc:dd:ee:ff", Vap: "wifi0ap0", CollectedAt: now},
+	}, map[string]bool{"wifi0ap0": true}, now)
+
+	for _, c := range tbl.Clients(now) {
+		if c.Authorized {
+			t.Error("a station found mid-handshake by a poll must not read as authorized")
+		}
+	}
+}
+
+func TestFastTierOwnsIdleAgainstTheSlowTier(t *testing.T) {
+	// IDLE is seconds since a frame was heard; idletime is seconds since DATA was sent. Measured
+	// on a TV associated three days: IDLE 2, idletime 39248.
+	link := &ClientLink{}
+
+	applyFastToLink(link, StaFast{IdleSeconds: 2, CollectedAt: time.Now()})
+	applySlowToLink(link, StaSlow{IdleTime: 39248})
+
+	if link.IdleSeconds != 2 {
+		t.Errorf("idle = %d, want the fast tier's 2", link.IdleSeconds)
+	}
+	if link.DataIdleSeconds != 39248 {
+		t.Errorf("data idle = %d, want the slow tier's 39248 carried separately", link.DataIdleSeconds)
+	}
+}
+
+func TestSlowTierSuppliesIdleWhenFastHasNotReported(t *testing.T) {
+	// Every MIPS access point lacks wlanconfig, so mca-dump is the only source there.
+	link := &ClientLink{}
+
+	applySlowToLink(link, StaSlow{IdleTime: 42})
+
+	if link.IdleSeconds != 42 {
+		t.Errorf("idle = %d, want the slow tier's 42 when fast is absent", link.IdleSeconds)
+	}
+}
+
 func TestSlowTierSuppliesRFWhenFastHasNotReported(t *testing.T) {
 	link := &ClientLink{}
 	slowSignal := -70

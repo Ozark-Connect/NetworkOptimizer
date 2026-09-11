@@ -1373,6 +1373,9 @@
     private bool _hasWiFiManData;
     private bool _hasApAgentData;
 
+    /// <summary>Whether the last poll found the client offline, which sets the tick rate.</summary>
+    private bool _wasOffline;
+
     /// <summary>Whether this site can steer: the AP Agent is on and at least two access points run it.</summary>
     private bool _canSteer;
 
@@ -1595,8 +1598,15 @@
                 }
 
                 _tickCount++;
+                // Offline, the second-by-second tick only asks the ledger whether an access point
+                // holds the client again. The stat/sta round trip keeps its own slower beat.
+                var offline = _client?.IsOffline == true;
+                var backOnAir = offline && !string.IsNullOrEmpty(_clientIp)
+                    && DashboardService.AgentHoldsClient(_clientIp);
                 var ticksPerFullPoll = _hasApAgentData ? 10 : 5;
-                var isFullPoll = !(_hasApAgentData || _hasWiFiManData) || _tickCount % ticksPerFullPoll == 0;
+                var isFullPoll = backOnAir
+                    || (!(_hasApAgentData || _hasWiFiManData) && (!offline || _tickCount % 5 == 0))
+                    || _tickCount % ticksPerFullPoll == 0;
 
                 await InvokeAsync(async () =>
                 {
@@ -1625,10 +1635,12 @@
                 // Adapt polling interval to whichever live source answered
                 var agentNow = _client?.HasApAgentData == true;
                 var wifiManNow = _client?.HasWiFiManData == true;
-                if (agentNow != _hasApAgentData || wifiManNow != _hasWiFiManData)
+                var offlineNow = _client?.IsOffline == true;
+                if (agentNow != _hasApAgentData || wifiManNow != _hasWiFiManData || offlineNow != _wasOffline)
                 {
                     _hasApAgentData = agentNow;
                     _hasWiFiManData = wifiManNow;
+                    _wasOffline = offlineNow;
                     var interval = LivePollInterval();
                     _pollTimer?.Change(interval, interval);
                 }
@@ -2133,6 +2145,8 @@
     private TimeSpan LivePollInterval() =>
         _hasApAgentData ? TimeSpan.FromMilliseconds(500)
         : _hasWiFiManData ? TimeSpan.FromSeconds(1)
+        // An offline tick is a ledger read, so it can be frequent; only every fifth one polls.
+        : _wasOffline ? TimeSpan.FromSeconds(1)
         : TimeSpan.FromSeconds(5);
 
     /// <summary>
