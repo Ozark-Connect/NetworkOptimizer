@@ -1454,16 +1454,10 @@ class LanFlowMap2D {
         // Infra children; clients always use a grid (placeholder in the kids array)
         const kids=[...n.infra];
         if(nc>0){
-            // Wired leaves are reshaped to use the depth axis; Wi-Fi keeps the honeycomb it has.
-            const wired=n._visClients.every(c=>c.d.kind===NK.WiredClient);
-            const gc=wired?this._gridContour(nc,cellCross,this._blockCols(nc,cellCross))
-                          :this._gridContour(nc,cellCross);
+            const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
             n._gridCols=gc.cols;
-            const bands=wired?this._blockBands(gc.rows):1;
-            const contour=[];
-            for(let d=0;d<bands;d++)contour.push({l:gc.l,r:gc.r});
-            const gp={_isGridPlaceholder:true,_contour:contour,_rows:gc.rows,_wired:wired};
+            const gp={_isGridPlaceholder:true,_contour:[{l:gc.l,r:gc.r}],_rows:gc.rows};
             kids.push(gp);
         }
 
@@ -1486,12 +1480,11 @@ class LanFlowMap2D {
                 offsets[0]=0;
                 groupRight=cc.map(c=>c.r);
             }else{
-                // A client block drops into a gap that deeper, wider levels forced apart rather
-                // than trailing the last subtree. A wired block states its depth in its contour,
-                // so it is checked band by band and may reach as far down as it likes; the Wi-Fi
-                // block is one band and keeps its old three-row bound.
-                if(kids[i]._isGridPlaceholder&&(kids[i]._wired||kids[i]._rows<=3)){
-                    const slot=this._gridSlot(kids,offsets,i,cc,GAP);
+                // The client grid is one tier deep, so it fits a gap between two infra boxes that
+                // deeper, wider levels forced apart - rather than always trailing the last subtree.
+                // Three rows at most: a fourth reaches the tier where those subtrees' children sit.
+                if(kids[i]._isGridPlaceholder&&kids[i]._rows<=3){
+                    const slot=this._gridSlot(kids,offsets,i,cc[0],GAP);
                     if(slot!=null){offsets[i]=slot;continue;}
                 }
                 let minOff=0;
@@ -1542,27 +1535,8 @@ class LanFlowMap2D {
     // Exact extent of a client honeycomb. Odd rows shift half a cell, so a full one reaches half a
     // cell past the even rows - a short one does not, and reserving the shift regardless left a
     // dead half-cell beside every grid whose last row was not full.
-    // How far each row of the client block advances along the depth axis, against how wide a
-    // column is across it. The two swap with the orientation, so the block's shape has to be
-    // chosen per axis rather than as a column count.
-    _cellDepth(){ return this._hz?G.clientCellW:G.clientCellH; }
-
-    // Columns for a roughly square block, which is what makes it use the depth axis at all: the
-    // tree grows across, so a block laid out wide competes with every sibling subtree for width,
-    // while the band beneath the parent sits empty. Capped at the old width so nothing gets wider.
-    _blockCols(nc,cellCross){
-        const ideal=Math.sqrt(nc*this._cellDepth()/cellCross);
-        return Math.max(1,Math.min(nc,G.clientCols,Math.round(ideal)));
-    }
-
-    // Tier bands the block reaches, so its contour can say how far down it goes and the packing
-    // keeps whatever is below it clear. One entry was why a tall block could only ever trail.
-    _blockBands(rows){
-        return Math.max(1,Math.ceil(rows*this._cellDepth()/G.tierGap));
-    }
-
-    _gridContour(nc,cellCross,forceCols){
-        const cols=forceCols?Math.max(1,Math.min(nc,forceCols)):Math.min(nc,G.clientCols);
+    _gridContour(nc,cellCross){
+        const cols=Math.min(nc,G.clientCols);
         const rows=Math.ceil(nc/cols);
         const l=-cols*cellCross/2;
         let r=-Infinity;
@@ -1573,30 +1547,14 @@ class LanFlowMap2D {
         return{cols,rows,l,r};
     }
 
-    // The first gap between two already-packed siblings that fits the block at every band it
-    // reaches, as an offset; null when none does, in which case it packs after the last sibling.
-    // Pairs are taken by position, since a slotted sibling leaves the offsets out of order.
-    _gridSlot(kids,offsets,i,cc,gap){
-        const width=cc[0].r-cc[0].l;
-        const placed=[];
-        for(let j=0;j<i;j++)placed.push({j,l:offsets[j]+kids[j]._contour[0].l,r:offsets[j]+kids[j]._contour[0].r});
-        placed.sort((a,b)=>a.l-b.l);
-
-        for(let p=0;p+1<placed.length;p++){
-            const from=placed[p].r+gap;
-            if(placed[p+1].l-gap-from<width)continue;
-            const off=from-cc[0].l;
-            let clear=true;
-            for(let d=0;d<cc.length&&clear;d++){
-                for(let j=0;j<i&&clear;j++){
-                    const oc=kids[j]._contour;
-                    if(d>=oc.length)continue;
-                    const al=off+cc[d].l,ar=off+cc[d].r;
-                    const bl=offsets[j]+oc[d].l,br=offsets[j]+oc[d].r;
-                    if(ar+gap>bl&&br+gap>al)clear=false;
-                }
-            }
-            if(clear)return off;
+    // The first gap between two already-packed siblings' boxes that fits the grid, as an offset;
+    // null when none does, in which case it packs after the last sibling as any kid would.
+    _gridSlot(kids,offsets,i,gc,gap){
+        const width=gc.r-gc.l;
+        for(let j=0;j+1<i;j++){
+            const from=offsets[j]+kids[j]._contour[0].r+gap;
+            const to=offsets[j+1]+kids[j+1]._contour[0].l-gap;
+            if(to-from>=width)return from-gc.l;
         }
         return null;
     }
