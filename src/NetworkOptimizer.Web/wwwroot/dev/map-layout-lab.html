@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2D map layout lab</title>
+<link rel="stylesheet" href="/css/app.css">
+<style>
+    html,body{height:100%;margin:0;background:var(--bg-primary,#0f0f11);color:var(--text-primary,#ededef);
+        font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+    .lab-bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:8px 14px;
+        border-bottom:1px solid var(--bg-tertiary,#232326);font-size:13px}
+    .lab-bar label{display:flex;gap:5px;align-items:center;color:var(--text-secondary,#a0a0a8)}
+    .lab-bar input{width:58px;background:var(--bg-tertiary,#232326);color:inherit;
+        border:1px solid #3a3a40;border-radius:4px;padding:3px 6px}
+    .lab-note{color:var(--text-muted,#5c5c66)}
+    #stage{position:absolute;top:43px;left:0;right:0;bottom:0}
+</style>
+</head>
+<body>
+<div class="lab-bar">
+    <strong>2D map layout lab</strong>
+    <label>Buildings <input id="bldgs" type="number" min="1" max="12" value="4"></label>
+    <label>IDFs/bldg <input id="idfs" type="number" min="1" max="8" value="3"></label>
+    <label>APs/IDF <input id="aps" type="number" min="0" max="12" value="4"></label>
+    <label>Wired/IDF <input id="wired" type="number" min="0" max="48" value="9"></label>
+    <label>Wi-Fi/AP <input id="wifi" type="number" min="0" max="30" value="6"></label>
+    <button class="btn btn-primary btn-sm" id="go">Rebuild</button>
+    <span class="lab-note" id="counts"></span>
+</div>
+<div id="stage"></div>
+
+<script type="module">
+import * as flowData from '/js/lan-flow-data.js?v=16';
+import * as map2d from '/js/lan-flow-map-2d.js?v=54';
+
+const NK={Gateway:0,Switch:1,AP:2,WiredClient:3,WifiClient:4,Cloud:5,VirtualHub:6};
+const LK={Uplink:0,WiredClient:1,WifiClient:2,Wan:3,Transit:4,MeshBackhaul:5};
+
+let seed=1;
+const rnd=()=>((seed=(seed*1103515245+12345)&0x7fffffff)/0x7fffffff);
+const pick=a=>a[Math.floor(rnd()*a.length)];
+const mac=n=>['02',...[1,2,3,4,5].map(i=>(((n>>(i*5))&0xff)|0).toString(16).padStart(2,'0'))].join(':');
+
+// A superset of the device classes our sites carry, so the layout meets every leaf shape.
+const WIRED=[
+    ['[Cam]','Dome Camera'],['[Cam]','Bullet Camera'],['[NVR]','Protect NVR'],
+    ['[VoIP]','Desk Phone'],['[Print]','MFP Printer'],['[IoT]','Door Controller'],
+    ['[IoT]','Smart Plug'],['[IoT]','Thermostat'],['[Media]','Signage Player'],
+    ['[Server]','File Server'],['[Server]','Hypervisor'],['[Media]','Conference TV'],
+];
+const WIFI=[
+    ['[Phone]','Handset'],['[Laptop]','Notebook'],['[Tablet]','Tablet'],
+    ['[Watch]','Watch'],['[IoT]','Sensor'],['[Gaming]','Console'],['[Media]','Streamer'],
+];
+const BANDS=['2.4','5','6'];
+
+function build(cfg){
+    seed=7; let n=0;
+    const nodes=[],links=[];
+    const add=(o)=>{nodes.push(o);return o;};
+    const link=(from,to,kind,cap)=>links.push({
+        id:`l-${from}-${to}`,fromNodeId:from,toNodeId:to,kind,capacityBps:cap});
+
+    const gw=add({id:'dev-gw',kind:NK.Gateway,mac:mac(++n),ip:'10.0.0.1',
+        name:'[Gateway] Campus Core',model:'UXG-Pro',online:true});
+
+    for(let b=0;b<cfg.bldgs;b++){
+        const bl=String.fromCharCode(65+b);
+        const agg=add({id:`dev-agg-${b}`,kind:NK.Switch,mac:mac(++n),ip:`10.${b+1}.0.2`,
+            name:`[Switch] Bldg ${bl} - Aggregation`,model:'USW-Pro-Aggregation',online:true,parentId:gw.id});
+        link(gw.id,agg.id,LK.Uplink,25e9);
+
+        for(let f=0;f<cfg.idfs;f++){
+            const idf=add({id:`dev-idf-${b}-${f}`,kind:NK.Switch,mac:mac(++n),ip:`10.${b+1}.${f+1}.2`,
+                name:`[Switch] Bldg ${bl} - IDF ${f+1}`,model:'USW-Pro-48-PoE',online:true,parentId:agg.id});
+            link(agg.id,idf.id,LK.Uplink,10e9);
+
+            // Wired leaves on the IDF: the population that has to find somewhere to sit.
+            for(let w=0;w<cfg.wired;w++){
+                const[tag,kind]=pick(WIRED);
+                const c=add({id:`cli-w-${b}-${f}-${w}`,kind:NK.WiredClient,mac:mac(++n),
+                    ip:`10.${b+1}.${f+1}.${20+w}`,name:`${tag} ${bl}${f+1} ${kind} ${w+1}`,
+                    online:true,parentId:idf.id});
+                link(idf.id,c.id,LK.WiredClient,1e9);
+            }
+
+            for(let a=0;a<cfg.aps;a++){
+                const ap=add({id:`dev-ap-${b}-${f}-${a}`,kind:NK.AP,mac:mac(++n),
+                    ip:`10.${b+1}.${f+1}.${10+a}`,name:`[AP] ${bl}${f+1}-${String(a+1).padStart(2,'0')}`,
+                    model:'U7-Pro',online:true,parentId:idf.id,mountType:'ceiling'});
+                link(idf.id,ap.id,LK.Uplink,2.5e9);
+
+                for(let c=0;c<cfg.wifi;c++){
+                    const[tag,kind]=pick(WIFI);
+                    const band=pick(BANDS);
+                    const cl=add({id:`cli-f-${b}-${f}-${a}-${c}`,kind:NK.WifiClient,mac:mac(++n),
+                        ip:`10.${b+1}.${f+1}.${100+a*10+c}`,name:`${tag} ${kind} ${bl}${f+1}-${a+1}.${c+1}`,
+                        online:true,parentId:ap.id,band,
+                        signalDbm:-(40+Math.floor(rnd()*40))});
+                    link(ap.id,cl.id,LK.WifiClient,band==='6'?2.4e9:8.66e8);
+                }
+            }
+        }
+    }
+    return{nodes,links,generatedAt:new Date().toISOString(),liveRates:{}};
+}
+
+const num=id=>Math.max(0,parseInt(document.getElementById(id).value,10)||0);
+
+async function render(){
+    const cfg={bldgs:num('bldgs'),idfs:num('idfs'),aps:num('aps'),wired:num('wired'),wifi:num('wifi')};
+    const snap=build(cfg);
+    const by=k=>snap.nodes.filter(x=>x.kind===k).length;
+    document.getElementById('counts').textContent=
+        `${snap.nodes.length} nodes: ${by(NK.Switch)} switches, ${by(NK.AP)} APs, `+
+        `${by(NK.WiredClient)} wired, ${by(NK.WifiClient)} Wi-Fi`;
+    flowData.publishSnapshot(snap);
+    map2d.unmount();
+    await map2d.mount('stage',{hideScrubber:true,hideRates:true,hideHelp:true});
+    flowData.publishSnapshot(snap);
+}
+
+document.getElementById('go').addEventListener('click',render);
+render();
+</script>
+</body>
+</html>
