@@ -24,6 +24,7 @@ public class LanFlowMapService
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
     private readonly ClientDashboardService _dashboard;
+    private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
     private readonly MonitoringLiveStats _liveStats;
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly MonitoringInfluxClient _influx;
@@ -51,9 +52,11 @@ public class LanFlowMapService
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ClientDashboardService dashboard,
         ILoggerFactory loggerFactory,
-        ILogger<LanFlowMapService> logger)
+        ILogger<LanFlowMapService> logger,
+        WiredPortPresence.IWiredPortPresenceService? portPresence = null)
     {
         _dashboard = dashboard;
+        _portPresence = portPresence;
         _connection = connection;
         _liveStats = liveStats;
         _apAgentTelemetry = apAgentTelemetry;
@@ -269,6 +272,7 @@ public class LanFlowMapService
         }
 
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
+        await AddPortPresenceLeavesAsync(anchors, snapshot, nameMaps, rawByMac);
         GroupMultiClientPorts(snapshot, await WanBytesByMacAsync(ct));
         await BuildWanAndClouds(topology, snapshot, ct);
 
@@ -1975,6 +1979,91 @@ public class LanFlowMapService
             snapshot.Nodes.Add(node);
             snapshot.Links.Add(link);
         }
+    }
+
+    /// <summary>
+    /// Wired clients the console dropped while their switch port stayed up, drawn on that port
+    /// exactly as a listed client would be. Port Statistics reads the occupant off the snapshot,
+    /// so it follows. The link's live rate comes from the port's SNMP counters like any other.
+    /// </summary>
+    private async Task AddPortPresenceLeavesAsync(
+        Dictionary<string, LanPlacement> anchors,
+        LanFlowMapSnapshot snapshot,
+        Dictionary<(string mac, int port), InterfaceNameMap> nameMaps,
+        Dictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac)
+    {
+        if (_portPresence == null) return;
+        IReadOnlyList<WiredPortPresence.WiredPortPresence> present;
+        try { present = await _portPresence.ListAsync(); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port presence unavailable for the map");
+            return;
+        }
+        if (present.Count == 0) return;
+
+        var nodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+        var added = 0;
+        foreach (var p in present)
+        {
+            var clientMac = NormalizeMac(p.ClientMac);
+            var parentMac = NormalizeMac(p.SwitchMac);
+            var nodeId = "cli-" + clientMac;
+            if (nodeIds.Contains(nodeId) || !nodeIds.Contains("dev-" + parentMac)) continue;
+
+            anchors.TryGetValue(clientMac, out var anchor);
+            var node = new LanNode
+            {
+                Id = nodeId,
+                Kind = LanNodeKind.WiredClient,
+                Mac = clientMac,
+                Ip = !string.IsNullOrEmpty(p.Ip) ? p.Ip : snapshot.RecentClientIps.GetValueOrDefault(clientMac),
+                Name = !string.IsNullOrWhiteSpace(p.Name) ? p.Name
+                    : snapshot.RecentClientNames.TryGetValue(clientMac, out var known) ? known : clientMac,
+                ParentId = "dev-" + parentMac,
+                Placement = anchor,
+            };
+            var link = new LanLink
+            {
+                Id = $"cli-link-{clientMac}",
+                FromNodeId = "dev-" + parentMac,
+                ToNodeId = nodeId,
+                Kind = LanLinkKind.WiredClient,
+            };
+            if (nameMaps.TryGetValue((parentMac, p.Port), out var nameMap))
+            {
+                link.PortKey = PortKey(parentMac, nameMap.IfName);
+                if (nameMap.SpeedMbps is > 0)
+                {
+                    link.CapacityBps = (long)nameMap.SpeedMbps.Value * 1_000_000L;
+                    node.WiredLinkSpeedMbps = nameMap.SpeedMbps.Value;
+                }
+                if (!string.IsNullOrEmpty(nameMap.FriendlyName))
+                    node.SwitchPortName = nameMap.FriendlyName;
+            }
+            if (rawByMac.TryGetValue(parentMac, out var parentDev) && parentDev.PortTable != null)
+            {
+                var port = parentDev.PortTable.FirstOrDefault(pt => pt.PortIdx == p.Port);
+                if (port != null)
+                {
+                    if (!node.WiredLinkSpeedMbps.HasValue && port.Speed > 0)
+                        node.WiredLinkSpeedMbps = port.Speed;
+                    if (!link.CapacityBps.HasValue && port.Speed > 0)
+                        link.CapacityBps = (long)port.Speed * 1_000_000L;
+                    if (string.IsNullOrEmpty(node.SwitchPortName) && !string.IsNullOrEmpty(port.Name))
+                        node.SwitchPortName = port.Name;
+                }
+            }
+            // The wired writer only sees the console's list, so nothing is written for this leaf.
+            node.WritesTelemetry = false;
+
+            snapshot.Nodes.Add(node);
+            snapshot.Links.Add(link);
+            nodeIds.Add(nodeId);
+            added++;
+        }
+        if (added > 0)
+            _logger.LogDebug("LAN map [{Site}]: {Count} wired client(s) drawn by port link", _siteContext.Slug, added);
     }
 
     /// <summary>

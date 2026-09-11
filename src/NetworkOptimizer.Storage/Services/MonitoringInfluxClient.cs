@@ -3987,6 +3987,75 @@ union(tables: [means, chan])
         return counts.Select(kv => new WiredPortOccupant(kv.Key.Device, kv.Key.Port, kv.Key.Client, kv.Value.Samples, kv.Value.Ip, kv.Value.Name)).ToList();
     }
 
+    /// <summary>A wired client's newest port-tagged sighting: the console's own placement at that time.</summary>
+    public sealed record WiredPortSighting(string DeviceMac, int Port, string ClientMac, DateTime LastSeen, string? ClientIp, string? ClientName);
+
+    /// <summary>
+    /// The newest sighting of every (switch, port, client) triple over a window, from the
+    /// port-tagged <c>wired_client</c> points. Decimated to fifteen-minute blocks past six hours,
+    /// the same read the occupant query makes: "when was this client last placed here" needs no
+    /// better than that.
+    /// </summary>
+    public async Task<IReadOnlyList<WiredPortSighting>> QueryWiredPortSightingsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WiredPortSighting>();
+        var decimate = to - from > TimeSpan.FromHours(6)
+            ? "\n  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)"
+            : "";
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wired_client"")
+  |> filter(fn: (r) => exists r.port)
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name""){decimate}
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac)
+  |> group(columns: [""device_mac"", ""port"", ""client_mac""])
+  |> last(column: ""_time"")
+  |> group()";
+        var result = new List<WiredPortSighting>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var client = NormalizeMac(record.GetValueByKey("client_mac") as string ?? "");
+            if (device.Length == 0 || client.Length == 0) continue;
+            if (!int.TryParse(record.GetValueByKey("port") as string, out var port) || port <= 0) continue;
+            var time = record.GetTimeInDateTime();
+            if (time == null) continue;
+            result.Add(new WiredPortSighting(device, port, client, ToUtc(time.Value),
+                record.GetValueByKey("client_ip") as string,
+                record.GetValueByKey("client_name") as string));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Mean host-to-switch rate per (device, interface) over a window, from
+    /// <c>interface_counters</c>' <c>rate_in_bps</c>. Interfaces with no rate point in the window
+    /// are absent, which a caller reads as "no counters", not "idle".
+    /// </summary>
+    public async Task<IReadOnlyDictionary<(string DeviceMac, string IfName), double>> QueryPortInboundMeanAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var result = new Dictionary<(string, string), double>();
+        if (!IsConfigured) return result;
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r._field == ""rate_in_bps"")
+  |> group(columns: [""device_mac"", ""if_name""])
+  |> mean()
+  |> group()";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var ifName = record.GetValueByKey("if_name") as string ?? "";
+            if (device.Length == 0 || ifName.Length == 0) continue;
+            if (AsDoubleOrNull(record.GetValueByKey("_value")) is { } mean)
+                result[(device, ifName)] = mean;
+        }
+        return result;
+    }
+
     /// <summary>
     /// The switch port one wired client held most over a window, from its port-tagged
     /// <c>wired_client</c> points, or null when it has none. The client is a field, so this reads
