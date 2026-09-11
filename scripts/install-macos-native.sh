@@ -373,7 +373,7 @@ else
     echo "  Install with: brew install go"
 fi
 
-# Step 4: Sign binary (single-file executable has native libs embedded)
+# Step 4: Sign binaries (self-contained publish leaves the native libs as loose dylibs)
 echo ""
 echo "[4/9] Signing binaries..."
 cd "$INSTALL_DIR"
