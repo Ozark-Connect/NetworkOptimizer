@@ -1782,7 +1782,8 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = wired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
-                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
+                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac)
+                     ?? _cache.ClientIdentities.GetValueOrDefault(clientMac)?.Ip,
                 Name = !string.IsNullOrWhiteSpace(p.ClientName)
                     ? p.ClientName
                     : (snapshot.RecentClientNames.TryGetValue(clientMac, out var known) ? known : clientMac),
@@ -1893,6 +1894,9 @@ public class LanFlowMapService
                 IsGuest = c.IsGuest,
                 Ssid = c.Essid,
             };
+            // Remembered for the ticks where the console has not caught up with a roam yet.
+            if (!string.IsNullOrEmpty(node.Ip) || !string.IsNullOrEmpty(node.Ssid))
+                _cache.ClientIdentities[clientMac] = new LanClientIdentity(node.Ip, node.Ssid, node.Network, node.IsGuest);
             if (!c.IsWired)
             {
                 node.Band = NormalizeBand(live?.Band) ?? NormalizeBand(c.Radio);
@@ -2741,12 +2745,20 @@ public class LanFlowMapService
             if (!snapshot.RecentClientNames.ContainsKey(clientMac)) continue;
 
             var band = NormalizeBand(live.Band);
+            // The console lists a client only once it has caught up with the roam, so everything it
+            // owns - address, SSID, network - is missing on the tick that draws the client from the
+            // agent alone. Carry the last console reading rather than render a node that cannot be
+            // opened; history is the fallback, and it only knows where the client used to live.
+            var known = _cache.ClientIdentities.GetValueOrDefault(clientMac);
             update.AddedClientNodes.Add(new LanNode
             {
                 Id = nodeId,
                 Kind = LanNodeKind.WifiClient,
                 Mac = clientMac,
-                Ip = snapshot.RecentClientIps.GetValueOrDefault(clientMac),
+                Ip = known?.Ip ?? snapshot.RecentClientIps.GetValueOrDefault(clientMac),
+                Ssid = known?.Ssid,
+                Network = known?.Network,
+                IsGuest = known?.IsGuest ?? false,
                 Name = snapshot.RecentClientNames[clientMac],
                 ParentId = parentId,
                 Band = band,
