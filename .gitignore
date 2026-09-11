@@ -63,3 +63,6 @@ TestResults/
 
 # Backup
 backup/
+
+# Layout lab: a local harness for judging 2D map packing, never shipped
+src/NetworkOptimizer.Web/wwwroot/dev/
