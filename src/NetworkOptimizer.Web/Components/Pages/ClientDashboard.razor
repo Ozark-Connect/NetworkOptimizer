@@ -1458,6 +1458,9 @@
     private bool _showGpsWarning;
     private bool _gpsDenied;
     private DotNetObjectReference<ClientDashboard>? _dotNetRef;
+    // True while the browser reports the page hidden. Polling and storage carry on; only the
+    // render and the chart push pause, so nothing queues for the page to play back on return.
+    private bool _pageHidden;
     private int? _gpsWatcherId;
     private DateTime _lastGpsCallback;
     private bool _loggingSuspendedByZombie; // true when zombie check paused logging (auto-resume when GPS returns)
@@ -1618,7 +1621,7 @@
                     if (_tickCount == 1)
                     {
                         await PollLiveAsync();
-                        StateHasChanged();
+                        if (!_pageHidden) StateHasChanged();
                     }
 
                     if (isFullPoll)
@@ -1629,7 +1632,7 @@
                     {
                         await PollLiveAsync();
                     }
-                    StateHasChanged();
+                    if (!_pageHidden) StateHasChanged();
                 });
                 _consecutiveFailures = 0;
 
@@ -1675,6 +1678,7 @@
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
         _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
+        await WatchPageVisibilityAsync();
 
         // A cross-link can hand the page the viewer's own device as ?ip=. That is this very
         // browser, so reload as the bare own-device page - pinned-address mode would withhold
@@ -2228,7 +2232,7 @@
     /// </summary>
     private async Task PushLiveSampleAsync()
     {
-        if (!_liveChartReady || _client == null) return;
+        if (!_liveChartReady || _client == null || _pageHidden) return;
         var (at, down, up) = _client.IsWired
             ? (_portStats?.At, _portStats?.DownloadBps, _portStats?.UploadBps)
             : (_wifiThroughput?.At, _wifiThroughput?.DownloadBps, _wifiThroughput?.UploadBps);
@@ -2432,8 +2436,12 @@
                     return;
 
                 // Check if user is hovering a chart tooltip
-                try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
-                catch { _isTooltipActive = false; }
+                if (_pageHidden) _isTooltipActive = false;
+                else
+                {
+                    try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+                    catch { _isTooltipActive = false; }
+                }
 
                 // Refresh the active tab data.
                 // Signal tab: reload periodically (every 6 full polls = ~30s) to
@@ -3414,11 +3422,44 @@
         _ => "Unknown"
     };
 
+    private async Task WatchPageVisibilityAsync()
+    {
+        try
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval",
+                "window.__watchPageVisibility = (ref) => { " +
+                "if (window.__pageVisHandler) document.removeEventListener('visibilitychange', window.__pageVisHandler); " +
+                "window.__pageVisHandler = () => ref.invokeMethodAsync('OnPageVisibility', document.hidden); " +
+                "document.addEventListener('visibilitychange', window.__pageVisHandler); " +
+                "return document.hidden; }; " +
+                "window.__unwatchPageVisibility = () => { " +
+                "if (window.__pageVisHandler) { document.removeEventListener('visibilitychange', window.__pageVisHandler); window.__pageVisHandler = null; } };");
+            _pageHidden = await JS.InvokeAsync<bool>("__watchPageVisibility", _dotNetRef);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Page visibility watcher unavailable");
+        }
+    }
+
+    [JSInvokable]
+    public void OnPageVisibility(bool hidden)
+    {
+        if (_pageHidden == hidden) return;
+        _pageHidden = hidden;
+        if (hidden) return;
+        // Back in view: paint what the ticks kept current, and let the next push refill the
+        // chart from the store for the stretch it was not fed.
+        _liveChartHistoryAt = DateTime.MinValue;
+        StateHasChanged();
+    }
+
     private async Task StartGpsWatcherAsync()
     {
         try
         {
-            _dotNetRef = DotNetObjectReference.Create(this);
+            _dotNetRef ??= DotNetObjectReference.Create(this);
 
             // Register a named JS function, then call it with the DotNetObjectReference
             // (eval doesn't pass extra args, so we need a two-step approach)
@@ -4005,6 +4046,8 @@
             try { await JS.InvokeVoidAsync("eval", $"navigator.geolocation.clearWatch({_gpsWatcherId.Value})"); }
             catch { }
         }
+        try { await JS.InvokeVoidAsync("eval", "window.__unwatchPageVisibility?.()"); }
+        catch { }
         _dotNetRef?.Dispose();
     }
 }
