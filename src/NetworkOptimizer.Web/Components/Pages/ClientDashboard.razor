@@ -1231,6 +1231,7 @@
     private DateTime _liveChartHistoryAt;
     // Wi-Fi readings folded to the cadence history is stored at (see PushLiveSampleAsync).
     private static readonly TimeSpan LiveChartWindow = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan LiveChartCallTimeout = TimeSpan.FromSeconds(2);
     private double _liveChartAccDown, _liveChartAccUp;
     private int _liveChartAccN;
     private DateTime _liveChartAccStart;
@@ -2246,7 +2247,10 @@
         }
         // The reading itself goes to the live edge at once; the fold below only decides the
         // stored-cadence point behind it.
-        try { await JS.InvokeVoidAsync("__clientLiveChart.setLive", new ThroughputSample(t, down, up, wanDown, wanUp)); }
+        // Short wait on every chart call: the default is a minute, and a backgrounded page answers
+        // none of them, so each tick sat parked for that minute and released one at a time on return.
+        using var chartCts = new CancellationTokenSource(LiveChartCallTimeout);
+        try { await JS.InvokeVoidAsync("__clientLiveChart.setLive", chartCts.Token, new ThroughputSample(t, down, up, wanDown, wanUp)); }
         catch (Exception ex) { Logger.LogDebug(ex, "Live throughput edge update failed"); }
         if (!_client.IsWired && gap < LiveChartWindow)
         {
@@ -2272,11 +2276,11 @@
         }
         try
         {
-            await JS.InvokeVoidAsync("__clientLiveChart.push", new ThroughputSample(t, down, up, wanDown, wanUp));
+            await JS.InvokeVoidAsync("__clientLiveChart.push", chartCts.Token, new ThroughputSample(t, down, up, wanDown, wanUp));
             if (DateTime.UtcNow - _liveChartHistoryAt > TimeSpan.FromSeconds(60))
             {
                 var (histPoints, histWan) = await LoadLiveHistoryWithWanAsync();
-                await JS.InvokeVoidAsync("__clientLiveChart.setHistory", histPoints, histWan);
+                await JS.InvokeVoidAsync("__clientLiveChart.setHistory", chartCts.Token, histPoints, histWan);
             }
         }
         catch (Exception ex)
@@ -2309,37 +2313,40 @@
         {
             var update = await DashboardService.PollLiveClientAsync(_clientIp);
 
+            // Merged before the throughput refresh, whose chart push waits on the browser. A page in
+            // the background parks every tick there; merging after it would write each tick's stale
+            // reading on release, fighting the live ticks for the whole wait.
+            if (update != null)
+            {
+                // Merge WiFiman signal fields into existing client identity
+                if (update.SignalDbm.HasValue) _client.SignalDbm = update.SignalDbm;
+                if (update.NoiseDbm.HasValue) _client.NoiseDbm = update.NoiseDbm;
+                if (update.Channel.HasValue) _client.Channel = update.Channel;
+                if (update.ChannelWidth.HasValue) _client.ChannelWidth = update.ChannelWidth;
+                if (!string.IsNullOrEmpty(update.Band)) _client.Band = update.Band;
+                if (!string.IsNullOrEmpty(update.Protocol)) _client.Protocol = update.Protocol;
+                if (update.TxRateKbps.HasValue) _client.TxRateKbps = update.TxRateKbps;
+                if (update.RxRateKbps.HasValue) _client.RxRateKbps = update.RxRateKbps;
+                if (update.Satisfaction.HasValue) _client.Satisfaction = update.Satisfaction;
+
+                if (update.HasApAgentData)
+                {
+                    // The access point also reports its own identity and the per-link MLO set, so the
+                    // page follows a roam instead of holding the access point it started on.
+                    ClientDashboardService.ApplyLiveFields(_client, update);
+                }
+                else
+                {
+                    _client.HasApAgentData = false;
+                    _client.HasWiFiManData = true;
+                }
+                _pollCount++;
+            }
+
             // After the poll, which is what publishes this tick's reading into the live cache.
             // Here rather than the full poll: a wired client has no reason to reach that one often,
             // so its rates would sit on whatever they loaded with.
             await RefreshThroughputAsync();
-
-            if (update == null)
-                return;
-
-            // Merge WiFiman signal fields into existing client identity
-            if (update.SignalDbm.HasValue) _client.SignalDbm = update.SignalDbm;
-            if (update.NoiseDbm.HasValue) _client.NoiseDbm = update.NoiseDbm;
-            if (update.Channel.HasValue) _client.Channel = update.Channel;
-            if (update.ChannelWidth.HasValue) _client.ChannelWidth = update.ChannelWidth;
-            if (!string.IsNullOrEmpty(update.Band)) _client.Band = update.Band;
-            if (!string.IsNullOrEmpty(update.Protocol)) _client.Protocol = update.Protocol;
-            if (update.TxRateKbps.HasValue) _client.TxRateKbps = update.TxRateKbps;
-            if (update.RxRateKbps.HasValue) _client.RxRateKbps = update.RxRateKbps;
-            if (update.Satisfaction.HasValue) _client.Satisfaction = update.Satisfaction;
-
-            if (update.HasApAgentData)
-            {
-                // The access point also reports its own identity and the per-link MLO set, so the
-                // page follows a roam instead of holding the access point it started on.
-                ClientDashboardService.ApplyLiveFields(_client, update);
-            }
-            else
-            {
-                _client.HasApAgentData = false;
-                _client.HasWiFiManData = true;
-            }
-            _pollCount++;
 
             // WiFiman-only polls update the UI gauges but don't add chart points.
             // Chart points are added by full polls only (every 5s) — this keeps
