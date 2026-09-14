@@ -1632,6 +1632,7 @@
                     {
                         await PollLiveAsync();
                     }
+                    if (_pageHidden) await ProbeVisibilityAsync();
                     if (!_pageHidden) StateHasChanged();
                 });
                 _consecutiveFailures = 0;
@@ -3430,7 +3431,8 @@
             await JS.InvokeVoidAsync("eval",
                 "window.__watchPageVisibility = (ref) => { " +
                 "if (window.__pageVisHandler) document.removeEventListener('visibilitychange', window.__pageVisHandler); " +
-                "window.__pageVisHandler = () => ref.invokeMethodAsync('OnPageVisibility', document.hidden); " +
+                "window.__pageVisHandler = () => { const send = (n) => ref.invokeMethodAsync('OnPageVisibility', document.hidden)" +
+                ".catch(() => { if (n > 0) setTimeout(() => send(n - 1), 1000); }); send(30); }; " +
                 "document.addEventListener('visibilitychange', window.__pageVisHandler); " +
                 "return document.hidden; }; " +
                 "window.__unwatchPageVisibility = () => { " +
@@ -3448,11 +3450,34 @@
     {
         if (_pageHidden == hidden) return;
         _pageHidden = hidden;
-        if (hidden) return;
-        // Back in view: paint what the ticks kept current, and let the next push refill the
-        // chart from the store for the stretch it was not fed.
+        if (!hidden) OnPageShown();
+    }
+
+    // Back in view: paint what the ticks kept current, and let the next push refill the
+    // chart from the store for the stretch it was not fed.
+    private void OnPageShown()
+    {
         _liveChartHistoryAt = DateTime.MinValue;
         StateHasChanged();
+    }
+
+    // The browser's visible signal can be sent while the circuit is still reconnecting and be
+    // lost, which left the page hidden for good. While hidden, each tick asks instead; a hidden
+    // page cannot answer and the call is capped, a shown one answers at once.
+    private async Task ProbeVisibilityAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(LiveChartCallTimeout);
+            var hidden = await JS.InvokeAsync<bool>("eval", cts.Token, "document.hidden");
+            if (hidden || !_pageHidden) return;
+            _pageHidden = false;
+            OnPageShown();
+        }
+        catch
+        {
+            // Still hidden, or not reachable: the next tick asks again.
+        }
     }
 
     private async Task StartGpsWatcherAsync()
