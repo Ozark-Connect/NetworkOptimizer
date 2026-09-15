@@ -100,35 +100,28 @@ public class MacRestrictionRule : AuditRuleBase
         // Tailor the message based on whether the port is actively in use or just recently used
         var isInactive = !port.IsUp;
 
-        // A UniFi device (Protect, Network, ...) on the port: Lock Port to UniFi Device is the better fit.
-        // PortLockRule flags it when the versions allow; otherwise say what the upgrade would unlock.
-        // Plain copy below instead for a LAG or a gateway/AP port (never takes the lock) and for a port several
-        // clients used recently (MAC restriction is the tool; PortLockRule stays silent so this carries the score).
-        if (!isInactive && port.HasUniFiDevice && CanPortEverLock(port) && !port.IsSharedPort)
+        // A UniFi device (Protect, Network, ...) on a port where Lock Port to UniFi Device is within reach: the lock
+        // is the better fit, and PortLockRule flags it. Only a profile standing in the way keeps the issue here.
+        // Everything else gets the plain copy below and never mentions a lock the user cannot enable: old versions,
+        // a LAG or gateway/AP port, and a port several clients used recently (PortLockRule stays silent there,
+        // so this carries the score).
+        if (!isInactive && port.HasUniFiDevice && CanPortEverLock(port) && !port.IsSharedPort && IsPortLockSupported(port))
         {
-            if (IsPortLockAvailable(port))
+            if (!IsPortLockBlockedByProfile(port))
                 return null;
 
             var device = DescribeUniFiDevice(port);
-            var blockedByProfile = IsPortLockSupported(port) && IsPortLockBlockedByProfile(port);
-            var lockNote = blockedByProfile
-                ? $"This port carries {device}. Lock Port to UniFi Device would tie the port to that device, but the lock cannot be " +
-                  "combined with an Ethernet Port Profile. Either remove the profile and lock the port, or keep the profile and " +
-                  "set the port to 'Restricted' with the device's MAC address in the allowed list."
-                : $"This port carries {device}. Lock Port to UniFi Device ties the port to that device and needs UniFi Network " +
-                  $"{PortLockSupport.MinNetworkApplicationVersion} or newer and switch firmware {PortLockSupport.MinSwitchFirmwareVersion} or newer. " +
-                  "Until then, set the port to 'Restricted' and add the device's MAC address to the allowed list.";
             return CreateIssue(
-                blockedByProfile
-                    ? $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or have its Ethernet Port Profile removed and be locked to it with Lock Port to UniFi Device"
-                    : $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or locked to it once Lock Port to UniFi Device is available",
+                $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or have its Ethernet Port Profile removed and be locked to it with Lock Port to UniFi Device",
                 port,
                 new Dictionary<string, object>
                 {
                     { "network", network?.Name ?? "Unknown" },
                     { "device", device }
                 },
-                lockNote);
+                $"This port carries {device}. Lock Port to UniFi Device would tie the port to that device, but the lock cannot be " +
+                "combined with an Ethernet Port Profile. Either remove the profile and lock the port, or keep the profile and " +
+                "set the port to 'Restricted' with the device's MAC address in the allowed list.");
         }
 
         var message = isInactive

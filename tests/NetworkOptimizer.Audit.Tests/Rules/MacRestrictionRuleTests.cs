@@ -230,33 +230,23 @@ public class MacRestrictionRuleTests
         result.Should().BeNull();
     }
 
-    [Fact]
-    public void Evaluate_UniFiDeviceClient_LockUnavailable_ReturnsIssueNamingTheLock()
+    [Theory]
+    [InlineData("10.5.120", "7.6.2.17186")]   // UniFi Network too old
+    [InlineData("10.6.106", "7.5.15.17146")]  // switch firmware too old
+    [InlineData(null, "7.6.2.17186")]         // application version unknown
+    public void Evaluate_UniFiDeviceClient_LockOutOfReach_ReturnsPlainMacCopyWithoutLock(string? appVersion, string firmware)
     {
-        _rule.SetNetworkApplicationVersion("10.5.120");
-        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186");
+        // The lock is never mentioned when the user cannot enable it
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: firmware);
 
         var result = _rule.Evaluate(port, new List<NetworkInfo>());
 
         result.Should().NotBeNull();
         result!.Type.Should().Be("MAC-RESTRICT-001");
-        result.Message.Should().Contain("AI Key (UniFi Protect)");
-        result.Message.Should().Contain("Lock Port to UniFi Device");
-        result.RecommendedAction.Should().Contain("10.6.101");
-        result.RecommendedAction.Should().Contain("7.6.2");
-        result.RecommendedAction.Should().Contain("'Restricted'");
-    }
-
-    [Fact]
-    public void Evaluate_UniFiDeviceClient_OldFirmware_ReturnsIssueNamingTheLock()
-    {
-        _rule.SetNetworkApplicationVersion("10.6.106");
-        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.5.15.17146");
-
-        var result = _rule.Evaluate(port, new List<NetworkInfo>());
-
-        result.Should().NotBeNull();
-        result!.Message.Should().Contain("Lock Port to UniFi Device");
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
     [Fact]
