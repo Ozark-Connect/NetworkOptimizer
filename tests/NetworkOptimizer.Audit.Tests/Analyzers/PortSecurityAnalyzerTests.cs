@@ -452,7 +452,7 @@ public class PortSecurityAnalyzerTests
     {
         // A locked port raises neither the lock rule nor the MAC restriction rule
         _engine.SetNetworkApplicationVersion("10.6.106");
-        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
         sw.Ports.Add(new PortInfo
         {
             PortIndex = 3, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw,
@@ -468,7 +468,7 @@ public class PortSecurityAnalyzerTests
     public void AnalyzePorts_MacRestrictedProtectDevicePort_RaisesInformationalPortLockOnly()
     {
         _engine.SetNetworkApplicationVersion("10.6.106");
-        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
         sw.Ports.Add(new PortInfo
         {
             PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
@@ -516,7 +516,7 @@ public class PortSecurityAnalyzerTests
     {
         // A shared unrestricted port keeps a scored issue, from the MAC rule, and no lock issue
         _engine.SetNetworkApplicationVersion("10.6.106");
-        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
         sw.Ports.Add(new PortInfo
         {
             PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
@@ -535,7 +535,7 @@ public class PortSecurityAnalyzerTests
     public void AnalyzePorts_UnlockedProtectDevicePort_RaisesOnlyPortLock()
     {
         _engine.SetNetworkApplicationVersion("10.6.106");
-        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
         sw.Ports.Add(new PortInfo
         {
             PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,

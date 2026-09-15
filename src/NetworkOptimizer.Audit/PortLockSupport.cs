@@ -16,6 +16,14 @@ public static class PortLockSupport
     public static readonly Version MinSwitchFirmwareVersion = new(7, 6, 2);
 
     /// <summary>
+    /// Whether the device type can take Lock Port to UniFi Device at all. UniFi switches (usw) only:
+    /// gateways and in-wall APs have switch ports but run other firmware lines, and an AP's 8.x
+    /// version would otherwise pass the 7.6.2 check.
+    /// </summary>
+    public static bool SupportsDeviceType(string? deviceType) =>
+        string.Equals(deviceType, "usw", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether UniFi Network lets Lock Port to UniFi Device sit on a port that has an Ethernet Port
     /// Profile assigned. It does not as of 10.6; the lock is a per-port setting only. Every rule that
     /// weighs a profile against the lock reads this flag, so flipping it is the whole change when

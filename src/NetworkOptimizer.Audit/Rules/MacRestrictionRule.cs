@@ -126,8 +126,9 @@ public class MacRestrictionRule : AuditRuleBase
         }
         // A UniFi device (Protect, Network, ...) on the port: Lock Port to UniFi Device is the better fit.
         // PortLockRule flags it when the versions allow; otherwise say what the upgrade would unlock.
-        // A LAG never takes the lock, so it gets the plain copy below rather than an upgrade it cannot use.
-        else if (!isInactive && port.HasUniFiDevice && !port.IsLagParent)
+        // A LAG, or a port on a gateway or AP, never takes the lock, so it gets the plain copy below
+        // rather than an upgrade it cannot use.
+        else if (!isInactive && port.HasUniFiDevice && CanPortEverLock(port))
         {
             if (IsPortLockAvailable(port))
                 return null;

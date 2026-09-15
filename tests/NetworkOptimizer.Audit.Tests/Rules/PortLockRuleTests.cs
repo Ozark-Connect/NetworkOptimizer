@@ -210,6 +210,28 @@ public class PortLockRuleTests
             "If you prefer the lock, remove the profile from this port in Port Manager and enable Lock Port to UniFi Device.");
     }
 
+    [Theory]
+    [InlineData("uxg", "7.6.2.17186")]   // gateway, even if its firmware number cleared the check
+    [InlineData("ucg", "8.0.1")]
+    [InlineData("udm", "9.0.0")]
+    [InlineData("uap", "8.8.8.20113")]   // in-wall AP with switch ports: 8.x would pass the version check
+    [InlineData(null, "7.6.2.17186")]
+    public void Evaluate_NonSwitchDevice_ReturnsNull(string? switchType, string firmware)
+    {
+        // Lock Port to UniFi Device is USW only
+        var port = CreatePort(client: ProtectClient(), switchType: switchType, firmwareVersion: firmware);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProfiledApPortOnGateway_ReturnsNull()
+    {
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap", portProfileId: "prof-trunk", switchType: "uxg", firmwareVersion: "7.6.2");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
     [Fact]
     public void Evaluate_ProfiledUplinkPort_ReturnsNull()
     {
@@ -476,12 +498,14 @@ public class PortLockRuleTests
         string? firmwareVersion = SupportedFirmware,
         UniFiPortProfile? assignedProfile = null,
         string? portProfileId = null,
-        string[]? seenMacs = null)
+        string[]? seenMacs = null,
+        string? switchType = "usw")
     {
         var switchInfo = new SwitchInfo
         {
             Name = "Test Switch",
             MacAddress = "00:11:22:33:44:55",
+            Type = switchType,
             FirmwareVersion = firmwareVersion,
             Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 }
         };

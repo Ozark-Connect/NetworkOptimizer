@@ -48,6 +48,20 @@ public class PortLockSupportTests
     }
 
     [Theory]
+    [InlineData("usw", true)]
+    [InlineData("USW", true)]
+    [InlineData("uxg", false)]
+    [InlineData("ucg", false)]
+    [InlineData("udm", false)]
+    [InlineData("uap", false)]
+    [InlineData("usp", false)]
+    [InlineData(null, false)]
+    public void SupportsDeviceType_SwitchesOnly(string? deviceType, bool expected)
+    {
+        PortLockSupport.SupportsDeviceType(deviceType).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData(null, true)]
     [InlineData("", true)]
     [InlineData("prof-1", false)]

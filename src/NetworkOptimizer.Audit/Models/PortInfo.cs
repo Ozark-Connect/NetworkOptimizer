@@ -188,6 +188,12 @@ public class PortInfo
     public string? ConnectedDeviceType { get; set; }
 
     /// <summary>
+    /// Name of the UniFi device connected to this port (e.g., "[AP] Back Yard"), from the same uplink
+    /// match as ConnectedDeviceType. Null for regular clients or an unnamed device.
+    /// </summary>
+    public string? ConnectedDeviceName { get; set; }
+
+    /// <summary>
     /// 802.1X control mode from the assigned port profile.
     /// Values: "auto" (802.1X), "mac_based" (RADIUS MAC auth),
     /// "force_authorized" (bypass), "force_unauthorized" (block), or null.

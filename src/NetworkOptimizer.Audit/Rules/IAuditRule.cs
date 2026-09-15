@@ -134,10 +134,18 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
-    /// Whether the application and this port's switch firmware both meet the minimum versions
-    /// for Lock Port to UniFi Device.
+    /// Whether this port could ever take Lock Port to UniFi Device: it is on a UniFi switch and is not a LAG.
+    /// Independent of versions, so copy can tell "upgrade to get it" from "never offered here".
+    /// </summary>
+    protected static bool CanPortEverLock(PortInfo port) =>
+        PortLockSupport.SupportsDeviceType(port.Switch.Type) && !port.IsLagParent;
+
+    /// <summary>
+    /// Whether the port is on a UniFi switch and the application and switch firmware both meet the
+    /// minimum versions for Lock Port to UniFi Device.
     /// </summary>
     protected bool IsPortLockSupported(PortInfo port) =>
+        PortLockSupport.SupportsDeviceType(port.Switch.Type) &&
         PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
 
     /// <summary>
@@ -183,8 +191,8 @@ public abstract class AuditRuleBase : IAuditRule
 
     /// <summary>
     /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi
-    /// app when known ("AI Key (UniFi Protect)"), otherwise the device role from the uplink
-    /// table ("the connected UniFi access point").
+    /// app when known ("AI Key (UniFi Protect)"), otherwise the uplink-table device's name and role
+    /// ("[AP] Back Yard (UniFi access point)"), or the role alone when unnamed.
     /// </summary>
     protected static string DescribeUniFiDevice(PortInfo port)
     {
@@ -218,7 +226,9 @@ public abstract class AuditRuleBase : IAuditRule
             "unas" => "NAS",
             _ => "device"
         };
-        return $"the connected UniFi {role}";
+        return string.IsNullOrEmpty(port.ConnectedDeviceName)
+            ? $"the connected UniFi {role}"
+            : $"{port.ConnectedDeviceName} (UniFi {role})";
     }
 
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);

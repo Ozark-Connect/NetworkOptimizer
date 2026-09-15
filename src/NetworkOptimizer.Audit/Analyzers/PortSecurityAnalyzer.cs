@@ -208,6 +208,7 @@ public class PortSecurityAnalyzer
         // and build lookup for device uplinks (to identify which ports have APs/switches connected)
         var allDeviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceUplinkLookup = new Dictionary<(string SwitchMac, int PortIndex), string>();
+        var deviceNameByUplink = new Dictionary<(string SwitchMac, int PortIndex), string>();
         foreach (var device in deviceData.UnwrapDataArray())
         {
             var mac = device.GetStringOrNull("mac");
@@ -235,6 +236,9 @@ public class PortSecurityAnalyzer
                     if (!deviceUplinkLookup.ContainsKey(key))
                     {
                         deviceUplinkLookup[key] = deviceType;
+                        var deviceName = device.GetStringOrNull("name");
+                        if (!string.IsNullOrEmpty(deviceName))
+                            deviceNameByUplink[key] = deviceName;
                         _logger.LogDebug("Device uplink: {DeviceType} connected to {SwitchMac} port {Port}",
                             deviceType, uplinkMac, uplinkPort.Value);
                     }
@@ -266,6 +270,15 @@ public class PortSecurityAnalyzer
             var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup, historyMacsByPort);
             if (switchInfo != null)
             {
+                if (!string.IsNullOrEmpty(switchInfo.MacAddress))
+                {
+                    foreach (var port in switchInfo.Ports)
+                    {
+                        if (deviceNameByUplink.TryGetValue((switchInfo.MacAddress.ToLowerInvariant(), port.PortIndex), out var connectedName))
+                            port.ConnectedDeviceName = connectedName;
+                    }
+                }
+
                 switches.Add(switchInfo);
                 var clientCount = switchInfo.Ports.Count(p => p.ConnectedClient != null);
                 var historyCount = switchInfo.Ports.Count(p => p.HistoricalClient != null);

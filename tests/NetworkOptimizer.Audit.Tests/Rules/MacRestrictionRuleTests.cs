@@ -312,6 +312,23 @@ public class MacRestrictionRuleTests
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
+    [Theory]
+    [InlineData("uxg", "6.0.5.35344")]
+    [InlineData("uap", "8.8.8.20113")]
+    public void Evaluate_UniFiDeviceOnGatewayOrApPort_ReturnsPlainMacCopy(string switchType, string firmware)
+    {
+        // The lock is USW only: no "upgrade to get it" copy on a device that never offers it
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), switchType: switchType, firmwareVersion: firmware);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
     [Fact]
     public void Evaluate_UniFiDeviceOnLag_ReturnsPlainMacCopy()
     {
@@ -676,11 +693,13 @@ public class MacRestrictionRuleTests
         string? lockedToDeviceMac = null,
         UniFiClientResponse? connectedClient = null,
         string? firmwareVersion = null,
-        string[]? seenMacs = null)
+        string[]? seenMacs = null,
+        string? switchType = "usw")
     {
         var switchInfo = new SwitchInfo
         {
             Name = switchName,
+            Type = switchType,
             FirmwareVersion = firmwareVersion,
             Capabilities = new SwitchCapabilities
             {
