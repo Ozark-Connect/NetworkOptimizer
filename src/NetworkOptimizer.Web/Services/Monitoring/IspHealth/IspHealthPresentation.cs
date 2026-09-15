@@ -135,7 +135,7 @@ public static class IspHealthPresentation
                 if (shift.IsHostOutage)
                 {
                     var spared = network == null ? "the network's grade" : $"{network}'s grade";
-                    entries.Add(new TimelineEntry(shift.Time, "Target unreachable", "isp-event-badge-change",
+                    entries.Add(new TimelineEntry(shift.Time, "Target down", "isp-event-badge-change",
                         $"{where} went unreachable for {span} - a host you monitor directly, not a hop on the path, so this is the host, not the route. Excluded from the Packet Loss factor and from {spared}.",
                         shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
                     continue;

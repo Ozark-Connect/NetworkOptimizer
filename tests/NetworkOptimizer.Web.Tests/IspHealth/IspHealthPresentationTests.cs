@@ -90,7 +90,7 @@ public class IspHealthPresentationTests
             TargetIds = { "t1" },
         });
         var entry = IspHealthPresentation.EventTimeline(r).Single();
-        entry.Badge.Should().Be("Target unreachable");
+        entry.Badge.Should().Be("Target down");
         entry.Text.Should().StartWith("ISP speedtest went unreachable for 30 min - a host you monitor directly");
         entry.Text.Should().EndWith("Excluded from the Packet Loss factor and from Example ISP's grade.");
     }
