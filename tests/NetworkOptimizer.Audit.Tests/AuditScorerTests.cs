@@ -465,6 +465,19 @@ public class AuditScorerTests
         score.Should().Be(88);
     }
 
+    [Fact]
+    public void CalculateFilteredScore_LockedPortsCountAsHardened()
+    {
+        // Swapping a MAC list for Lock Port to UniFi Device must not lower the hardening percentage
+        var issues = new List<AuditIssue> { CreateIssue(AuditSeverity.Critical, scoreImpact: 20) };
+        var macOnly = new AuditStatistics { TotalPorts = 40, MacRestrictedPorts = 24 };            // 60% -> +3
+        var swapped = new AuditStatistics { TotalPorts = 40, MacRestrictedPorts = 23, LockedPorts = 1 };
+
+        swapped.HardeningPercentage.Should().Be(macOnly.HardeningPercentage);
+        _scorer.CalculateFilteredScore(issues, swapped, hardeningMeasureCount: 4)
+            .Should().Be(_scorer.CalculateFilteredScore(issues, macOnly, hardeningMeasureCount: 4));
+    }
+
     #endregion
 
     #region CalculateHardeningBonus Edge Cases

@@ -352,7 +352,7 @@ public class AuditStatistics
     /// Percentage of ports that are hardened (0-100)
     /// </summary>
     public double HardeningPercentage => TotalPorts > 0
-        ? (double)(MacRestrictedPorts + DisabledPorts) / TotalPorts * 100
+        ? (double)(MacRestrictedPorts + LockedPorts + DisabledPorts) / TotalPorts * 100
         : 0;
 }
 
