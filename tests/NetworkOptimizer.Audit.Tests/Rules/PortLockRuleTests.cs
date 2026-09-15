@@ -123,7 +123,7 @@ public class PortLockRuleTests
         result.ScoreImpact.Should().Be(0);
         result.Message.Should().Contain("MAC-restricted for AI Key (UniFi Protect)");
         result.Message.Should().Contain("can replace the MAC list");
-        result.RecommendedAction.Should().Contain("clear the MAC restriction");
+        result.RecommendedAction.Should().Contain("If you prefer it");
     }
 
     [Fact]

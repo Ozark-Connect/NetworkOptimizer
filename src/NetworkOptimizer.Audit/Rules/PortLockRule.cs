@@ -63,8 +63,8 @@ public class PortLockRule : AuditRuleBase
                 port,
                 metadata,
                 $"This port already restricts by MAC address. Lock Port to UniFi Device ties the port to {device} " +
-                "without a MAC list to maintain, so a replaced or re-addressed device does not need the list edited. " +
-                "In UniFi Network, open this port in Port Manager, enable Lock Port to UniFi Device, and clear the MAC restriction.",
+                "as a single port setting instead of a MAC list. If you prefer it, enable Lock Port to UniFi Device " +
+                "on this port in Port Manager.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
         }
