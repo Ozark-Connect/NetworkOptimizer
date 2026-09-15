@@ -238,7 +238,7 @@ public static class IspHealthPresentation
     /// attribution still has the name the reader gave it, or at least its address; "path" names
     /// nothing and only ever stands in when the event carries no target at all.
     /// </summary>
-    private static string PathLabel(PathShiftEvent shift, IspHealthReport r)
+    public static string PathLabel(PathShiftEvent shift, IspHealthReport r)
     {
         if (!string.IsNullOrEmpty(shift.AsnName)) return shift.AsnName;
         var ids = shift.TargetIds.Count > 0 ? shift.TargetIds
@@ -257,7 +257,7 @@ public static class IspHealthPresentation
     /// The network whose grade a path event counts against: the event's own ASN, else the ISP or
     /// transit network the report files its targets under. Null when neither names one.
     /// </summary>
-    private static string? NetworkLabel(PathShiftEvent shift, IspHealthReport r)
+    public static string? NetworkLabel(PathShiftEvent shift, IspHealthReport r)
     {
         if (!string.IsNullOrEmpty(shift.AsnName)) return shift.AsnName;
         var ids = shift.TargetIds.Count > 0 ? shift.TargetIds
