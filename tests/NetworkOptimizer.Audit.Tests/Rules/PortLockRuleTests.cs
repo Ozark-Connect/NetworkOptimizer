@@ -189,6 +189,21 @@ public class PortLockRuleTests
     }
 
     [Theory]
+    [InlineData("all", "uap", "the connected UniFi Access Point")]
+    [InlineData("custom", "uap", "the connected UniFi Access Point")]
+    [InlineData("all", "usw", "the connected UniFi Switch")]
+    public void Evaluate_ProfiledFabricDownlink_SaysClientsBehindItAreNotAffected(string forwardMode, string deviceType, string described)
+    {
+        var port = CreatePort(forwardMode: forwardMode, nativeNetworkId: "net-1", connectedDeviceType: deviceType, portProfileId: "prof-trunk");
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().EndWith(
+            $"then enable Lock Port to UniFi Device. Clients connected through {described} are not affected.");
+    }
+
+    [Theory]
     [InlineData("all", "uap")]        // AP on a trunk profile
     [InlineData("custom", "uap")]     // AP on a custom profile with a native network (access port shape)
     [InlineData("all", "usw")]        // downstream switch
@@ -207,10 +222,12 @@ public class PortLockRuleTests
         // Profile id only (not resolved to a profile): generic wording
         result.Message.Should().StartWith("Port could be locked to ");
         result.Message.Should().EndWith(" if its Port Profile is removed");
-        result.RecommendedAction.Should().Be(
+        result.RecommendedAction.Should().StartWith(
             "Lock Port to UniFi Device can't be enabled on a port that uses a Port Profile. " +
             "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
             "then enable Lock Port to UniFi Device.");
+        if (deviceType == "umbb")
+            result.RecommendedAction.Should().NotContain("Clients connected through");
     }
 
     [Fact]

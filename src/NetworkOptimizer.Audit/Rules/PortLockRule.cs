@@ -101,7 +101,8 @@ public class PortLockRule : AuditRuleBase
                 metadata,
                 "Lock Port to UniFi Device can't be enabled on a port that uses a Port Profile. " +
                 "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
-                "then enable Lock Port to UniFi Device.",
+                "then enable Lock Port to UniFi Device." +
+                (IsNetworkFabricDevice(port.ConnectedDeviceType) ? $" Clients connected through {device} are not affected." : ""),
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
         }
