@@ -1556,6 +1556,31 @@ export class LanFlowMap {
             this._addNodeIncremental(node, { links });
             this._historicClientIds.add(node.id);
         }
+        this._applyPresentClients(update);
+    }
+
+    // The snapshot carries the clients connected NOW, so playback has to be told who was
+    // connected THEN, the same way the 2D map is: a measured client absent from the present
+    // set at this instant comes off the scene, and comes back the moment an instant (or the
+    // return to live) has it again. A client that writes no telemetry at all is unknowable and
+    // stays drawn as it always was.
+    _applyPresentClients(update) {
+        if (!this._absentClientIds) this._absentClientIds = new Set();
+        const present = update.presentClientIds ? new Set(update.presentClientIds) : null;
+        const measured = update.measuredClientIds ? new Set(update.measuredClientIds) : null;
+        const snapshot = this._snapshot;
+        const clients = (snapshot?.nodes || []).filter(n =>
+            n.kind === NODE_KIND.WiredClient || n.kind === NODE_KIND.WifiClient);
+        for (const node of clients) {
+            const absent = !!(present && measured && measured.has(node.id) && !present.has(node.id));
+            if (absent && this._nodeMeshes.has(node.id)) {
+                this._removeNodeIncremental(node.id);
+                this._absentClientIds.add(node.id);
+            } else if (!absent && this._absentClientIds.has(node.id)) {
+                this._addNodeIncremental(node, snapshot);
+                this._absentClientIds.delete(node.id);
+            }
+        }
     }
 
     // Historic roam: re-point with baseline restore. On reset (newApId === the live
