@@ -57,9 +57,13 @@ public class PortLockRule : AuditRuleBase
             { "device_type", port.ConnectedDeviceType ?? port.ConnectedClient?.UniFiProductLine ?? "unknown" }
         };
 
-        // Already MAC-restricted: secured, so no score impact. The lock is offered as the simpler tool.
+        // Already MAC-restricted: secured, so no score impact. The lock is offered as the simpler tool,
+        // except where the list or the history shows several devices; a lock would block the others.
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))
         {
+            if ((port.AllowedMacAddresses?.Count ?? 0) > 1 || port.IsSharedPort)
+                return null;
+
             return CreateIssue(
                 $"Port is MAC-restricted for {device}; Lock Port to UniFi Device can replace the MAC list",
                 port,

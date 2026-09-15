@@ -127,6 +127,24 @@ public class PortLockRuleTests
     }
 
     [Fact]
+    public void Evaluate_MacListWithSeveralMacs_ReturnsNull()
+    {
+        // The list admits more than the UniFi device; a lock would block the rest
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01"]);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_MacRestrictedSharedPort_ReturnsNull()
+    {
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"],
+            seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01"]);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
     public void Evaluate_PortSecurityEnabledNoMacs_ReturnsInformational()
     {
         var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true);
