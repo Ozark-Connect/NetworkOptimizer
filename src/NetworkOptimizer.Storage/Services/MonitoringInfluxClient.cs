@@ -3462,12 +3462,15 @@ union(tables: [means, chan])
         // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client, and client_name
         // only on wired_client; harmless to request either way (no rows match, columns come back
         // absent -> null). band, device_mac and port are tags and survive the pivot as columns.
+        // A port-tagged wired row with no rate is kept: the console's per-client counters move
+        // every few minutes, so a quiet wired client's only regular row is that one, and it is
+        // what says the client was on the port at the instant.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm)";
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm or (exists r.port and exists r.client_mac))";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))

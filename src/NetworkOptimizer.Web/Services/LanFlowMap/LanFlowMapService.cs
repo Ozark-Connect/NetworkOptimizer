@@ -799,13 +799,20 @@ public class LanFlowMapService
             wifiClientRates.Remove(mac);
         }
 
+        // Nearest row of any kind says who was on a port at the instant; the nearest rated row
+        // is what a leaf's rate falls back to. A wired client's rated rows are minutes apart.
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        var wiredClientRated = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in cached.WiredClients)
         {
             if (string.IsNullOrEmpty(p.ClientMac)) continue;
             if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wiredClientRates[p.ClientMac] = p;
+            if ((p.TxThroughputBps ?? 0) <= 0 && (p.RxThroughputBps ?? 0) <= 0) continue;
+            if (!wiredClientRated.TryGetValue(p.ClientMac, out var rated)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((rated.Time - at).TotalMilliseconds))
+                wiredClientRated[p.ClientMac] = p;
         }
 
         // Every client the window can speak to at all, before narrowing to this instant. Clients
@@ -1057,7 +1064,7 @@ public class LanFlowMapService
                     if (rates == null)
                     {
                         var clientMac = ExtractWiredClientMacFromLinkId(link.Id);
-                        if (!string.IsNullOrEmpty(clientMac) && wiredClientRates.TryGetValue(clientMac, out var wp))
+                        if (!string.IsNullOrEmpty(clientMac) && wiredClientRated.TryGetValue(clientMac, out var wp))
                         {
                             rates = new LinkLiveRates
                             {
