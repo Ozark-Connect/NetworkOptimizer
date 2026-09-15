@@ -47,6 +47,42 @@ public class MonitoringLiveStatsPortPresenceTests
         stats.GetPortUnicastIn(Switch, "eth1")!.Value.At.Should().Be(T0.AddSeconds(10));
     }
 
+    private static MonitoringInfluxClient.PortStatsPoint Rated(double? inBps, double? outBps, int oper, DateTime at) => new()
+    {
+        DeviceMac = Switch,
+        IfName = "eth1",
+        OperStatus = oper,
+        RateInBps = inBps,
+        RateOutBps = outBps,
+        Time = at,
+    };
+
+    private static MonitoringInfluxClient.PortStatsPoint Port(MonitoringLiveStats stats) =>
+        stats.GetPortStatsSnapshot(new[] { Switch }).Single();
+
+    [Fact]
+    public void A_rate_is_held_for_a_sample_without_one_then_reads_as_idle()
+    {
+        var stats = Stats();
+        stats.RecordPortStats(Rated(1000, 2000, 1, T0));
+        stats.RecordPortStats(Rated(null, null, 1, T0.AddSeconds(5)));
+        Port(stats).RateInBps.Should().Be(1000);
+
+        stats.RecordPortStats(Rated(null, null, 1, T0 + MonitoringLiveStats.PortRateHold + TimeSpan.FromSeconds(1)));
+        Port(stats).RateInBps.Should().Be(0);
+        Port(stats).RateOutBps.Should().Be(0);
+    }
+
+    [Fact]
+    public void A_down_link_reads_as_idle_at_once()
+    {
+        var stats = Stats();
+        stats.RecordPortStats(Rated(1000, 2000, 1, T0));
+        stats.RecordPortStats(Rated(null, null, 2, T0.AddSeconds(5)));
+        Port(stats).RateInBps.Should().Be(0);
+        Port(stats).RateOutBps.Should().Be(0);
+    }
+
     [Fact]
     public void A_counter_reset_is_not_movement()
     {

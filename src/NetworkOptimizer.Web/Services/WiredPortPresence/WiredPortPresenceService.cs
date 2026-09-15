@@ -74,6 +74,37 @@ public class WiredPortPresenceService : IWiredPortPresenceService
         }
     }
 
+    public async Task<bool> IsLinkDownAsync(string clientMac)
+    {
+        var mac = NormalizeMac(clientMac);
+        if (mac.Length == 0 || !_connection.IsConnected || _connection.Client == null) return false;
+        try
+        {
+            var clients = await _connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
+            var listed = clients.FirstOrDefault(c => c.IsWired && string.Equals(NormalizeMac(c.Mac), mac, StringComparison.OrdinalIgnoreCase));
+            if (listed == null || string.IsNullOrEmpty(listed.SwMac) || listed.SwPort is not > 0) return false;
+            var switchMac = NormalizeMac(listed.SwMac);
+            var ifNamesByPort = await IfNamesByPortAsync();
+            if (!ifNamesByPort.TryGetValue((switchMac, listed.SwPort.Value), out var ifNames)) return false;
+
+            // Only a fresh sample counts: a switch that stopped answering says nothing about the link.
+            var now = DateTime.UtcNow;
+            var snapshot = _liveStats.GetFor(_siteContext.Slug).GetPortStatsSnapshot(new[] { switchMac });
+            foreach (var ifName in ifNames)
+            {
+                var row = snapshot.FirstOrDefault(r => string.Equals(r.IfName, ifName, StringComparison.OrdinalIgnoreCase));
+                if (row?.OperStatus is { } oper && now - row.Time <= WiredPortPresenceRule.UnicastWindow)
+                    return oper != 1;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port link state unavailable for {Mac}", clientMac);
+            return false;
+        }
+    }
+
     private async Task<IReadOnlyList<WiredPortPresence>> BuildAsync()
     {
         // No console: nothing vouches, and the console's verdict stands.

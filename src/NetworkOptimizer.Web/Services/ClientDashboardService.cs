@@ -302,6 +302,15 @@ public class ClientDashboardService
                 displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
                 var identity = MapClientToIdentity(client, displayName);
 
+                // The console keeps a wired client listed for minutes after its link drops. The
+                // switch's own sample says the port is down, and a down port has nobody on it.
+                if (identity.IsWired && _portPresence != null && await _portPresence.IsLinkDownAsync(identity.Mac))
+                {
+                    identity.IsOffline = true;
+                    _offlineIdentityCache[clientIp] = identity;
+                    return identity;
+                }
+
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
 

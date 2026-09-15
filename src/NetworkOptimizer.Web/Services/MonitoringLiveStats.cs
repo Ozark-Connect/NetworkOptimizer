@@ -250,10 +250,27 @@ public class MonitoringLiveStats
     // is purely additive and read only by the port stats endpoint's live path.
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), MonitoringInfluxClient.PortStatsPoint> _portStats = new();
 
+    /// <summary>
+    /// How long a port's last computed rate stands in for a sample that computed none. A device
+    /// refreshes its counters on its own tick, so one unchanged read is not idle; a run of them is.
+    /// </summary>
+    public static readonly TimeSpan PortRateHold = TimeSpan.FromSeconds(30);
+
+    // When each port's rate was last computed rather than carried, for the hold above.
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portRateAt = new();
+
     public void RecordPortStats(MonitoringInfluxClient.PortStatsPoint point)
     {
         if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
         var key = (Normalize(point.DeviceMac), point.IfName);
+        if (point.RateInBps.HasValue || point.RateOutBps.HasValue) _portRateAt[key] = point.Time;
+        // A down link carries nothing, and a rate held past its window is a port that went quiet,
+        // not one whose device has yet to refresh its counters.
+        var linkDown = point.OperStatus is { } oper && oper != 1;
+        var heldTooLong = !point.RateInBps.HasValue && !point.RateOutBps.HasValue
+            && (!_portRateAt.TryGetValue(key, out var rateAt) || point.Time - rateAt > PortRateHold);
+        if (linkDown || heldTooLong)
+            point = point with { RateInBps = 0, RateOutBps = 0 };
         // Unicast into the port since the previous sample: the host behind it sent something.
         // Broadcast and multicast are left out, and so is the first sample, which has no delta.
         if (_portStats.TryGetValue(key, out var before)
