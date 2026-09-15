@@ -120,6 +120,18 @@ public class MonitoringLiveStatsPortPresenceTests
     }
 
     [Fact]
+    public void The_listed_wired_clients_are_replaced_whole_and_stamped()
+    {
+        var stats = Stats();
+        stats.GetListedWiredClients().Clients.Should().BeEmpty();
+        stats.RecordListedWiredClients(new[] { new MonitoringLiveStats.ListedWiredClient("00:11:22:33:44:55", Switch, 1, T0.AddHours(-1)) }, T0);
+        stats.RecordListedWiredClients(new[] { new MonitoringLiveStats.ListedWiredClient("00:11:22:33:44:66", Switch, 2, null) }, T0.AddSeconds(30));
+        var (clients, at) = stats.GetListedWiredClients();
+        clients.Should().ContainSingle(c => c.ClientMac == "00:11:22:33:44:66");
+        at.Should().Be(T0.AddSeconds(30));
+    }
+
+    [Fact]
     public void A_counter_reset_is_not_movement()
     {
         var stats = Stats();

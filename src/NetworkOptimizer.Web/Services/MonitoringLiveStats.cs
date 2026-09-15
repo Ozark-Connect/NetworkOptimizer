@@ -254,7 +254,7 @@ public class MonitoringLiveStats
     /// How long a port's last computed rate stands in for a sample that computed none. A device
     /// refreshes its counters on its own tick, so one unchanged read is not idle; a run of them is.
     /// </summary>
-    public static readonly TimeSpan PortRateHold = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan PortRateHold = TimeSpan.FromSeconds(60);
 
     // When each port's rate was last computed rather than carried, for the hold above.
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portRateAt = new();
@@ -386,6 +386,24 @@ public class MonitoringLiveStats
 
     /// <summary>Every placement known, one per (switch, port, client).</summary>
     public IReadOnlyList<PortOccupant> GetPortOccupants() => _portOccupants.Values.ToList();
+
+    /// <summary>A wired client the console lists right now, on the port it lists it on.</summary>
+    public sealed record ListedWiredClient(string ClientMac, string SwitchMac, int Port, DateTime? ConnectedAt);
+
+    // The console's current wired client list as the collector last read it, so presence can be
+    // answered from memory instead of asking the console again from every open page.
+    private volatile IReadOnlyList<ListedWiredClient> _listedWired = Array.Empty<ListedWiredClient>();
+    private DateTime _listedWiredAt;
+
+    /// <summary>Replaces the listed wired clients with the console's list as of <paramref name="at"/>.</summary>
+    public void RecordListedWiredClients(IReadOnlyList<ListedWiredClient> clients, DateTime at)
+    {
+        _listedWired = clients ?? Array.Empty<ListedWiredClient>();
+        _listedWiredAt = at;
+    }
+
+    /// <summary>The listed wired clients and when the console said so; empty until the collector has run.</summary>
+    public (IReadOnlyList<ListedWiredClient> Clients, DateTime At) GetListedWiredClients() => (_listedWired, _listedWiredAt);
 
     // Agent-resolved interface display labels (ifname -> friendly label) per device,
     // e.g. "gre1" -> "WAN3 - AT&T Wireless (5G)". Resolved live by the polling agent

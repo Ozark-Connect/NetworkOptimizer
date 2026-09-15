@@ -1468,6 +1468,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // Wired clients: collect throughput as fallback for non-SNMP switches.
         // Uses the same tx_bytes/rx_bytes delta approach as WiFi clients.
+        var listedWired = new List<MonitoringLiveStats.ListedWiredClient>();
         foreach (var c in clients)
         {
             if (!c.IsWired) continue;
@@ -1526,7 +1527,11 @@ public class MonitoringCollectionAgent : BackgroundService
             var displayName = !string.IsNullOrWhiteSpace(c.Name) ? c.Name
                 : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Mac;
             if (!string.IsNullOrEmpty(swMac) && swPort is { } occupiedPort)
+            {
                 _liveStats.RecordPortOccupant(swMac, occupiedPort, clientMac, c.BestIp, displayName, now);
+                listedWired.Add(new MonitoringLiveStats.ListedWiredClient(
+                    clientMac, swMac, occupiedPort, c.Uptime > 0 ? now - TimeSpan.FromSeconds(c.Uptime) : null));
+            }
             if (!string.IsNullOrEmpty(swMac) && ((txBps ?? 0) > 0 || (rxBps ?? 0) > 0 || swPort.HasValue))
             {
                 _ = _influx.WriteWiredClientAsync(
@@ -1540,6 +1545,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     clientName: displayName);
             }
         }
+
+        _liveStats.RecordListedWiredClients(listedWired, now);
 
         // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise
         // a roamed/disconnected client's stale counter sits forever and gives a bogus

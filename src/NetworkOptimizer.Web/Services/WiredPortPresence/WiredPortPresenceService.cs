@@ -7,16 +7,19 @@ namespace NetworkOptimizer.Web.Services.WiredPortPresence;
 
 /// <summary>
 /// Answers wired port presence from what the collector already keeps in memory: the console's
-/// placements of clients on ports and the unicast movement on each port, both refreshed on every
-/// poll. The console's cached device and client lists supply the rest. The one store read is a
-/// single cold-start fill of the placements made before the app started. Answers are held for
-/// <see cref="CacheFor"/> per site, static because the service is scoped and every open page on
-/// a site asks the same question.
+/// placements of clients on ports, its current wired client list, and the link state and unicast
+/// movement on each port, all refreshed on the collector's own passes. The console is asked for
+/// nothing here beyond its cached device list. The one store read is a single cold-start fill of
+/// the placements made before the app started. Answers are held for <see cref="CacheFor"/> per
+/// site, static because the service is scoped and every open page on a site asks the same question.
+/// A site with no SNMP port sample at all gets an empty answer before any of that runs.
 /// </summary>
 public class WiredPortPresenceService : IWiredPortPresenceService
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan IfNamesFor = TimeSpan.FromMinutes(5);
+    /// <summary>How old the collector's copy of the console's wired client list may be before it says nothing.</summary>
+    private static readonly TimeSpan ListedFor = TimeSpan.FromMinutes(3);
     private static readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<WiredPortPresence> List)> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, (DateTime At, Dictionary<(string, int), List<string>> Map)> IfNames = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new(StringComparer.OrdinalIgnoreCase);
@@ -89,28 +92,25 @@ public class WiredPortPresenceService : IWiredPortPresenceService
     private async Task<IReadOnlySet<string>> BuildLinkDownAsync()
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!_connection.IsConnected || _connection.Client == null) return result;
+        var live = _liveStats.GetFor(_siteContext.Slug);
+        if (!HasPortSamples(live)) return result;
         try
         {
-            var clients = await _connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
-            var ifNamesByPort = await IfNamesByPortAsync();
-            var live = _liveStats.GetFor(slug: _siteContext.Slug);
             var now = DateTime.UtcNow;
-            foreach (var c in clients.Where(c => c.IsWired && !string.IsNullOrEmpty(c.SwMac) && c.SwPort is > 0))
+            var ifNamesByPort = await IfNamesByPortAsync();
+            foreach (var c in ListedWired(live, now))
             {
-                var switchMac = NormalizeMac(c.SwMac);
-                if (!ifNamesByPort.TryGetValue((switchMac, c.SwPort!.Value), out var ifNames)) continue;
-                var connectedAt = c.Uptime > 0 ? now - TimeSpan.FromSeconds(c.Uptime) : (DateTime?)null;
+                if (!ifNamesByPort.TryGetValue((c.SwitchMac, c.Port), out var ifNames)) continue;
                 foreach (var ifName in ifNames)
                 {
-                    if (live.PortLinkState(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow, connectedAt) is not { } state) continue;
+                    if (live.PortLinkState(c.SwitchMac, ifName, now, WiredPortPresenceRule.UnicastWindow, c.ConnectedAt) is not { } state) continue;
                     if (state.Down)
                     {
-                        result.Add(NormalizeMac(c.Mac));
+                        result.Add(c.ClientMac);
                         _logger.LogDebug(
                             "Wired port presence [{Site}]: {Client} offline by link - {Switch} port {Port} ({IfName}) ifOperStatus {Oper}, sample {Age:0}s old, console connected {Connected}",
-                            _siteContext.Slug, NormalizeMac(c.Mac), switchMac, c.SwPort, ifName, state.OperStatus,
-                            (now - state.At).TotalSeconds, connectedAt?.ToString("HH:mm:ss") ?? "unknown");
+                            _siteContext.Slug, c.ClientMac, c.SwitchMac, c.Port, ifName, state.OperStatus,
+                            (now - state.At).TotalSeconds, c.ConnectedAt?.ToString("HH:mm:ss") ?? "unknown");
                     }
                     break;
                 }
@@ -128,11 +128,12 @@ public class WiredPortPresenceService : IWiredPortPresenceService
         // No console: nothing vouches, and the console's verdict stands.
         if (!_connection.IsConnected || _connection.Client == null)
             return Array.Empty<WiredPortPresence>();
+        var live = _liveStats.GetFor(_siteContext.Slug);
+        if (!HasPortSamples(live)) return Array.Empty<WiredPortPresence>();
 
         try
         {
             var now = DateTime.UtcNow;
-            var live = _liveStats.GetFor(_siteContext.Slug);
             await SeedAsync(live, now);
 
             var sightings = live.GetPortOccupants()
@@ -141,13 +142,11 @@ public class WiredPortPresenceService : IWiredPortPresenceService
             if (sightings.Count == 0) return Array.Empty<WiredPortPresence>();
 
             var devices = await _connection.Client.GetDevicesAsync() ?? new List<UniFiDeviceResponse>();
-            var clients = await _connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
+            var clients = ListedWired(live, now);
             var ifNamesByPort = await IfNamesByPortAsync();
 
-            var listed = new HashSet<string>(clients.Select(c => NormalizeMac(c.Mac)), StringComparer.OrdinalIgnoreCase);
-            var occupied = new HashSet<(string, int)>(clients
-                .Where(c => c.IsWired && !string.IsNullOrEmpty(c.SwMac) && c.SwPort is > 0)
-                .Select(c => (NormalizeMac(c.SwMac), c.SwPort!.Value)));
+            var listed = new HashSet<string>(clients.Select(c => c.ClientMac), StringComparer.OrdinalIgnoreCase);
+            var occupied = new HashSet<(string, int)>(clients.Select(c => (c.SwitchMac, c.Port)));
             // A port another device hangs off, by that device's own uplink record. Gateway WAN
             // ports and LAG members are not client ports either.
             var uplinks = new HashSet<(string, int)>(devices
@@ -202,6 +201,19 @@ public class WiredPortPresenceService : IWiredPortPresenceService
             _logger.LogDebug(ex, "Wired port presence unavailable for site {Site}", _siteContext.Slug);
             return Array.Empty<WiredPortPresence>();
         }
+    }
+
+    /// <summary>Whether the site has any SNMP port sample at all; without one nothing here can answer.</summary>
+    private static bool HasPortSamples(MonitoringLiveStats live) => live.GetPortStatsSnapshot(null).Count > 0;
+
+    /// <summary>
+    /// The console's wired client list as the collector last read it, or empty when that reading
+    /// is too old to stand for the console's current view.
+    /// </summary>
+    private static IReadOnlyList<MonitoringLiveStats.ListedWiredClient> ListedWired(MonitoringLiveStats live, DateTime now)
+    {
+        var (clients, at) = live.GetListedWiredClients();
+        return now - at <= ListedFor ? clients : Array.Empty<MonitoringLiveStats.ListedWiredClient>();
     }
 
     /// <summary>
