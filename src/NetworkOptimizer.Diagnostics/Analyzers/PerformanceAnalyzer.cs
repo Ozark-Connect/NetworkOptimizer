@@ -801,7 +801,7 @@ public class PerformanceAnalyzer
                     Description = $"Flow Control is enabled globally, but {affectedPorts.Count} " +
                         $"port(s) on {device.Name} have it disabled: {portList}.",
                     Recommendation = $"If this isn't intentional, enable Flow Control on these ports " +
-                        $"in UniFi Devices > {deviceName} > Port Manager.",
+                        $"on {deviceName} in UniFi Network - Ports.",
                     Severity = PerformanceSeverity.Info,
                     Category = PerformanceCategory.Performance,
                     DeviceName = device.Name
