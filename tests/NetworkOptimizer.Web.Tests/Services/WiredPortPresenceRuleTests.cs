@@ -18,27 +18,27 @@ public class WiredPortPresenceRuleTests
         IEnumerable<(string, int)>? occupied = null,
         Func<string, int, bool?>? portUp = null,
         IEnumerable<(string, int)>? uplinks = null,
-        Func<string, int, bool?>? transmitting = null) =>
+        Func<string, int, bool?>? unicast = null) =>
         WiredPortPresenceRule.Evaluate(
             sightings,
             new HashSet<string>(listed ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase),
             new HashSet<(string, int)>(occupied ?? Array.Empty<(string, int)>()),
             portUp ?? ((_, _) => true),
-            transmitting ?? ((_, _) => true),
+            unicast ?? ((_, _) => true),
             new HashSet<(string, int)>(uplinks ?? Array.Empty<(string, int)>()),
             Now);
 
     [Fact]
-    public void ALinkedPortWithASilentHostIsNotPresence()
+    public void ALinkedPortWithNoUnicastInIsNotPresence()
     {
-        // A sleeping NIC keeps its link; only the host's own traffic says it is awake.
-        Assert.Empty(Run(new[] { Sighting() }, transmitting: (_, _) => false));
+        // A sleeping NIC keeps its link; only unicast from the host says it is awake.
+        Assert.Empty(Run(new[] { Sighting() }, unicast: (_, _) => false));
     }
 
     [Fact]
     public void APortWithNoCountersIsNotPresence()
     {
-        Assert.Empty(Run(new[] { Sighting() }, transmitting: (_, _) => null));
+        Assert.Empty(Run(new[] { Sighting() }, unicast: (_, _) => null));
     }
 
     [Fact]
@@ -79,17 +79,27 @@ public class WiredPortPresenceRuleTests
     }
 
     [Fact]
-    public void APortThatChangedHandsSinceIsNotPresence()
+    public void APortThatCarriedTwoClientsIsNobodys()
     {
         var sightings = new[]
         {
             Sighting(ago: TimeSpan.FromDays(3)),
             Sighting(client: "00:11:22:33:44:66", ago: TimeSpan.FromDays(1)),
         };
-        // Only the newer occupant can be present; the older placement was superseded.
-        var result = Run(sightings);
-        var p = Assert.Single(result);
-        Assert.Equal("00:11:22:33:44:66", p.ClientMac);
+        // Port counters cannot say which of the two sent the unicast.
+        Assert.Empty(Run(sightings));
+    }
+
+    [Fact]
+    public void ASecondClientOutsideTheLookbackDoesNotSharePort()
+    {
+        var sightings = new[]
+        {
+            Sighting(client: "00:11:22:33:44:66", ago: WiredPortPresenceRule.Lookback + TimeSpan.FromDays(1)),
+            Sighting(ago: TimeSpan.FromDays(1)),
+        };
+        var p = Assert.Single(Run(sightings));
+        Assert.Equal(Client, p.ClientMac);
     }
 
     [Fact]

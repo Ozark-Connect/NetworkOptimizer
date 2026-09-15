@@ -1523,10 +1523,12 @@ public class MonitoringCollectionAgent : BackgroundService
             // Client column for a port even while the client is quiet.
             var swMac = NormalizeMac(c.SwMac ?? string.Empty);
             var swPort = c.SwPort is int sp && sp > 0 ? sp : (int?)null;
+            var displayName = !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Mac;
+            if (!string.IsNullOrEmpty(swMac) && swPort is { } occupiedPort)
+                _liveStats.RecordPortOccupant(swMac, occupiedPort, clientMac, c.BestIp, displayName, now);
             if (!string.IsNullOrEmpty(swMac) && ((txBps ?? 0) > 0 || (rxBps ?? 0) > 0 || swPort.HasValue))
             {
-                var displayName = !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Mac;
                 _ = _influx.WriteWiredClientAsync(
                     switchMac: swMac,
                     clientMac: clientMac,

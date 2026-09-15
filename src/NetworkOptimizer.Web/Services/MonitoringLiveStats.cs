@@ -254,6 +254,11 @@ public class MonitoringLiveStats
     {
         if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
         var key = (Normalize(point.DeviceMac), point.IfName);
+        // Unicast into the port since the previous sample: the host behind it sent something.
+        // Broadcast and multicast are left out, and so is the first sample, which has no delta.
+        if (_portStats.TryGetValue(key, out var before)
+            && point.UcastPktsIn is > 0 && before.UcastPktsIn is > 0 && point.UcastPktsIn > before.UcastPktsIn)
+            _portUnicastIn[key] = new PortUnicastIn(point.Time, point.UcastPktsIn.Value - before.UcastPktsIn.Value);
         // Carry forward any field the latest sample didn't carry (rates are only
         // computed when a delta is available), so a partial cycle never blanks a column.
         _portStats[key] = _portStats.TryGetValue(key, out var prior)
@@ -282,6 +287,50 @@ public class MonitoringLiveStats
             }
             : point;
     }
+
+    /// <summary>Unicast packets the host behind a port sent between the last two samples, and when.</summary>
+    public readonly record struct PortUnicastIn(DateTime At, long Packets);
+
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), PortUnicastIn> _portUnicastIn = new();
+
+    /// <summary>The newest unicast-in movement on a port, or null when no two samples have shown one.</summary>
+    public PortUnicastIn? GetPortUnicastIn(string deviceMac, string ifName)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        return _portUnicastIn.TryGetValue((Normalize(deviceMac), ifName), out var v) ? v : null;
+    }
+
+    /// <summary>The console's placement of a wired client on a switch port, and when it last made it.</summary>
+    public sealed record PortOccupant(string DeviceMac, int Port, string ClientMac, string? Ip, string? Name, DateTime LastSeen);
+
+    // Every (switch, port, client) placement the console has made since startup, seeded once
+    // from the store so a placement made before startup still counts. Read by wired port
+    // presence, which needs to know every client a port has carried, not only the current one.
+    private readonly ConcurrentDictionary<(string DeviceMac, int Port, string ClientMac), PortOccupant> _portOccupants = new();
+    private volatile bool _portOccupantsSeeded;
+
+    /// <summary>Whether the placements made before startup have been loaded from the store.</summary>
+    public bool PortOccupantsSeeded => _portOccupantsSeeded;
+
+    /// <summary>Records a placement; an older one for the same triple never overwrites a newer one.</summary>
+    public void RecordPortOccupant(string deviceMac, int port, string clientMac, string? ip, string? name, DateTime at)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(clientMac) || port <= 0) return;
+        var occupant = new PortOccupant(Normalize(deviceMac), port, Normalize(clientMac), ip, name, at);
+        _portOccupants.AddOrUpdate((occupant.DeviceMac, port, occupant.ClientMac), occupant,
+            (_, prior) => at >= prior.LastSeen ? occupant : prior);
+    }
+
+    /// <summary>Loads placements made before startup, then marks the table seeded even when there were none.</summary>
+    public void SeedPortOccupants(IEnumerable<PortOccupant> occupants)
+    {
+        foreach (var o in occupants)
+            RecordPortOccupant(o.DeviceMac, o.Port, o.ClientMac, o.Ip, o.Name, o.LastSeen);
+        _portOccupantsSeeded = true;
+    }
+
+    /// <summary>Every placement known, one per (switch, port, client).</summary>
+    public IReadOnlyList<PortOccupant> GetPortOccupants() => _portOccupants.Values.ToList();
 
     // Agent-resolved interface display labels (ifname -> friendly label) per device,
     // e.g. "gre1" -> "WAN3 - AT&T Wireless (5G)". Resolved live by the polling agent

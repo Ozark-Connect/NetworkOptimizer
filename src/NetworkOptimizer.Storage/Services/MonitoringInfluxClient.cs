@@ -4030,33 +4030,6 @@ union(tables: [means, chan])
     }
 
     /// <summary>
-    /// Mean host-to-switch rate per (device, interface) over a window, from
-    /// <c>interface_counters</c>' <c>rate_in_bps</c>. Interfaces with no rate point in the window
-    /// are absent, which a caller reads as "no counters", not "idle".
-    /// </summary>
-    public async Task<IReadOnlyDictionary<(string DeviceMac, string IfName), double>> QueryPortInboundMeanAsync(
-        DateTime from, DateTime to, CancellationToken ct = default)
-    {
-        var result = new Dictionary<(string, string), double>();
-        if (!IsConfigured) return result;
-        var flux = $@"from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r._field == ""rate_in_bps"")
-  |> group(columns: [""device_mac"", ""if_name""])
-  |> mean()
-  |> group()";
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
-            var ifName = record.GetValueByKey("if_name") as string ?? "";
-            if (device.Length == 0 || ifName.Length == 0) continue;
-            if (AsDoubleOrNull(record.GetValueByKey("_value")) is { } mean)
-                result[(device, ifName)] = mean;
-        }
-        return result;
-    }
-
-    /// <summary>
     /// The switch port one wired client held most over a window, from its port-tagged
     /// <c>wired_client</c> points, or null when it has none. The client is a field, so this reads
     /// the window's points; callers keep the window to days, not weeks.

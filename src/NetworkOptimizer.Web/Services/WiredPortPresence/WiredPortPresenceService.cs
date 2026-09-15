@@ -6,18 +6,23 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Web.Services.WiredPortPresence;
 
 /// <summary>
-/// Builds the site's port-presence list once every <see cref="CacheFor"/> from two InfluxDB reads
-/// (the newest sighting per switch, port, and client; the hosts' inbound rate per port) and the
-/// console's cached device and client lists, then answers from it. Static cache keyed by site:
-/// the service is scoped, and every open page on a site asks the same question.
+/// Answers wired port presence from what the collector already keeps in memory: the console's
+/// placements of clients on ports and the unicast movement on each port, both refreshed on every
+/// poll. The console's cached device and client lists supply the rest. The one store read is a
+/// single cold-start fill of the placements made before the app started. Answers are held for
+/// <see cref="CacheFor"/> per site, static because the service is scoped and every open page on
+/// a site asks the same question.
 /// </summary>
 public class WiredPortPresenceService : IWiredPortPresenceService
 {
-    private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan IfNamesFor = TimeSpan.FromMinutes(5);
     private static readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<WiredPortPresence> List)> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, (DateTime At, Dictionary<(string, int), List<string>> Map)> IfNames = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly UniFiConnectionService _connection;
+    private readonly MonitoringLiveStatsRegistry _liveStats;
     private readonly MonitoringInfluxClient _influx;
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteContextService _siteContext;
@@ -25,12 +30,14 @@ public class WiredPortPresenceService : IWiredPortPresenceService
 
     public WiredPortPresenceService(
         UniFiConnectionService connection,
+        MonitoringLiveStatsRegistry liveStats,
         MonitoringInfluxClient influx,
         SiteDbContextFactory siteDb,
         SiteContextService siteContext,
         ILogger<WiredPortPresenceService> logger)
     {
         _connection = connection;
+        _liveStats = liveStats;
         _influx = influx;
         _siteDb = siteDb;
         _siteContext = siteContext;
@@ -50,6 +57,7 @@ public class WiredPortPresenceService : IWiredPortPresenceService
         var slug = _siteContext.Slug;
         if (Cache.TryGetValue(slug, out var hit) && DateTime.UtcNow - hit.At < CacheFor)
             return hit.List;
+
         var gate = Locks.GetOrAdd(slug, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
@@ -68,20 +76,23 @@ public class WiredPortPresenceService : IWiredPortPresenceService
 
     private async Task<IReadOnlyList<WiredPortPresence>> BuildAsync()
     {
-        // No console or no monitoring: nothing vouches, and the console's verdict stands.
-        if (!_connection.IsConnected || _connection.Client == null || !_influx.IsConfigured)
+        // No console: nothing vouches, and the console's verdict stands.
+        if (!_connection.IsConnected || _connection.Client == null)
             return Array.Empty<WiredPortPresence>();
+
         try
         {
             var now = DateTime.UtcNow;
-            var sightings = (await _influx.QueryWiredPortSightingsAsync(now - WiredPortPresenceRule.Lookback, now))
-                .Select(s => new PortSighting(s.DeviceMac, s.Port, s.ClientMac, s.LastSeen, s.ClientIp, s.ClientName))
+            var live = _liveStats.GetFor(_siteContext.Slug);
+            await SeedAsync(live, now);
+
+            var sightings = live.GetPortOccupants()
+                .Select(o => new PortSighting(o.DeviceMac, o.Port, o.ClientMac, o.LastSeen, o.Ip, o.Name))
                 .ToList();
             if (sightings.Count == 0) return Array.Empty<WiredPortPresence>();
 
             var devices = await _connection.Client.GetDevicesAsync() ?? new List<UniFiDeviceResponse>();
             var clients = await _connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
-            var inbound = await _influx.QueryPortInboundMeanAsync(now - WiredPortPresenceRule.TransmitWindow, now);
             var ifNamesByPort = await IfNamesByPortAsync();
 
             var listed = new HashSet<string>(clients.Select(c => NormalizeMac(c.Mac)), StringComparer.OrdinalIgnoreCase);
@@ -100,23 +111,38 @@ public class WiredPortPresenceService : IWiredPortPresenceService
                 foreach (var p in ports.Where(p => p.IsUplink || p.AggregatedBy is > 0))
                     uplinks.Add((mac, p.PortIdx));
 
+            // The switch's own link state from the last SNMP sample leads, since it is what the
+            // unicast count is read against; the console's port table answers where SNMP has not.
             bool? PortUp(string switchMac, int port)
             {
+                if (ifNamesByPort.TryGetValue((switchMac, port), out var ifNames))
+                {
+                    var snapshot = live.GetPortStatsSnapshot(new[] { switchMac });
+                    foreach (var ifName in ifNames)
+                    {
+                        var row = snapshot.FirstOrDefault(r => string.Equals(r.IfName, ifName, StringComparison.OrdinalIgnoreCase));
+                        if (row?.OperStatus is { } oper) return oper == 1;
+                    }
+                }
                 if (!portsByDevice.TryGetValue(switchMac, out var ports)) return null;
                 return ports.FirstOrDefault(p => p.PortIdx == port)?.Up;
             }
 
-            bool? HostTransmitting(string switchMac, int port)
+            bool? UnicastFlowing(string switchMac, int port)
             {
                 if (!ifNamesByPort.TryGetValue((switchMac, port), out var ifNames)) return null;
-                double? best = null;
+                bool? flowing = null;
                 foreach (var ifName in ifNames)
-                    if (inbound.TryGetValue((switchMac, ifName), out var mean))
-                        best = Math.Max(best ?? 0, mean);
-                return best is { } rate ? rate >= WiredPortPresenceRule.TransmitFloorBps : null;
+                {
+                    if (live.GetPortUnicastIn(switchMac, ifName) is not { } unicast) continue;
+                    var recent = now - unicast.At <= WiredPortPresenceRule.UnicastWindow
+                        && unicast.Packets >= WiredPortPresenceRule.UnicastFloorPackets;
+                    flowing = (flowing ?? false) || recent;
+                }
+                return flowing;
             }
 
-            var result = WiredPortPresenceRule.Evaluate(sightings, listed, occupied, PortUp, HostTransmitting, uplinks, now);
+            var result = WiredPortPresenceRule.Evaluate(sightings, listed, occupied, PortUp, UnicastFlowing, uplinks, now);
             if (result.Count > 0)
                 _logger.LogDebug("Wired port presence [{Site}]: {Count} client(s) online by port link that the console does not list",
                     _siteContext.Slug, result.Count);
@@ -129,11 +155,33 @@ public class WiredPortPresenceService : IWiredPortPresenceService
         }
     }
 
+    /// <summary>
+    /// One-time fill of the placements the console made before the app started, from the
+    /// port-tagged samples the collector wrote. The collector keeps the table current from here.
+    /// </summary>
+    private async Task SeedAsync(MonitoringLiveStats live, DateTime now)
+    {
+        if (live.PortOccupantsSeeded) return;
+        if (!_influx.IsConfigured)
+        {
+            live.SeedPortOccupants(Array.Empty<MonitoringLiveStats.PortOccupant>());
+            return;
+        }
+        var sightings = await _influx.QueryWiredPortSightingsAsync(now - WiredPortPresenceRule.Lookback, now);
+        live.SeedPortOccupants(sightings.Select(s =>
+            new MonitoringLiveStats.PortOccupant(s.DeviceMac, s.Port, s.ClientMac, s.ClientIp, s.ClientName, s.LastSeen)));
+        _logger.LogDebug("Wired port presence [{Site}]: seeded {Count} placement(s) from the store", _siteContext.Slug, sightings.Count);
+    }
+
     /// <summary>The SNMP interface names behind each console port number, from the site's name maps.</summary>
     private async Task<Dictionary<(string, int), List<string>>> IfNamesByPortAsync()
     {
+        var slug = _siteContext.Slug;
+        if (IfNames.TryGetValue(slug, out var hit) && DateTime.UtcNow - hit.At < IfNamesFor)
+            return hit.Map;
+
         var result = new Dictionary<(string, int), List<string>>();
-        await using var db = _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+        await using var db = _siteDb.CreateForSite(slug, _siteContext.IsDefault);
         var maps = await db.InterfaceNameMaps.AsNoTracking()
             .Where(m => m.PortNumber > 0)
             .Select(m => new { m.DeviceMac, m.PortNumber, m.IfName })
@@ -144,6 +192,7 @@ public class WiredPortPresenceService : IWiredPortPresenceService
             if (!result.TryGetValue(key, out var list)) result[key] = list = new List<string>();
             list.Add(m.IfName);
         }
+        IfNames[slug] = (DateTime.UtcNow, result);
         return result;
     }
 
