@@ -72,10 +72,11 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
         var rebootWitness = new InfluxRolloutRebootWitness(
             _serviceProvider.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
             _serviceProvider.GetRequiredService<ILogger<InfluxRolloutRebootWitness>>());
+        var observerLocator = ActivatorUtilities.CreateInstance<RolloutObserverLocator>(_serviceProvider, slug, commands);
 
         return ActivatorUtilities.CreateInstance<FirmwareRolloutOrchestrator>(
             _serviceProvider, slug, repositories, commands, observer, litmus, health, meshRepairs, channels,
-            autopilot, bus, rebootWitness);
+            autopilot, bus, rebootWitness, observerLocator);
     }
 
     /// <summary>

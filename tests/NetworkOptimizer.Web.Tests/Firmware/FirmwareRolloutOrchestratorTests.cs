@@ -1309,17 +1309,17 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
-    public async Task AStepOpensWindowsForTheDevicesBehindItAndClosesThemWhenItSettles()
+    public async Task AStepOpensWindowsForTheDevicesBehindItAndLeavesThemToLapseWhenItSettles()
     {
         using var harness = new RolloutHarness();
         var plan = await harness.SeedRunningPlanAsync(
             Document(Wave(1, PlanStep(ApMac))),
             Step(ApMac));
-        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
-        // Switch behind the AP, and a second AP behind that switch; a third device elsewhere.
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, uplinkMac: GatewayMac);
+        // Switch behind the AP, and a second AP behind that switch; the gateway above it all.
         harness.Observer.Set(SwitchMac, Online, FromVersion, name: "Switch 1", model: "USW-PRO-24", uplinkMac: ApMac);
         harness.Observer.Set(PeerMac, Online, FromVersion, name: "AP 2", uplinkMac: SwitchMac);
-        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UDMA6A8");
+        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UDMA6A8", isGateway: true);
 
         await harness.TickAsync();
 
@@ -1336,9 +1336,82 @@ public class FirmwareRolloutOrchestratorTests
 
         await RunCanaryToLitmusAsync(harness, ApMac);
 
+        // The step's own window ends with it. The devices behind it re-inform on their own
+        // schedule, so their windows are left to lapse rather than cleared.
         now = harness.Time.GetUtcNow().UtcDateTime;
-        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeFalse();
-        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, now).Should().BeTrue();
+
+        var lapsed = now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, SwitchMac, lapsed).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, PeerMac, lapsed).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ASwitchTheSelfHostedConsoleReachesTheGatewayThroughDarkensTheGatewaysOwnPorts()
+    {
+        // A UniFi OS Server plugged into the core switch: the gateway hangs off that switch too
+        // (last_uplink, since a gateway carries no live LAN uplink), and an AP on the gateway's
+        // own port can only reach the console through the switch being upgraded.
+        using var harness = new RolloutHarness();
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Core Switch", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Core Switch", model: "USW-PRO-24", uplinkMac: GatewayMac);
+        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UXGPRO", isGateway: true, lastUplinkMac: SwitchMac);
+        harness.Observer.Set(ApMac, Online, FromVersion, name: "AP on gateway port", uplinkMac: GatewayMac);
+        harness.Observer.Set(PeerMac, Online, FromVersion, name: "AP on core switch", uplinkMac: SwitchMac);
+        harness.Locator.Positions = new RolloutObserverPositions(
+            ConsoleAttachMac: SwitchMac,
+            ConsoleUnlocated: false,
+            VantageAttachMacs: new Dictionary<string, string?>
+            {
+                ["server"] = SwitchMac,      // the server shares the console's switch
+                ["agent-7"] = GatewayMac,    // an agent on the gateway keeps its WAN view
+            });
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        var site = SiteManagementService.DefaultSiteSlug;
+        harness.Suppression.IsInRolloutWindow(site, ApMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(site, PeerMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(site, GatewayMac, now).Should().BeTrue();
+        harness.Suppression.IsWanDark(site, "server", now).Should().BeTrue();
+        harness.Suppression.IsWanDark(site, "agent-7", now).Should().BeFalse();
+        // Vantage-scoped, never the site-wide OS-cycle hold.
+        harness.Suppression.IsOsCycling(site, now).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ALeafSwitchStepOnASelfHostedConsoleDarkensOnlyItsSubtreeAndTheMeshChildren()
+    {
+        using var harness = new RolloutHarness();
+        const string coreMac = "aa:bb:cc:dd:ee:05";
+        const string meshChildMac = "aa:bb:cc:dd:ee:06";
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(SwitchMac, model: "USW-PRO-24"))),
+            Step(SwitchMac, name: "Leaf Switch", model: "USW-PRO-24", deviceType: "usw"));
+        harness.Observer.Set(GatewayMac, Online, FromVersion, name: "Gateway", model: "UXGPRO", isGateway: true, lastUplinkMac: coreMac);
+        harness.Observer.Set(coreMac, Online, FromVersion, name: "Core Switch", model: "USW-PRO-24", uplinkMac: GatewayMac);
+        harness.Observer.Set(SwitchMac, Online, FromVersion, upgradeTo: ToVersion, name: "Leaf Switch", model: "USW-PRO-24", uplinkMac: coreMac);
+        harness.Observer.Set(ApMac, Online, FromVersion, name: "AP behind leaf", uplinkMac: SwitchMac);
+        harness.Observer.Set(PeerMac, Online, FromVersion, name: "AP on core", uplinkMac: coreMac);
+        harness.Observer.Set(meshChildMac, Online, FromVersion, name: "Mesh AP", uplinkMac: PeerMac, wirelessUplink: true);
+        harness.Locator.Positions = new RolloutObserverPositions(coreMac, false,
+            new Dictionary<string, string?> { ["server"] = coreMac });
+
+        await harness.TickAsync();
+
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        var site = SiteManagementService.DefaultSiteSlug;
+        harness.Suppression.IsInRolloutWindow(site, ApMac, now).Should().BeTrue();
+        harness.Suppression.IsInRolloutWindow(site, PeerMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(site, coreMac, now).Should().BeFalse();
+        harness.Suppression.IsInRolloutWindow(site, meshChildMac, now).Should().BeTrue();
+        // The server sits on the core switch, which the leaf's reboot never touches.
+        harness.Suppression.IsWanDark(site, "server", now).Should().BeFalse();
     }
 
     [Fact]
