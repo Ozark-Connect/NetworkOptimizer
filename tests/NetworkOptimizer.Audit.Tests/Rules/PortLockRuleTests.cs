@@ -271,20 +271,12 @@ public class PortLockRuleTests
     }
 
     [Fact]
-    public void Evaluate_SharedPortHistory_ReturnsInformationalOfferingMacRestriction()
+    public void Evaluate_SharedPortHistory_ReturnsNull()
     {
-        // Three distinct MACs in the history window: the lock may be the wrong tool
+        // Three distinct MACs in the window: MacRestrictionRule carries this port and its score
         var port = CreatePort(client: ProtectClient(), seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]);
 
-        var result = _rule.Evaluate(port, []);
-
-        result.Should().NotBeNull();
-        result!.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(0);
-        result.Message.Should().Contain("3 devices have used it");
-        result.RecommendedAction.Should().StartWith("3 different devices have used this port in the last 7 days.");
-        result.RecommendedAction.Should().Contain("use Restricted with each allowed MAC address instead");
-        result.Metadata!["devices_seen"].Should().Be(3);
+        _rule.Evaluate(port, []).Should().BeNull();
     }
 
     [Fact]
