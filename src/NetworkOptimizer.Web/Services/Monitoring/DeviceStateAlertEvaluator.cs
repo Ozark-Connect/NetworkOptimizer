@@ -135,19 +135,8 @@ public class DeviceStateAlertEvaluator
             {
                 state.ConsecutiveOffline = 0;
                 _logger.LogDebug(
-                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading it or a device it uplinks through",
+                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading it or a device between it and the console",
                     label, deviceMac);
-                return;
-            }
-
-            // Site-wide, not just downstream: the uplink map cannot say what a rebooting switch
-            // takes dark (see RolloutSuppressionRegistry.RefreshSiteActive).
-            if (_rolloutWindows?.IsSiteActiveRollout(_siteSlug, now) == true)
-            {
-                state.ConsecutiveOffline = 0;
-                _logger.LogDebug(
-                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading a device on site {Site}",
-                    label, deviceMac, _siteSlug);
                 return;
             }
 

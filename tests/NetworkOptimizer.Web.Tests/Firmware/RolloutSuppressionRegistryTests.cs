@@ -218,27 +218,44 @@ public class RolloutSuppressionRegistryTests
         registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
     }
 
+    // --- Dark set (devices a step hides from the console, vantages it cuts off) ---------------
+
     [Fact]
-    public void DeviceStepInFlightComesFromDeviceStepsOnly()
+    public void ADarkWindowSuppressesLikeTheStepsOwn()
     {
         var registry = new RolloutSuppressionRegistry();
-        registry.RefreshConsoleCycle(Site, Now);
-        registry.IsDeviceStepInFlight(Site, Now).Should().BeFalse();
+        registry.RefreshDark(Site, Mac, Now);
 
-        registry.RefreshSiteActive(Site, Now);
-        registry.IsDeviceStepInFlight(Site, Now).Should().BeTrue();
-        registry.IsDeviceStepInFlight(Site, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+        registry.IsInRolloutWindow(Site, "AA-BB-CC-DD-EE-01", Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ADarkWindowOutlivesClearAndClearSiteAndLapsesOnItsOwn()
+    {
+        // The switch reporting back says nothing about when the devices behind it re-inform.
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshDark(Site, Mac, Now);
+        registry.Clear(Site, Mac);
+        registry.ClearSite(Site);
+
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
             .Should().BeFalse();
     }
 
     [Fact]
-    public void ClearingASiteEndsTheDeviceStepWindow()
+    public void AWanDarkVantageIsScopedToItsSiteAndLapses()
     {
         var registry = new RolloutSuppressionRegistry();
-        registry.RefreshSiteActive(Site, Now);
-        registry.ClearSite(Site);
+        registry.RefreshWanDark(Site, "server", Now);
 
-        registry.IsDeviceStepInFlight(Site, Now).Should().BeFalse();
+        registry.IsWanDark(Site, "server", Now).Should().BeTrue();
+        registry.IsWanDark(Site, "agent-3", Now).Should().BeFalse();
+        registry.IsWanDark("other-site", "server", Now).Should().BeFalse();
+        registry.ClearSite(Site);
+        registry.IsWanDark(Site, "server", Now).Should().BeTrue();
+        registry.IsWanDark(Site, "server", Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
     }
 
     // --- AP Agent hold (keeps the agent's supervisor off a device mid-upgrade) -----------------
@@ -336,15 +353,13 @@ public class RolloutSuppressionRegistryTests
     }
 
     [Fact]
-    public async Task DeviceOfflineIsNotAnnouncedForAnyDeviceWhileAStepIsInFlight()
+    public async Task DeviceOfflineIsNotAnnouncedForADeviceAStepTakesDark()
     {
-        // The uplink map stops at the gateway, and a switch coming back blips devices behind
-        // other switches, so a device no window names still goes quiet while a step is in flight.
         var bus = new CapturingBus();
         var registry = new RolloutSuppressionRegistry();
         var evaluator = new DeviceStateAlertEvaluator(
             bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
-        registry.RefreshSiteActive(Site, Now);
+        registry.RefreshDark(Site, Mac, Now);
 
         await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now);
         await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now.AddSeconds(30));

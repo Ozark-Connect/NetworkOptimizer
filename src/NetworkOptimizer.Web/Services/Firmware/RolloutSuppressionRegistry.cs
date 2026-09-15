@@ -28,6 +28,8 @@ public class RolloutSuppressionRegistry
     public static readonly TimeSpan WindowFreshness = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _windowRefreshedAt = new();
+    private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _darkRefreshedAt = new();
+    private readonly ConcurrentDictionary<(string Site, string Vantage), DateTime> _wanDarkAt = new();
     private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _agentHoldAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _osCyclingAt = new();
@@ -60,28 +62,53 @@ public class RolloutSuppressionRegistry
     }
 
     /// <summary>
-    /// Marks the site as having a device step in flight. A rebooting switch takes more dark than
-    /// the uplink map can name: the map has no uplink for the gateway, so nothing behind it is
-    /// ever "downstream" of a switch the console reaches the gateway through, and a switch coming
-    /// back up blips the LAN for devices behind other switches. Device offline, monitoring target
-    /// and WAN outage alerts are therefore held site-wide while any device step is in flight.
+    /// Marks the site as having an active rollout. Any device reboot during a rollout can
+    /// take downstream devices dark, so monitoring target alerts are suppressed site-wide.
     /// </summary>
     public void RefreshSiteActive(string siteSlug, DateTime observedAt) =>
         _siteActiveAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
-
-    /// <summary>Whether a device step is in flight on this site (console cycles do not count).</summary>
-    public bool IsDeviceStepInFlight(string siteSlug, DateTime now) =>
-        _siteActiveAt.TryGetValue(NormalizeSite(siteSlug), out var at)
-            && now.ToUniversalTime() - at <= WindowFreshness;
 
     /// <summary>Whether any rollout activity is happening on this site.</summary>
     public bool IsSiteActiveRollout(string siteSlug, DateTime now)
     {
         var site = NormalizeSite(siteSlug);
         var utcNow = now.ToUniversalTime();
-        return IsDeviceStepInFlight(site, utcNow)
+        return (_siteActiveAt.TryGetValue(site, out var at) && utcNow - at <= WindowFreshness)
             || (_consoleCyclingAt.TryGetValue(site, out var cycleAt) && utcNow - cycleAt <= WindowFreshness);
     }
+
+    /// <summary>
+    /// Marks a device as one an in-flight step's reboot hides from the console (see
+    /// <see cref="RolloutDarkSet"/>). Unlike the step's own window this is never cleared, only
+    /// left to lapse: the switch reporting back says nothing about when the devices behind it
+    /// re-inform, and a switch coming back up blips the LAN for a minute after it returns.
+    /// </summary>
+    /// <param name="siteSlug">Site the device belongs to.</param>
+    /// <param name="deviceMac">Device MAC in any format.</param>
+    /// <param name="observedAt">When the window was last confirmed open.</param>
+    public void RefreshDark(string siteSlug, string? deviceMac, DateTime observedAt)
+    {
+        if (string.IsNullOrWhiteSpace(deviceMac)) return;
+        _darkRefreshedAt[(NormalizeSite(siteSlug), Normalize(deviceMac))] = observedAt.ToUniversalTime();
+    }
+
+    /// <summary>
+    /// Marks a probe vantage as cut off from the gateway by an in-flight step, so its WAN probes
+    /// sit out the WAN outage verdict. Lapses like <see cref="RefreshDark"/>, for the same reason.
+    /// </summary>
+    /// <param name="siteSlug">Site the vantage probes for.</param>
+    /// <param name="vantageId">Vantage as probe results name it ("server", "agent-{id}").</param>
+    /// <param name="observedAt">When the cut-off was last confirmed.</param>
+    public void RefreshWanDark(string siteSlug, string vantageId, DateTime observedAt) =>
+        _wanDarkAt[(NormalizeSite(siteSlug), vantageId)] = observedAt.ToUniversalTime();
+
+    /// <summary>Whether this vantage's WAN probes are currently cut off by a rollout step.</summary>
+    /// <param name="siteSlug">Site the vantage probes for.</param>
+    /// <param name="vantageId">Vantage as probe results name it.</param>
+    /// <param name="now">Current time.</param>
+    public bool IsWanDark(string siteSlug, string vantageId, DateTime now) =>
+        _wanDarkAt.TryGetValue((NormalizeSite(siteSlug), vantageId), out var at)
+            && now.ToUniversalTime() - at <= WindowFreshness;
 
     /// <summary>
     /// Marks a device as inside its rollout window as of now. Called every pass while the device's
@@ -152,10 +179,9 @@ public class RolloutSuppressionRegistry
 
         if (string.IsNullOrWhiteSpace(deviceMac)) return false;
 
-        if (!_windowRefreshedAt.TryGetValue((site, Normalize(deviceMac)), out var at))
-            return false;
-
-        return utcNow - at <= WindowFreshness;
+        var key = (site, Normalize(deviceMac));
+        return (_windowRefreshedAt.TryGetValue(key, out var at) && utcNow - at <= WindowFreshness)
+            || (_darkRefreshedAt.TryGetValue(key, out var darkAt) && utcNow - darkAt <= WindowFreshness);
     }
 
     /// <summary>Drops every window a site holds (rollout finished, aborted, or the site went away).</summary>
@@ -167,6 +193,7 @@ public class RolloutSuppressionRegistry
         // The console and OS cycle windows are deliberately NOT cleared: they lapse on their own.
         // A console restart takes devices dark for a minute or two AFTER the plan completes, and
         // clearing here let four devices alert 87 s past a rollout that had already finished.
+        // The dark-set and WAN-dark windows lapse for the same reason.
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
         foreach (var key in _agentHoldAt.Keys.Where(k => k.Site == site).ToList())

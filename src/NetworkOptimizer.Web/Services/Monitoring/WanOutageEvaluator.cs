@@ -96,11 +96,17 @@ public class WanOutageEvaluator
     /// <see cref="MonitoringAlertEvaluator"/> on every probe result for a covered target,
     /// from both the local collection loop and the agent result sink.
     /// </summary>
-    internal void RecordTargetState(MonitoringTarget target, bool isOffline, bool isLossy, int consecutiveFailures)
+    /// <param name="target">The target.</param>
+    /// <param name="vantageId">Where the probe ran from, as the probe result names it ("server", "agent-{id}").</param>
+    /// <param name="isOffline">The per-target machine's offline verdict.</param>
+    /// <param name="isLossy">The per-target machine's lossy verdict.</param>
+    /// <param name="consecutiveFailures">Failed probes in a row.</param>
+    internal void RecordTargetState(MonitoringTarget target, string vantageId, bool isOffline, bool isLossy, int consecutiveFailures)
     {
         if (!CoversTargetType(target.TargetType)) return;
         var state = _targets.GetOrAdd(target.TargetId, _ => new TargetLiveState());
         state.Target = target;
+        state.Vantage = vantageId;
         state.Offline = isOffline || consecutiveFailures >= FailedProbesToCountFailing;
         state.Lossy = isLossy;
         state.LastResultUtc = _time.GetUtcNow().UtcDateTime;
@@ -138,9 +144,13 @@ public class WanOutageEvaluator
         // the WAN: when probing stops entirely (agent disconnected, monitoring off), every
         // target goes stale and no verdict is reached - a monitoring gap is not an outage,
         // and not a recovery either.
+        // A vantage a firmware rollout has cut off from the gateway (a switch on its path is
+        // rebooting) says nothing either: its probes fail whatever the WAN is doing. Its targets
+        // sit out the pass, and a vantage still connected keeps reporting a real outage.
         var staleness = TimeSpan.FromSeconds(TargetStalenessSeconds);
         var fresh = _targets.Values
             .Where(t => now - t.LastResultUtc <= staleness)
+            .Where(t => _rolloutWindows?.IsWanDark(_siteSlug, t.Vantage, now) != true)
             .ToList();
 
         await RefreshContextAsync(now, fresh, ct);
@@ -190,16 +200,13 @@ public class WanOutageEvaluator
         // rather than one per WAN.
         // A UniFi OS update reboots the gateway, taking WAN with it. The outage is expected
         // and the rollout's own alerts cover it, so no WAN alert opens while it is in progress.
-        // A device step in flight holds WAN alerts too: the probes leave through the LAN, so a
-        // switch rebooting between the server and the gateway reads as the WAN going down.
         // Network app updates do NOT suppress: the gateway stays up, so a WAN outage during
         // one is real. Recovery always flows so a pre-existing alert can close.
-        var rolloutQuiet = _rolloutWindows != null
-            && (_rolloutWindows.IsOsCycling(_siteSlug, now) || _rolloutWindows.IsDeviceStepInFlight(_siteSlug, now));
+        var osCycling = _rolloutWindows?.IsOsCycling(_siteSlug, now) == true;
 
         var totalEverywhere = byWan.Keys.All(k => GetWanState(k).TotalConfirmedAt != null);
         if (!_rollupOpen
-            && !rolloutQuiet
+            && !osCycling
             && byWan.Count >= 2
             && totalEverywhere
             && now - byWan.Keys.Min(k => GetWanState(k).TotalConfirmedAt!.Value)
@@ -223,7 +230,7 @@ public class WanOutageEvaluator
             var info = WanInfo(wanKey);
             switch (kind)
             {
-                case WanVerdictKind.Total when !state.CoveredByRollup && !rolloutQuiet && state.OpenKind != WanVerdictKind.Total:
+                case WanVerdictKind.Total when !state.CoveredByRollup && !osCycling && state.OpenKind != WanVerdictKind.Total:
                     // Opens fresh, or supersedes an open partial: publishing the total closes
                     // the partial downstream (AlertProcessingService resolves it), so the two
                     // never stack.
@@ -231,7 +238,7 @@ public class WanOutageEvaluator
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
 
-                case WanVerdictKind.Partial when !state.CoveredByRollup && !rolloutQuiet && state.OpenKind == WanVerdictKind.None:
+                case WanVerdictKind.Partial when !state.CoveredByRollup && !osCycling && state.OpenKind == WanVerdictKind.None:
                     // A partial never downgrades an open total; the total stays open until
                     // recovery closes it.
                     state.OpenKind = WanVerdictKind.Partial;
@@ -503,6 +510,7 @@ public class WanOutageEvaluator
     private sealed class TargetLiveState
     {
         public MonitoringTarget Target = null!;
+        public string Vantage = "server";
         public bool Offline;
         public bool Lossy;
         public DateTime LastResultUtc;
