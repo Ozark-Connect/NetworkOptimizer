@@ -1528,6 +1528,9 @@ export class LanFlowMap {
         const nodes = update.addedClientNodes || [];
         const links = update.addedClientLinks || [];
         if (!this._historicClientIds) this._historicClientIds = new Set();
+        // Before the early return below: an update with nothing added and nothing departed is
+        // the common one, and the present set still has to be applied on it.
+        this._applyPresentClients(update);
 
         // Clients their access point reports gone. The server snapshot still lists them until the
         // console notices, so they are removed explicitly rather than by the sweep below. The
@@ -1556,7 +1559,6 @@ export class LanFlowMap {
             this._addNodeIncremental(node, { links });
             this._historicClientIds.add(node.id);
         }
-        this._applyPresentClients(update);
     }
 
     // The snapshot carries the clients connected NOW, so playback has to be told who was
