@@ -123,7 +123,6 @@ public class PortProfileSuggestionAnalyzer
         HashSet<string> allNetworkIds,
         List<PortProfileSuggestion> suggestions)
     {
-
         // Build profile signatures for matching
         var profileSignatures = BuildProfileSignatures(profileList, networksById, allNetworkIds);
 
