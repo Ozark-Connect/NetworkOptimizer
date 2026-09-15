@@ -6,8 +6,9 @@ namespace NetworkOptimizer.Audit.Rules;
 /// Detects ports with a UniFi device connected that are not locked to it.
 /// Lock Port to UniFi Device (UniFi Network 10.6.101+, switch firmware 7.6.2+) ties the port
 /// to one UniFi device - Network, Protect, or any other UniFi app - so it is the fit for
-/// infrastructure ports where MAC restriction is the wrong tool. Silent when the versions
-/// are not met; MacRestrictionRule covers those ports.
+/// infrastructure ports where MAC restriction is the wrong tool. Trunk ports count: an AP
+/// downlink is the lock's main use. Silent when the versions are not met or an Ethernet Port
+/// Profile blocks the lock; MacRestrictionRule covers those ports.
 /// </summary>
 public class PortLockRule : AuditRuleBase
 {
@@ -40,6 +41,7 @@ public class PortLockRule : AuditRuleBase
         if (HasIntentionalUnrestrictedProfile(port))
             return null;
 
+        // Versions met and no Ethernet Port Profile in the way (PortLockSupport owns that rule)
         if (!IsPortLockAvailable(port))
             return null;
 

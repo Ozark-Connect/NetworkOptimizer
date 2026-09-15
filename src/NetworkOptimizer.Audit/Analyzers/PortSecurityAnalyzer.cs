@@ -722,6 +722,7 @@ public class PortSecurityAnalyzer
             HistoricalClient = historicalClient,
             ConnectedDeviceType = connectedDeviceType,
             AssignedPortProfile = assignedProfile,
+            PortProfileId = portconfId,
             IsLagChild = isLagChild
         };
     }

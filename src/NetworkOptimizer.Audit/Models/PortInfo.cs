@@ -196,6 +196,12 @@ public class PortInfo
     public UniFiPortProfile? AssignedPortProfile { get; init; }
 
     /// <summary>
+    /// Raw portconf_id of the assigned profile, kept even when the profile itself was not
+    /// resolved. A profile assignment blocks Lock Port to UniFi Device (see PortLockSupport).
+    /// </summary>
+    public string? PortProfileId { get; init; }
+
+    /// <summary>
     /// Whether this port is a LAG (Link Aggregation Group) child port.
     /// Child ports are assimilated into a parent LAG port and their individual
     /// configuration is irrelevant for most audit rules. Only specific rules

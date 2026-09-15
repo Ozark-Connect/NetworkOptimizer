@@ -260,6 +260,21 @@ public class MacRestrictionRuleTests
     }
 
     [Fact]
+    public void Evaluate_UniFiDeviceClient_ProfileBlocksLock_ReturnsIssueNamingTheProfile()
+    {
+        // Versions allow the lock, but an assigned profile (not an intentional unrestricted one) blocks it
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var profile = new UniFiPortProfile { Id = "prof-1", Name = "Camera", Forward = "native", PortSecurityEnabled = false, TaggedVlanMgmt = "auto" };
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("Ethernet Port Profile removed");
+        result.RecommendedAction.Should().Contain("cannot be combined with an Ethernet Port Profile");
+    }
+
+    [Fact]
     public void Evaluate_EndpointDevice_LockAvailable_ReturnsNull()
     {
         // A non-fabric Network device (modem) defers to the lock rule too
@@ -629,6 +644,7 @@ public class MacRestrictionRuleTests
             ConnectedDeviceType = connectedDeviceType,
             ConnectedClient = connectedClient,
             LockedToDeviceMac = lockedToDeviceMac,
+            PortProfileId = assignedProfile?.Id,
             Dot1xCtrl = dot1xCtrl,
             Switch = switchInfo,
             AssignedPortProfile = assignedProfile

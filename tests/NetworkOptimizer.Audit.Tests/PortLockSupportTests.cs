@@ -47,6 +47,17 @@ public class PortLockSupportTests
         PortLockSupport.ParseVersion(raw).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("prof-1", false)]
+    public void CanLockWithProfile_FollowsCoexistenceFlag(string? profileId, bool expectedWhileExclusive)
+    {
+        // While UniFi keeps the lock and profiles exclusive, only a profile-free port can be locked
+        var expected = PortLockSupport.LockCoexistsWithPortProfile || expectedWhileExclusive;
+        PortLockSupport.CanLockWithProfile(profileId).Should().Be(expected);
+    }
+
     [Fact]
     public void ParseVersion_TwoPartVersion_ComparesAgainstThreePart()
     {

@@ -109,17 +109,25 @@ public class MacRestrictionRule : AuditRuleBase
                 return null;
 
             var device = DescribeUniFiDevice(port);
+            var blockedByProfile = IsPortLockSupported(port) && IsPortLockBlockedByProfile(port);
+            var lockNote = blockedByProfile
+                ? $"This port carries {device}. Lock Port to UniFi Device would tie the port to that device, but the lock cannot be " +
+                  "combined with an Ethernet Port Profile. Either remove the profile and lock the port, or keep the profile and " +
+                  "set the port to 'Restricted' with the device's MAC address in the allowed list."
+                : $"This port carries {device}. Lock Port to UniFi Device ties the port to that device and needs UniFi Network " +
+                  $"{PortLockSupport.MinNetworkApplicationVersion} or newer and switch firmware {PortLockSupport.MinSwitchFirmwareVersion} or newer. " +
+                  "Until then, set the port to 'Restricted' and add the device's MAC address to the allowed list.";
             return CreateIssue(
-                $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or locked to it once Lock Port to UniFi Device is available",
+                blockedByProfile
+                    ? $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or have its Ethernet Port Profile removed and be locked to it with Lock Port to UniFi Device"
+                    : $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or locked to it once Lock Port to UniFi Device is available",
                 port,
                 new Dictionary<string, object>
                 {
                     { "network", network?.Name ?? "Unknown" },
                     { "device", device }
                 },
-                $"This port carries {device}. Lock Port to UniFi Device ties the port to that device and needs UniFi Network " +
-                $"{PortLockSupport.MinNetworkApplicationVersion} or newer and switch firmware {PortLockSupport.MinSwitchFirmwareVersion} or newer. " +
-                "Until then, set the port to 'Restricted' and add the device's MAC address to the allowed list.");
+                lockNote);
         }
 
         var message = isInactive

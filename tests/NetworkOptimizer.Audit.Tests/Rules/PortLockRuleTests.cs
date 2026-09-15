@@ -138,6 +138,15 @@ public class PortLockRuleTests
     }
 
     [Fact]
+    public void Evaluate_AnyPortProfileAssigned_ReturnsNull()
+    {
+        // UniFi does not let the lock coexist with an Ethernet Port Profile (PortLockSupport.LockCoexistsWithPortProfile)
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap", portProfileId: "prof-trunk");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
     public void Evaluate_IntentionalUnrestrictedProfile_ReturnsNull()
     {
         var profile = new UniFiPortProfile { Id = "prof-1", Name = "Any Device", Forward = "native", PortSecurityEnabled = false, TaggedVlanMgmt = "block_all" };
@@ -316,7 +325,8 @@ public class PortLockRuleTests
         string? connectedDeviceType = null,
         UniFiClientResponse? client = null,
         string? firmwareVersion = SupportedFirmware,
-        UniFiPortProfile? assignedProfile = null)
+        UniFiPortProfile? assignedProfile = null,
+        string? portProfileId = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -343,6 +353,7 @@ public class PortLockRuleTests
             ConnectedDeviceType = connectedDeviceType,
             ConnectedClient = client,
             AssignedPortProfile = assignedProfile,
+            PortProfileId = portProfileId ?? assignedProfile?.Id,
             Switch = switchInfo
         };
     }

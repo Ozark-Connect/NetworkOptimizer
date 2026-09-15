@@ -4644,6 +4644,120 @@ public class PortProfileSuggestionAnalyzerTests
 
     #endregion
 
+    #region Lock Port to UniFi Device Exclusion Tests
+
+    [Fact]
+    public void Analyze_LockedTrunkPort_ExcludedAndNoted()
+    {
+        // A locked port cannot take an Ethernet Port Profile, so it stays out of the group
+        // and the trunk suggestion says so.
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 9, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", TrustedPortMac = "aa:bb:cc:dd:ee:ff" },
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" }
+            }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 },
+            new UniFiNetworkConfig { Id = "net-2", Name = "IoT", Vlan = 20 }
+        };
+
+        var result = _analyzer.Analyze([device], [], networks);
+
+        result.Should().HaveCount(1);
+        result[0].AffectedPorts.Should().NotContain(p => p.PortIndex == 9, "locked port cannot take a profile");
+        result[0].AffectedPorts.Should().HaveCount(5);
+        result[0].Recommendation.Should().EndWith(PortProfileSuggestionAnalyzer.LockedPortsNote(1));
+    }
+
+    [Fact]
+    public void Analyze_LockedTrunkPortsOnly_NoSuggestionNoNote()
+    {
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", TrustedPortMac = "aa:bb:cc:dd:ee:01" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", TrustedPortMac = "aa:bb:cc:dd:ee:02" }
+            }
+        };
+        var networks = new List<UniFiNetworkConfig> { new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 } };
+
+        var result = _analyzer.Analyze([device], [], networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_LockedDisabledPort_ExcludedFromDisabledSuggestion()
+    {
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 9, Forward = "disabled", PortPoe = true, TrustedPortMac = "aa:bb:cc:dd:ee:ff" },
+                new SwitchPort { PortIdx = 1, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 2, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 3, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 4, Forward = "disabled", PortPoe = true },
+                new SwitchPort { PortIdx = 5, Forward = "disabled", PortPoe = true }
+            }
+        };
+
+        var result = _analyzer.Analyze([device], [], new List<UniFiNetworkConfig>());
+
+        result.SelectMany(s => s.AffectedPorts).Should().NotContain(p => p.PortIndex == 9);
+        result.SelectMany(s => s.AffectedPorts).Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void Analyze_LockedAccessPort_ExcludedFromUnrestrictedAccessSuggestion()
+    {
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 9, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all", TrustedPortMac = "aa:bb:cc:dd:ee:ff" },
+                new SwitchPort { PortIdx = 1, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all" },
+                new SwitchPort { PortIdx = 2, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all" },
+                new SwitchPort { PortIdx = 3, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all" },
+                new SwitchPort { PortIdx = 4, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all" },
+                new SwitchPort { PortIdx = 5, Forward = "native", NativeNetworkConfId = "net-1", TaggedVlanMgmt = "block_all" }
+            }
+        };
+        var networks = new List<UniFiNetworkConfig> { new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 } };
+
+        var result = _analyzer.Analyze([device], [], networks);
+
+        result.SelectMany(s => s.AffectedPorts).Should().NotContain(p => p.PortIndex == 9);
+        result.SelectMany(s => s.AffectedPorts).Should().HaveCount(5);
+    }
+
+    #endregion
+
     #region LAG Port Exclusion Tests
 
     [Fact]

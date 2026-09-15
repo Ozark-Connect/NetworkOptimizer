@@ -374,6 +374,7 @@ public class PortSecurityAnalyzerTests
         var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>());
 
         result[0].FirmwareVersion.Should().Be("7.6.2.17186");
+        result[0].Ports[0].PortProfileId.Should().BeNull();
         result[0].Ports[0].LockedToDeviceMac.Should().Be("aa:bb:cc:dd:ee:ff");
         result[0].Ports[0].IsPortLocked.Should().BeTrue();
         result[0].Ports[1].LockedToDeviceMac.Should().BeNull();

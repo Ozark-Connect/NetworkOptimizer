@@ -16,6 +16,20 @@ public static class PortLockSupport
     public static readonly Version MinSwitchFirmwareVersion = new(7, 6, 2);
 
     /// <summary>
+    /// Whether UniFi Network lets Lock Port to UniFi Device sit on a port that has an Ethernet Port
+    /// Profile assigned. It does not as of 10.6; the lock is a per-port setting only. Every rule that
+    /// weighs a profile against the lock reads this flag, so flipping it is the whole change when
+    /// UniFi adds profile support.
+    /// </summary>
+    public const bool LockCoexistsWithPortProfile = false;
+
+    /// <summary>
+    /// Whether a port with the given profile assignment can take the lock at all.
+    /// </summary>
+    public static bool CanLockWithProfile(string? portProfileId) =>
+        LockCoexistsWithPortProfile || string.IsNullOrEmpty(portProfileId);
+
+    /// <summary>
     /// Whether both the application and the switch meet the minimum versions.
     /// Unknown or unparseable versions count as unsupported.
     /// </summary>

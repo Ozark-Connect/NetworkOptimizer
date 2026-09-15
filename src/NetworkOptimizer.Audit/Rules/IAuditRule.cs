@@ -134,11 +134,24 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
-    /// Whether Lock Port to UniFi Device can be recommended for this port's switch:
-    /// the application and the switch firmware both meet the minimum versions.
+    /// Whether the application and this port's switch firmware both meet the minimum versions
+    /// for Lock Port to UniFi Device.
+    /// </summary>
+    protected bool IsPortLockSupported(PortInfo port) =>
+        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
+
+    /// <summary>
+    /// Whether an assigned Ethernet Port Profile stops this port from taking the lock.
+    /// </summary>
+    protected static bool IsPortLockBlockedByProfile(PortInfo port) =>
+        !PortLockSupport.CanLockWithProfile(port.PortProfileId);
+
+    /// <summary>
+    /// Whether Lock Port to UniFi Device can be recommended for this port: versions are met
+    /// and no profile stands in the way.
     /// </summary>
     protected bool IsPortLockAvailable(PortInfo port) =>
-        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
+        IsPortLockSupported(port) && !IsPortLockBlockedByProfile(port);
 
     /// <summary>
     /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi
