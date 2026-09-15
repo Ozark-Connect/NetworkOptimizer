@@ -111,17 +111,50 @@ public class PortLockRuleTests
     }
 
     [Fact]
-    public void Evaluate_MacRestricted_ReturnsNull()
+    public void Evaluate_MacRestricted_ReturnsInformationalWithNoScoreImpact()
     {
         var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"]);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("PORT-LOCK-001");
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(0);
+        result.Message.Should().Contain("MAC-restricted for AI Key (UniFi Protect)");
+        result.Message.Should().Contain("can replace the MAC list");
+        result.RecommendedAction.Should().Contain("clear the MAC restriction");
+    }
+
+    [Fact]
+    public void Evaluate_PortSecurityEnabledNoMacs_ReturnsInformational()
+    {
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+    }
+
+    [Theory]
+    [InlineData("10.6.100", "7.6.2.17186")]
+    [InlineData("10.6.106", "7.5.15.17146")]
+    public void Evaluate_MacRestricted_LockUnavailable_ReturnsNull(string appVersion, string firmware)
+    {
+        // Nothing to offer when the lock is not available on this switch
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"], firmwareVersion: firmware);
 
         _rule.Evaluate(port, []).Should().BeNull();
     }
 
     [Fact]
-    public void Evaluate_PortSecurityEnabledNoMacs_ReturnsNull()
+    public void Evaluate_MacRestrictedOrdinaryClient_ReturnsNull()
     {
-        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true);
+        // A MAC list on a non-UniFi device has no lock alternative
+        var client = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:01", Name = "Printer", IsWired = true };
+        var port = CreatePort(client: client, portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:01"]);
 
         _rule.Evaluate(port, []).Should().BeNull();
     }

@@ -691,7 +691,9 @@
                                         // Use MAC address for reliable switch identification when available
                                         var portIssue = issues.FirstOrDefault(i => !i.IsWireless && i.Port == port.PortIndex.ToString() && MatchesSwitch(i, sw));
                                         var hasPortIssue = portIssue != null;
-                                        var finalClass = hasPortIssue ? (portIssue!.Severity == AuditSeverity.Critical ? "row-critical" : "row-warning") : statusClass;
+                                        var finalClass = hasPortIssue
+                                            ? portIssue!.Severity switch { AuditSeverity.Critical => "row-critical", AuditSeverity.Informational => statusClass, _ => "row-warning" }
+                                            : statusClass;
                                         var finalStatus = hasPortIssue ? portIssue!.Title : status;
                                         <tr class="@finalClass">
                                             <td>@port.PortIndex</td>

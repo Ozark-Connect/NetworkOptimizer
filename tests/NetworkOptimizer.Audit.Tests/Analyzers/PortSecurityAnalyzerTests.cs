@@ -424,6 +424,25 @@ public class PortSecurityAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzePorts_MacRestrictedProtectDevicePort_RaisesInformationalPortLockOnly()
+    {
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
+            PortSecurityEnabled = true, AllowedMacAddresses = ["aa:bb:cc:dd:ee:ff"],
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock)
+            .Which.Severity.Should().Be(AuditSeverity.Informational);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
     public void AnalyzePorts_UnlockedProtectDevicePort_RaisesOnlyPortLock()
     {
         _engine.SetNetworkApplicationVersion("10.6.106");

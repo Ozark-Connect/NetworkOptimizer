@@ -1915,7 +1915,7 @@ public class AuditService : IAuditScanService
 
             // Port security
             Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
-            Audit.IssueTypes.PortLock => "Missing Port Lock",
+            Audit.IssueTypes.PortLock => isInformational ? "Port Lock Available" : "Missing Port Lock",
             Audit.IssueTypes.UnusedPort => "Unused Port Enabled",
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             Audit.IssueTypes.AccessPortVlan => "Port Issue: Excessive Tagged VLANs",
