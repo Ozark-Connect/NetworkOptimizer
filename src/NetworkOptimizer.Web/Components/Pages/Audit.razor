@@ -149,15 +149,15 @@
                     </div>
 
                     <div class="issue-counts">
-                        <button type="button" class="issue-count @(criticalCount > 0 ? "critical" : "")" @onclick='() => ShowIssuesAsync("critical")'>
+                        <button type="button" class="issue-count @(criticalCount > 0 ? "critical" : "")" @onclick='() => selectedFilter = "critical"'>
                             <span class="count">@criticalCount</span>
                             <span class="label">Critical</span>
                         </button>
-                        <button type="button" class="issue-count @(warningCount > 0 ? "recommended" : "")" @onclick='() => ShowIssuesAsync("recommended")'>
+                        <button type="button" class="issue-count @(warningCount > 0 ? "recommended" : "")" @onclick='() => selectedFilter = "recommended"'>
                             <span class="count">@warningCount</span>
                             <span class="label">Recommended</span>
                         </button>
-                        <button type="button" class="issue-count @(infoCount > 0 ? "info" : "")" @onclick='() => ShowIssuesAsync("info")'>
+                        <button type="button" class="issue-count @(infoCount > 0 ? "info" : "")" @onclick='() => selectedFilter = "info"'>
                             <span class="count">@infoCount</span>
                             <span class="label">Info</span>
                         </button>
@@ -167,7 +167,7 @@
         </div>
 
         <!-- Detailed Issues -->
-        <div class="card" id="audit-issues-found">
+        <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Issues Found</h2>
                 <div class="filter-tabs">
@@ -1376,24 +1376,6 @@
             Logger.LogError(ex, "Error generating PDF report");
             exportError = $"Error generating PDF: {ex.Message}";
             StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// A summary count opens Issues Found on that severity's tab.
-    /// </summary>
-    private async Task ShowIssuesAsync(string filter)
-    {
-        selectedFilter = filter;
-        StateHasChanged();
-        try
-        {
-            await JSRuntime.InvokeVoidAsync("eval",
-                "document.getElementById('audit-issues-found')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Could not scroll to Issues Found");
         }
     }
 

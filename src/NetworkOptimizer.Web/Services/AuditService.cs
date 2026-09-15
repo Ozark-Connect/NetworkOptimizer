@@ -1418,6 +1418,23 @@ public class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch port profiles");
             }
 
+            // Clients this console's UniFi apps own. stat/sta also gives a separate console (a CloudKey) a
+            // product_line, but UniFi Network refuses to lock a port to one; only v2's unifi_device tells them apart.
+            List<string>? unifiDeviceClientMacs = null;
+            try
+            {
+                var activeWithDevices = await _connectionService.Client.GetActiveClientsAsync(includeUnifiDevices: true);
+                if (activeWithDevices.Count > 0)
+                {
+                    unifiDeviceClientMacs = activeWithDevices.Where(c => c.UnifiDevice).Select(c => c.Mac).ToList();
+                    _logger.LogInformation("Found {Count} clients owned by this console's UniFi apps", unifiDeviceClientMacs.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch UniFi device clients; client product lines decide instead");
+            }
+
             // Fetch the UniFi Network application version for version-gated rules (Lock Port to UniFi Device)
             string? networkApplicationVersion = null;
             try
@@ -1533,6 +1550,7 @@ public class AuditService : IAuditScanService
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
                 NetworkApplicationVersion = networkApplicationVersion,
+                UniFiDeviceClientMacs = unifiDeviceClientMacs,
                 ClientName = "Network Audit",
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,

@@ -117,6 +117,17 @@ public class PortSecurityAnalyzer
         _rules.Add(rule);
     }
 
+    private HashSet<string>? _unifiDeviceClientMacs;
+
+    /// <summary>
+    /// Set the MACs of clients this console's UniFi apps own (v2 clients with unifi_device). Null when that
+    /// list is unavailable, so a client's product_line decides instead.
+    /// </summary>
+    public void SetUniFiDeviceClientMacs(IEnumerable<string>? macs)
+    {
+        _unifiDeviceClientMacs = macs == null ? null : new HashSet<string>(macs, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Set the UniFi Network application version on all rules (version-gated recommendations)
     /// </summary>
@@ -777,6 +788,9 @@ public class PortSecurityAnalyzer
             SupportsPoe = portPoe || !string.IsNullOrEmpty(poeMode),
             Switch = switchInfo,
             ConnectedClient = connectedClient,
+            ConnectedClientIsUniFiDevice = connectedClient == null || _unifiDeviceClientMacs == null
+                ? null
+                : _unifiDeviceClientMacs.Contains(connectedClient.Mac),
             LastConnectionMac = lastConnectionMac,
             LastConnectionSeen = lastConnectionSeen,
             HistoricalClient = historicalClient,

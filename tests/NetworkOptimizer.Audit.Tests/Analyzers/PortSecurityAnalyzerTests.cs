@@ -422,6 +422,49 @@ public class PortSecurityAnalyzerTests
         result[0].Ports[2].SeenDeviceMacs.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(null, true)]      // v2 list unavailable: product_line decides
+    [InlineData(false, false)]    // separate console (CloudKey): product_line alone is not enough
+    [InlineData(true, true)]      // owned by this console's apps
+    public void ExtractSwitches_UniFiDeviceClientMacs_DecideWhetherAClientIsAUniFiDevice(bool? ownedByConsole, bool expected)
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            { ""type"": ""usw"", ""name"": ""Switch"", ""mac"": ""00:11:22:33:44:55"",
+              ""port_table"": [ { ""port_idx"": 5, ""up"": true, ""forward"": ""native"" } ] }
+        ]").RootElement;
+        var cloudKey = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:05", Name = "Console", IsWired = true, SwMac = "00:11:22:33:44:55", SwPort = 5,
+            ProductLine = "unifi-network", ProductModel = "CloudKey+"
+        };
+        if (ownedByConsole.HasValue)
+            _engine.SetUniFiDeviceClientMacs(ownedByConsole.Value ? ["AA:BB:CC:DD:EE:05"] : ["aa:bb:cc:dd:ee:99"]);
+
+        var port = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), [cloudKey])[0].Ports[0];
+
+        port.ConnectedClientIsUniFiDevice.Should().Be(ownedByConsole);
+        port.HasUniFiDevice.Should().Be(expected);
+    }
+
+    [Fact]
+    public void AnalyzePorts_SeparateConsoleClient_GetsNoLockSuggestion()
+    {
+        // A CloudKey running its own apps: UniFi Network refuses the lock, so neither lock issue fires
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 5, IsUp = true, ForwardMode = "native", Switch = sw,
+            PortSecurityEnabled = true, AllowedMacAddresses = ["aa:bb:cc:dd:ee:05"],
+            ConnectedClientIsUniFiDevice = false,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:05", Name = "Console", IsWired = true, ProductLine = "unifi-network" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.PortLock);
+    }
+
     [Fact]
     public void CalculateStatistics_LockedPort_CountedAsProtected()
     {

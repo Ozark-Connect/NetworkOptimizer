@@ -112,7 +112,16 @@ public class PortInfo
     /// Lock Port to UniFi Device locks to all of them.
     /// </summary>
     public bool HasUniFiDevice =>
-        !string.IsNullOrEmpty(ConnectedDeviceType) || (ConnectedClient?.IsUniFiDevice ?? false);
+        !string.IsNullOrEmpty(ConnectedDeviceType) ||
+        (ConnectedClientIsUniFiDevice ?? ConnectedClient?.IsUniFiDevice ?? false);
+
+    /// <summary>
+    /// Whether this console's UniFi apps own the connected client, from the v2 client list's unifi_device.
+    /// A separate UniFi OS console (a CloudKey running its own apps) reads false even though stat/sta gives it
+    /// a product_line, and UniFi Network refuses to lock a port to it. Null when that list was unavailable,
+    /// in which case the client's product_line decides.
+    /// </summary>
+    public bool? ConnectedClientIsUniFiDevice { get; init; }
 
     /// <summary>
     /// Whether port isolation is enabled
