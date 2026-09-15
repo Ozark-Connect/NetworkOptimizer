@@ -325,6 +325,30 @@ public class WanOutageEvaluatorTests
     }
 
     /// <summary>
+    /// WAN probes leave through the LAN, so a switch rebooting for a device step between the
+    /// server and the gateway reads as the WAN going down. WAN alerts stay quiet for the step.
+    /// </summary>
+    [Fact]
+    public async Task WanOutageDuringDeviceStep_IsSuppressed()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+        registry.RefreshSiteActive("main", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            registry.RefreshSiteActive("main", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>
     /// A Network app update restarts the console but the gateway stays up. WAN outages during
     /// one are real and must NOT be suppressed.
     /// </summary>

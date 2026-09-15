@@ -218,6 +218,29 @@ public class RolloutSuppressionRegistryTests
         registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
     }
 
+    [Fact]
+    public void DeviceStepInFlightComesFromDeviceStepsOnly()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshConsoleCycle(Site, Now);
+        registry.IsDeviceStepInFlight(Site, Now).Should().BeFalse();
+
+        registry.RefreshSiteActive(Site, Now);
+        registry.IsDeviceStepInFlight(Site, Now).Should().BeTrue();
+        registry.IsDeviceStepInFlight(Site, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClearingASiteEndsTheDeviceStepWindow()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshSiteActive(Site, Now);
+        registry.ClearSite(Site);
+
+        registry.IsDeviceStepInFlight(Site, Now).Should().BeFalse();
+    }
+
     // --- AP Agent hold (keeps the agent's supervisor off a device mid-upgrade) -----------------
 
     [Fact]
@@ -308,6 +331,29 @@ public class RolloutSuppressionRegistryTests
         var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, late);
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, late.AddSeconds(30));
+
+        bus.Published.Should().ContainSingle().Which.EventType.Should().Be(DeviceStateAlertEvaluator.OfflineEventType);
+    }
+
+    [Fact]
+    public async Task DeviceOfflineIsNotAnnouncedForAnyDeviceWhileAStepIsInFlight()
+    {
+        // The uplink map stops at the gateway, and a switch coming back blips devices behind
+        // other switches, so a device no window names still goes quiet while a step is in flight.
+        var bus = new CapturingBus();
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = new DeviceStateAlertEvaluator(
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+        registry.RefreshSiteActive(Site, Now);
+
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now.AddSeconds(30));
+
+        bus.Published.Should().BeEmpty();
+
+        var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, late);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, late.AddSeconds(30));
 
         bus.Published.Should().ContainSingle().Which.EventType.Should().Be(DeviceStateAlertEvaluator.OfflineEventType);
     }
