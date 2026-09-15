@@ -91,12 +91,16 @@ public class PortLockRule : AuditRuleBase
             if (IsAccessPort(port) && !IsNetworkFabricDevice(port.ConnectedDeviceType))
                 return null;
 
+            var profile = string.IsNullOrEmpty(port.AssignedPortProfile?.Name)
+                ? "its Ethernet Port Profile"
+                : $"the \"{port.AssignedPortProfile.Name}\" Ethernet Port Profile";
             return CreateIssue(
-                $"Port carries {device}; Lock Port to UniFi Device is available if its Ethernet Port Profile is removed",
+                $"Port could be locked to {device} if {profile} is removed",
                 port,
                 metadata,
-                "UniFi does not allow Lock Port to UniFi Device on a port with an Ethernet Port Profile. " +
-                "If you prefer the lock, remove the profile from this port in Port Manager and enable Lock Port to UniFi Device.",
+                "Lock Port to UniFi Device can't be enabled on a port that uses an Ethernet Port Profile. " +
+                "If you'd rather lock this port than share the profile with other ports, remove the profile in Port Manager, " +
+                "then enable Lock Port to UniFi Device.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
         }

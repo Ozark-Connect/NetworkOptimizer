@@ -8,8 +8,7 @@ namespace NetworkOptimizer.Audit.Rules;
 /// Excludes infrastructure ports (uplinks, WAN, ports with network fabric devices connected)
 /// and ports locked with Lock Port to UniFi Device. Ports carrying another UniFi device
 /// (Protect, Cloud Key, ...) defer to PortLockRule when the lock is available, unless several
-/// clients used the port recently; then this rule keeps the issue and names the lock as the
-/// single-device alternative.
+/// clients used the port recently; then this rule keeps the issue with its standard copy.
 /// </summary>
 public class MacRestrictionRule : AuditRuleBase
 {
@@ -101,34 +100,11 @@ public class MacRestrictionRule : AuditRuleBase
         // Tailor the message based on whether the port is actively in use or just recently used
         var isInactive = !port.IsUp;
 
-        // A UniFi device on a port several clients used: MAC restriction is the tool, the lock only if the
-        // device turns out to be the sole occupant. PortLockRule stays silent here so this carries the score.
-        if (!isInactive && port.HasUniFiDevice && port.IsSharedPort)
-        {
-            // Without the lock on offer, the plain MAC restriction copy below fits a shared port as-is
-            if (IsPortLockAvailable(port))
-            {
-                var device = DescribeUniFiDevice(port);
-                var count = port.SeenDeviceMacs.Count;
-                return CreateIssue(
-                    $"Port carries {device} but {count} devices have used it; Lock Port to UniFi Device fits only if {device} is the sole occupant",
-                    port,
-                    new Dictionary<string, object>
-                    {
-                        { "network", network?.Name ?? "Unknown" },
-                        { "device", device },
-                        { "devices_seen", count }
-                    },
-                    $"{count} different devices have used this port in the last {Analyzers.PortSecurityAnalyzer.SharedPortWindowDays} days. If more than one device needs it, " +
-                    "use Restricted with each allowed MAC address instead. " +
-                    $"If {device} is the only one that belongs here, enable Lock Port to UniFi Device in Port Manager.");
-            }
-        }
         // A UniFi device (Protect, Network, ...) on the port: Lock Port to UniFi Device is the better fit.
         // PortLockRule flags it when the versions allow; otherwise say what the upgrade would unlock.
-        // A LAG, or a port on a gateway or AP, never takes the lock, so it gets the plain copy below
-        // rather than an upgrade it cannot use.
-        else if (!isInactive && port.HasUniFiDevice && CanPortEverLock(port))
+        // Plain copy below instead for a LAG or a gateway/AP port (never takes the lock) and for a port several
+        // clients used recently (MAC restriction is the tool; PortLockRule stays silent so this carries the score).
+        if (!isInactive && port.HasUniFiDevice && CanPortEverLock(port) && !port.IsSharedPort)
         {
             if (IsPortLockAvailable(port))
                 return null;

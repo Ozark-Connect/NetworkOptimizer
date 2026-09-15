@@ -274,11 +274,13 @@ public class MacRestrictionRuleTests
         result.RecommendedAction.Should().Contain("cannot be combined with an Ethernet Port Profile");
     }
 
-    [Fact]
-    public void Evaluate_UniFiDeviceClient_SharedPort_LockAvailable_ReturnsRecommendedWithSharedCopy()
+    [Theory]
+    [InlineData("10.6.106")]   // lock available on this switch
+    [InlineData("10.5.120")]   // lock not available
+    public void Evaluate_UniFiDeviceClient_SharedPort_ReturnsPlainMacCopyWithoutLock(string appVersion)
     {
-        // Several clients on the port: MAC restriction is the tool, and this rule keeps the score
-        _rule.SetNetworkApplicationVersion("10.6.106");
+        // Several clients on the port: MAC restriction is the tool, the lock is not mentioned, and this rule keeps the score
+        _rule.SetNetworkApplicationVersion(appVersion);
         var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186",
             seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]);
 
@@ -288,26 +290,6 @@ public class MacRestrictionRuleTests
         result!.Type.Should().Be("MAC-RESTRICT-001");
         result.Severity.Should().Be(AuditSeverity.Recommended);
         result.ScoreImpact.Should().Be(3);
-        result.Message.Should().Be("Port carries AI Key (UniFi Protect) but 3 devices have used it; Lock Port to UniFi Device fits only if AI Key (UniFi Protect) is the sole occupant");
-        result.RecommendedAction.Should().Be(
-            "3 different devices have used this port in the last 7 days. If more than one device needs it, " +
-            "use Restricted with each allowed MAC address instead. " +
-            "If AI Key (UniFi Protect) is the only one that belongs here, enable Lock Port to UniFi Device in Port Manager.");
-        result.Metadata!["devices_seen"].Should().Be(3);
-    }
-
-    [Fact]
-    public void Evaluate_UniFiDeviceClient_SharedPort_LockUnavailable_ReturnsPlainMacCopy()
-    {
-        // No lock on offer: the lock is not mentioned on a shared port
-        _rule.SetNetworkApplicationVersion("10.5.120");
-        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186",
-            seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01"]);
-
-        var result = _rule.Evaluate(port, new List<NetworkInfo>());
-
-        result.Should().NotBeNull();
-        result!.Severity.Should().Be(AuditSeverity.Recommended);
         result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
