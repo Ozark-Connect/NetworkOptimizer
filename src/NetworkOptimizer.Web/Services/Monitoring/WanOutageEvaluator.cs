@@ -190,13 +190,16 @@ public class WanOutageEvaluator
         // rather than one per WAN.
         // A UniFi OS update reboots the gateway, taking WAN with it. The outage is expected
         // and the rollout's own alerts cover it, so no WAN alert opens while it is in progress.
+        // A device step in flight holds WAN alerts too: the probes leave through the LAN, so a
+        // switch rebooting between the server and the gateway reads as the WAN going down.
         // Network app updates do NOT suppress: the gateway stays up, so a WAN outage during
         // one is real. Recovery always flows so a pre-existing alert can close.
-        var osCycling = _rolloutWindows?.IsOsCycling(_siteSlug, now) == true;
+        var rolloutQuiet = _rolloutWindows != null
+            && (_rolloutWindows.IsOsCycling(_siteSlug, now) || _rolloutWindows.IsDeviceStepInFlight(_siteSlug, now));
 
         var totalEverywhere = byWan.Keys.All(k => GetWanState(k).TotalConfirmedAt != null);
         if (!_rollupOpen
-            && !osCycling
+            && !rolloutQuiet
             && byWan.Count >= 2
             && totalEverywhere
             && now - byWan.Keys.Min(k => GetWanState(k).TotalConfirmedAt!.Value)
@@ -220,7 +223,7 @@ public class WanOutageEvaluator
             var info = WanInfo(wanKey);
             switch (kind)
             {
-                case WanVerdictKind.Total when !state.CoveredByRollup && !osCycling && state.OpenKind != WanVerdictKind.Total:
+                case WanVerdictKind.Total when !state.CoveredByRollup && !rolloutQuiet && state.OpenKind != WanVerdictKind.Total:
                     // Opens fresh, or supersedes an open partial: publishing the total closes
                     // the partial downstream (AlertProcessingService resolves it), so the two
                     // never stack.
@@ -228,7 +231,7 @@ public class WanOutageEvaluator
                     await _eventBus.PublishAsync(BuildOutageEvent(info, state, now), ct);
                     break;
 
-                case WanVerdictKind.Partial when !state.CoveredByRollup && !osCycling && state.OpenKind == WanVerdictKind.None:
+                case WanVerdictKind.Partial when !state.CoveredByRollup && !rolloutQuiet && state.OpenKind == WanVerdictKind.None:
                     // A partial never downgrades an open total; the total stays open until
                     // recovery closes it.
                     state.OpenKind = WanVerdictKind.Partial;

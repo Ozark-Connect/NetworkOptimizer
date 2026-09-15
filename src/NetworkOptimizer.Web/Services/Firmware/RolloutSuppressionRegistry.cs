@@ -60,18 +60,26 @@ public class RolloutSuppressionRegistry
     }
 
     /// <summary>
-    /// Marks the site as having an active rollout. Any device reboot during a rollout can
-    /// take downstream devices dark, so monitoring target alerts are suppressed site-wide.
+    /// Marks the site as having a device step in flight. A rebooting switch takes more dark than
+    /// the uplink map can name: the map has no uplink for the gateway, so nothing behind it is
+    /// ever "downstream" of a switch the console reaches the gateway through, and a switch coming
+    /// back up blips the LAN for devices behind other switches. Device offline, monitoring target
+    /// and WAN outage alerts are therefore held site-wide while any device step is in flight.
     /// </summary>
     public void RefreshSiteActive(string siteSlug, DateTime observedAt) =>
         _siteActiveAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>Whether a device step is in flight on this site (console cycles do not count).</summary>
+    public bool IsDeviceStepInFlight(string siteSlug, DateTime now) =>
+        _siteActiveAt.TryGetValue(NormalizeSite(siteSlug), out var at)
+            && now.ToUniversalTime() - at <= WindowFreshness;
 
     /// <summary>Whether any rollout activity is happening on this site.</summary>
     public bool IsSiteActiveRollout(string siteSlug, DateTime now)
     {
         var site = NormalizeSite(siteSlug);
         var utcNow = now.ToUniversalTime();
-        return (_siteActiveAt.TryGetValue(site, out var at) && utcNow - at <= WindowFreshness)
+        return IsDeviceStepInFlight(site, utcNow)
             || (_consoleCyclingAt.TryGetValue(site, out var cycleAt) && utcNow - cycleAt <= WindowFreshness);
     }
 
