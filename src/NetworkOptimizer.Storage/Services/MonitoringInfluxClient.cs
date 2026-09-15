@@ -1953,6 +1953,41 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Every link-state sample per interface of one device over a window. Kept apart from the
+    /// rate query: a sample with unchanged counters carries no rate but does carry the state, and
+    /// a port that just went down is exactly such a sample.
+    /// </summary>
+    public async Task<IReadOnlyList<InterfaceLinkStatePoint>> QueryInterfaceLinkStateRawAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<InterfaceLinkStatePoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""oper_status"")
+";
+        var results = new List<InterfaceLinkStatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is not { } oper) continue;
+            results.Add(new InterfaceLinkStatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                IfName = record.GetValueByKey("if_name") as string ?? "?",
+                PortId = record.GetValueByKey("port_id") as string,
+                OperStatus = oper,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
     /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
     /// than the aggregated variant for short-range playback where data is already
@@ -5211,6 +5246,15 @@ from(bucket: ""{_longtermBucket}"")
         public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>
+    public record InterfaceLinkStatePoint
+    {
+        public required DateTime Time { get; init; }
+        public required string IfName { get; init; }
+        public string? PortId { get; init; }
+        public required int OperStatus { get; init; }
     }
 
     /// <summary>One device's total throughput over one window, every interface and both directions.</summary>

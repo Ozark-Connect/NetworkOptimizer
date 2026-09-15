@@ -98,6 +98,7 @@ public record HistoricDataCache(
     DateTime From,
     DateTime To,
     Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> RatesByDevice,
+    Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceLinkStatePoint>> LinkStateByDevice,
     IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WifiClients,
     IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients,
     Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>> HealthByDevice,

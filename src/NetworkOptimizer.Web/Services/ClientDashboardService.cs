@@ -192,6 +192,18 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>Listed wired clients whose port is down by the switch's own sample; empty where nothing monitors.</summary>
+    private async Task<IReadOnlySet<string>> LinkDownMacsAsync()
+    {
+        if (_portPresence == null) return new HashSet<string>();
+        try { return await _portPresence.ListLinkDownAsync(); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port link state unavailable");
+            return new HashSet<string>();
+        }
+    }
+
     /// <summary>Wired clients the console does not list but whose port link says are online; empty where nothing vouches.</summary>
     private async Task<HashSet<string>> PresentByPortMacsAsync()
     {
@@ -215,6 +227,7 @@ public class ClientDashboardService
         // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
         // picker matches the name shown on the page and in Client Stats.
         var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
+        var linkDown = await LinkDownMacsAsync();
         return (clients ?? new List<UniFiClientResponse>())
             .Where(c => !string.IsNullOrEmpty(c.BestIp))
             .Select(c => new SelectableClient(
@@ -225,7 +238,7 @@ public class ClientDashboardService
                     : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
                 c.IsWired,
                 c.Mac,
-                IsOnline: true))
+                IsOnline: !(c.IsWired && linkDown.Contains(c.Mac))))
             .ToList();
     }
 
@@ -304,7 +317,7 @@ public class ClientDashboardService
 
                 // The console keeps a wired client listed for minutes after its link drops. The
                 // switch's own sample says the port is down, and a down port has nobody on it.
-                if (identity.IsWired && _portPresence != null && await _portPresence.IsLinkDownAsync(identity.Mac))
+                if (identity.IsWired && (await LinkDownMacsAsync()).Contains(identity.Mac))
                 {
                     identity.IsOffline = true;
                     _offlineIdentityCache[clientIp] = identity;

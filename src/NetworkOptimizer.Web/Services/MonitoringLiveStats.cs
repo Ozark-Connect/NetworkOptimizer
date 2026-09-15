@@ -305,6 +305,19 @@ public class MonitoringLiveStats
             : point;
     }
 
+    /// <summary>
+    /// Whether a port's link is down by its last SNMP sample: false when up, null when there is no
+    /// sample or the last one is older than <paramref name="maxAge"/>, since a switch that stopped
+    /// answering says nothing about the link.
+    /// </summary>
+    public bool? IsPortLinkDown(string deviceMac, string ifName, DateTime now, TimeSpan maxAge)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
+        if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
+        return oper != 1;
+    }
+
     /// <summary>Unicast packets the host behind a port sent between the last two samples, and when.</summary>
     public readonly record struct PortUnicastIn(DateTime At, long Packets);
 

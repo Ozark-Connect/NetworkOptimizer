@@ -74,6 +74,20 @@ public class MonitoringLiveStatsPortPresenceTests
     }
 
     [Fact]
+    public void Link_state_is_answered_only_from_a_fresh_sample()
+    {
+        var stats = Stats();
+        stats.IsPortLinkDown(Switch, "eth1", T0, TimeSpan.FromSeconds(90)).Should().BeNull();
+
+        stats.RecordPortStats(Rated(null, null, 1, T0));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(5), TimeSpan.FromSeconds(90)).Should().BeFalse();
+
+        stats.RecordPortStats(Rated(null, null, 2, T0.AddSeconds(10)));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(15), TimeSpan.FromSeconds(90)).Should().BeTrue();
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(200), TimeSpan.FromSeconds(90)).Should().BeNull();
+    }
+
+    [Fact]
     public void A_down_link_reads_as_idle_at_once()
     {
         var stats = Stats();

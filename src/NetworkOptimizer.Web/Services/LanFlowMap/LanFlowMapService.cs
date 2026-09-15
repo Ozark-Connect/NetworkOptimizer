@@ -1019,6 +1019,14 @@ public class LanFlowMapService
                     if (!string.IsNullOrEmpty(link.PortKey))
                     {
                         var (deviceMac, ifName) = ParsePortKey(link.PortKey);
+                        // The console kept listing the client, so its telemetry says present; the
+                        // switch's own sample at the instant says the port was down, and a down
+                        // port had nobody on it.
+                        if (cached.LinkStateByDevice.TryGetValue(deviceMac, out var states)
+                            && ClosestLinkState(states, ifName, at) is { } state
+                            && (state.Time - at).Duration() <= ClientPresenceTolerance
+                            && state.OperStatus != 1)
+                            update.PresentClientIds.Remove(link.ToNodeId);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
                             var closest = ClosestPortPoint(pts, ifName, at);
@@ -1859,12 +1867,17 @@ public class LanFlowMapService
         Dictionary<(string mac, int port), InterfaceNameMap> nameMaps,
         Dictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac)
     {
+        var now = DateTime.UtcNow;
         foreach (var c in topology.Clients)
         {
             var clientMac = NormalizeMac(c.Mac);
             if (string.IsNullOrEmpty(clientMac)) continue;
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
+            // The console keeps a wired client listed for minutes after its link drops; the
+            // switch's own sample says the port is down, and a down port has no leaf.
+            if (c.IsWired && c.SwitchPort is { } downPort && nameMaps.TryGetValue((parentMac, downPort), out var downMap)
+                && _liveStats.IsPortLinkDown(parentMac, downMap.IfName, now, ClientPresenceTolerance) == true) continue;
 
             // The live cache is fed far faster than the console client list: every 500 ms while
             // Client Performance is watching a client, every 10 s from an AP Agent otherwise,
@@ -2710,6 +2723,17 @@ public class LanFlowMapService
     /// map loaded last, while Influx keys the series on the alias. Matching either end makes the
     /// lookup indifferent to that. Live is unaffected: it reads the console's port stats by index.
     /// </summary>
+    private static MonitoringInfluxClient.InterfaceLinkStatePoint? ClosestLinkState(
+        IEnumerable<MonitoringInfluxClient.InterfaceLinkStatePoint> points, string? ifName, DateTime at)
+    {
+        if (string.IsNullOrEmpty(ifName)) return null;
+        return points
+            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p.PortId, ifName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+            .FirstOrDefault();
+    }
+
     private static MonitoringInfluxClient.InterfaceRatePoint? ClosestPortPoint(
         IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string? ifName, DateTime at)
     {
@@ -2889,6 +2913,15 @@ public class LanFlowMapService
     private void MarkDepartedClients(LanFlowMapSnapshot snapshot, LanFlowMapLiveUpdate update)
     {
         var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
+        var now = DateTime.UtcNow;
+
+        foreach (var link in snapshot.Links)
+        {
+            if (link.Kind != LanLinkKind.WiredClient || string.IsNullOrEmpty(link.PortKey)) continue;
+            var (mac, ifName) = ParsePortKey(link.PortKey);
+            if (_liveStats.IsPortLinkDown(mac, ifName, now, ClientPresenceTolerance) == true)
+                update.RemovedClientIds.Add(link.ToNodeId);
+        }
 
         foreach (var node in snapshot.Nodes)
         {
@@ -2982,12 +3015,15 @@ public class LanFlowMapService
 
         var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
             StringComparer.OrdinalIgnoreCase);
+        var linkStateByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceLinkStatePoint>>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var mac in deviceMacs)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
                 ratesByDevice[mac] = await _influx.QueryInterfaceRatesRawAsync(mac, from, to, ct);
+                linkStateByDevice[mac] = await _influx.QueryInterfaceLinkStateRawAsync(mac, from, to, ct);
             }
             catch (Exception ex)
             {
@@ -3056,7 +3092,7 @@ public class LanFlowMapService
         // every instant inside it then reads those links as idle until the window rolls.
         ct.ThrowIfCancellationRequested();
         return new HistoricDataCache(
-            from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
+            from, to, ratesByDevice, linkStateByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(

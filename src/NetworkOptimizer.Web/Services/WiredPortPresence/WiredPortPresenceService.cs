@@ -74,35 +74,45 @@ public class WiredPortPresenceService : IWiredPortPresenceService
         }
     }
 
-    public async Task<bool> IsLinkDownAsync(string clientMac)
+    private static readonly ConcurrentDictionary<string, (DateTime At, IReadOnlySet<string> Macs)> LinkDownCache = new(StringComparer.OrdinalIgnoreCase);
+
+    public async Task<IReadOnlySet<string>> ListLinkDownAsync()
     {
-        var mac = NormalizeMac(clientMac);
-        if (mac.Length == 0 || !_connection.IsConnected || _connection.Client == null) return false;
+        var slug = _siteContext.Slug;
+        if (LinkDownCache.TryGetValue(slug, out var hit) && DateTime.UtcNow - hit.At < CacheFor)
+            return hit.Macs;
+        var macs = await BuildLinkDownAsync();
+        LinkDownCache[slug] = (DateTime.UtcNow, macs);
+        return macs;
+    }
+
+    private async Task<IReadOnlySet<string>> BuildLinkDownAsync()
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!_connection.IsConnected || _connection.Client == null) return result;
         try
         {
             var clients = await _connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
-            var listed = clients.FirstOrDefault(c => c.IsWired && string.Equals(NormalizeMac(c.Mac), mac, StringComparison.OrdinalIgnoreCase));
-            if (listed == null || string.IsNullOrEmpty(listed.SwMac) || listed.SwPort is not > 0) return false;
-            var switchMac = NormalizeMac(listed.SwMac);
             var ifNamesByPort = await IfNamesByPortAsync();
-            if (!ifNamesByPort.TryGetValue((switchMac, listed.SwPort.Value), out var ifNames)) return false;
-
-            // Only a fresh sample counts: a switch that stopped answering says nothing about the link.
+            var live = _liveStats.GetFor(slug: _siteContext.Slug);
             var now = DateTime.UtcNow;
-            var snapshot = _liveStats.GetFor(_siteContext.Slug).GetPortStatsSnapshot(new[] { switchMac });
-            foreach (var ifName in ifNames)
+            foreach (var c in clients.Where(c => c.IsWired && !string.IsNullOrEmpty(c.SwMac) && c.SwPort is > 0))
             {
-                var row = snapshot.FirstOrDefault(r => string.Equals(r.IfName, ifName, StringComparison.OrdinalIgnoreCase));
-                if (row?.OperStatus is { } oper && now - row.Time <= WiredPortPresenceRule.UnicastWindow)
-                    return oper != 1;
+                var switchMac = NormalizeMac(c.SwMac);
+                if (!ifNamesByPort.TryGetValue((switchMac, c.SwPort!.Value), out var ifNames)) continue;
+                foreach (var ifName in ifNames)
+                {
+                    if (live.IsPortLinkDown(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow) is not { } down) continue;
+                    if (down) result.Add(NormalizeMac(c.Mac));
+                    break;
+                }
             }
-            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Wired port link state unavailable for {Mac}", clientMac);
-            return false;
+            _logger.LogDebug(ex, "Wired port link state unavailable for site {Site}", _siteContext.Slug);
         }
+        return result;
     }
 
     private async Task<IReadOnlyList<WiredPortPresence>> BuildAsync()

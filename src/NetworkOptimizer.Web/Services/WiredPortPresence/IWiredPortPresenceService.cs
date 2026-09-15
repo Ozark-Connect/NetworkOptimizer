@@ -21,10 +21,10 @@ public interface IWiredPortPresenceService
     Task<IReadOnlyList<WiredPortPresence>> ListAsync();
 
     /// <summary>
-    /// Whether the port the console lists this wired client on is down by the switch's own last
+    /// Every wired client the console lists on a port that is down by the switch's own fresh
     /// SNMP sample. The console keeps a wired client listed for minutes after its link drops; a
-    /// down port is nobody's, so the client is offline. False when nothing monitors the port.
+    /// down port is nobody's, so these are offline. Empty where nothing monitors the ports.
     /// </summary>
     [RequireRole(Roles.Viewer)]
-    Task<bool> IsLinkDownAsync(string clientMac);
+    Task<IReadOnlySet<string>> ListLinkDownAsync();
 }
