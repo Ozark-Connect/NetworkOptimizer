@@ -209,7 +209,7 @@ public class PortLockRuleTests
         result.Message.Should().EndWith(" if its Ethernet Port Profile is removed");
         result.RecommendedAction.Should().Be(
             "Lock Port to UniFi Device can't be enabled on a port that uses an Ethernet Port Profile. " +
-            "If you'd rather lock this port than share the profile with other ports, remove the profile in Port Manager, " +
+            "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
             "then enable Lock Port to UniFi Device.");
     }
 
@@ -223,7 +223,7 @@ public class PortLockRuleTests
         var result = _rule.Evaluate(port, []);
 
         result.Should().NotBeNull();
-        result!.Message.Should().Be("Port could be locked to [AP] Back Yard (UniFi access point) if the \"AP Trunk\" Ethernet Port Profile is removed");
+        result!.Message.Should().Be("Port could be locked to [AP] Back Yard (UniFi Access Point) if the \"AP Trunk\" Ethernet Port Profile is removed");
     }
 
     [Theory]
@@ -292,7 +292,7 @@ public class PortLockRuleTests
 
         result.Should().NotBeNull();
         result!.Severity.Should().Be(AuditSeverity.Recommended);
-        result.Message.Should().Be("Port should be locked to the connected UniFi access point with Lock Port to UniFi Device");
+        result.Message.Should().Be("Port should be locked to the connected UniFi Access Point with Lock Port to UniFi Device");
     }
 
     [Fact]
@@ -447,20 +447,20 @@ public class PortLockRuleTests
         var result = _rule.Evaluate(port, []);
 
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("the connected UniFi access point");
+        result!.Message.Should().Contain("the connected UniFi Access Point");
         result.Metadata!["device_type"].Should().Be("uap");
     }
 
     [Theory]
-    [InlineData("usw", "switch")]
-    [InlineData("ubb", "bridge")]
-    [InlineData("uxg", "gateway")]
-    [InlineData("umbb", "modem")]
+    [InlineData("usw", "Switch")]
+    [InlineData("ubb", "Bridge")]
+    [InlineData("uxg", "Gateway")]
+    [InlineData("umbb", "Modem")]
     [InlineData("uck", "Cloud Key")]
     [InlineData("uas", "Cloud Key")]
-    [InlineData("usp", "power device")]
+    [InlineData("usp", "Power Device")]
     [InlineData("unas", "NAS")]
-    [InlineData("unvr", "device")]
+    [InlineData("unvr", "Device")]
     public void Evaluate_NetworkDeviceTypes_DescribedByRole(string deviceType, string role)
     {
         var port = CreatePort(connectedDeviceType: deviceType);

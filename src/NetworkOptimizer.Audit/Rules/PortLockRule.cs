@@ -78,7 +78,7 @@ public class PortLockRule : AuditRuleBase
                 metadata,
                 $"This port already restricts by MAC address. Lock Port to UniFi Device ties the port to {device} " +
                 "as a single port setting instead of a MAC list. If you prefer it, enable Lock Port to UniFi Device " +
-                "on this port in Port Manager.",
+                "on this port in UniFi Network - Ports.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
         }
@@ -99,7 +99,7 @@ public class PortLockRule : AuditRuleBase
                 port,
                 metadata,
                 "Lock Port to UniFi Device can't be enabled on a port that uses an Ethernet Port Profile. " +
-                "If you'd rather lock this port than share the profile with other ports, remove the profile in Port Manager, " +
+                "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
                 "then enable Lock Port to UniFi Device.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
@@ -109,7 +109,7 @@ public class PortLockRule : AuditRuleBase
             $"Port should be locked to {device} with Lock Port to UniFi Device",
             port,
             metadata,
-            $"Only {device} has used this port. In UniFi Network, open this port in Port Manager and enable " +
+            $"Only {device} has used this port. In UniFi Network - Ports, open this port and enable " +
             "Lock Port to UniFi Device. Anything else plugged in is blocked, with no MAC list to maintain.");
     }
 }

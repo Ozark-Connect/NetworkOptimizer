@@ -192,7 +192,7 @@ public abstract class AuditRuleBase : IAuditRule
     /// <summary>
     /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi
     /// app when known ("AI Key (UniFi Protect)"), otherwise the uplink-table device's name and role
-    /// ("[AP] Back Yard (UniFi access point)"), or the role alone when unnamed.
+    /// ("[AP] Back Yard (UniFi Access Point)"), or the role alone when unnamed.
     /// </summary>
     protected static string DescribeUniFiDevice(PortInfo port)
     {
@@ -216,15 +216,15 @@ public abstract class AuditRuleBase : IAuditRule
 
         var role = port.ConnectedDeviceType?.ToLowerInvariant() switch
         {
-            "uap" => "access point",
-            "usw" => "switch",
-            "ubb" => "bridge",
-            "ugw" or "usg" or "udm" or "uxg" or "ucg" => "gateway",
-            "umbb" => "modem",
+            "uap" => "Access Point",
+            "usw" => "Switch",
+            "ubb" => "Bridge",
+            "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
+            "umbb" => "Modem",
             "uck" or "uas" => "Cloud Key",
-            "usp" => "power device",
+            "usp" => "Power Device",
             "unas" => "NAS",
-            _ => "device"
+            _ => "Device"
         };
         return string.IsNullOrEmpty(port.ConnectedDeviceName)
             ? $"the connected UniFi {role}"
