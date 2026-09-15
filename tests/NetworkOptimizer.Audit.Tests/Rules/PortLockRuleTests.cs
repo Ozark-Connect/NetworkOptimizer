@@ -121,8 +121,8 @@ public class PortLockRuleTests
         result!.Type.Should().Be("PORT-LOCK-001");
         result.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(0);
-        result.Message.Should().Contain("MAC-restricted for AI Key (UniFi Protect)");
-        result.Message.Should().Contain("can replace the MAC list");
+        result.Message.Should().Be("Port uses a MAC Address Filter for AI Key (UniFi Protect); Lock Port to UniFi Device can replace it");
+        result.RecommendedAction.Should().Contain("without a MAC Address Filter to keep up");
         result.RecommendedAction.Should().Contain("If you prefer it");
     }
 
@@ -314,7 +314,7 @@ public class PortLockRuleTests
         // The lock does not block the clients behind an AP or switch, and the copy says so
         result.RecommendedAction.Should().Be(
             "In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
-            "A different device plugged into this port in its place is blocked; clients connected through the connected UniFi Access Point are not affected.");
+            "Any other device plugged into this port is blocked; clients connected through the connected UniFi Access Point are not affected.");
     }
 
     [Theory]
@@ -401,7 +401,7 @@ public class PortLockRuleTests
         result.Message.Should().Contain("AI Key (UniFi Protect)");
         result.RecommendedAction.Should().Be(
             "Only AI Key (UniFi Protect) has used this port. In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
-            "A different device plugged into this port in its place is blocked, with no MAC list to maintain.");
+            "Any other device plugged into this port is blocked, with no MAC Address Filter to maintain.");
         result.RecommendedAction.Should().Contain("Lock Port to UniFi Device");
         result.Metadata!["network"].Should().Be("Security");
         result.Metadata["device_type"].Should().Be("protect");

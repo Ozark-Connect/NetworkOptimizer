@@ -73,11 +73,11 @@ public class PortLockRule : AuditRuleBase
                 return null;
 
             return CreateIssue(
-                $"Port is MAC-restricted for {device}; Lock Port to UniFi Device can replace the MAC list",
+                $"Port uses a MAC Address Filter for {device}; Lock Port to UniFi Device can replace it",
                 port,
                 metadata,
                 $"This port already restricts by MAC address. Lock Port to UniFi Device ties the port to {device} " +
-                "as a single port setting instead of a MAC list. If you prefer it, enable Lock Port to UniFi Device " +
+                "without a MAC Address Filter to keep up. If you prefer it, enable Lock Port to UniFi Device " +
                 "on this port in UniFi Network - Ports.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
@@ -109,9 +109,9 @@ public class PortLockRule : AuditRuleBase
         // An AP or switch downlink carries its clients' MACs too, which the lock does not block
         var recommendation = IsNetworkFabricDevice(port.ConnectedDeviceType)
             ? "In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
-              $"A different device plugged into this port in its place is blocked; clients connected through {device} are not affected."
+              $"Any other device plugged into this port is blocked; clients connected through {device} are not affected."
             : $"Only {device} has used this port. In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
-              "A different device plugged into this port in its place is blocked, with no MAC list to maintain.";
+              "Any other device plugged into this port is blocked, with no MAC Address Filter to maintain.";
 
         return CreateIssue(
             $"Port should be locked to {device} with Lock Port to UniFi Device",

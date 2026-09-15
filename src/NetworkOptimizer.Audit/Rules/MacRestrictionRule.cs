@@ -113,7 +113,7 @@ public class MacRestrictionRule : AuditRuleBase
             // The lock needs UniFi Network 10.6.101+, so this copy always uses the 10.6 setting names
             var device = DescribeUniFiDevice(port);
             return CreateIssue(
-                $"Port should have Port Security with a MAC Address Filter for {device}, or have its Port Profile removed and be locked to it with Lock Port to UniFi Device",
+                $"Port should use a MAC Address Filter for {device}, or drop its Port Profile and use Lock Port to UniFi Device",
                 port,
                 new Dictionary<string, object>
                 {

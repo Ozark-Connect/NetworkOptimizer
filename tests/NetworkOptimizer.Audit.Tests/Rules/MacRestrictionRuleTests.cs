@@ -261,7 +261,7 @@ public class MacRestrictionRuleTests
 
         result.Should().NotBeNull();
         // The lock needs 10.6.101+, so this copy always uses the 10.6 names
-        result!.Message.Should().Be("Port should have Port Security with a MAC Address Filter for AI Key (UniFi Protect), or have its Port Profile removed and be locked to it with Lock Port to UniFi Device");
+        result!.Message.Should().Be("Port should use a MAC Address Filter for AI Key (UniFi Protect), or drop its Port Profile and use Lock Port to UniFi Device");
         result.RecommendedAction.Should().EndWith(
             "cannot be combined with a Port Profile. Either remove the profile and lock the port, or keep the profile and " +
             "turn on Port Security with the device's MAC address in the MAC Address Filter.");
