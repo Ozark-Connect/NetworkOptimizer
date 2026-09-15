@@ -471,6 +471,18 @@ public class DisplayFormattersTests
     }
 
     [Theory]
+    [InlineData(0, false, null, "Locked")]
+    [InlineData(0, true, null, "Locked")]           // lock outranks the bare enabled flag
+    [InlineData(1, false, null, "1 MAC")]           // a MAC list outranks the lock
+    [InlineData(0, false, "auto", "802.1X")]        // 802.1X outranks the lock
+    public void GetPortSecurityStatus_LockedToDevice_ShowsLocked(
+        int macCount, bool enabled, string? dot1xCtrl, string expected)
+    {
+        var result = DisplayFormatters.GetPortSecurityStatus(macCount, enabled, dot1xCtrl, lockedToDevice: true);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("auto", "802.1X")]
     [InlineData("mac_based", "802.1X")]
     public void GetPortSecurityStatus_Dot1xSecured_Returns8021X(string dot1xCtrl, string expected)

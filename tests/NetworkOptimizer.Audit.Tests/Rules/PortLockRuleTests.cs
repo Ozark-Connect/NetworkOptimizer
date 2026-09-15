@@ -1,0 +1,351 @@
+using FluentAssertions;
+using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.UniFi.Models;
+using Xunit;
+
+namespace NetworkOptimizer.Audit.Tests.Rules;
+
+public class PortLockRuleTests
+{
+    private const string SupportedApp = "10.6.106";
+    private const string SupportedFirmware = "7.6.2.17186";
+
+    private readonly PortLockRule _rule;
+
+    public PortLockRuleTests()
+    {
+        _rule = new PortLockRule();
+        _rule.SetNetworkApplicationVersion(SupportedApp);
+    }
+
+    #region Rule Properties
+
+    [Fact]
+    public void RuleId_IsPortLock()
+    {
+        _rule.RuleId.Should().Be(IssueTypes.PortLock);
+        _rule.RuleId.Should().Be("PORT-LOCK-001");
+    }
+
+    [Fact]
+    public void Severity_IsRecommended()
+    {
+        _rule.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void ScoreImpact_Is3()
+    {
+        _rule.ScoreImpact.Should().Be(3);
+    }
+
+    #endregion
+
+    #region Ports That Should Be Ignored
+
+    [Fact]
+    public void Evaluate_PortDown_ReturnsNull()
+    {
+        var port = CreatePort(isUp: false, client: ProtectClient());
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("disabled")]
+    public void Evaluate_DisabledPort_ReturnsNull(string forwardMode)
+    {
+        var port = CreatePort(forwardMode: forwardMode, client: ProtectClient());
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_UplinkPort_ReturnsNull()
+    {
+        var port = CreatePort(isUplink: true, connectedDeviceType: "usw");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_WanPort_ReturnsNull()
+    {
+        var port = CreatePort(isWan: true, connectedDeviceType: "umbb");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_MirrorDestination_ReturnsNull()
+    {
+        var port = CreatePort(opMode: "mirror", client: ProtectClient());
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_OrdinaryClient_ReturnsNull()
+    {
+        var client = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:01", Name = "Desktop", IsWired = true };
+        var port = CreatePort(client: client);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_NoClientNoDevice_ReturnsNull()
+    {
+        var port = CreatePort();
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_AlreadyLocked_ReturnsNull()
+    {
+        var port = CreatePort(client: ProtectClient(), lockedToDeviceMac: "aa:bb:cc:dd:ee:ff");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_MacRestricted_ReturnsNull()
+    {
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"]);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_PortSecurityEnabledNoMacs_ReturnsNull()
+    {
+        var port = CreatePort(client: ProtectClient(), portSecurityEnabled: true);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("mac_based")]
+    [InlineData("multi_host")]
+    public void Evaluate_Dot1xSecured_ReturnsNull(string dot1xCtrl)
+    {
+        var port = CreatePort(client: ProtectClient(), dot1xCtrl: dot1xCtrl);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_IntentionalUnrestrictedProfile_ReturnsNull()
+    {
+        var profile = new UniFiPortProfile { Id = "prof-1", Name = "Any Device", Forward = "native", PortSecurityEnabled = false, TaggedVlanMgmt = "block_all" };
+        var port = CreatePort(client: ProtectClient(), assignedProfile: profile);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    #endregion
+
+    #region Version Gate
+
+    [Theory]
+    [InlineData("10.6.100")]
+    [InlineData("10.6.97")]
+    [InlineData("10.5.120")]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Evaluate_NetworkApplicationTooOldOrUnknown_ReturnsNull(string? appVersion)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(client: ProtectClient());
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("7.6.1.17000")]
+    [InlineData("7.5.15.17146")]
+    [InlineData("2.1.6.762")]
+    [InlineData(null)]
+    public void Evaluate_SwitchFirmwareTooOldOrUnknown_ReturnsNull(string? firmware)
+    {
+        var port = CreatePort(client: ProtectClient(), firmwareVersion: firmware);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_MinimumVersionsExactly_ReturnsIssue()
+    {
+        _rule.SetNetworkApplicationVersion("10.6.101");
+        var port = CreatePort(client: ProtectClient(), firmwareVersion: "7.6.2");
+
+        _rule.Evaluate(port, []).Should().NotBeNull();
+    }
+
+    #endregion
+
+    #region Ports That Should Trigger Issue
+
+    [Fact]
+    public void Evaluate_ProtectDeviceUnlocked_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo> { new() { Id = "net-1", Name = "Security", VlanId = 42 } };
+        var port = CreatePort(client: ProtectClient(), nativeNetworkId: "net-1");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("PORT-LOCK-001");
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(3);
+        result.Port.Should().Be("3");
+        result.Message.Should().Contain("Lock Port to UniFi Device");
+        result.Message.Should().Contain("AI Key (UniFi Protect)");
+        result.RecommendedAction.Should().Contain("Lock Port to UniFi Device");
+        result.Metadata!["network"].Should().Be("Security");
+        result.Metadata["device_type"].Should().Be("protect");
+    }
+
+    [Fact]
+    public void Evaluate_NetworkClientDevice_NamesTheApp()
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:02", Name = "Console", IsWired = true, ProductLine = "unifi-network", ProductModel = "CloudKey+"
+        };
+        var port = CreatePort(client: client);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("Console (UniFi Network)");
+    }
+
+    [Fact]
+    public void Evaluate_UcoreDriveDevice_NamesTheApp()
+    {
+        // NAS surfaced through the ucore block with the uppercase product line
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:03", Name = "Storage", IsWired = true,
+            UnifiDeviceInfoFromUcore = new UniFiUcoreDeviceInfo { ProductLine = "DRIVE", ProductShortname = "UNAS Pro" }
+        };
+        var port = CreatePort(client: client);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("Storage (UniFi Drive)");
+        result.Metadata!["device_type"].Should().Be("drive");
+    }
+
+    [Fact]
+    public void Evaluate_AccessPointOnTrunkPort_ReturnsIssue()
+    {
+        // AP downlinks are trunks; the lock does not depend on VLAN mode
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap");
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("the connected UniFi access point");
+        result.Metadata!["device_type"].Should().Be("uap");
+    }
+
+    [Theory]
+    [InlineData("usw", "switch")]
+    [InlineData("ubb", "bridge")]
+    [InlineData("uxg", "gateway")]
+    [InlineData("umbb", "modem")]
+    [InlineData("uck", "Cloud Key")]
+    [InlineData("uas", "Cloud Key")]
+    [InlineData("usp", "power device")]
+    [InlineData("unas", "NAS")]
+    [InlineData("unvr", "device")]
+    public void Evaluate_NetworkDeviceTypes_DescribedByRole(string deviceType, string role)
+    {
+        var port = CreatePort(connectedDeviceType: deviceType);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain($"the connected UniFi {role}");
+    }
+
+    [Fact]
+    public void Evaluate_ClientNamePreferredOverDeviceType()
+    {
+        // A device in the uplink table that also shows up as a named client
+        var client = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:04", Name = "Modem", IsWired = true };
+        var port = CreatePort(client: client, connectedDeviceType: "umbb");
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("locked to Modem with");
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private static UniFiClientResponse ProtectClient() => new()
+    {
+        Mac = "aa:bb:cc:dd:ee:ff",
+        Name = "AI Key",
+        Hostname = "ai-key",
+        IsWired = true,
+        ProductLine = "unifi-protect",
+        ProductModel = "AI Key"
+    };
+
+    private static PortInfo CreatePort(
+        bool isUp = true,
+        string forwardMode = "native",
+        bool isUplink = false,
+        bool isWan = false,
+        string? opMode = "switch",
+        bool portSecurityEnabled = false,
+        List<string>? allowedMacs = null,
+        string? lockedToDeviceMac = null,
+        string? dot1xCtrl = null,
+        string? nativeNetworkId = null,
+        string? connectedDeviceType = null,
+        UniFiClientResponse? client = null,
+        string? firmwareVersion = SupportedFirmware,
+        UniFiPortProfile? assignedProfile = null)
+    {
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Switch",
+            MacAddress = "00:11:22:33:44:55",
+            FirmwareVersion = firmwareVersion,
+            Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 }
+        };
+
+        return new PortInfo
+        {
+            PortIndex = 3,
+            Name = "Port 3",
+            IsUp = isUp,
+            ForwardMode = forwardMode,
+            OpMode = opMode,
+            IsUplink = isUplink,
+            IsWan = isWan,
+            PortSecurityEnabled = portSecurityEnabled,
+            AllowedMacAddresses = allowedMacs,
+            LockedToDeviceMac = lockedToDeviceMac,
+            Dot1xCtrl = dot1xCtrl,
+            NativeNetworkId = nativeNetworkId,
+            ConnectedDeviceType = connectedDeviceType,
+            ConnectedClient = client,
+            AssignedPortProfile = assignedProfile,
+            Switch = switchInfo
+        };
+    }
+
+    #endregion
+}

@@ -36,6 +36,10 @@ public class PortLockRule : AuditRuleBase
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false) || port.IsDot1xSecured)
             return null;
 
+        // A profile that deliberately leaves the port open to any device is not a port to lock
+        if (HasIntentionalUnrestrictedProfile(port))
+            return null;
+
         if (!IsPortLockAvailable(port))
             return null;
 

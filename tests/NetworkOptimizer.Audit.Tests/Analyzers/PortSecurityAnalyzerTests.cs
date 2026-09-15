@@ -349,6 +349,96 @@ public class PortSecurityAnalyzerTests
         result[0].Ports[0].AllowedMacAddresses.Should().Contain("11:22:33:44:55:66");
     }
 
+    [Fact]
+    public void ExtractSwitches_PortLockedToDevice_ExtractsLockAndFirmware()
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""version"": ""7.6.2.17186"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 3,
+                        ""trusted_port_mac"": ""aa:bb:cc:dd:ee:ff"",
+                        ""trusted_port_status"": ""trusted"",
+                        ""port_security_enabled"": false,
+                        ""port_security_mac_address"": [],
+                        ""up"": true
+                    },
+                    { ""port_idx"": 4, ""up"": true }
+                ]
+            }
+        ]").RootElement;
+
+        var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>());
+
+        result[0].FirmwareVersion.Should().Be("7.6.2.17186");
+        result[0].Ports[0].LockedToDeviceMac.Should().Be("aa:bb:cc:dd:ee:ff");
+        result[0].Ports[0].IsPortLocked.Should().BeTrue();
+        result[0].Ports[1].LockedToDeviceMac.Should().BeNull();
+        result[0].Ports[1].IsPortLocked.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CalculateStatistics_LockedPort_CountedAsProtected()
+    {
+        var sw = new SwitchInfo { Name = "Switch", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo { PortIndex = 1, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw });
+        sw.Ports.Add(new PortInfo { PortIndex = 2, IsUp = true, ForwardMode = "native", Switch = sw });
+
+        var stats = _engine.CalculateStatistics([sw]);
+
+        stats.LockedPorts.Should().Be(1);
+        stats.UnprotectedActivePorts.Should().Be(1);
+    }
+
+    [Fact]
+    public void AnalyzeHardening_LockedPorts_ListedAsMeasure()
+    {
+        var sw = new SwitchInfo { Name = "Switch" };
+        sw.Ports.Add(new PortInfo { PortIndex = 1, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw });
+        sw.Ports.Add(new PortInfo { PortIndex = 2, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:fe", Switch = sw });
+
+        var measures = _engine.AnalyzeHardening([sw], new List<NetworkInfo>());
+
+        measures.Should().Contain("Lock Port to UniFi Device enabled on 2 ports");
+    }
+
+    [Fact]
+    public void AnalyzePorts_LockedProtectDevicePort_NoPortSecurityIssues()
+    {
+        // A locked port raises neither the lock rule nor the MAC restriction rule
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.PortLock || i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
+    public void AnalyzePorts_UnlockedProtectDevicePort_RaisesOnlyPortLock()
+    {
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
     #endregion
 
     #region AnalyzePorts Tests
