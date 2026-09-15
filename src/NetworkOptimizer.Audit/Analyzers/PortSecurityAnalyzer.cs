@@ -202,6 +202,7 @@ public class PortSecurityAnalyzer
         {
             _logger.LogDebug("Built client history lookup with {Count} historical wired clients for port correlation", historyByPort.Count);
         }
+        var historyMacsByPort = BuildClientHistoryMacsByPort(clientHistory);
 
         // Collect all device MACs for uplink-based gateway detection
         // and build lookup for device uplinks (to identify which ports have APs/switches connected)
@@ -262,7 +263,7 @@ public class PortSecurityAnalyzer
                 continue;
             }
 
-            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup, historyMacsByPort);
             if (switchInfo != null)
             {
                 switches.Add(switchInfo);
@@ -347,6 +348,42 @@ public class PortSecurityAnalyzer
     }
 
     /// <summary>
+    /// How far back a client sighting counts toward a port being shared. A device unplugged
+    /// longer than this says nothing about what the port is for today.
+    /// </summary>
+    public const int SharedPortWindowDays = 7;
+
+    private static long SharedPortCutoff() =>
+        DateTimeOffset.UtcNow.AddDays(-SharedPortWindowDays).ToUnixTimeSeconds();
+
+    /// <summary>
+    /// Every distinct client MAC the history shows per switch port within the shared-port
+    /// window, for telling single-device ports from shared ones.
+    /// </summary>
+    private static Dictionary<(string, int), HashSet<string>> BuildClientHistoryMacsByPort(List<UniFiClientDetailResponse>? clientHistory)
+    {
+        var lookup = new Dictionary<(string, int), HashSet<string>>();
+        if (clientHistory == null)
+            return lookup;
+
+        var cutoff = SharedPortCutoff();
+        foreach (var client in clientHistory)
+        {
+            if (string.IsNullOrEmpty(client.LastUplinkMac) || !client.LastUplinkRemotePort.HasValue || string.IsNullOrEmpty(client.Mac))
+                continue;
+            if (client.LastSeen < cutoff)
+                continue;
+
+            var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
+            if (!lookup.TryGetValue(key, out var macs))
+                lookup[key] = macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            macs.Add(client.Mac);
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
     /// Parse a single switch from JSON
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
@@ -368,7 +405,8 @@ public class PortSecurityAnalyzer
         Dictionary<(string, int), UniFiClientDetailResponse> historyByPort,
         Dictionary<string, UniFiPortProfile> portProfiles,
         HashSet<string>? allDeviceMacs = null,
-        Dictionary<(string, int), string>? deviceUplinkLookup = null)
+        Dictionary<(string, int), string>? deviceUplinkLookup = null,
+        Dictionary<(string, int), HashSet<string>>? historyMacsByPort = null)
     {
         var deviceType = device.GetStringOrNull("type");
         var (isGateway, isAccessPoint) = DetermineDeviceRole(device, deviceType, allDeviceMacs);
@@ -432,7 +470,7 @@ public class PortSecurityAnalyzer
 
         var rawPorts = device.GetArrayOrEmpty("port_table").ToList();
         var ports = rawPorts
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames, historyMacsByPort))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -544,7 +582,8 @@ public class PortSecurityAnalyzer
         Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort,
         Dictionary<string, UniFiPortProfile>? portProfiles,
         Dictionary<(string, int), string>? deviceUplinkLookup,
-        HashSet<string>? wanIfnames = null)
+        HashSet<string>? wanIfnames = null,
+        Dictionary<(string, int), HashSet<string>>? historyMacsByPort = null)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -692,6 +731,14 @@ public class PortSecurityAnalyzer
             deviceUplinkLookup.TryGetValue(uplinkKey, out connectedDeviceType);
         }
 
+        // Every distinct client MAC this port has carried within the shared-port window: now, last, and history
+        var seenMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(connectedClient?.Mac)) seenMacs.Add(connectedClient.Mac);
+        if (!string.IsNullOrEmpty(lastConnectionMac) && (lastConnectionSeen ?? 0) >= SharedPortCutoff()) seenMacs.Add(lastConnectionMac);
+        if (historyMacsByPort != null && !string.IsNullOrEmpty(switchInfo.MacAddress) &&
+            historyMacsByPort.TryGetValue((switchInfo.MacAddress.ToLowerInvariant(), portIdx), out var historyMacs))
+            seenMacs.UnionWith(historyMacs);
+
         return new PortInfo
         {
             PortIndex = portIdx,
@@ -720,6 +767,7 @@ public class PortSecurityAnalyzer
             LastConnectionMac = lastConnectionMac,
             LastConnectionSeen = lastConnectionSeen,
             HistoricalClient = historicalClient,
+            SeenDeviceMacs = seenMacs,
             ConnectedDeviceType = connectedDeviceType,
             AssignedPortProfile = assignedProfile,
             PortProfileId = portconfId,

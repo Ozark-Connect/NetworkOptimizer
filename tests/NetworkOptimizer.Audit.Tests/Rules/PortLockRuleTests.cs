@@ -246,9 +246,38 @@ public class PortLockRuleTests
         result.Port.Should().Be("3");
         result.Message.Should().Contain("Lock Port to UniFi Device");
         result.Message.Should().Contain("AI Key (UniFi Protect)");
+        result.RecommendedAction.Should().StartWith("Only AI Key (UniFi Protect) has used this port.");
         result.RecommendedAction.Should().Contain("Lock Port to UniFi Device");
         result.Metadata!["network"].Should().Be("Security");
         result.Metadata["device_type"].Should().Be("protect");
+    }
+
+    [Fact]
+    public void Evaluate_SharedPortHistory_ReturnsInformationalOfferingMacRestriction()
+    {
+        // Three distinct MACs in the history window: the lock may be the wrong tool
+        var port = CreatePort(client: ProtectClient(), seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(0);
+        result.Message.Should().Contain("3 devices have used it");
+        result.RecommendedAction.Should().StartWith("3 different devices have used this port in the last 7 days.");
+        result.RecommendedAction.Should().Contain("use Restricted with each allowed MAC address instead");
+        result.Metadata!["devices_seen"].Should().Be(3);
+    }
+
+    [Fact]
+    public void Evaluate_SingleDeviceHistory_StaysRecommended()
+    {
+        var port = CreatePort(client: ProtectClient(), seenMacs: ["aa:bb:cc:dd:ee:ff"]);
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
     }
 
     [Fact]
@@ -359,7 +388,8 @@ public class PortLockRuleTests
         UniFiClientResponse? client = null,
         string? firmwareVersion = SupportedFirmware,
         UniFiPortProfile? assignedProfile = null,
-        string? portProfileId = null)
+        string? portProfileId = null,
+        string[]? seenMacs = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -385,6 +415,7 @@ public class PortLockRuleTests
             NativeNetworkId = nativeNetworkId,
             ConnectedDeviceType = connectedDeviceType,
             ConnectedClient = client,
+            SeenDeviceMacs = new HashSet<string>(seenMacs ?? (client?.Mac is { } m ? [m] : []), StringComparer.OrdinalIgnoreCase),
             AssignedPortProfile = assignedProfile,
             PortProfileId = portProfileId ?? assignedProfile?.Id,
             Switch = switchInfo

@@ -169,6 +169,18 @@ public class PortInfo
     public UniFi.Models.UniFiClientDetailResponse? HistoricalClient { get; init; }
 
     /// <summary>
+    /// Distinct client MACs seen on this port within PortSecurityAnalyzer.SharedPortWindowDays:
+    /// the connected client, the last connection, and client-history entries. Tells single-device
+    /// ports from shared ones.
+    /// </summary>
+    public IReadOnlySet<string> SeenDeviceMacs { get; init; } = new HashSet<string>();
+
+    /// <summary>
+    /// Whether more than one distinct client has used this port within the shared-port window.
+    /// </summary>
+    public bool IsSharedPort => SeenDeviceMacs.Count > 1;
+
+    /// <summary>
     /// Type of UniFi device connected to this port (e.g., "uap" for AP, "usw" for switch).
     /// Determined by matching device uplink info to this port. Null for regular clients.
     /// May be propagated from a LAG child to the LAG parent during post-parse.

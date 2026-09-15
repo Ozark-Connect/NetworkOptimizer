@@ -382,6 +382,47 @@ public class PortSecurityAnalyzerTests
     }
 
     [Fact]
+    public void ExtractSwitches_SeenDeviceMacs_UnionsConnectedLastAndHistory()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var yesterday = now - 86400;
+        var lastMonth = now - 30 * 86400;
+        var deviceData = JsonDocument.Parse($@"[
+            {{
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""00:11:22:33:44:55"",
+                ""port_table"": [
+                    {{ ""port_idx"": 1, ""up"": true, ""last_connection"": {{ ""mac"": ""aa:bb:cc:dd:ee:02"", ""last_seen"": {yesterday} }} }},
+                    {{ ""port_idx"": 2, ""up"": true }},
+                    {{ ""port_idx"": 3, ""up"": false, ""last_connection"": {{ ""mac"": ""aa:bb:cc:dd:ee:05"", ""last_seen"": {lastMonth} }} }}
+                ]
+            }}
+        ]").RootElement;
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Mac = "aa:bb:cc:dd:ee:01", IsWired = true, SwMac = "00:11:22:33:44:55", SwPort = 1 }
+        };
+        var history = new List<UniFiClientDetailResponse>
+        {
+            new() { Mac = "AA:BB:CC:DD:EE:01", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = yesterday },
+            new() { Mac = "aa:bb:cc:dd:ee:03", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = yesterday },
+            new() { Mac = "aa:bb:cc:dd:ee:06", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = lastMonth },
+            new() { Mac = "aa:bb:cc:dd:ee:04", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 2, LastSeen = yesterday }
+        };
+
+        var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), clients, history);
+
+        // Port 1: connected 01 (history duplicate ignored by case), last connection 02, history 03; 06 is too old
+        result[0].Ports[0].SeenDeviceMacs.Should().BeEquivalentTo(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"]);
+        result[0].Ports[0].IsSharedPort.Should().BeTrue();
+        result[0].Ports[1].SeenDeviceMacs.Should().ContainSingle();
+        result[0].Ports[1].IsSharedPort.Should().BeFalse();
+        // Port 3: a month-old last connection does not count
+        result[0].Ports[2].SeenDeviceMacs.Should().BeEmpty();
+    }
+
+    [Fact]
     public void CalculateStatistics_LockedPort_CountedAsProtected()
     {
         var sw = new SwitchInfo { Name = "Switch", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };

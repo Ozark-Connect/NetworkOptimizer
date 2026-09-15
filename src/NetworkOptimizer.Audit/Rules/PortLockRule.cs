@@ -8,8 +8,10 @@ namespace NetworkOptimizer.Audit.Rules;
 /// to one UniFi device - Network, Protect, or any other UniFi app - so it is the fit for
 /// infrastructure ports where MAC restriction is the wrong tool. Trunk ports count: an AP
 /// downlink is the lock's main use. Silent when the versions are not met or an Ethernet Port
-/// Profile blocks the lock; MacRestrictionRule covers those ports. A port already MAC-restricted
-/// to a UniFi device gets an Informational issue (no score impact) offering the lock instead.
+/// Profile blocks the lock; MacRestrictionRule covers those ports. Two cases drop to Informational
+/// (no score impact): a port already MAC-restricted to a UniFi device, where the lock is offered as
+/// the alternative, and a port the client history shows as shared, where MAC restriction may be
+/// the right tool after all.
 /// </summary>
 public class PortLockRule : AuditRuleBase
 {
@@ -69,11 +71,27 @@ public class PortLockRule : AuditRuleBase
                 overrideScoreImpact: 0);
         }
 
+        // History shows more than one device on this port: the lock may be the wrong tool, so ask, do not tell
+        if (port.IsSharedPort)
+        {
+            var count = port.SeenDeviceMacs.Count;
+            metadata["devices_seen"] = count;
+            return CreateIssue(
+                $"Port carries {device} but {count} devices have used it; Lock Port to UniFi Device fits only if {device} is the sole occupant",
+                port,
+                metadata,
+                $"{count} different devices have used this port in the last {Analyzers.PortSecurityAnalyzer.SharedPortWindowDays} days. If more than one device needs it, " +
+                "use Restricted with each allowed MAC address instead. " +
+                $"If {device} is the only one that belongs here, enable Lock Port to UniFi Device in Port Manager.",
+                overrideSeverity: AuditSeverity.Informational,
+                overrideScoreImpact: 0);
+        }
+
         return CreateIssue(
             $"Port should be locked to {device} with Lock Port to UniFi Device",
             port,
             metadata,
-            $"In UniFi Network, open this port in Port Manager and enable Lock Port to UniFi Device. " +
-            $"Only {device} can then use the port; anything else plugged in is blocked without maintaining a MAC list.");
+            $"Only {device} has used this port. In UniFi Network, open this port in Port Manager and enable " +
+            "Lock Port to UniFi Device. Anything else plugged in is blocked, with no MAC list to maintain.");
     }
 }
