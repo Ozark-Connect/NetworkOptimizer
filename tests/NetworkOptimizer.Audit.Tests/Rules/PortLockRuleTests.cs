@@ -200,7 +200,7 @@ public class PortLockRuleTests
 
         result.Should().NotBeNull();
         result!.RecommendedAction.Should().EndWith(
-            $"then enable Lock Port to UniFi Device. Clients connected through {described} are not affected.");
+            $"then enable Lock Port to UniFi Device. Clients connected through {described} are not affected by the lock.");
     }
 
     [Theory]

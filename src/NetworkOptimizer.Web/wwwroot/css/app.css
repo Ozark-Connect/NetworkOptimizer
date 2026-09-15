@@ -7156,8 +7156,19 @@ a.path-hop.hop-clickable:hover {
     gap: 0.25rem;
     padding: 1rem 1.5rem;
     background: var(--bg-tertiary);
+    border: 1px solid transparent;
     border-radius: var(--border-radius);
     min-width: 80px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.issue-count:hover,
+.issue-count:focus-visible {
+    border-color: var(--text-muted);
+    outline: none;
 }
 
 .issue-count .count {
