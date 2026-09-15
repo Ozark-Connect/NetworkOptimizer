@@ -714,9 +714,9 @@
         if (ports.Count == 0)
             return "None";
 
-        // Format as "DeviceName port X" for each port, limit to 5
+        // Format as "DeviceName port X" (with "(locked)" when locked) for each port, limit to 5
         var formatted = ports.Take(5)
-            .Select(p => $"{p.DeviceName} port {p.PortIndex}")
+            .Select(p => p.DisplayLabel)
             .ToList();
 
         var result = string.Join(", ", formatted);

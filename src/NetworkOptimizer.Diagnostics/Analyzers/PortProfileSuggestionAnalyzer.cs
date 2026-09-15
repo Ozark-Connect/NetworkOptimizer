@@ -722,7 +722,8 @@ public class PortProfileSuggestionAnalyzer
                     PortIndex = port.PortIdx,
                     PortName = port.Name,
                     CurrentProfileId = port.PortConfId,
-                    CurrentProfileName = profile?.Name
+                    CurrentProfileName = profile?.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 // Capture port's PoE state, current speed, and autoneg setting
@@ -945,7 +946,7 @@ public class PortProfileSuggestionAnalyzer
         bool hasExistingUsage)
     {
         var portList = string.Join(", ",
-            portsWithoutProfile.Take(5).Select(p => $"{p.DeviceName} port {p.PortIndex}"));
+            portsWithoutProfile.Take(5).Select(p => p.DisplayLabel));
 
         if (portsWithoutProfile.Count > 5)
             portList += $" +{portsWithoutProfile.Count - 5} more";
@@ -1028,7 +1029,8 @@ public class PortProfileSuggestionAnalyzer
                     DeviceMac = device.Mac,
                     DeviceName = device.Name,
                     PortIndex = port.PortIdx,
-                    PortName = port.Name
+                    PortName = port.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 disabledPortsWithoutProfile.Add((reference, port.PoeMode, port.PortPoe));
@@ -1233,7 +1235,8 @@ public class PortProfileSuggestionAnalyzer
                     DeviceMac = device.Mac,
                     DeviceName = device.Name,
                     PortIndex = port.PortIdx,
-                    PortName = port.Name
+                    PortName = port.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 var hasPoEEnabled = port.PortPoe && port.PoeEnable;

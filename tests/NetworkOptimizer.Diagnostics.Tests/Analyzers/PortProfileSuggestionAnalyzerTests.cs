@@ -4682,6 +4682,16 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     [Fact]
+    public void PortReference_DisplayLabel_SuffixesLocked()
+    {
+        var plain = new Models.PortReference { DeviceName = "Switch 1", PortIndex = 3 };
+        var locked = new Models.PortReference { DeviceName = "Switch 1", PortIndex = 3, IsLocked = true };
+
+        plain.DisplayLabel.Should().Be("Switch 1 port 3");
+        locked.DisplayLabel.Should().Be("Switch 1 port 3 (locked)");
+    }
+
+    [Fact]
     public void Analyze_LockedTrunkPortsOnly_NoSuggestionNoNote()
     {
         var device = new UniFiDeviceResponse
