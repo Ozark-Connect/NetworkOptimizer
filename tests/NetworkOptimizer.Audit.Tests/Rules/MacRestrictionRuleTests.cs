@@ -313,6 +313,26 @@ public class MacRestrictionRuleTests
     }
 
     [Fact]
+    public void Evaluate_UniFiDeviceOnLag_ReturnsPlainMacCopy()
+    {
+        // Versions allow the lock, but a LAG never takes it: plain MAC restriction, no lock mention
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var lag = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186");
+        var port = new PortInfo
+        {
+            PortIndex = lag.PortIndex, Name = lag.Name, IsUp = true, ForwardMode = "native", OpMode = "aggregate",
+            ConnectedClient = lag.ConnectedClient, Switch = lag.Switch
+        };
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Fact]
     public void Evaluate_EndpointDevice_LockAvailable_ReturnsNull()
     {
         // A non-fabric Network device (modem) defers to the lock rule too

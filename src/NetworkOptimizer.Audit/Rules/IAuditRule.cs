@@ -147,11 +147,11 @@ public abstract class AuditRuleBase : IAuditRule
         !PortLockSupport.CanLockWithProfile(port.PortProfileId);
 
     /// <summary>
-    /// Whether Lock Port to UniFi Device can be recommended for this port: versions are met
-    /// and no profile stands in the way.
+    /// Whether Lock Port to UniFi Device can be recommended for this port: versions are met,
+    /// no profile stands in the way, and the port is not a LAG (UniFi does not offer the lock on one).
     /// </summary>
     protected bool IsPortLockAvailable(PortInfo port) =>
-        IsPortLockSupported(port) && !IsPortLockBlockedByProfile(port);
+        IsPortLockSupported(port) && !IsPortLockBlockedByProfile(port) && !port.IsLagParent;
 
     /// <summary>
     /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi

@@ -271,6 +271,23 @@ public class PortLockRuleTests
     }
 
     [Fact]
+    public void Evaluate_LagParent_ReturnsNull()
+    {
+        // UniFi does not offer Lock Port to UniFi Device on a LAG
+        var port = CreatePort(forwardMode: "all", opMode: "aggregate", connectedDeviceType: "usw");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_MacRestrictedLagParent_ReturnsNull()
+    {
+        var port = CreatePort(opMode: "aggregate", client: ProtectClient(), portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"]);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
     public void Evaluate_SharedPortHistory_ReturnsNull()
     {
         // Three distinct MACs in the window: MacRestrictionRule carries this port and its score
