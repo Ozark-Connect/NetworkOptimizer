@@ -33,6 +33,7 @@ public class ClientDashboardService
     private readonly ClientSpeedTestService _speedTestService;
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
 
     // Track last trace hash per client MAC to detect changes
     private readonly ConcurrentDictionary<string, string> _lastTraceHashes = new();
@@ -81,10 +82,12 @@ public class ClientDashboardService
         MonitoringLiveStatsRegistry liveStats,
         ApAgentClientLiveService? apAgentLive = null,
         ApAgentTelemetryRegistry? apAgentTelemetry = null,
-        Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null)
+        Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null,
+        WiredPortPresence.IWiredPortPresenceService? portPresence = null)
     {
         _logger = logger;
         _cache = cache;
+        _portPresence = portPresence;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
         _liveStats = liveStats;
@@ -126,6 +129,7 @@ public class ClientDashboardService
             try
             {
                 var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 48);
+                var byPort = await PresentByPortMacsAsync();
                 foreach (var h in history ?? new List<UniFiClientDetailResponse>())
                 {
                     if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
@@ -136,7 +140,7 @@ public class ClientDashboardService
                             : !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname : h.BestIp!,
                         h.IsWired,
                         h.Mac,
-                        IsOnline: false));
+                        IsOnline: h.Mac != null && byPort.Contains(h.Mac)));
                 }
             }
             catch (Exception ex)
@@ -172,10 +176,11 @@ public class ClientDashboardService
                 return fallback;
 
             var seen = new HashSet<string>(online.Select(c => c.Ip), StringComparer.OrdinalIgnoreCase);
+            var byPort = await PresentByPortMacsAsync();
             foreach (var k in known)
             {
                 if (seen.Add(k.Ip))
-                    online.Add(k with { IsOnline = false });
+                    online.Add(k with { IsOnline = k.Mac != null && byPort.Contains(k.Mac) });
             }
 
             return SortSelectable(online);
@@ -187,6 +192,57 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// The console drops a wired client while its port stays up. Its own last placement plus the
+    /// live link says the client is there, so it is online. True when the identity was marked so.
+    /// </summary>
+    private async Task<bool> TryVouchByPortAsync(ClientIdentity identity, string clientIp)
+    {
+        if (_portPresence == null || !identity.IsWired || string.IsNullOrEmpty(identity.Mac)) return false;
+        WiredPortPresence.WiredPortPresence? present;
+        try { present = await _portPresence.ResolveAsync(identity.Mac); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port presence unavailable for {Mac}", identity.Mac);
+            return false;
+        }
+        if (present == null) return false;
+        identity.IsOffline = false;
+        identity.SwitchMac = present.SwitchMac;
+        identity.SwitchPort = present.Port;
+        _ipToMacCache[clientIp] = identity.Mac;
+        await EnrichWithSwitchNameAsync(identity);
+        return true;
+    }
+
+    /// <summary>Listed wired clients whose port is down by the switch's own sample; empty where nothing monitors.</summary>
+    private async Task<IReadOnlySet<string>> LinkDownMacsAsync()
+    {
+        if (_portPresence == null) return new HashSet<string>();
+        try { return await _portPresence.ListLinkDownAsync(); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port link state unavailable");
+            return new HashSet<string>();
+        }
+    }
+
+    /// <summary>Wired clients the console does not list but whose port link says are online; empty where nothing vouches.</summary>
+    private async Task<HashSet<string>> PresentByPortMacsAsync()
+    {
+        var macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_portPresence == null) return macs;
+        try
+        {
+            foreach (var p in await _portPresence.ListAsync()) macs.Add(p.ClientMac);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port presence unavailable for the picker");
+        }
+        return macs;
+    }
+
     /// <summary>This site's currently connected clients, as picker choices.</summary>
     private async Task<List<SelectableClient>> GetOnlineSelectableAsync()
     {
@@ -194,6 +250,7 @@ public class ClientDashboardService
         // Overlay UniFi's friendly display name (v2 active-clients, cached 5 min) so the
         // picker matches the name shown on the page and in Client Stats.
         var displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
+        var linkDown = await LinkDownMacsAsync();
         return (clients ?? new List<UniFiClientResponse>())
             .Where(c => !string.IsNullOrEmpty(c.BestIp))
             .Select(c => new SelectableClient(
@@ -204,7 +261,7 @@ public class ClientDashboardService
                     : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
                 c.IsWired,
                 c.Mac,
-                IsOnline: true))
+                IsOnline: !(c.IsWired && linkDown.Contains(c.Mac))))
             .ToList();
     }
 
@@ -281,6 +338,15 @@ public class ClientDashboardService
                 displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
                 var identity = MapClientToIdentity(client, displayName);
 
+                // The console keeps a wired client listed for minutes after its link drops. The
+                // switch's own sample says the port is down, and a down port has nobody on it.
+                if (identity.IsWired && (await LinkDownMacsAsync()).Contains(identity.Mac))
+                {
+                    identity.IsOffline = true;
+                    _offlineIdentityCache[clientIp] = identity;
+                    return identity;
+                }
+
                 // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
                 await OverlayWiFiManDataAsync(identity, clientIp);
 
@@ -317,9 +383,14 @@ public class ClientDashboardService
             if (fromAgent != null)
                 return fromAgent;
 
-            // Device not in active list - check offline cache
+            // Device not in active list - check offline cache. A cached offline wired client is
+            // asked about again each time: the port can come alive while the console still has
+            // it dropped, and the first identification is not the only chance to see that.
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
+            {
+                if (cached.IsOffline) await TryVouchByPortAsync(cached, clientIp);
                 return cached;
+            }
 
             // Try client history API (includes offline devices)
             var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
@@ -338,11 +409,14 @@ public class ClientDashboardService
                     IsOffline = true
                 };
 
-                // The history list carries no switch or port, and a wired client's LAN usage is
-                // its port's counters: without the port, Data Usage reads zero for a client that
-                // was busy all day. Its own port-tagged samples say where it sat.
                 if (offlineIdentity.IsWired && !string.IsNullOrEmpty(offlineIdentity.Mac))
                 {
+                    if (await TryVouchByPortAsync(offlineIdentity, clientIp))
+                        return offlineIdentity;
+
+                    // The history list carries no switch or port, and a wired client's LAN usage
+                    // is its port's counters: without the port, Data Usage reads zero for a client
+                    // that was busy all day. Its own port-tagged samples say where it sat.
                     var port = await LastKnownPortAsync(offlineIdentity.Mac);
                     if (port is { } known)
                     {

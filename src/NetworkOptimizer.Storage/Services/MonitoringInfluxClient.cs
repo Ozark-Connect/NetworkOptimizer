@@ -1953,6 +1953,41 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Every link-state sample per interface of one device over a window. Kept apart from the
+    /// rate query: a sample with unchanged counters carries no rate but does carry the state, and
+    /// a port that just went down is exactly such a sample.
+    /// </summary>
+    public async Task<IReadOnlyList<InterfaceLinkStatePoint>> QueryInterfaceLinkStateRawAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<InterfaceLinkStatePoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""oper_status"")
+";
+        var results = new List<InterfaceLinkStatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is not { } oper) continue;
+            results.Add(new InterfaceLinkStatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                IfName = record.GetValueByKey("if_name") as string ?? "?",
+                PortId = record.GetValueByKey("port_id") as string,
+                OperStatus = oper,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
     /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
     /// than the aggregated variant for short-range playback where data is already
@@ -3427,12 +3462,15 @@ union(tables: [means, chan])
         // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client, and client_name
         // only on wired_client; harmless to request either way (no rows match, columns come back
         // absent -> null). band, device_mac and port are tags and survive the pivot as columns.
+        // A port-tagged wired row with no rate is kept: the console's per-client counters move
+        // every few minutes, so a quiet wired client's only regular row is that one, and it is
+        // what says the client was on the port at the instant.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm)";
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm or (exists r.port and exists r.client_mac))";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -3985,6 +4023,48 @@ union(tables: [means, chan])
                 record.GetValueByKey("client_name") as string ?? seen.Name);
         }
         return counts.Select(kv => new WiredPortOccupant(kv.Key.Device, kv.Key.Port, kv.Key.Client, kv.Value.Samples, kv.Value.Ip, kv.Value.Name)).ToList();
+    }
+
+    /// <summary>A wired client's newest port-tagged sighting: the console's own placement at that time.</summary>
+    public sealed record WiredPortSighting(string DeviceMac, int Port, string ClientMac, DateTime LastSeen, string? ClientIp, string? ClientName);
+
+    /// <summary>
+    /// The newest sighting of every (switch, port, client) triple over a window, from the
+    /// port-tagged <c>wired_client</c> points. Decimated to fifteen-minute blocks past six hours,
+    /// the same read the occupant query makes: "when was this client last placed here" needs no
+    /// better than that.
+    /// </summary>
+    public async Task<IReadOnlyList<WiredPortSighting>> QueryWiredPortSightingsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WiredPortSighting>();
+        var decimate = to - from > TimeSpan.FromHours(6)
+            ? "\n  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)"
+            : "";
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wired_client"")
+  |> filter(fn: (r) => exists r.port)
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name""){decimate}
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => exists r.client_mac)
+  |> group(columns: [""device_mac"", ""port"", ""client_mac""])
+  |> last(column: ""_time"")
+  |> group()";
+        var result = new List<WiredPortSighting>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var device = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var client = NormalizeMac(record.GetValueByKey("client_mac") as string ?? "");
+            if (device.Length == 0 || client.Length == 0) continue;
+            if (!int.TryParse(record.GetValueByKey("port") as string, out var port) || port <= 0) continue;
+            var time = record.GetTimeInDateTime();
+            if (time == null) continue;
+            result.Add(new WiredPortSighting(device, port, client, ToUtc(time.Value),
+                record.GetValueByKey("client_ip") as string,
+                record.GetValueByKey("client_name") as string));
+        }
+        return result;
     }
 
     /// <summary>
@@ -5169,6 +5249,15 @@ from(bucket: ""{_longtermBucket}"")
         public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>
+    public record InterfaceLinkStatePoint
+    {
+        public required DateTime Time { get; init; }
+        public required string IfName { get; init; }
+        public string? PortId { get; init; }
+        public required int OperStatus { get; init; }
     }
 
     /// <summary>One device's total throughput over one window, every interface and both directions.</summary>

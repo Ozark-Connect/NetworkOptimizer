@@ -1468,6 +1468,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // Wired clients: collect throughput as fallback for non-SNMP switches.
         // Uses the same tx_bytes/rx_bytes delta approach as WiFi clients.
+        var listedWired = new List<MonitoringLiveStats.ListedWiredClient>();
         foreach (var c in clients)
         {
             if (!c.IsWired) continue;
@@ -1523,10 +1524,16 @@ public class MonitoringCollectionAgent : BackgroundService
             // Client column for a port even while the client is quiet.
             var swMac = NormalizeMac(c.SwMac ?? string.Empty);
             var swPort = c.SwPort is int sp && sp > 0 ? sp : (int?)null;
+            var displayName = !string.IsNullOrWhiteSpace(c.Name) ? c.Name
+                : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Mac;
+            if (!string.IsNullOrEmpty(swMac) && swPort is { } occupiedPort)
+            {
+                _liveStats.RecordPortOccupant(swMac, occupiedPort, clientMac, c.BestIp, displayName, now);
+                listedWired.Add(new MonitoringLiveStats.ListedWiredClient(
+                    clientMac, swMac, occupiedPort, c.Uptime > 0 ? now - TimeSpan.FromSeconds(c.Uptime) : null));
+            }
             if (!string.IsNullOrEmpty(swMac) && ((txBps ?? 0) > 0 || (rxBps ?? 0) > 0 || swPort.HasValue))
             {
-                var displayName = !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Mac;
                 _ = _influx.WriteWiredClientAsync(
                     switchMac: swMac,
                     clientMac: clientMac,
@@ -1538,6 +1545,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     clientName: displayName);
             }
         }
+
+        _liveStats.RecordListedWiredClients(listedWired, now);
 
         // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise
         // a roamed/disconnected client's stale counter sits forever and gives a bogus

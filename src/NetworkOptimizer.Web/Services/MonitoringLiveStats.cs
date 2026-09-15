@@ -250,10 +250,32 @@ public class MonitoringLiveStats
     // is purely additive and read only by the port stats endpoint's live path.
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), MonitoringInfluxClient.PortStatsPoint> _portStats = new();
 
+    /// <summary>
+    /// How long a port's last computed rate stands in for a sample that computed none. A device
+    /// refreshes its counters on its own tick, so one unchanged read is not idle; a run of them is.
+    /// </summary>
+    public static readonly TimeSpan PortRateHold = TimeSpan.FromSeconds(60);
+
+    // When each port's rate was last computed rather than carried, for the hold above.
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portRateAt = new();
+
     public void RecordPortStats(MonitoringInfluxClient.PortStatsPoint point)
     {
         if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
         var key = (Normalize(point.DeviceMac), point.IfName);
+        if (point.RateInBps.HasValue || point.RateOutBps.HasValue) _portRateAt[key] = point.Time;
+        // A down link carries nothing, and a rate held past its window is a port that went quiet,
+        // not one whose device has yet to refresh its counters.
+        var linkDown = point.OperStatus is { } oper && oper != 1;
+        var heldTooLong = !point.RateInBps.HasValue && !point.RateOutBps.HasValue
+            && (!_portRateAt.TryGetValue(key, out var rateAt) || point.Time - rateAt > PortRateHold);
+        if (linkDown || heldTooLong)
+            point = point with { RateInBps = 0, RateOutBps = 0 };
+        // Unicast into the port since the previous sample: the host behind it sent something.
+        // Broadcast and multicast are left out, and so is the first sample, which has no delta.
+        if (_portStats.TryGetValue(key, out var before)
+            && point.UcastPktsIn is > 0 && before.UcastPktsIn is > 0 && point.UcastPktsIn > before.UcastPktsIn)
+            _portUnicastIn[key] = new PortUnicastIn(point.Time, point.UcastPktsIn.Value - before.UcastPktsIn.Value);
         // Carry forward any field the latest sample didn't carry (rates are only
         // computed when a delta is available), so a partial cycle never blanks a column.
         _portStats[key] = _portStats.TryGetValue(key, out var prior)
@@ -282,6 +304,106 @@ public class MonitoringLiveStats
             }
             : point;
     }
+
+    /// <summary>
+    /// Whether a port's link is down by its last SNMP sample: false when up, null when there is no
+    /// sample or the last one is older than <paramref name="maxAge"/>, since a switch that stopped
+    /// answering says nothing about the link. Also null when the sample is not newer than
+    /// <paramref name="notBefore"/>: the newer observation wins, and a sample taken before the
+    /// console saw the client connect says nothing about the link it is on now.
+    /// </summary>
+    public bool? IsPortLinkDown(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
+        => PortLinkState(deviceMac, ifName, now, maxAge, notBefore)?.Down;
+
+    /// <summary>A port's link state with the sample behind it, for callers that log the decision.</summary>
+    public readonly record struct PortLinkSample(bool Down, int OperStatus, DateTime At);
+
+    /// <summary>
+    /// <see cref="IsPortLinkDown"/> with the sample it was read from. Down is ifOperStatus 2 (down)
+    /// or 7 (lowerLayerDown) only; testing, unknown, dormant, and notPresent say nothing either way.
+    /// </summary>
+    public PortLinkSample? PortLinkState(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
+        if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
+        if (notBefore is { } floor && row.Time <= floor) return null;
+        return LinkDownFromOperStatus(oper) is { } down ? new PortLinkSample(down, oper, row.Time) : null;
+    }
+
+    /// <summary>
+    /// What an ifOperStatus value says about the link: up is 1, down is 2 or 7 (lowerLayerDown),
+    /// and anything else says nothing. That includes 0, which a partial SNMP walk writes for the
+    /// interfaces it did not get, and which read as "every port down" until this was drawn.
+    /// </summary>
+    public static bool? LinkDownFromOperStatus(int operStatus) => operStatus switch
+    {
+        1 => false,
+        2 or 7 => true,
+        _ => null,
+    };
+
+    /// <summary>Unicast packets the host behind a port sent between the last two samples, and when.</summary>
+    public readonly record struct PortUnicastIn(DateTime At, long Packets);
+
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), PortUnicastIn> _portUnicastIn = new();
+
+    /// <summary>The newest unicast-in movement on a port, or null when no two samples have shown one.</summary>
+    public PortUnicastIn? GetPortUnicastIn(string deviceMac, string ifName)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        return _portUnicastIn.TryGetValue((Normalize(deviceMac), ifName), out var v) ? v : null;
+    }
+
+    /// <summary>The console's placement of a wired client on a switch port, and when it last made it.</summary>
+    public sealed record PortOccupant(string DeviceMac, int Port, string ClientMac, string? Ip, string? Name, DateTime LastSeen);
+
+    // Every (switch, port, client) placement the console has made since startup, seeded once
+    // from the store so a placement made before startup still counts. Read by wired port
+    // presence, which needs to know every client a port has carried, not only the current one.
+    private readonly ConcurrentDictionary<(string DeviceMac, int Port, string ClientMac), PortOccupant> _portOccupants = new();
+    private volatile bool _portOccupantsSeeded;
+
+    /// <summary>Whether the placements made before startup have been loaded from the store.</summary>
+    public bool PortOccupantsSeeded => _portOccupantsSeeded;
+
+    /// <summary>Records a placement; an older one for the same triple never overwrites a newer one.</summary>
+    public void RecordPortOccupant(string deviceMac, int port, string clientMac, string? ip, string? name, DateTime at)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(clientMac) || port <= 0) return;
+        var occupant = new PortOccupant(Normalize(deviceMac), port, Normalize(clientMac), ip, name, at);
+        _portOccupants.AddOrUpdate((occupant.DeviceMac, port, occupant.ClientMac), occupant,
+            (_, prior) => at >= prior.LastSeen ? occupant : prior);
+    }
+
+    /// <summary>Loads placements made before startup, then marks the table seeded even when there were none.</summary>
+    public void SeedPortOccupants(IEnumerable<PortOccupant> occupants)
+    {
+        foreach (var o in occupants)
+            RecordPortOccupant(o.DeviceMac, o.Port, o.ClientMac, o.Ip, o.Name, o.LastSeen);
+        _portOccupantsSeeded = true;
+    }
+
+    /// <summary>Every placement known, one per (switch, port, client).</summary>
+    public IReadOnlyList<PortOccupant> GetPortOccupants() => _portOccupants.Values.ToList();
+
+    /// <summary>A wired client the console lists right now, on the port it lists it on.</summary>
+    public sealed record ListedWiredClient(string ClientMac, string SwitchMac, int Port, DateTime? ConnectedAt);
+
+    // The console's current wired client list as the collector last read it, so presence can be
+    // answered from memory instead of asking the console again from every open page.
+    private volatile IReadOnlyList<ListedWiredClient> _listedWired = Array.Empty<ListedWiredClient>();
+    private DateTime _listedWiredAt;
+
+    /// <summary>Replaces the listed wired clients with the console's list as of <paramref name="at"/>.</summary>
+    public void RecordListedWiredClients(IReadOnlyList<ListedWiredClient> clients, DateTime at)
+    {
+        _listedWired = clients ?? Array.Empty<ListedWiredClient>();
+        _listedWiredAt = at;
+    }
+
+    /// <summary>The listed wired clients and when the console said so; empty until the collector has run.</summary>
+    public (IReadOnlyList<ListedWiredClient> Clients, DateTime At) GetListedWiredClients() => (_listedWired, _listedWiredAt);
 
     // Agent-resolved interface display labels (ifname -> friendly label) per device,
     // e.g. "gre1" -> "WAN3 - AT&T Wireless (5G)". Resolved live by the polling agent

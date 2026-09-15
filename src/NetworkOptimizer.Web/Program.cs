@@ -13,6 +13,7 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.WiredPortPresence;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
@@ -763,6 +764,9 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.LanFlowMap.
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
+// Wired clients the console dropped while their switch port stayed up: read by Client
+// Performance, its picker, and the maps so such a client is shown online like any other.
+builder.Services.AddMutatingService<IWiredPortPresenceService, WiredPortPresenceService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.BandwidthHogsService>();
 
 // Register application services (scoped per request/circuit)

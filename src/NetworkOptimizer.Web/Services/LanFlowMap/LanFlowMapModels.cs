@@ -98,6 +98,9 @@ public class LanNode
     /// <summary>Whether the device responded to our last poll (for dimming offline nodes).</summary>
     public bool Online { get; set; } = true;
 
+    /// <summary>When the console saw a wired client connect, so a link sample from before it is not held against it.</summary>
+    public DateTime? ConnectedAt { get; set; }
+
     /// <summary>WiFi client band ("2.4", "5", "6") if Kind = WifiClient.</summary>
     public string? Band { get; set; }
     public int? SignalDbm { get; set; }
