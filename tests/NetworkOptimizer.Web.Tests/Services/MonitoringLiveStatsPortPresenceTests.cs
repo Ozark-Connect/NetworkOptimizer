@@ -88,6 +88,17 @@ public class MonitoringLiveStatsPortPresenceTests
     }
 
     [Fact]
+    public void A_down_sample_from_before_the_client_connected_is_not_held_against_it()
+    {
+        var stats = Stats();
+        stats.RecordPortStats(Rated(null, null, 2, T0.AddSeconds(10)));
+        // The console saw the client connect after the sample: the newer observation wins.
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(15), TimeSpan.FromSeconds(90), notBefore: T0.AddSeconds(12)).Should().BeNull();
+        // Connected before the sample: the sample still counts.
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(15), TimeSpan.FromSeconds(90), notBefore: T0.AddSeconds(5)).Should().BeTrue();
+    }
+
+    [Fact]
     public void A_down_link_reads_as_idle_at_once()
     {
         var stats = Stats();

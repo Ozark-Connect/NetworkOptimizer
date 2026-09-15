@@ -1875,9 +1875,11 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
             // The console keeps a wired client listed for minutes after its link drops; the
-            // switch's own sample says the port is down, and a down port has no leaf.
+            // switch's own sample says the port is down, and a down port has no leaf. A sample
+            // from before the console saw the client connect is not held against it.
+            var connectedAt = c.IsWired && c.Uptime > TimeSpan.Zero ? now - c.Uptime : (DateTime?)null;
             if (c.IsWired && c.SwitchPort is { } downPort && nameMaps.TryGetValue((parentMac, downPort), out var downMap)
-                && _liveStats.IsPortLinkDown(parentMac, downMap.IfName, now, ClientPresenceTolerance) == true) continue;
+                && _liveStats.IsPortLinkDown(parentMac, downMap.IfName, now, ClientPresenceTolerance, connectedAt) == true) continue;
 
             // The live cache is fed far faster than the console client list: every 500 ms while
             // Client Performance is watching a client, every 10 s from an AP Agent otherwise,
@@ -1902,6 +1904,7 @@ public class LanFlowMapService
             {
                 Id = nodeId,
                 Kind = c.IsWired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
+                ConnectedAt = connectedAt,
                 Mac = clientMac,
                 Ip = string.IsNullOrEmpty(c.IpAddress) ? null : c.IpAddress,
                 Name = ResolveClientLabel(c),
@@ -2915,11 +2918,15 @@ public class LanFlowMapService
         var collector = _apAgentTelemetry.GetFor(_siteContext.Slug);
         var now = DateTime.UtcNow;
 
+        var connectedAt = snapshot.Nodes
+            .Where(n => n.Kind == LanNodeKind.WiredClient)
+            .ToDictionary(n => n.Id, n => n.ConnectedAt, StringComparer.OrdinalIgnoreCase);
         foreach (var link in snapshot.Links)
         {
             if (link.Kind != LanLinkKind.WiredClient || string.IsNullOrEmpty(link.PortKey)) continue;
             var (mac, ifName) = ParsePortKey(link.PortKey);
-            if (_liveStats.IsPortLinkDown(mac, ifName, now, ClientPresenceTolerance) == true)
+            connectedAt.TryGetValue(link.ToNodeId, out var since);
+            if (_liveStats.IsPortLinkDown(mac, ifName, now, ClientPresenceTolerance, since) == true)
                 update.RemovedClientIds.Add(link.ToNodeId);
         }
 

@@ -100,9 +100,10 @@ public class WiredPortPresenceService : IWiredPortPresenceService
             {
                 var switchMac = NormalizeMac(c.SwMac);
                 if (!ifNamesByPort.TryGetValue((switchMac, c.SwPort!.Value), out var ifNames)) continue;
+                var connectedAt = c.Uptime > 0 ? now - TimeSpan.FromSeconds(c.Uptime) : (DateTime?)null;
                 foreach (var ifName in ifNames)
                 {
-                    if (live.IsPortLinkDown(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow) is not { } down) continue;
+                    if (live.IsPortLinkDown(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow, connectedAt) is not { } down) continue;
                     if (down) result.Add(NormalizeMac(c.Mac));
                     break;
                 }

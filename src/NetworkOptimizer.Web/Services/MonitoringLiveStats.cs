@@ -308,13 +308,16 @@ public class MonitoringLiveStats
     /// <summary>
     /// Whether a port's link is down by its last SNMP sample: false when up, null when there is no
     /// sample or the last one is older than <paramref name="maxAge"/>, since a switch that stopped
-    /// answering says nothing about the link.
+    /// answering says nothing about the link. Also null when the sample is not newer than
+    /// <paramref name="notBefore"/>: the newer observation wins, and a sample taken before the
+    /// console saw the client connect says nothing about the link it is on now.
     /// </summary>
-    public bool? IsPortLinkDown(string deviceMac, string ifName, DateTime now, TimeSpan maxAge)
+    public bool? IsPortLinkDown(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
         if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
         if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
+        if (notBefore is { } floor && row.Time <= floor) return null;
         return oper != 1;
     }
 
