@@ -313,12 +313,27 @@ public class MonitoringLiveStats
     /// console saw the client connect says nothing about the link it is on now.
     /// </summary>
     public bool? IsPortLinkDown(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
+        => PortLinkState(deviceMac, ifName, now, maxAge, notBefore)?.Down;
+
+    /// <summary>A port's link state with the sample behind it, for callers that log the decision.</summary>
+    public readonly record struct PortLinkSample(bool Down, int OperStatus, DateTime At);
+
+    /// <summary>
+    /// <see cref="IsPortLinkDown"/> with the sample it was read from. Down is ifOperStatus 2 (down)
+    /// or 7 (lowerLayerDown) only; testing, unknown, dormant, and notPresent say nothing either way.
+    /// </summary>
+    public PortLinkSample? PortLinkState(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
         if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
         if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
         if (notBefore is { } floor && row.Time <= floor) return null;
-        return oper != 1;
+        return oper switch
+        {
+            1 => new PortLinkSample(false, oper, row.Time),
+            2 or 7 => new PortLinkSample(true, oper, row.Time),
+            _ => null,
+        };
     }
 
     /// <summary>Unicast packets the host behind a port sent between the last two samples, and when.</summary>

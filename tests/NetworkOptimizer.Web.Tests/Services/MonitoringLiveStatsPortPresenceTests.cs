@@ -88,6 +88,17 @@ public class MonitoringLiveStatsPortPresenceTests
     }
 
     [Fact]
+    public void Only_down_and_lowerLayerDown_read_as_down()
+    {
+        var stats = Stats();
+        foreach (var (oper, expected) in new (int, bool?)[] { (1, false), (2, true), (3, null), (4, null), (5, null), (6, null), (7, true) })
+        {
+            stats.RecordPortStats(Rated(null, null, oper, T0));
+            stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(5), TimeSpan.FromSeconds(90)).Should().Be(expected, $"ifOperStatus {oper}");
+        }
+    }
+
+    [Fact]
     public void A_down_sample_from_before_the_client_connected_is_not_held_against_it()
     {
         var stats = Stats();

@@ -103,8 +103,15 @@ public class WiredPortPresenceService : IWiredPortPresenceService
                 var connectedAt = c.Uptime > 0 ? now - TimeSpan.FromSeconds(c.Uptime) : (DateTime?)null;
                 foreach (var ifName in ifNames)
                 {
-                    if (live.IsPortLinkDown(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow, connectedAt) is not { } down) continue;
-                    if (down) result.Add(NormalizeMac(c.Mac));
+                    if (live.PortLinkState(switchMac, ifName, now, WiredPortPresenceRule.UnicastWindow, connectedAt) is not { } state) continue;
+                    if (state.Down)
+                    {
+                        result.Add(NormalizeMac(c.Mac));
+                        _logger.LogDebug(
+                            "Wired port presence [{Site}]: {Client} offline by link - {Switch} port {Port} ({IfName}) ifOperStatus {Oper}, sample {Age:0}s old, console connected {Connected}",
+                            _siteContext.Slug, NormalizeMac(c.Mac), switchMac, c.SwPort, ifName, state.OperStatus,
+                            (now - state.At).TotalSeconds, connectedAt?.ToString("HH:mm:ss") ?? "unknown");
+                    }
                     break;
                 }
             }
