@@ -226,6 +226,24 @@ public class PortLockRuleTests
         result!.Message.Should().Be("Port could be locked to [AP] Back Yard (UniFi Access Point) if the \"AP Trunk\" Ethernet Port Profile is removed");
     }
 
+    [Fact]
+    public void Evaluate_ApPort_DeviceFieldIsTheApNotThePortName()
+    {
+        // The AP is not a client, so the issue's Device must come from the uplinked device, not the port label
+        var port = new PortInfo
+        {
+            PortIndex = 3, Name = "Back Yard AP Backhaul", IsUp = true, ForwardMode = "all",
+            ConnectedDeviceType = "uap", ConnectedDeviceName = "[AP] Back Yard",
+            Switch = new SwitchInfo { Name = "[Switch] Tiny Home - Main", Type = "usw", FirmwareVersion = SupportedFirmware }
+        };
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Be("[AP] Back Yard on [Switch] Tiny Home - Main");
+        result.PortName.Should().Be("Back Yard AP Backhaul");
+    }
+
     [Theory]
     [InlineData("uxg", "7.6.2.17186")]   // gateway, even if its firmware number cleared the check
     [InlineData("ucg", "8.0.1")]

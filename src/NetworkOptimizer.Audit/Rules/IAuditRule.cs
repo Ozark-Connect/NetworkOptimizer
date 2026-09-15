@@ -438,7 +438,7 @@ public abstract class AuditRuleBase : IAuditRule
 
     /// <summary>
     /// Get the best available device name for a port, checking multiple sources.
-    /// Priority: ConnectedClient > HistoricalClient > Detection ProductName > ModelName > Custom port name > Port number
+    /// Priority: ConnectedClient > ConnectedDeviceName > HistoricalClient > Detection ProductName > ModelName > Custom port name > Port number
     /// </summary>
     private string GetBestDeviceName(PortInfo port)
     {
@@ -448,6 +448,10 @@ public abstract class AuditRuleBase : IAuditRule
             port.ConnectedClient?.Hostname);
         if (!string.IsNullOrEmpty(clientName))
             return $"{clientName} on {port.Switch.Name}";
+
+        // 1b. A UniFi device uplinked into this port (AP, switch) is not a client, so without this its port label wins
+        if (!string.IsNullOrEmpty(port.ConnectedDeviceName))
+            return $"{port.ConnectedDeviceName} on {port.Switch.Name}";
 
         // 2. Try historical client name (for devices that were connected before)
         var historicalName = GetFirstNonEmpty(
