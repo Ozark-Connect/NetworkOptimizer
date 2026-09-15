@@ -132,8 +132,10 @@ public static class IspHealthPresentation
             {
                 var span = shift.UnreachableEnd.HasValue ? FormatDuration(shift.UnreachableEnd.Value - shift.Time) : "the window";
                 var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
+                var network = NetworkLabel(shift, r);
+                var graded = network == null ? "its own network grade" : $"{network}'s own network grade";
                 entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
-                    $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {where}'s own network grade.",
+                    $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {graded}.",
                     shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
                 continue;
             }
@@ -241,6 +243,21 @@ public static class IspHealthPresentation
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         return names.Count > 0 ? string.Join(", ", names) : "path";
+    }
+
+    /// <summary>
+    /// The network whose grade a path event counts against: the event's own ASN, else the ISP or
+    /// transit network the report files its targets under. Null when neither names one.
+    /// </summary>
+    private static string? NetworkLabel(PathShiftEvent shift, IspHealthReport r)
+    {
+        if (!string.IsNullOrEmpty(shift.AsnName)) return shift.AsnName;
+        var ids = shift.TargetIds.Count > 0 ? shift.TargetIds
+            : shift.TargetId is { Length: > 0 } id ? new List<string> { id }
+            : new List<string>();
+        return r.IspAsns.Concat(r.TransitAsns)
+            .FirstOrDefault(a => !string.IsNullOrEmpty(a.AsnName)
+                && a.TargetIds.Any(t => ids.Contains(t, StringComparer.OrdinalIgnoreCase)))?.AsnName;
     }
 
     private static string HopLabel(CongestionEvent e) =>

@@ -55,6 +55,26 @@ public class IspHealthPresentationTests
     }
 
     [Fact]
+    public void The_grade_it_counts_against_is_the_targets_network()
+    {
+        var r = Report();
+        r.IspTargets.Add(new IspTargetHealth { TargetId = "t1", Name = "ISP hop 1" });
+        r.IspAsns.Add(new IspAsnHealth { AsnName = "Example ISP", TargetIds = { "t1" } });
+        r.PathShifts.Add(Unreachable(null, "t1"));
+        var text = TextOf(r);
+        text.Should().StartWith("ISP hop 1 went fully unreachable");
+        text.Should().EndWith("still counted against Example ISP's own network grade.");
+    }
+
+    [Fact]
+    public void A_target_with_no_network_anywhere_counts_against_its_own_grade()
+    {
+        var r = Report();
+        r.PathShifts.Add(Unreachable(null, "t2"));
+        TextOf(r).Should().EndWith("still counted against its own network grade.");
+    }
+
+    [Fact]
     public void A_target_with_no_name_is_named_by_its_address()
     {
         var r = Report();
