@@ -131,8 +131,16 @@ public static class IspHealthPresentation
             if (shift.IsUnreachable)
             {
                 var span = shift.UnreachableEnd.HasValue ? FormatDuration(shift.UnreachableEnd.Value - shift.Time) : "the window";
-                var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
                 var network = NetworkLabel(shift, r);
+                if (shift.IsHostOutage)
+                {
+                    var spared = network == null ? "the network's grade" : $"{network}'s grade";
+                    entries.Add(new TimelineEntry(shift.Time, "Target unreachable", "isp-event-badge-change",
+                        $"{where} went unreachable for {span} - a host you monitor directly, not a hop on the path, so this is the host, not the route. Excluded from the Packet Loss factor and from {spared}.",
+                        shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
+                    continue;
+                }
+                var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
                 var graded = network == null ? "its own network grade" : $"{network}'s own network grade";
                 entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
                     $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {graded}.",

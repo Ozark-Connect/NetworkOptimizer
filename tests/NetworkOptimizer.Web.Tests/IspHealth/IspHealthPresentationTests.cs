@@ -75,6 +75,27 @@ public class IspHealthPresentationTests
     }
 
     [Fact]
+    public void A_host_outage_is_told_as_the_hosts_and_spares_the_network()
+    {
+        var r = Report();
+        r.IspTargets.Add(new IspTargetHealth { TargetId = "t1", Name = "ISP speedtest" });
+        r.IspAsns.Add(new IspAsnHealth { AsnName = "Example ISP", TargetIds = { "t1" } });
+        r.PathShifts.Add(new PathShiftEvent
+        {
+            Time = WindowEnd.AddHours(-8),
+            IsUnreachable = true,
+            IsHostOutage = true,
+            UnreachableEnd = WindowEnd.AddHours(-7.5),
+            TargetId = "t1",
+            TargetIds = { "t1" },
+        });
+        var entry = IspHealthPresentation.EventTimeline(r).Single();
+        entry.Badge.Should().Be("Target unreachable");
+        entry.Text.Should().StartWith("ISP speedtest went unreachable for 30 min - a host you monitor directly");
+        entry.Text.Should().EndWith("Excluded from the Packet Loss factor and from Example ISP's grade.");
+    }
+
+    [Fact]
     public void A_target_with_no_name_is_named_by_its_address()
     {
         var r = Report();

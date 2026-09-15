@@ -417,9 +417,16 @@ public class PathShiftEvent
     /// a route withdrawal/BGP change, not an RTT step. <see cref="Time"/> is the window
     /// start and <see cref="UnreachableEnd"/> its end; the median/delta fields are unused
     /// (0). The window's loss is carved out of the access-layer loss pool; the ASN's own
-    /// network grade still sees it.
+    /// network grade still sees it, unless <see cref="IsHostOutage"/>.
     /// </summary>
     public bool IsUnreachable { get; init; }
+
+    /// <summary>
+    /// With <see cref="IsUnreachable"/>: the dark target is one no trace has placed on the
+    /// path, a host probed directly rather than a hop traffic crosses. Its outage is the host's,
+    /// so it is neither merged into its network's event nor held against that network's grade.
+    /// </summary>
+    public bool IsHostOutage { get; init; }
 
     /// <summary>End of the unreachable window (last dark sample); null for RTT-step shifts.</summary>
     public DateTime? UnreachableEnd { get; init; }

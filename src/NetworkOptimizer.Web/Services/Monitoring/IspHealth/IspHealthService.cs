@@ -936,6 +936,19 @@ public class IspHealthService
                     t.TargetId, t.AsnNumber ?? 0, AsnNameCleanup.Clean(t.AsnName), ispSeries[t.TargetId], _options)))
             .ToList();
         var darkWindows = transitDarkWindows.Concat(ispDarkWindows).ToList();
+        // A target no trace has placed on the path is a host probed directly, not a hop traffic
+        // crosses: its dark window is the host's outage, not a route withdrawal. It still leaves
+        // the loss pool (a dark host is not access-layer loss either), but it is not merged into
+        // its network's event and its network's grade does not see it. Decidable only once there
+        // is trace data; without any, every target is a hop as before.
+        var hostTargetIds = hopOrderKnown
+            ? ispTargets.Concat(transitTargets)
+                .Where(t => !hopNumberByTargetId.ContainsKey(t.TargetId))
+                .Select(t => t.TargetId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hopDarkWindows = darkWindows.Where(w => !hostTargetIds.Contains(w.TargetId)).ToList();
+        var hostDarkWindows = darkWindows.Where(w => hostTargetIds.Contains(w.TargetId)).ToList();
         var darkByTargetId = darkWindows
             .GroupBy(w => w.TargetId)
             .ToDictionary(g => g.Key, g => g.ToList());
@@ -1016,6 +1029,8 @@ public class IspHealthService
 
         var trimAndMaskMs = computeSw.ElapsedMilliseconds - fetchMs;
         var (ispGrading, transitGrading, allClusters, ispChart, transitChart) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
+        ispGrading = WithoutHostOutages(ispGrading, hostTargetIds, hostDarkWindows);
+        transitGrading = WithoutHostOutages(transitGrading, hostTargetIds, hostDarkWindows);
         var asnBuildMs = computeSw.ElapsedMilliseconds - fetchMs - trimAndMaskMs;
         var chartClusters = ispChart.Concat(transitChart).ToList();
         var internetTargetSeries = targets
@@ -1320,7 +1335,7 @@ public class IspHealthService
         var blackoutSpans = outages.Where(o => !o.IsPartial).Select(o => (o.Start, o.End)).ToList();
         double OverlapSeconds(DateTime s, DateTime e) => blackoutSpans.Sum(b =>
             Math.Max(0, (new DateTime(Math.Min(e.Ticks, b.End.Ticks)) - new DateTime(Math.Max(s.Ticks, b.Start.Ticks))).TotalSeconds));
-        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(darkWindows, _options)
+        var unreachableEvents = TransitUnreachableDetector.MergeByAsn(hopDarkWindows, _options)
             .Where(e => OverlapSeconds(e.Start, e.End) < (e.End - e.Start).TotalSeconds * 0.5)
             .Select(e => new PathShiftEvent
             {
@@ -1333,12 +1348,32 @@ public class IspHealthService
                 TargetIds = e.TargetIds.ToList()
             })
             .ToList();
-        if (unreachableEvents.Count > 0)
+        // One event per host, never per network: the ASN is cleared so the merge keys on the
+        // target, and the event carries no network of its own.
+        var hostOutageEvents = TransitUnreachableDetector.MergeByAsn(
+                hostDarkWindows.Select(w => w with { AsnNumber = 0, AsnName = null }).ToList(), _options)
+            .Where(e => OverlapSeconds(e.Start, e.End) < (e.End - e.Start).TotalSeconds * 0.5)
+            .Select(e => new PathShiftEvent
+            {
+                Time = e.Start,
+                TargetId = e.TargetIds.FirstOrDefault(),
+                IsUnreachable = true,
+                IsHostOutage = true,
+                IsDestination = true,
+                UnreachableEnd = e.End,
+                CorrelatedTargetCount = e.TargetCount,
+                TargetIds = e.TargetIds.ToList()
+            })
+            .ToList();
+        if (unreachableEvents.Count > 0 || hostOutageEvents.Count > 0)
         {
             foreach (var e in unreachableEvents)
                 _logger.LogDebug("ISP Health: transit unreachable {Asn} {Start:HH:mm:ss} - {End:HH:mm:ss} ({Targets} target(s)); loss excluded from the access-layer pool",
                     e.AsnName ?? $"AS{e.AsnNumber}", e.Time, e.UnreachableEnd, e.CorrelatedTargetCount);
-            pathShifts = pathShifts.Concat(unreachableEvents).OrderBy(p => p.Time).ToList();
+            foreach (var e in hostOutageEvents)
+                _logger.LogDebug("ISP Health: host {Target} unreachable {Start:HH:mm:ss} - {End:HH:mm:ss}; not a traced hop, so excluded from the loss pool and its network's grade",
+                    e.TargetId, e.Time, e.UnreachableEnd);
+            pathShifts = pathShifts.Concat(unreachableEvents).Concat(hostOutageEvents).OrderBy(p => p.Time).ToList();
         }
 
         // Weight each outage by the time-of-day usage fingerprint so a drop during heavy-usage hours
@@ -2535,6 +2570,31 @@ public class IspHealthService
             }
         }
         return (best ?? new List<LatencySample>(), bestId);
+    }
+
+    /// <summary>
+    /// Grading series with a host's own dark windows removed. Only a series made of hosts alone
+    /// is touched: samples carry no target id, so a cluster that mixes a host with traced hops
+    /// keeps every sample rather than losing the hops' loss along with the host's.
+    /// </summary>
+    private static List<AsnSeries> WithoutHostOutages(
+        List<AsnSeries> grading, ISet<string> hostTargetIds, IReadOnlyList<TransitUnreachableDetector.DarkWindow> hostDarkWindows)
+    {
+        if (hostDarkWindows.Count == 0) return grading;
+        return grading.Select(series =>
+        {
+            if (series.TargetIds.Count == 0 || !series.TargetIds.All(hostTargetIds.Contains)) return series;
+            var windows = hostDarkWindows.Where(w => series.TargetIds.Contains(w.TargetId, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (windows.Count == 0) return series;
+            return new AsnSeries
+            {
+                AsnNumber = series.AsnNumber,
+                AsnName = series.AsnName,
+                TargetIds = series.TargetIds,
+                Samples = series.Samples.Where(s => !windows.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList(),
+                NearestClusterMeanRttMs = series.NearestClusterMeanRttMs,
+            };
+        }).ToList();
     }
 
     /// <summary>
