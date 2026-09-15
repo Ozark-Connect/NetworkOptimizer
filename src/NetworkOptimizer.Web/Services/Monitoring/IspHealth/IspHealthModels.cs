@@ -610,6 +610,9 @@ public class IspHealthReport
     public List<PathShiftEvent> PathShifts { get; init; } = new();
     public List<OutageEvent> Outages { get; init; } = new();
 
+    /// <summary>Monitored address per target id, so an event on a hop with no network can still name it.</summary>
+    public IReadOnlyDictionary<string, string> TargetAddresses { get; init; } = new Dictionary<string, string>();
+
     /// <summary>False when expected WAN speeds were unavailable and loaded analysis was skipped.</summary>
     public bool HasExpectedSpeeds { get; init; }
 

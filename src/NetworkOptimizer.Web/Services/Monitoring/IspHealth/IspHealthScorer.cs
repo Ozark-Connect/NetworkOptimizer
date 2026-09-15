@@ -368,6 +368,7 @@ public class IspHealthScorer
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
+            TargetAddresses = inputs.TargetAddresses,
             HasExpectedSpeeds = hasExpectedSpeeds,
             HasUpstreamTraceMap = inputs.HopOrderKnown,
             HasLoadedSamples = hasLoadedLatency || hasLoadedLoss,

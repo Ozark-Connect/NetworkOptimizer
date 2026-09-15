@@ -127,7 +127,7 @@ public static class IspHealthPresentation
         }
         foreach (var shift in r.PathShifts)
         {
-            var where = string.IsNullOrEmpty(shift.AsnName) ? (shift.TargetId ?? "path") : shift.AsnName;
+            var where = PathLabel(shift, r);
             if (shift.IsUnreachable)
             {
                 var span = shift.UnreachableEnd.HasValue ? FormatDuration(shift.UnreachableEnd.Value - shift.Time) : "the window";
@@ -221,6 +221,26 @@ public static class IspHealthPresentation
         }
 
         return group[0];
+    }
+
+    /// <summary>
+    /// The network a path event belongs to, else the target(s) behind it. A hop with no ASN
+    /// attribution still has the name the reader gave it, or at least its address; "path" names
+    /// nothing and only ever stands in when the event carries no target at all.
+    /// </summary>
+    private static string PathLabel(PathShiftEvent shift, IspHealthReport r)
+    {
+        if (!string.IsNullOrEmpty(shift.AsnName)) return shift.AsnName;
+        var ids = shift.TargetIds.Count > 0 ? shift.TargetIds
+            : shift.TargetId is { Length: > 0 } id ? new List<string> { id }
+            : new List<string>();
+        var names = ids
+            .Select(i => r.IspTargets.FirstOrDefault(t => string.Equals(t.TargetId, i, StringComparison.OrdinalIgnoreCase))?.Name
+                         ?? (r.TargetAddresses.TryGetValue(i, out var address) ? address : null))
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return names.Count > 0 ? string.Join(", ", names) : "path";
     }
 
     private static string HopLabel(CongestionEvent e) =>
