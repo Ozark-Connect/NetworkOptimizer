@@ -4678,6 +4678,42 @@ public class PortProfileSuggestionAnalyzerTests
         result.Should().HaveCount(1);
         result[0].AffectedPorts.Should().NotContain(p => p.PortIndex == 9, "locked port cannot take a profile");
         result[0].AffectedPorts.Should().HaveCount(5);
+        // Five ports remain, the create-new minimum: the lock takes a port out of the group,
+        // never a level off the suggestion.
+        result[0].Severity.Should().Be(Models.PortProfileSuggestionSeverity.Recommendation);
+        result[0].Recommendation.Should().EndWith(PortProfileSuggestionAnalyzer.LockedPortsNote(1));
+    }
+
+    [Fact]
+    public void Analyze_LockedTrunkPortLeavesTwo_SuggestionIssuedAtInfo()
+    {
+        // Three matching trunk ports would earn a Recommendation; with one locked only two can
+        // take a profile, so the suggestion is still issued, at Info like any two-port group.
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort { PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1", TrustedPortMac = "aa:bb:cc:dd:ee:ff" },
+                new SwitchPort { PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" },
+                new SwitchPort { PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom", NativeNetworkConfId = "net-1" }
+            }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "Default", Vlan = 1 },
+            new UniFiNetworkConfig { Id = "net-2", Name = "IoT", Vlan = 20 }
+        };
+
+        var result = _analyzer.Analyze([device], [], networks);
+
+        result.Should().HaveCount(1);
+        result[0].AffectedPorts.Should().HaveCount(2);
+        result[0].AffectedPorts.Should().NotContain(p => p.PortIndex == 1);
+        result[0].Severity.Should().Be(Models.PortProfileSuggestionSeverity.Info);
         result[0].Recommendation.Should().EndWith(PortProfileSuggestionAnalyzer.LockedPortsNote(1));
     }
 
