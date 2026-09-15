@@ -137,6 +137,7 @@ public class UniFiDiscovery
             SupportedSuricataVersion = d.SupportedSuricataVersion,
             SuricataUpgradePendingTarget = d.SuricataUpgradePendingTarget,
             UplinkMac = d.Uplink?.UplinkMac,
+            LastUplinkMac = d.LastUplink?.UplinkMac,
             UplinkPort = d.Uplink?.UplinkRemotePort,
             LocalUplinkPort = d.Uplink?.PortIdx,
             IsUplinkConnected = d.Uplink?.Up ?? false,
@@ -1035,6 +1036,11 @@ public class DiscoveredDevice
         SuricataUpgradePendingTarget is int target && target > (SuricataVersion ?? 0);
 
     public string? UplinkMac { get; set; }
+    /// <summary>
+    /// The uplink the console last recorded, kept while the device is offline. For a gateway it
+    /// is the LAN-side attachment the live uplink never carries.
+    /// </summary>
+    public string? LastUplinkMac { get; set; }
     /// <summary>Remote port on the upstream device that this device connects to.</summary>
     public int? UplinkPort { get; set; }
     /// <summary>Local port on this device that connects to the upstream device (wired only).</summary>

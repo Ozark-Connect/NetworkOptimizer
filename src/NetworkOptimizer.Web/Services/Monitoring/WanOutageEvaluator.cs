@@ -96,11 +96,17 @@ public class WanOutageEvaluator
     /// <see cref="MonitoringAlertEvaluator"/> on every probe result for a covered target,
     /// from both the local collection loop and the agent result sink.
     /// </summary>
-    internal void RecordTargetState(MonitoringTarget target, bool isOffline, bool isLossy, int consecutiveFailures)
+    /// <param name="target">The target.</param>
+    /// <param name="vantageId">Where the probe ran from, as the probe result names it ("server", "agent-{id}").</param>
+    /// <param name="isOffline">The per-target machine's offline verdict.</param>
+    /// <param name="isLossy">The per-target machine's lossy verdict.</param>
+    /// <param name="consecutiveFailures">Failed probes in a row.</param>
+    internal void RecordTargetState(MonitoringTarget target, string vantageId, bool isOffline, bool isLossy, int consecutiveFailures)
     {
         if (!CoversTargetType(target.TargetType)) return;
         var state = _targets.GetOrAdd(target.TargetId, _ => new TargetLiveState());
         state.Target = target;
+        state.Vantage = vantageId;
         state.Offline = isOffline || consecutiveFailures >= FailedProbesToCountFailing;
         state.Lossy = isLossy;
         state.LastResultUtc = _time.GetUtcNow().UtcDateTime;
@@ -138,9 +144,13 @@ public class WanOutageEvaluator
         // the WAN: when probing stops entirely (agent disconnected, monitoring off), every
         // target goes stale and no verdict is reached - a monitoring gap is not an outage,
         // and not a recovery either.
+        // A vantage a firmware rollout has cut off from the gateway (a switch on its path is
+        // rebooting) says nothing either: its probes fail whatever the WAN is doing. Its targets
+        // sit out the pass, and a vantage still connected keeps reporting a real outage.
         var staleness = TimeSpan.FromSeconds(TargetStalenessSeconds);
         var fresh = _targets.Values
             .Where(t => now - t.LastResultUtc <= staleness)
+            .Where(t => _rolloutWindows?.IsWanDark(_siteSlug, t.Vantage, now) != true)
             .ToList();
 
         await RefreshContextAsync(now, fresh, ct);
@@ -500,6 +510,7 @@ public class WanOutageEvaluator
     private sealed class TargetLiveState
     {
         public MonitoringTarget Target = null!;
+        public string Vantage = "server";
         public bool Offline;
         public bool Lossy;
         public DateTime LastResultUtc;

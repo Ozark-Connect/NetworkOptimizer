@@ -140,6 +140,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly IAlertEventBus _eventBus;
     private readonly SiteTunnelRouting? _tunnelRouting;
     private readonly IRolloutRebootWitness? _rebootWitness;
+    private readonly IRolloutObserverLocator? _observerLocator;
     private readonly ApAgent.ApAgentRegistry? _apAgents;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
@@ -152,9 +153,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
-    // Devices seen behind each in-flight step, so a child that drops off the console's device
-    // list mid-cycle keeps its alert window until the step settles.
-    private readonly Dictionary<string, HashSet<string>> _downstreamOfStep = new(StringComparer.OrdinalIgnoreCase);
+    // Devices and vantages each in-flight step has taken dark so far, so one that drops off the
+    // console's device list mid-cycle keeps its alert window refreshed until the step settles.
+    private readonly Dictionary<string, (HashSet<string> Devices, HashSet<string> Vantages)> _darkOfStep = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _tickLock = new(1, 1);
     private IReadOnlyList<UniFiFirmwareCatalogEntry> _catalog = [];
     private DateTime _catalogReadAt = DateTime.MinValue;
@@ -192,6 +193,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// AP Agent deployment services, for stopping the agent on an access point before it flashes.
     /// Null skips the stop; the redeploy hold still applies.
     /// </param>
+    /// <param name="observerLocator">
+    /// Where the console and the probe vantages sit on the uplink tree. Null places the console at
+    /// the tree's root (a Cloud Gateway) and no vantage at all.
+    /// </param>
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
         IFirmwareCommandClient commands,
@@ -209,11 +214,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         SiteTunnelRouting? tunnelRouting = null,
         ApAgent.ApAgentRegistry? apAgents = null,
-        IRolloutRebootWitness? rebootWitness = null)
+        IRolloutRebootWitness? rebootWitness = null,
+        IRolloutObserverLocator? observerLocator = null)
     {
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
         _rebootWitness = rebootWitness;
+        _observerLocator = observerLocator;
         _repositories = repositories;
         _commands = commands;
         _observer = observer;
@@ -510,7 +517,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (inFlight.Count == 0)
         {
             _suppression.ClearSite(_siteSlug);
-            _downstreamOfStep.Clear();
+            _darkOfStep.Clear();
         }
         else
             foreach (var step in steps.Where(s => IsSettled(s)))
@@ -993,7 +1000,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in inFlightSteps)
         {
             if (settings.SuppressStandardAlerts)
-                OpenStepWindows(step, byMac);
+                await OpenStepWindowsAsync(step, byMac, cancellationToken);
 
             // Not gated on SuppressStandardAlerts: pushing a binary at a flashing AP is a hazard,
             // not a preference. Clear releases the hold once the step settles.
@@ -2317,7 +2324,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistStepAsync(step, cancellationToken);
 
         if (settings.SuppressStandardAlerts)
-            OpenStepWindows(step, byMac);
+            await OpenStepWindowsAsync(step, byMac, cancellationToken);
 
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
@@ -2393,7 +2400,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var step in steps.Where(IsInFlight).ToList())
         {
             if (settings.SuppressStandardAlerts)
-                OpenStepWindows(step, byMac);
+                await OpenStepWindowsAsync(step, byMac, cancellationToken);
 
             if (IsAccessPointStep(step))
                 _suppression.RefreshAgentHold(_siteSlug, step.DeviceMac, Now);
@@ -2971,10 +2978,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// behind a separate Console) upgrades as an ordinary device step, so the console-cycle and
     /// OS-cycle windows only the console's own steps open never open for it - yet its reboot takes
     /// every device reached through it dark, and WAN with it. Both are opened here instead.
-    /// Any other step also opens a window for each device whose uplink chain passes through it:
-    /// a switch or AP behind the one flashing goes dark with it.
+    /// Any other step also opens a window for each device its reboot hides from the console, and
+    /// marks each probe vantage it cuts off from the gateway (<see cref="RolloutDarkSet"/>).
     /// </summary>
-    private void OpenStepWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
+    private async Task OpenStepWindowsAsync(
+        FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac, CancellationToken cancellationToken)
     {
         _suppression.Refresh(_siteSlug, step.DeviceMac, Now);
         if (IsGatewayStep(step))
@@ -2984,60 +2992,72 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
-        RefreshDownstreamWindows(step, byMac);
+        await RefreshDarkWindowsAsync(step, byMac, cancellationToken);
     }
 
     /// <summary>
-    /// Opens windows for everything downstream of the step, from the console's live uplink map
-    /// plus whatever was seen behind it earlier in the cycle. Purely additive to alert
-    /// suppression, and best effort: any failure leaves the step's own window as it was.
+    /// Refreshes the windows for everything the step takes dark, from the console's uplink tree
+    /// and where the observers sit on it, plus whatever it was seen to take dark earlier in the
+    /// cycle. Purely additive to alert suppression, and best effort: any failure leaves the
+    /// step's own window as it was.
     /// </summary>
-    private void RefreshDownstreamWindows(FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac)
+    private async Task RefreshDarkWindowsAsync(
+        FirmwareRolloutStep step, IReadOnlyDictionary<string, RolloutDeviceObservation> byMac, CancellationToken cancellationToken)
     {
         try
         {
-            if (!_downstreamOfStep.TryGetValue(step.DeviceMac, out var downstream))
-                _downstreamOfStep[step.DeviceMac] = downstream = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            var children = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var o in byMac.Values)
+            if (!_darkOfStep.TryGetValue(step.DeviceMac, out var dark))
             {
-                if (string.IsNullOrEmpty(o.UplinkMac)) continue;
-                if (!children.TryGetValue(o.UplinkMac, out var list))
-                    children[o.UplinkMac] = list = [];
-                list.Add(o.Mac);
+                dark = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                _darkOfStep[step.DeviceMac] = dark;
             }
 
-            var queue = new Queue<string>();
-            queue.Enqueue(step.DeviceMac);
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { step.DeviceMac };
-            while (queue.Count > 0)
+            var devices = byMac.Values.ToList();
+            var positions = _observerLocator == null
+                ? RolloutObserverPositions.ConsoleAtRoot
+                : await _observerLocator.LocateAsync(devices, cancellationToken);
+            var wiredInfrastructure = !IsAccessPointStep(step);
+
+            var before = (dark.Devices.Count, dark.Vantages.Count);
+            dark.Devices.UnionWith(RolloutDarkSet.DevicesDarkenedBy(step.DeviceMac, wiredInfrastructure, devices, positions));
+
+            var parents = RolloutDarkSet.ParentMap(devices);
+            var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            foreach (var (vantage, attach) in positions.VantageAttachMacs)
             {
-                if (!children.TryGetValue(queue.Dequeue(), out var next)) continue;
-                foreach (var child in next)
-                    if (visited.Add(child))
-                    {
-                        downstream.Add(child);
-                        queue.Enqueue(child);
-                    }
+                if (RolloutDarkSet.VantageDarkenedBy(step.DeviceMac, wiredInfrastructure, attach, gatewayMac, parents))
+                    dark.Vantages.Add(vantage);
             }
 
-            foreach (var mac in downstream)
-                _suppression.Refresh(_siteSlug, mac, Now);
+            if (before != (dark.Devices.Count, dark.Vantages.Count))
+                _logger.LogDebug(
+                    "Step {Device} on site {Site} takes {Devices} device(s) and {Vantages} vantage(s) dark: {List}",
+                    step.DeviceName, _siteSlug, dark.Devices.Count, dark.Vantages.Count,
+                    string.Join(", ", dark.Devices.Concat(dark.Vantages)));
+
+            foreach (var mac in dark.Devices)
+                _suppression.RefreshDark(_siteSlug, mac, Now);
+            foreach (var vantage in dark.Vantages)
+                _suppression.RefreshWanDark(_siteSlug, vantage, Now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Downstream alert windows for {Mac} on site {Site} not refreshed", step.DeviceMac, _siteSlug);
+            _logger.LogDebug(ex, "Dark-set alert windows for {Mac} on site {Site} not refreshed", step.DeviceMac, _siteSlug);
         }
     }
 
-    /// <summary>Ends a settled step's window and those of the devices behind it.</summary>
+    /// <summary>
+    /// Ends a settled step's own window. The windows of what it took dark are left to lapse: the
+    /// device reporting back says nothing about when the devices behind it re-inform.
+    /// </summary>
     private void CloseStepWindows(FirmwareRolloutStep step)
     {
         _suppression.Clear(_siteSlug, step.DeviceMac);
-        if (!_downstreamOfStep.Remove(step.DeviceMac, out var downstream)) return;
-        foreach (var mac in downstream)
-            _suppression.Clear(_siteSlug, mac);
+        _darkOfStep.Remove(step.DeviceMac);
     }
 
     /// <summary>

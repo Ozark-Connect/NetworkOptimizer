@@ -162,6 +162,14 @@ public class UniFiDeviceResponse
     [JsonPropertyName("uplink")]
     public UplinkInfo? Uplink { get; set; }
 
+    /// <summary>
+    /// The last uplink the console recorded. Survives a reboot, and is the only place a
+    /// gateway's LAN-side attachment is written: its live uplink is the WAN side and carries no
+    /// uplink_mac.
+    /// </summary>
+    [JsonPropertyName("last_uplink")]
+    public UplinkInfo? LastUplink { get; set; }
+
     // Stats
     [JsonPropertyName("stat")]
     public DeviceStats? Stats { get; set; }

@@ -267,7 +267,7 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
         Task.FromResult<IReadOnlyList<RolloutDeviceObservation>>(
             ConsoleDark ? [] : Devices.Values.ToList());
 
-    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1", string? uplinkMac = null)
+    public void Set(string mac, int state, string? firmware, string? upgradeTo = null, string? ip = "192.0.2.10", string model = "U6PRO", string name = "AP 1", string? uplinkMac = null, string? lastUplinkMac = null, bool wirelessUplink = false, bool isGateway = false)
     {
         Devices[mac] = new RolloutDeviceObservation
         {
@@ -280,8 +280,21 @@ internal sealed class ScriptedDeviceObserver : IRolloutDeviceObserver
             Upgradable = upgradeTo != null,
             UpgradeToFirmware = upgradeTo,
             UplinkMac = uplinkMac,
+            LastUplinkMac = lastUplinkMac,
+            WirelessUplink = wirelessUplink,
+            IsGateway = isGateway,
         };
     }
+}
+
+/// <summary>Observer positions the test sets; a Cloud Gateway console with no vantages by default.</summary>
+internal sealed class FakeObserverLocator : IRolloutObserverLocator
+{
+    public RolloutObserverPositions Positions { get; set; } = RolloutObserverPositions.ConsoleAtRoot;
+
+    public Task<RolloutObserverPositions> LocateAsync(
+        IReadOnlyCollection<RolloutDeviceObservation> devices, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Positions);
 }
 
 /// <summary>Litmus that answers whatever the test set, per device where it matters.</summary>
@@ -500,6 +513,7 @@ internal sealed class RolloutHarness : IDisposable
     public FakeTimeProvider Time { get; } = new(Start);
     public FakeFirmwareCommandClient Commands { get; } = new();
     public ScriptedDeviceObserver Observer { get; } = new();
+    public FakeObserverLocator Locator { get; } = new();
     public FakeLitmusService Litmus { get; } = new();
     public FakeHealthGate Health { get; } = new();
     public RecordingMeshRepairQueue Mesh { get; } = new();
@@ -580,7 +594,8 @@ internal sealed class RolloutHarness : IDisposable
         Bus,
         Time,
         NullLogger<FirmwareRolloutOrchestrator>.Instance,
-        rebootWitness: Reboots);
+        rebootWitness: Reboots,
+        observerLocator: Locator);
 
     public NetworkOptimizerDbContext NewContext()
     {
