@@ -383,6 +383,7 @@ public class ConfigAuditEngine
         // Apply allowance settings to rules
         var effectiveSettings = request.AllowanceSettings ?? DeviceAllowanceSettings.Default;
         securityEngine.SetAllowanceSettings(effectiveSettings);
+        securityEngine.SetNetworkApplicationVersion(request.NetworkApplicationVersion);
 
         // Set Protect cameras for network ID override (uses connection_network_id from Protect API)
         if (request.ProtectCameras != null && request.ProtectCameras.Count > 0)

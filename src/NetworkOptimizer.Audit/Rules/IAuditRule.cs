@@ -120,6 +120,66 @@ public abstract class AuditRuleBase : IAuditRule
         ProtectCameras = cameras;
     }
 
+    /// <summary>
+    /// UniFi Network application version (e.g., "10.6.106"). Null when unknown.
+    /// </summary>
+    protected string? NetworkApplicationVersion { get; private set; }
+
+    /// <summary>
+    /// Set the UniFi Network application version for version-gated recommendations
+    /// </summary>
+    public void SetNetworkApplicationVersion(string? version)
+    {
+        NetworkApplicationVersion = version;
+    }
+
+    /// <summary>
+    /// Whether Lock Port to UniFi Device can be recommended for this port's switch:
+    /// the application and the switch firmware both meet the minimum versions.
+    /// </summary>
+    protected bool IsPortLockAvailable(PortInfo port) =>
+        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
+
+    /// <summary>
+    /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi
+    /// app when known ("AI Key (UniFi Protect)"), otherwise the device role from the uplink
+    /// table ("the connected UniFi access point").
+    /// </summary>
+    protected static string DescribeUniFiDevice(PortInfo port)
+    {
+        var client = port.ConnectedClient;
+        var clientName = client?.Name ?? client?.Hostname;
+        if (!string.IsNullOrEmpty(clientName))
+        {
+            var app = client!.UniFiProductLine switch
+            {
+                "protect" => "UniFi Protect",
+                "network" => "UniFi Network",
+                "access" => "UniFi Access",
+                "talk" => "UniFi Talk",
+                "connect" => "UniFi Connect",
+                "drive" => "UniFi Drive",
+                "play" => "UniFi Play",
+                _ => null
+            };
+            return app == null ? clientName : $"{clientName} ({app})";
+        }
+
+        var role = port.ConnectedDeviceType?.ToLowerInvariant() switch
+        {
+            "uap" => "access point",
+            "usw" => "switch",
+            "ubb" => "bridge",
+            "ugw" or "usg" or "udm" or "uxg" or "ucg" => "gateway",
+            "umbb" => "modem",
+            "uck" or "uas" => "Cloud Key",
+            "usp" => "power device",
+            "unas" => "NAS",
+            _ => "device"
+        };
+        return $"the connected UniFi {role}";
+    }
+
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);
 
     /// <summary>

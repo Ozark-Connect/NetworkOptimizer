@@ -334,6 +334,11 @@ public class AuditStatistics
     public int PortSecurityEnabledPorts { get; set; }
 
     /// <summary>
+    /// Number of ports locked to a UniFi device (Lock Port to UniFi Device)
+    /// </summary>
+    public int LockedPorts { get; set; }
+
+    /// <summary>
     /// Number of isolated ports
     /// </summary>
     public int IsolatedPorts { get; set; }

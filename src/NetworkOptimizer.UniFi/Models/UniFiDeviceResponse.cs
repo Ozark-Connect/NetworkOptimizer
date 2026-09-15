@@ -672,6 +672,13 @@ public class SwitchPort
     [JsonPropertyName("port_security_mac_address")]
     public List<string>? PortSecurityMacAddresses { get; set; }
 
+    /// <summary>
+    /// MAC of the UniFi device this port is locked to (Lock Port to UniFi Device,
+    /// UniFi Network 10.6.101+ with switch firmware 7.6.2+). Null when not locked.
+    /// </summary>
+    [JsonPropertyName("trusted_port_mac")]
+    public string? TrustedPortMac { get; set; }
+
     // SFP / DDM (Digital Diagnostic Monitoring) — UniFi exposes these on ports populated
     // by an SFP module. Used by NO's monitoring subsystem (spec 5.9) to track GPON ONT
     // and other SFP optical levels over time.

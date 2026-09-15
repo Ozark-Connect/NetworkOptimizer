@@ -271,6 +271,43 @@ public class UniFiClientResponse
     /// </summary>
     [JsonPropertyName("unifi_device_info_from_ucore")]
     public UniFiUcoreDeviceInfo? UnifiDeviceInfoFromUcore { get; set; }
+
+    /// <summary>
+    /// UniFi app that owns this client when it is a UniFi device, e.g. "unifi-protect",
+    /// "unifi-network". Set on the client record itself (a Protect AI Key, a CloudKey+),
+    /// separate from the ucore block. Null for ordinary clients.
+    /// </summary>
+    [JsonPropertyName("product_line")]
+    public string? ProductLine { get; set; }
+
+    /// <summary>
+    /// UniFi product name for a UniFi device client, e.g. "AI Key", "CloudKey+". Null for ordinary clients.
+    /// </summary>
+    [JsonPropertyName("product_model")]
+    public string? ProductModel { get; set; }
+
+    /// <summary>
+    /// UniFi app that owns this device, normalized to lowercase without the "unifi-" prefix
+    /// ("protect", "network", "drive", ...). The client's own product_line is "unifi-protect" style;
+    /// the ucore block's is "PROTECT" style. Both normalize to the same value. Null when the client
+    /// is not a UniFi device.
+    /// </summary>
+    public string? UniFiProductLine
+    {
+        get
+        {
+            var raw = !string.IsNullOrEmpty(ProductLine) ? ProductLine : UnifiDeviceInfoFromUcore?.ProductLine;
+            if (string.IsNullOrEmpty(raw))
+                return null;
+            var line = raw.Trim().ToLowerInvariant();
+            return line.StartsWith("unifi-") ? line["unifi-".Length..] : line;
+        }
+    }
+
+    /// <summary>
+    /// Whether this client is a UniFi device (owned by a UniFi app) rather than an ordinary client.
+    /// </summary>
+    public bool IsUniFiDevice => UniFiProductLine != null;
 }
 
 /// <summary>

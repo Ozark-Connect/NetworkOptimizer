@@ -812,6 +812,7 @@ public class AuditService : IAuditScanService
                     PoeMode = p.PoeMode ?? "",
                     PortSecurityEnabled = p.PortSecurityEnabled,
                     PortSecurityMacs = p.PortSecurityMacs.ToList(),
+                    LockedToDeviceMac = p.LockedToDeviceMac,
                     Isolation = p.Isolation,
                     ConnectedDeviceType = p.ConnectedDeviceType,
                     Dot1xCtrl = p.Dot1xCtrl
@@ -1360,6 +1361,18 @@ public class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch port profiles");
             }
 
+            // Fetch the UniFi Network application version for version-gated rules (Lock Port to UniFi Device)
+            string? networkApplicationVersion = null;
+            try
+            {
+                networkApplicationVersion = (await _connectionService.Client.GetSystemInfoAsync())?.Version;
+                _logger.LogInformation("UniFi Network application version: {Version}", networkApplicationVersion ?? "(unknown)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch UniFi Network application version");
+            }
+
             // Fetch UPnP status and port forwarding rules for UPnP security analysis
             bool? upnpEnabled = null;
             List<NetworkOptimizer.UniFi.Models.UniFiPortForwardRule>? portForwardRules = null;
@@ -1462,6 +1475,7 @@ public class AuditService : IAuditScanService
                 AllowanceSettings = allowanceSettings,
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
+                NetworkApplicationVersion = networkApplicationVersion,
                 ClientName = "Network Audit",
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
@@ -1785,6 +1799,7 @@ public class AuditService : IAuditScanService
             ExcludedNetworks = excludedNetworks,
             PortSecurityEnabled = port.PortSecurityEnabled,
             PortSecurityMacs = port.AllowedMacAddresses ?? new List<string>(),
+            LockedToDeviceMac = port.LockedToDeviceMac,
             Isolation = port.IsolationEnabled,
             PoeEnabled = port.PoeEnabled,
             PoePower = port.PoePower,
@@ -1815,7 +1830,7 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.InfraNotOnMgmt => "VLAN Security",
 
         // Port security issues
-        Audit.IssueTypes.MacRestriction or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" => "Port Security",
+        Audit.IssueTypes.MacRestriction or Audit.IssueTypes.PortLock or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" => "Port Security",
 
         // DNS security issues
         Audit.IssueTypes.DnsLeakage or Audit.IssueTypes.DnsSharedServers or Audit.IssueTypes.DnsNoDoh or Audit.IssueTypes.DnsDohAuto or Audit.IssueTypes.DnsNo53Block or
@@ -1900,6 +1915,7 @@ public class AuditService : IAuditScanService
 
             // Port security
             Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
+            Audit.IssueTypes.PortLock => "Missing Port Lock",
             Audit.IssueTypes.UnusedPort => "Unused Port Enabled",
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             Audit.IssueTypes.AccessPortVlan => "Port Issue: Excessive Tagged VLANs",
@@ -2067,6 +2083,7 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.IsolationBypassed => "Delete this rule or restrict to specific ports/protocols if necessary.",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low.",
+        Audit.IssueTypes.PortLock => "Enable Lock Port to UniFi Device on ports that carry a UniFi device.",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface.",
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices.",
         Audit.IssueTypes.RoutingEnabled => "Disable inter-VLAN routing for this network unless cross-network access is required.",
@@ -2284,6 +2301,17 @@ public class PortReference
     public List<string> ExcludedNetworks { get; set; } = new();
     public bool PortSecurityEnabled { get; set; }
     public List<string> PortSecurityMacs { get; set; } = new();
+
+    /// <summary>
+    /// MAC of the UniFi device this port is locked to (Lock Port to UniFi Device). Null when not locked.
+    /// </summary>
+    public string? LockedToDeviceMac { get; set; }
+
+    /// <summary>
+    /// Whether the port is locked to a UniFi device (Lock Port to UniFi Device).
+    /// </summary>
+    public bool IsLocked => !string.IsNullOrEmpty(LockedToDeviceMac);
+
     public bool Isolation { get; set; }
     public bool PoeEnabled { get; set; }
     public double PoePower { get; set; }

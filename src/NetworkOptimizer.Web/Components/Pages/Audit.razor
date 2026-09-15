@@ -856,7 +856,7 @@
                                 var disabledPorts = sw.Ports.Count(p => p.Forward == "disabled");
                                 var macRestricted = sw.Ports.Count(p => p.PortSecurityMacs.Any());
                                 var dot1xCount = sw.Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based" or "multi_host") && p.Forward == "native" && p.IsUp && !p.IsUplink);
-                                var unprotectedActive = sw.Ports.Count(p => p.Forward == "native" && p.IsUp && !p.PortSecurityMacs.Any() && !p.IsUplink && p.Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"));
+                                var unprotectedActive = sw.Ports.Count(p => p.Forward == "native" && p.IsUp && !p.PortSecurityMacs.Any() && !p.IsLocked && !p.IsUplink && p.Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"));
                                 <tr>
                                     <td class="icon-cell"><DeviceIcon Model="@sw.ModelName" Size="md" /></td>
                                     <td>@sw.Name</td>
@@ -1188,6 +1188,7 @@
                                 ExcludedNetworks = p.ExcludedNetworks,
                                 PortSecurityEnabled = p.PortSecurityEnabled,
                                 PortSecurityMacs = p.PortSecurityMacs,
+                                LockedToDeviceMac = p.LockedToDeviceMac,
                                 Isolation = p.Isolation,
                                 PoeEnabled = p.PoeEnabled,
                                 PoePower = p.PoePower,
@@ -1848,7 +1849,7 @@
         DisplayFormatters.GetPoeStatus(port.PoePower, port.PoeMode, port.PoeEnabled);
 
     private string GetPortSecurityStatus(Services.PortReference port) =>
-        DisplayFormatters.GetPortSecurityStatus(port.PortSecurityMacs.Count, port.PortSecurityEnabled, port.Dot1xCtrl);
+        DisplayFormatters.GetPortSecurityStatus(port.PortSecurityMacs.Count, port.PortSecurityEnabled, port.Dot1xCtrl, port.IsLocked);
 
     private (string Status, string StatusClass) GetPortStatus(Services.PortReference port, bool supportsAcls)
     {
@@ -1874,7 +1875,7 @@
 
         if (port.Forward == "native")
         {
-            if (port.IsUp && supportsAcls && !port.PortSecurityMacs.Any() && !port.IsUplink
+            if (port.IsUp && supportsAcls && !port.PortSecurityMacs.Any() && !port.IsLocked && !port.IsUplink
                 && port.Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"))
                 return ("No MAC", "row-warning");
             return ("OK", "");
@@ -1899,7 +1900,9 @@
                 "ubb" => "Bridge",
                 "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
                 "umbb" => "Modem",
-                "uck" => "CloudKey",
+                "uck" or "uas" => "CloudKey",
+                "usp" => "Power",
+                "unas" => "NAS",
                 _ => "Device"  // Generic for unknown UniFi device types
             };
         }

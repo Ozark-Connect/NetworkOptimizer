@@ -96,6 +96,25 @@ public class PortInfo
     public List<string>? AllowedMacAddresses { get; init; }
 
     /// <summary>
+    /// MAC of the UniFi device this port is locked to (Lock Port to UniFi Device).
+    /// From the port's trusted_port_mac field. Null when the port is not locked.
+    /// </summary>
+    public string? LockedToDeviceMac { get; init; }
+
+    /// <summary>
+    /// Whether the port is locked to a UniFi device (Lock Port to UniFi Device).
+    /// </summary>
+    public bool IsPortLocked => !string.IsNullOrEmpty(LockedToDeviceMac);
+
+    /// <summary>
+    /// Whether the device on this port is a UniFi device: any device in the stat/device uplink
+    /// table (Network gear, power devices), or a client a UniFi app owns (Protect, Network, Drive, ...).
+    /// Lock Port to UniFi Device locks to all of them.
+    /// </summary>
+    public bool HasUniFiDevice =>
+        !string.IsNullOrEmpty(ConnectedDeviceType) || (ConnectedClient?.IsUniFiDevice ?? false);
+
+    /// <summary>
     /// Whether port isolation is enabled
     /// </summary>
     public bool IsolationEnabled { get; init; }

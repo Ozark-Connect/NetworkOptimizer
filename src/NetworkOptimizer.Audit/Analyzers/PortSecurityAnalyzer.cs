@@ -88,6 +88,7 @@ public class PortSecurityAnalyzer
             new IotVlanRule(),
             new CameraVlanRule(),
             new MacRestrictionRule(),
+            new PortLockRule(),
             new UnusedPortRule(),
             new PortIsolationRule(),
             new WiredSubnetMismatchRule(),
@@ -114,6 +115,18 @@ public class PortSecurityAnalyzer
     public void AddRule(IAuditRule rule)
     {
         _rules.Add(rule);
+    }
+
+    /// <summary>
+    /// Set the UniFi Network application version on all rules (version-gated recommendations)
+    /// </summary>
+    public void SetNetworkApplicationVersion(string? version)
+    {
+        foreach (var rule in _rules.OfType<AuditRuleBase>())
+        {
+            rule.SetNetworkApplicationVersion(version);
+        }
+        _logger.LogDebug("UniFi Network application version for audit rules: {Version}", version ?? "(unknown)");
     }
 
     /// <summary>
@@ -367,6 +380,7 @@ public class PortSecurityAnalyzer
         var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname);
         var isPowerDevice = NetworkOptimizer.UniFi.UniFiProductDatabase.IsPowerDevice(model, shortname);
         var ip = device.GetStringOrNull("ip");
+        var firmwareVersion = device.GetStringOrNull("version");
         var capabilities = ParseSwitchCapabilities(device);
 
         // Extract DNS configuration from config_network
@@ -388,6 +402,7 @@ public class PortSecurityAnalyzer
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            FirmwareVersion = firmwareVersion,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
@@ -432,6 +447,7 @@ public class PortSecurityAnalyzer
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            FirmwareVersion = firmwareVersion,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
@@ -692,6 +708,7 @@ public class PortSecurityAnalyzer
             ExcludedNetworkIds = excludedNetworkIds,
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacAddresses,
+            LockedToDeviceMac = port.GetStringOrNull("trusted_port_mac"),
             IsolationEnabled = isolationEnabled,
             Dot1xCtrl = assignedProfile?.Dot1xCtrl,
             PoeEnabled = poeEnable || portPoe,
@@ -832,6 +849,13 @@ public class PortSecurityAnalyzer
             measures.Add($"MAC restrictions configured on {macRestrictedPorts} access ports");
         }
 
+        // Check for Lock Port to UniFi Device
+        var lockedPorts = switches.Sum(s => s.Ports.Count(p => p.IsPortLocked));
+        if (lockedPorts > 0)
+        {
+            measures.Add($"Lock Port to UniFi Device enabled on {lockedPorts} ports");
+        }
+
         // Check for 802.1X authentication (only active access ports - disabled/trunk/uplink ports are irrelevant)
         var dot1xPorts = switches.Sum(s => s.Ports.Count(p =>
             p.IsDot1xSecured && p.IsUp && p.ForwardMode == "native" && !p.IsUplink && !p.IsWan));
@@ -885,9 +909,10 @@ public class PortSecurityAnalyzer
         stats.ActivePorts = switches.Sum(s => s.Ports.Count(p => p.IsUp));
         stats.MacRestrictedPorts = switches.Sum(s => s.Ports.Count(p => p.AllowedMacAddresses?.Any() ?? false));
         stats.PortSecurityEnabledPorts = switches.Sum(s => s.Ports.Count(p => p.PortSecurityEnabled));
+        stats.LockedPorts = switches.Sum(s => s.Ports.Count(p => p.IsPortLocked));
         stats.IsolatedPorts = switches.Sum(s => s.Ports.Count(p => p.IsolationEnabled));
 
-        // Calculate unprotected active ports (exclude 802.1X-secured ports)
+        // Calculate unprotected active ports (exclude 802.1X-secured and locked ports)
         stats.UnprotectedActivePorts = switches.Sum(s => s.Ports.Count(p =>
             p.IsUp &&
             p.ForwardMode == "native" &&
@@ -895,6 +920,7 @@ public class PortSecurityAnalyzer
             !p.IsWan &&
             !(p.AllowedMacAddresses?.Any() ?? false) &&
             !p.PortSecurityEnabled &&
+            !p.IsPortLocked &&
             !p.IsDot1xSecured));
 
         return stats;

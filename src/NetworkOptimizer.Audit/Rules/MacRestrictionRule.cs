@@ -5,7 +5,9 @@ namespace NetworkOptimizer.Audit.Rules;
 /// <summary>
 /// Detects access ports without MAC address restrictions.
 /// MAC restrictions help prevent unauthorized device connections.
-/// Excludes infrastructure ports (uplinks, WAN, ports with UniFi devices connected).
+/// Excludes infrastructure ports (uplinks, WAN, ports with network fabric devices connected)
+/// and ports locked with Lock Port to UniFi Device. Ports carrying another UniFi device
+/// (Protect, Cloud Key, ...) defer to PortLockRule when the versions allow.
 /// </summary>
 public class MacRestrictionRule : AuditRuleBase
 {
@@ -87,6 +89,10 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.IsDot1xSecured)
             return null; // Already secured via RADIUS
 
+        // Locked to a UniFi device (Lock Port to UniFi Device) - the lock is the restriction
+        if (port.IsPortLocked)
+            return null;
+
         // Check if port has an intentional unrestricted profile assigned
         // (user has created an access port profile with MAC restriction explicitly disabled)
         if (HasIntentionalUnrestrictedProfile(port))
@@ -94,6 +100,27 @@ public class MacRestrictionRule : AuditRuleBase
 
         // Tailor the message based on whether the port is actively in use or just recently used
         var isInactive = !port.IsUp;
+
+        // A UniFi device (Protect, Network, ...) on the port: Lock Port to UniFi Device is the better fit.
+        // PortLockRule flags it when the versions allow; otherwise say what the upgrade would unlock.
+        if (!isInactive && port.HasUniFiDevice)
+        {
+            if (IsPortLockAvailable(port))
+                return null;
+
+            var device = DescribeUniFiDevice(port);
+            return CreateIssue(
+                $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or locked to it once Lock Port to UniFi Device is available",
+                port,
+                new Dictionary<string, object>
+                {
+                    { "network", network?.Name ?? "Unknown" },
+                    { "device", device }
+                },
+                $"This port carries {device}. Lock Port to UniFi Device ties the port to that device and needs UniFi Network " +
+                $"{PortLockSupport.MinNetworkApplicationVersion} or newer and switch firmware {PortLockSupport.MinSwitchFirmwareVersion} or newer. " +
+                "Until then, set the port to 'Restricted' and add the device's MAC address to the allowed list.");
+        }
 
         var message = isInactive
             ? "Port is not in use - disable it, or add a MAC restriction if it's still needed"
