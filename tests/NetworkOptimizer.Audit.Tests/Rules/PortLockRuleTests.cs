@@ -311,6 +311,25 @@ public class PortLockRuleTests
         result.Should().NotBeNull();
         result!.Severity.Should().Be(AuditSeverity.Recommended);
         result.Message.Should().Be("Port should be locked to the connected UniFi Access Point with Lock Port to UniFi Device");
+        // The lock does not block the clients behind an AP or switch, and the copy says so
+        result.RecommendedAction.Should().Be(
+            "In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
+            "A different device plugged into this port in its place is blocked; clients connected through the connected UniFi Access Point are not affected.");
+    }
+
+    [Theory]
+    [InlineData("usw", "[Switch] Garage", "[Switch] Garage (UniFi Switch)")]
+    [InlineData("ubb", "[Bridge] Shop", "[Bridge] Shop (UniFi Bridge)")]
+    public void Evaluate_FabricDownlink_RecommendationKeepsClientsBehindIt(string deviceType, string name, string described)
+    {
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: deviceType);
+        port.ConnectedDeviceName = name;
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().NotStartWith("Only");
+        result.RecommendedAction.Should().EndWith($"clients connected through {described} are not affected.");
     }
 
     [Fact]
@@ -380,7 +399,9 @@ public class PortLockRuleTests
         result.Port.Should().Be("3");
         result.Message.Should().Contain("Lock Port to UniFi Device");
         result.Message.Should().Contain("AI Key (UniFi Protect)");
-        result.RecommendedAction.Should().StartWith("Only AI Key (UniFi Protect) has used this port.");
+        result.RecommendedAction.Should().Be(
+            "Only AI Key (UniFi Protect) has used this port. In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
+            "A different device plugged into this port in its place is blocked, with no MAC list to maintain.");
         result.RecommendedAction.Should().Contain("Lock Port to UniFi Device");
         result.Metadata!["network"].Should().Be("Security");
         result.Metadata["device_type"].Should().Be("protect");

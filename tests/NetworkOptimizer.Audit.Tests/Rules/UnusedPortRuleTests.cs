@@ -258,6 +258,9 @@ public class UnusedPortRuleTests
 
         result.Should().NotBeNull();
         result!.Message.Should().Be(expected);
+        result.RecommendedAction.Should().Be(
+            "Disable unused ports to reduce attack surface. " +
+            "In UniFi Network - Ports, set the port to 'Disabled' to prevent unauthorized device connections.");
     }
 
     [Fact]

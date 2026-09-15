@@ -42,6 +42,26 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Critical,
             CooldownSeconds = 0
         },
+        // Scheduled runs only, and only when the count at that severity rose since the previous audit,
+        // so a steady site stays quiet and no cooldown is needed.
+        new AlertRule
+        {
+            Name = "Security Audit: New Recommendations",
+            IsEnabled = true,
+            EventTypePattern = "audit.new_recommendations",
+            Source = "audit",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Security Audit: New Info Findings",
+            IsEnabled = true,
+            EventTypePattern = "audit.new_info_findings",
+            Source = "audit",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
 
         // --- Device monitoring (enabled - these only fire for changes nobody asked for: the
         // evaluators stay silent while UniFi reports a device upgrading or provisioning) ---

@@ -605,7 +605,7 @@ public class AuditService : IAuditScanService
         }
     }
 
-    private async Task PublishAuditAlertsAsync(AuditResult result)
+    private async Task PublishAuditAlertsAsync(AuditResult result, bool isScheduled = false)
     {
         if (_alertEventBus == null) return;
 
@@ -641,6 +641,20 @@ public class AuditService : IAuditScanService
             try
             {
                 var history = await _auditRepository.GetAuditHistoryAsync(limit: 2);
+
+                // A scheduled run tells you about findings the previous audit didn't have, only when the count rose
+                if (isScheduled && history.Count > 1)
+                {
+                    try
+                    {
+                        await PublishNewFindingAlertsAsync(result, history[1]);
+                    }
+                    catch (Exception newFindingsEx)
+                    {
+                        _logger.LogWarning(newFindingsEx, "Failed to check audit for new findings");
+                    }
+                }
+
                 var previousScore = history.Count > 1 ? (int)history[1].ComplianceScore : (int?)null;
                 if (previousScore.HasValue && result.Score < previousScore.Value)
                 {
@@ -700,6 +714,49 @@ public class AuditService : IAuditScanService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to publish audit alert events");
+        }
+    }
+
+    /// <summary>
+    /// Publish audit.new_info_findings (Info) and audit.new_recommendations (Warning) when a scheduled run
+    /// has more active findings at that severity than the audit before it.
+    /// </summary>
+    private async Task PublishNewFindingAlertsAsync(AuditResult result, StorageAuditResult previousAudit)
+    {
+        if (_alertEventBus == null || string.IsNullOrEmpty(previousAudit.FindingsJson))
+            return;
+
+        var previousIssues = JsonSerializer.Deserialize<List<AuditIssue>>(
+            previousAudit.FindingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+
+        foreach (var (severity, eventType, alertSeverity, singular, plural) in new[]
+        {
+            (AuditModels.AuditSeverity.Recommended, "audit.new_recommendations", AlertSeverity.Warning, "recommendation", "recommendations"),
+            (AuditModels.AuditSeverity.Informational, "audit.new_info_findings", AlertSeverity.Info, "Info finding", "Info findings")
+        })
+        {
+            var delta = AuditFindingDelta.Compare(previousIssues, result.Issues, severity, IsIssueDismissed);
+            if (!delta.Increased)
+                continue;
+
+            await _alertEventBus.PublishAsync(new AlertEvent
+            {
+                EventType = eventType,
+                SiteSlug = _siteContext.IsDefault ? null : _siteContext.Slug,
+                Severity = alertSeverity,
+                Source = "audit",
+                Title = AuditFindingDelta.BuildTitle(singular, plural, delta),
+                Message = AuditFindingDelta.BuildMessage(delta),
+                MetricValue = delta.CurrentCount,
+                ThresholdValue = delta.PreviousCount,
+                SourceUrl = "/audit",
+                Context = new Dictionary<string, string>
+                {
+                    ["previousCount"] = delta.PreviousCount.ToString(),
+                    ["currentCount"] = delta.CurrentCount.ToString(),
+                    ["added"] = delta.Added.ToString()
+                }
+            });
         }
     }
 
@@ -1517,7 +1574,7 @@ public class AuditService : IAuditScanService
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
 
             // Publish alert events for audit results
-            await PublishAuditAlertsAsync(webResult);
+            await PublishAuditAlertsAsync(webResult, options.IsScheduled);
 
             return webResult;
         }

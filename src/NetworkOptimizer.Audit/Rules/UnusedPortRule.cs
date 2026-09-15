@@ -109,6 +109,6 @@ public class UnusedPortRule : AuditRuleBase
                 { "configurable_setting", "Configure the grace period before flagging disconnected ports in Settings." }
             },
             "Disable unused ports to reduce attack surface. " +
-            "In UniFi, set the port to 'Disabled' to prevent unauthorized device connections.");
+            "In UniFi Network - Ports, set the port to 'Disabled' to prevent unauthorized device connections.");
     }
 }

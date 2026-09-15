@@ -106,11 +106,17 @@ public class PortLockRule : AuditRuleBase
                 overrideScoreImpact: 0);
         }
 
+        // An AP or switch downlink carries its clients' MACs too, which the lock does not block
+        var recommendation = IsNetworkFabricDevice(port.ConnectedDeviceType)
+            ? "In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
+              $"A different device plugged into this port in its place is blocked; clients connected through {device} are not affected."
+            : $"Only {device} has used this port. In UniFi Network - Ports, open this port and enable Lock Port to UniFi Device. " +
+              "A different device plugged into this port in its place is blocked, with no MAC list to maintain.";
+
         return CreateIssue(
             $"Port should be locked to {device} with Lock Port to UniFi Device",
             port,
             metadata,
-            $"Only {device} has used this port. In UniFi Network - Ports, open this port and enable " +
-            "Lock Port to UniFi Device. Anything else plugged in is blocked, with no MAC list to maintain.");
+            recommendation);
     }
 }
