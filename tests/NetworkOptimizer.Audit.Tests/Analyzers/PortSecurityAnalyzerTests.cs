@@ -484,6 +484,34 @@ public class PortSecurityAnalyzerTests
     }
 
     [Fact]
+    public void ExtractSwitches_ProfiledApPort_RaisesInformationalPortLockOnly()
+    {
+        // End to end from raw port_table: an AP on a profiled trunk gets the lock offered, nothing scored
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"", ""name"": ""Switch"", ""mac"": ""00:11:22:33:44:55"", ""version"": ""7.6.2.17186"",
+                ""switch_caps"": { ""max_custom_mac_acls"": 256 },
+                ""port_table"": [
+                    { ""port_idx"": 3, ""up"": true, ""forward"": ""all"", ""portconf_id"": ""prof-trunk"" }
+                ]
+            },
+            {
+                ""type"": ""uap"", ""name"": ""AP"", ""mac"": ""aa:bb:cc:dd:ee:10"",
+                ""uplink"": { ""uplink_mac"": ""00:11:22:33:44:55"", ""uplink_remote_port"": 3 }
+            }
+        ]").RootElement;
+        var profiles = new List<UniFiPortProfile> { new() { Id = "prof-trunk", Name = "AP Trunk", Forward = "all" } };
+
+        var switches = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), null, null, profiles);
+        var issues = _engine.AnalyzePorts(switches, new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock)
+            .Which.Severity.Should().Be(AuditSeverity.Informational);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
     public void AnalyzePorts_SharedProtectDevicePort_RaisesOnlyMacRestriction()
     {
         // A shared unrestricted port keeps a scored issue, from the MAC rule, and no lock issue

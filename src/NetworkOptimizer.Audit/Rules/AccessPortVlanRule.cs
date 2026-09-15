@@ -275,25 +275,6 @@ public class AccessPortVlanRule : AuditRuleBase
     }
 
     /// <summary>
-    /// Check if the device type is network fabric (gateway, AP, switch, bridge).
-    /// These devices legitimately need trunk ports with multiple VLANs.
-    /// </summary>
-    private static bool IsNetworkFabricDevice(string? deviceType)
-    {
-        if (string.IsNullOrEmpty(deviceType))
-            return false;
-
-        return deviceType.ToLowerInvariant() switch
-        {
-            "ugw" or "usg" or "udm" or "uxg" or "ucg" => true,  // Gateways
-            "uap" => true,  // Access Points
-            "usw" => true,  // Switches
-            "ubb" => true,  // Building-to-Building Bridges
-            _ => false
-        };
-    }
-
-    /// <summary>
     /// Check if port has MAC restriction with exactly 1 entry, indicating a single-device access port.
     /// </summary>
     private static bool HasSingleDeviceMacRestriction(PortInfo port)

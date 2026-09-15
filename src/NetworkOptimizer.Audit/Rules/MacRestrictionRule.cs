@@ -29,9 +29,7 @@ public class MacRestrictionRule : AuditRuleBase
             return null;
 
         // Check if this is an access port (native or custom with native network set)
-        var isAccessPort = port.ForwardMode == "native" ||
-                           (port.ForwardMode == "custom" && !string.IsNullOrEmpty(port.NativeNetworkId));
-        if (!isAccessPort)
+        if (!IsAccessPort(port))
             return null;
 
         // Skip infrastructure ports
@@ -177,23 +175,4 @@ public class MacRestrictionRule : AuditRuleBase
             recommendation);
     }
 
-    /// <summary>
-    /// Check if the device type is network fabric (gateway, AP, switch, bridge) that shouldn't get MAC restriction recommendations.
-    /// Modems, NVRs, Cloud Keys are endpoints and SHOULD get recommendations.
-    /// </summary>
-    private static bool IsNetworkFabricDevice(string? deviceType)
-    {
-        if (string.IsNullOrEmpty(deviceType))
-            return false;
-
-        // Only network fabric devices - the ones that carry LAN traffic
-        return deviceType.ToLowerInvariant() switch
-        {
-            "ugw" or "usg" or "udm" or "uxg" or "ucg" => true,  // Gateways
-            "uap" => true,  // Access Points
-            "usw" => true,  // Switches
-            "ubb" => true,  // Building-to-Building Bridges
-            _ => false
-        };
-    }
 }

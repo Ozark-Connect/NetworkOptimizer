@@ -188,13 +188,73 @@ public class PortLockRuleTests
         _rule.Evaluate(port, []).Should().BeNull();
     }
 
-    [Fact]
-    public void Evaluate_AnyPortProfileAssigned_ReturnsNull()
+    [Theory]
+    [InlineData("all", "uap")]        // AP on a trunk profile
+    [InlineData("custom", "uap")]     // AP on a custom profile with a native network (access port shape)
+    [InlineData("all", "usw")]        // downstream switch
+    [InlineData("all", "umbb")]       // endpoint UniFi device, but on a trunk the MAC rule never covers
+    public void Evaluate_ProfiledPortOutsideMacRule_ReturnsInformationalNamingProfile(string forwardMode, string deviceType)
     {
-        // UniFi does not let the lock coexist with an Ethernet Port Profile (PortLockSupport.LockCoexistsWithPortProfile)
-        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap", portProfileId: "prof-trunk");
+        // The profile blocks the lock, and nothing else suggests port security here
+        var port = CreatePort(forwardMode: forwardMode, nativeNetworkId: "net-1", connectedDeviceType: deviceType, portProfileId: "prof-trunk");
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("PORT-LOCK-001");
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(0);
+        result.Message.Should().EndWith("Lock Port to UniFi Device is available if its Ethernet Port Profile is removed");
+        result.RecommendedAction.Should().Be(
+            "UniFi does not allow Lock Port to UniFi Device on a port with an Ethernet Port Profile. " +
+            "If you prefer the lock, remove the profile from this port in Port Manager and enable Lock Port to UniFi Device.");
+    }
+
+    [Fact]
+    public void Evaluate_ProfiledUplinkPort_ReturnsNull()
+    {
+        // Uplinks cannot take the lock, so their profile is never questioned
+        var port = CreatePort(forwardMode: "all", isUplink: true, connectedDeviceType: "usw", portProfileId: "prof-uplink");
 
         _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProfiledAccessPortWithEndpointDevice_ReturnsNull()
+    {
+        // MacRestrictionRule carries this port with its remove-the-profile copy
+        var port = CreatePort(forwardMode: "native", client: ProtectClient(), portProfileId: "prof-camera");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProfiledAndMacRestricted_ReturnsNull()
+    {
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap", portProfileId: "prof-trunk",
+            portSecurityEnabled: true, allowedMacs: ["aa:bb:cc:dd:ee:ff"]);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProfiledApPort_OldFirmware_ReturnsNull()
+    {
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap", portProfileId: "prof-trunk", firmwareVersion: "7.5.15.17146");
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ApPortNoProfile_ReturnsRecommended()
+    {
+        var port = CreatePort(forwardMode: "all", connectedDeviceType: "uap");
+
+        var result = _rule.Evaluate(port, []);
+
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+        result.Message.Should().Be("Port should be locked to the connected UniFi access point with Lock Port to UniFi Device");
     }
 
     [Fact]

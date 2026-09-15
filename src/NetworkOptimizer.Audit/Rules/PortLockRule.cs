@@ -7,11 +7,12 @@ namespace NetworkOptimizer.Audit.Rules;
 /// Lock Port to UniFi Device (UniFi Network 10.6.101+, switch firmware 7.6.2+) ties the port
 /// to one UniFi device - Network, Protect, or any other UniFi app - so it is the fit for
 /// infrastructure ports where MAC restriction is the wrong tool. Trunk ports count: an AP
-/// downlink is the lock's main use. Silent when the versions are not met, an Ethernet Port
-/// Profile blocks the lock, or the port is a LAG; MacRestrictionRule covers those ports. Also silent on a port several
-/// clients used in the shared-port window, where MacRestrictionRule carries the issue and the score.
-/// A port already MAC-restricted to a single UniFi device gets an Informational issue (no score
-/// impact) offering the lock as the alternative.
+/// downlink is the lock's main use. Silent when the versions are not met or the port is a LAG;
+/// MacRestrictionRule covers those ports. Also silent on a port several clients used in the
+/// shared-port window, where MacRestrictionRule carries the issue and the score.
+/// Informational (no score impact): a port already MAC-restricted to a single UniFi device, offering
+/// the lock as the alternative, and a profiled port MacRestrictionRule does not cover (a fabric device
+/// or a trunk), offering the lock if the profile is removed.
 /// </summary>
 public class PortLockRule : AuditRuleBase
 {
@@ -27,6 +28,7 @@ public class PortLockRule : AuditRuleBase
         if (!port.IsUp)
             return null;
 
+        // UniFi offers the lock on downlinks only; an uplink keeps its Ethernet Port Profile
         if (port.ForwardMode == "disabled" || port.IsUplink || port.IsWan || port.IsMirrorDestination)
             return null;
 
@@ -44,13 +46,15 @@ public class PortLockRule : AuditRuleBase
         if (HasIntentionalUnrestrictedProfile(port))
             return null;
 
-        // Versions met, no Ethernet Port Profile in the way, and not a LAG
-        if (!IsPortLockAvailable(port))
+        // Versions met and not a LAG. A profile is handled below: it blocks the lock but not the suggestion.
+        if (!IsPortLockSupported(port) || port.IsLagParent)
             return null;
 
         // Several clients used the port recently: a lock would block the others. MacRestrictionRule owns it.
         if (port.IsSharedPort)
             return null;
+
+        var blockedByProfile = IsPortLockBlockedByProfile(port);
 
         var device = DescribeUniFiDevice(port);
         var network = GetNetwork(port.NativeNetworkId, networks);
@@ -65,7 +69,7 @@ public class PortLockRule : AuditRuleBase
         // except where the list admits several devices; a lock would block the others.
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))
         {
-            if ((port.AllowedMacAddresses?.Count ?? 0) > 1)
+            if ((port.AllowedMacAddresses?.Count ?? 0) > 1 || blockedByProfile)
                 return null;
 
             return CreateIssue(
@@ -75,6 +79,24 @@ public class PortLockRule : AuditRuleBase
                 $"This port already restricts by MAC address. Lock Port to UniFi Device ties the port to {device} " +
                 "as a single port setting instead of a MAC list. If you prefer it, enable Lock Port to UniFi Device " +
                 "on this port in Port Manager.",
+                overrideSeverity: AuditSeverity.Informational,
+                overrideScoreImpact: 0);
+        }
+
+        // A profile blocks the lock. MacRestrictionRule already covers an endpoint on an access port; an AP,
+        // switch, bridge, or gateway, or any trunk, has no other port security suggestion, so offer the lock
+        // as an option. Info only: the profile is a legitimate choice for same-role ports.
+        if (blockedByProfile)
+        {
+            if (IsAccessPort(port) && !IsNetworkFabricDevice(port.ConnectedDeviceType))
+                return null;
+
+            return CreateIssue(
+                $"Port carries {device}; Lock Port to UniFi Device is available if its Ethernet Port Profile is removed",
+                port,
+                metadata,
+                "UniFi does not allow Lock Port to UniFi Device on a port with an Ethernet Port Profile. " +
+                "If you prefer the lock, remove the profile from this port in Port Manager and enable Lock Port to UniFi Device.",
                 overrideSeverity: AuditSeverity.Informational,
                 overrideScoreImpact: 0);
         }
