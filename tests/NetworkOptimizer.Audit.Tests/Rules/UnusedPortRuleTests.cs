@@ -244,6 +244,25 @@ public class UnusedPortRuleTests
         result.Message.Should().Contain("disabled");
     }
 
+    [Theory]
+    [InlineData("10.5.120", "Unused port should be set to Disabled or disabled via an Ethernet Port Profile in UniFi Network")]
+    [InlineData("10.6.106", "Unused port should be set to Disabled or disabled via a Port Profile in UniFi Network")]
+    [InlineData(null, "Unused port should be set to Disabled or disabled via a Port Profile in UniFi Network")]
+    public void Evaluate_UnusedPort_UsesProfileNameForVersion(string? appVersion, string expected)
+    {
+        // UniFi Network 10.6 renamed Ethernet Port Profiles to Port Profiles; an unknown version gets the new name
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(portName: null, isUp: false, forwardMode: "native");
+
+        var result = _rule.Evaluate(port, CreateNetworkList());
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Be(expected);
+        result.RecommendedAction.Should().Be(
+            "Disable unused ports to reduce attack surface. " +
+            "In UniFi Network - Ports, set the port to 'Disabled' to prevent unauthorized device connections.");
+    }
+
     [Fact]
     public void Evaluate_DefaultNamedPortDownNotDisabled_ReturnsIssue()
     {

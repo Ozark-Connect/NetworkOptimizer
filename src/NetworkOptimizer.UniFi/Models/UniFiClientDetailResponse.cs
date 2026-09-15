@@ -38,6 +38,20 @@ public class UniFiClientDetailResponse
     [JsonPropertyName("status")]
     public string? Status { get; set; }  // "online", "offline"
 
+    /// <summary>
+    /// Whether this console's UniFi apps own the device (a Protect camera adopted here, a UNAS in Drive).
+    /// A separate UniFi OS console on the LAN, such as a CloudKey running its own apps, reads false even
+    /// though stat/sta gives it a product_line. Listed only when the request includes UniFi devices.
+    /// </summary>
+    [JsonPropertyName("unifi_device")]
+    public bool UnifiDevice { get; set; }
+
+    /// <summary>
+    /// Connection tags, e.g. "connected_unifi_client", "connected_unifi_protect_client", "connected_wired_client".
+    /// </summary>
+    [JsonPropertyName("tags")]
+    public List<string>? Tags { get; set; }
+
     [JsonPropertyName("is_wired")]
     public bool IsWired { get; set; }
 

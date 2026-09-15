@@ -69,6 +69,18 @@ public class AuditRequest
     public List<UniFiPortProfile>? PortProfiles { get; init; }
 
     /// <summary>
+    /// Optional: MACs of clients this console's UniFi apps own, from the v2 client list with UniFi devices
+    /// included (unifi_device). Null when unavailable; a client's product_line decides instead.
+    /// </summary>
+    public IReadOnlyCollection<string>? UniFiDeviceClientMacs { get; init; }
+
+    /// <summary>
+    /// Optional: UniFi Network application version (from stat/sysinfo), e.g. "10.6.106".
+    /// Gates rules that need a minimum application version (Lock Port to UniFi Device).
+    /// </summary>
+    public string? NetworkApplicationVersion { get; init; }
+
+    /// <summary>
     /// Optional: Client name for display purposes
     /// </summary>
     public string? ClientName { get; init; }

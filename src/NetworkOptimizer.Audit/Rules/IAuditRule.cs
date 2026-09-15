@@ -120,6 +120,123 @@ public abstract class AuditRuleBase : IAuditRule
         ProtectCameras = cameras;
     }
 
+    /// <summary>
+    /// UniFi Network application version (e.g., "10.6.106"). Null when unknown.
+    /// </summary>
+    protected string? NetworkApplicationVersion { get; private set; }
+
+    /// <summary>
+    /// Set the UniFi Network application version for version-gated recommendations
+    /// </summary>
+    public void SetNetworkApplicationVersion(string? version)
+    {
+        NetworkApplicationVersion = version;
+    }
+
+    /// <summary>
+    /// Whether issue text names UniFi Network 10.6+ port settings (Port Profile, Port Security, MAC Address Filter)
+    /// rather than the older ones (Ethernet Port Profile, Restricted, allowed list).
+    /// </summary>
+    protected bool UsesPortSecurityNames => PortLockSupport.UsesPortSecurityNames(NetworkApplicationVersion);
+
+    /// <summary>
+    /// Whether this port could ever take Lock Port to UniFi Device: it is on a UniFi switch and is not a LAG.
+    /// Independent of versions, so copy can tell "upgrade to get it" from "never offered here".
+    /// </summary>
+    protected static bool CanPortEverLock(PortInfo port) =>
+        PortLockSupport.SupportsDeviceType(port.Switch.Type) && !port.IsLagParent;
+
+    /// <summary>
+    /// Whether the port is on a UniFi switch and the application and switch firmware both meet the
+    /// minimum versions for Lock Port to UniFi Device.
+    /// </summary>
+    protected bool IsPortLockSupported(PortInfo port) =>
+        PortLockSupport.SupportsDeviceType(port.Switch.Type) &&
+        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
+
+    /// <summary>
+    /// Whether an assigned Port Profile stops this port from taking the lock.
+    /// </summary>
+    protected static bool IsPortLockBlockedByProfile(PortInfo port) =>
+        !PortLockSupport.CanLockWithProfile(port.PortProfileId);
+
+    /// <summary>
+    /// Whether Lock Port to UniFi Device can be recommended for this port: versions are met,
+    /// no profile stands in the way, and the port is not a LAG (UniFi does not offer the lock on one).
+    /// </summary>
+    protected bool IsPortLockAvailable(PortInfo port) =>
+        IsPortLockSupported(port) && !IsPortLockBlockedByProfile(port) && !port.IsLagParent;
+
+    /// <summary>
+    /// Check if the device type is network fabric (gateway, AP, switch, bridge): it carries LAN traffic, so it
+    /// legitimately needs trunk ports with multiple VLANs and shouldn't get MAC restriction recommendations.
+    /// Modems, NVRs, Cloud Keys are endpoints and SHOULD get recommendations.
+    /// </summary>
+    protected static bool IsNetworkFabricDevice(string? deviceType)
+    {
+        if (string.IsNullOrEmpty(deviceType))
+            return false;
+
+        // Only network fabric devices - the ones that carry LAN traffic
+        return deviceType.ToLowerInvariant() switch
+        {
+            "ugw" or "usg" or "udm" or "uxg" or "ucg" => true,  // Gateways
+            "uap" => true,  // Access Points
+            "usw" => true,  // Switches
+            "ubb" => true,  // Building-to-Building Bridges
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Whether the port is an access port: native, or custom with a native network set.
+    /// </summary>
+    protected static bool IsAccessPort(PortInfo port) =>
+        port.ForwardMode == "native" ||
+        (port.ForwardMode == "custom" && !string.IsNullOrEmpty(port.NativeNetworkId));
+
+    /// <summary>
+    /// Describe the UniFi device on a port for issue copy: the client name plus its UniFi
+    /// app when known ("AI Key (UniFi Protect)"), otherwise the uplink-table device's name and role
+    /// ("[AP] Back Yard (UniFi Access Point)"), or the role alone when unnamed.
+    /// </summary>
+    protected static string DescribeUniFiDevice(PortInfo port)
+    {
+        var client = port.ConnectedClient;
+        var clientName = client?.Name ?? client?.Hostname;
+        if (!string.IsNullOrEmpty(clientName))
+        {
+            var app = client!.UniFiProductLine switch
+            {
+                "protect" => "UniFi Protect",
+                "network" => "UniFi Network",
+                "access" => "UniFi Access",
+                "talk" => "UniFi Talk",
+                "connect" => "UniFi Connect",
+                "drive" => "UniFi Drive",
+                "play" => "UniFi Play",
+                _ => null
+            };
+            return app == null ? clientName : $"{clientName} ({app})";
+        }
+
+        var role = port.ConnectedDeviceType?.ToLowerInvariant() switch
+        {
+            "uap" => "Access Point",
+            "usw" => "Switch",
+            "ubb" => "Bridge",
+            "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
+            "umbb" => "Modem",
+            "uck" or "uas" => "Cloud Key",
+            "usp" => "Power Device",
+            "unas" => "NAS",
+            _ => "Device"
+        };
+        return string.IsNullOrEmpty(port.ConnectedDeviceName)
+            ? $"the connected UniFi {role}"
+            : $"{port.ConnectedDeviceName} (UniFi {role})";
+    }
+
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);
 
     /// <summary>
@@ -327,7 +444,7 @@ public abstract class AuditRuleBase : IAuditRule
 
     /// <summary>
     /// Get the best available device name for a port, checking multiple sources.
-    /// Priority: ConnectedClient > HistoricalClient > Detection ProductName > ModelName > Custom port name > Port number
+    /// Priority: ConnectedClient > ConnectedDeviceName > HistoricalClient > Detection ProductName > ModelName > Custom port name > Port number
     /// </summary>
     private string GetBestDeviceName(PortInfo port)
     {
@@ -337,6 +454,10 @@ public abstract class AuditRuleBase : IAuditRule
             port.ConnectedClient?.Hostname);
         if (!string.IsNullOrEmpty(clientName))
             return $"{clientName} on {port.Switch.Name}";
+
+        // 1b. A UniFi device uplinked into this port (AP, switch) is not a client, so without this its port label wins
+        if (!string.IsNullOrEmpty(port.ConnectedDeviceName))
+            return $"{port.ConnectedDeviceName} on {port.Switch.Name}";
 
         // 2. Try historical client name (for devices that were connected before)
         var historicalName = GetFirstNonEmpty(

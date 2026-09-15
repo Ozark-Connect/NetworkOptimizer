@@ -88,6 +88,7 @@ public class PortSecurityAnalyzer
             new IotVlanRule(),
             new CameraVlanRule(),
             new MacRestrictionRule(),
+            new PortLockRule(),
             new UnusedPortRule(),
             new PortIsolationRule(),
             new WiredSubnetMismatchRule(),
@@ -114,6 +115,29 @@ public class PortSecurityAnalyzer
     public void AddRule(IAuditRule rule)
     {
         _rules.Add(rule);
+    }
+
+    private HashSet<string>? _unifiDeviceClientMacs;
+
+    /// <summary>
+    /// Set the MACs of clients this console's UniFi apps own (v2 clients with unifi_device). Null when that
+    /// list is unavailable, so a client's product_line decides instead.
+    /// </summary>
+    public void SetUniFiDeviceClientMacs(IEnumerable<string>? macs)
+    {
+        _unifiDeviceClientMacs = macs == null ? null : new HashSet<string>(macs, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Set the UniFi Network application version on all rules (version-gated recommendations)
+    /// </summary>
+    public void SetNetworkApplicationVersion(string? version)
+    {
+        foreach (var rule in _rules.OfType<AuditRuleBase>())
+        {
+            rule.SetNetworkApplicationVersion(version);
+        }
+        _logger.LogDebug("UniFi Network application version for audit rules: {Version}", version ?? "(unknown)");
     }
 
     /// <summary>
@@ -189,11 +213,13 @@ public class PortSecurityAnalyzer
         {
             _logger.LogDebug("Built client history lookup with {Count} historical wired clients for port correlation", historyByPort.Count);
         }
+        var historyMacsByPort = BuildClientHistoryMacsByPort(clientHistory);
 
         // Collect all device MACs for uplink-based gateway detection
         // and build lookup for device uplinks (to identify which ports have APs/switches connected)
         var allDeviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceUplinkLookup = new Dictionary<(string SwitchMac, int PortIndex), string>();
+        var deviceNameByUplink = new Dictionary<(string SwitchMac, int PortIndex), string>();
         foreach (var device in deviceData.UnwrapDataArray())
         {
             var mac = device.GetStringOrNull("mac");
@@ -221,6 +247,9 @@ public class PortSecurityAnalyzer
                     if (!deviceUplinkLookup.ContainsKey(key))
                     {
                         deviceUplinkLookup[key] = deviceType;
+                        var deviceName = device.GetStringOrNull("name");
+                        if (!string.IsNullOrEmpty(deviceName))
+                            deviceNameByUplink[key] = deviceName;
                         _logger.LogDebug("Device uplink: {DeviceType} connected to {SwitchMac} port {Port}",
                             deviceType, uplinkMac, uplinkPort.Value);
                     }
@@ -249,9 +278,18 @@ public class PortSecurityAnalyzer
                 continue;
             }
 
-            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup, historyMacsByPort);
             if (switchInfo != null)
             {
+                if (!string.IsNullOrEmpty(switchInfo.MacAddress))
+                {
+                    foreach (var port in switchInfo.Ports)
+                    {
+                        if (deviceNameByUplink.TryGetValue((switchInfo.MacAddress.ToLowerInvariant(), port.PortIndex), out var connectedName))
+                            port.ConnectedDeviceName = connectedName;
+                    }
+                }
+
                 switches.Add(switchInfo);
                 var clientCount = switchInfo.Ports.Count(p => p.ConnectedClient != null);
                 var historyCount = switchInfo.Ports.Count(p => p.HistoricalClient != null);
@@ -334,6 +372,42 @@ public class PortSecurityAnalyzer
     }
 
     /// <summary>
+    /// How far back a client sighting counts toward a port being shared. A device unplugged
+    /// longer than this says nothing about what the port is for today.
+    /// </summary>
+    public const int SharedPortWindowDays = 7;
+
+    private static long SharedPortCutoff() =>
+        DateTimeOffset.UtcNow.AddDays(-SharedPortWindowDays).ToUnixTimeSeconds();
+
+    /// <summary>
+    /// Every distinct client MAC the history shows per switch port within the shared-port
+    /// window, for telling single-device ports from shared ones.
+    /// </summary>
+    private static Dictionary<(string, int), HashSet<string>> BuildClientHistoryMacsByPort(List<UniFiClientDetailResponse>? clientHistory)
+    {
+        var lookup = new Dictionary<(string, int), HashSet<string>>();
+        if (clientHistory == null)
+            return lookup;
+
+        var cutoff = SharedPortCutoff();
+        foreach (var client in clientHistory)
+        {
+            if (string.IsNullOrEmpty(client.LastUplinkMac) || !client.LastUplinkRemotePort.HasValue || string.IsNullOrEmpty(client.Mac))
+                continue;
+            if (client.LastSeen < cutoff)
+                continue;
+
+            var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
+            if (!lookup.TryGetValue(key, out var macs))
+                lookup[key] = macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            macs.Add(client.Mac);
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
     /// Parse a single switch from JSON
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
@@ -355,7 +429,8 @@ public class PortSecurityAnalyzer
         Dictionary<(string, int), UniFiClientDetailResponse> historyByPort,
         Dictionary<string, UniFiPortProfile> portProfiles,
         HashSet<string>? allDeviceMacs = null,
-        Dictionary<(string, int), string>? deviceUplinkLookup = null)
+        Dictionary<(string, int), string>? deviceUplinkLookup = null,
+        Dictionary<(string, int), HashSet<string>>? historyMacsByPort = null)
     {
         var deviceType = device.GetStringOrNull("type");
         var (isGateway, isAccessPoint) = DetermineDeviceRole(device, deviceType, allDeviceMacs);
@@ -367,6 +442,7 @@ public class PortSecurityAnalyzer
         var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname);
         var isPowerDevice = NetworkOptimizer.UniFi.UniFiProductDatabase.IsPowerDevice(model, shortname);
         var ip = device.GetStringOrNull("ip");
+        var firmwareVersion = device.GetStringOrNull("version");
         var capabilities = ParseSwitchCapabilities(device);
 
         // Extract DNS configuration from config_network
@@ -388,6 +464,7 @@ public class PortSecurityAnalyzer
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            FirmwareVersion = firmwareVersion,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
@@ -417,7 +494,7 @@ public class PortSecurityAnalyzer
 
         var rawPorts = device.GetArrayOrEmpty("port_table").ToList();
         var ports = rawPorts
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames, historyMacsByPort))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -432,6 +509,7 @@ public class PortSecurityAnalyzer
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            FirmwareVersion = firmwareVersion,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
@@ -528,7 +606,8 @@ public class PortSecurityAnalyzer
         Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort,
         Dictionary<string, UniFiPortProfile>? portProfiles,
         Dictionary<(string, int), string>? deviceUplinkLookup,
-        HashSet<string>? wanIfnames = null)
+        HashSet<string>? wanIfnames = null,
+        Dictionary<(string, int), HashSet<string>>? historyMacsByPort = null)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -676,6 +755,14 @@ public class PortSecurityAnalyzer
             deviceUplinkLookup.TryGetValue(uplinkKey, out connectedDeviceType);
         }
 
+        // Every distinct client MAC this port has carried within the shared-port window: now, last, and history
+        var seenMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(connectedClient?.Mac)) seenMacs.Add(connectedClient.Mac);
+        if (!string.IsNullOrEmpty(lastConnectionMac) && (lastConnectionSeen ?? 0) >= SharedPortCutoff()) seenMacs.Add(lastConnectionMac);
+        if (historyMacsByPort != null && !string.IsNullOrEmpty(switchInfo.MacAddress) &&
+            historyMacsByPort.TryGetValue((switchInfo.MacAddress.ToLowerInvariant(), portIdx), out var historyMacs))
+            seenMacs.UnionWith(historyMacs);
+
         return new PortInfo
         {
             PortIndex = portIdx,
@@ -692,6 +779,7 @@ public class PortSecurityAnalyzer
             ExcludedNetworkIds = excludedNetworkIds,
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacAddresses,
+            LockedToDeviceMac = port.GetStringOrNull("trusted_port_mac"),
             IsolationEnabled = isolationEnabled,
             Dot1xCtrl = assignedProfile?.Dot1xCtrl,
             PoeEnabled = poeEnable || portPoe,
@@ -700,11 +788,16 @@ public class PortSecurityAnalyzer
             SupportsPoe = portPoe || !string.IsNullOrEmpty(poeMode),
             Switch = switchInfo,
             ConnectedClient = connectedClient,
+            ConnectedClientIsUniFiDevice = connectedClient == null || _unifiDeviceClientMacs == null
+                ? null
+                : _unifiDeviceClientMacs.Contains(connectedClient.Mac),
             LastConnectionMac = lastConnectionMac,
             LastConnectionSeen = lastConnectionSeen,
             HistoricalClient = historicalClient,
+            SeenDeviceMacs = seenMacs,
             ConnectedDeviceType = connectedDeviceType,
             AssignedPortProfile = assignedProfile,
+            PortProfileId = portconfId,
             IsLagChild = isLagChild
         };
     }
@@ -832,6 +925,13 @@ public class PortSecurityAnalyzer
             measures.Add($"MAC restrictions configured on {macRestrictedPorts} access ports");
         }
 
+        // Check for Lock Port to UniFi Device
+        var lockedPorts = switches.Sum(s => s.Ports.Count(p => p.IsPortLocked));
+        if (lockedPorts > 0)
+        {
+            measures.Add($"Lock Port to UniFi Device enabled on {lockedPorts} ports");
+        }
+
         // Check for 802.1X authentication (only active access ports - disabled/trunk/uplink ports are irrelevant)
         var dot1xPorts = switches.Sum(s => s.Ports.Count(p =>
             p.IsDot1xSecured && p.IsUp && p.ForwardMode == "native" && !p.IsUplink && !p.IsWan));
@@ -885,9 +985,10 @@ public class PortSecurityAnalyzer
         stats.ActivePorts = switches.Sum(s => s.Ports.Count(p => p.IsUp));
         stats.MacRestrictedPorts = switches.Sum(s => s.Ports.Count(p => p.AllowedMacAddresses?.Any() ?? false));
         stats.PortSecurityEnabledPorts = switches.Sum(s => s.Ports.Count(p => p.PortSecurityEnabled));
+        stats.LockedPorts = switches.Sum(s => s.Ports.Count(p => p.IsPortLocked));
         stats.IsolatedPorts = switches.Sum(s => s.Ports.Count(p => p.IsolationEnabled));
 
-        // Calculate unprotected active ports (exclude 802.1X-secured ports)
+        // Calculate unprotected active ports (exclude 802.1X-secured and locked ports)
         stats.UnprotectedActivePorts = switches.Sum(s => s.Ports.Count(p =>
             p.IsUp &&
             p.ForwardMode == "native" &&
@@ -895,6 +996,7 @@ public class PortSecurityAnalyzer
             !p.IsWan &&
             !(p.AllowedMacAddresses?.Any() ?? false) &&
             !p.PortSecurityEnabled &&
+            !p.IsPortLocked &&
             !p.IsDot1xSecured));
 
         return stats;

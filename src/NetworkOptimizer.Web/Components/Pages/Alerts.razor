@@ -1844,6 +1844,8 @@
                         <div @onclick='() => SelectEventType("audit.completed")'><code>audit.completed</code> <span>Audit finished running</span></div>
                         <div @onclick='() => SelectEventType("audit.score_dropped")'><code>audit.score_dropped</code> <span>Security score decreased</span></div>
                         <div @onclick='() => SelectEventType("audit.critical_findings")'><code>audit.critical_findings</code> <span>Critical issues found</span></div>
+                        <div @onclick='() => SelectEventType("audit.new_recommendations")'><code>audit.new_recommendations</code> <span>More Recommended findings than the last audit</span></div>
+                        <div @onclick='() => SelectEventType("audit.new_info_findings")'><code>audit.new_info_findings</code> <span>More Info findings than the last audit</span></div>
                     </div>
                 </div>
                 <div>

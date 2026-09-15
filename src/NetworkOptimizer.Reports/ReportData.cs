@@ -292,7 +292,7 @@ public class SwitchDetail
     public int MacRestrictedPorts => Ports.Count(p => p.MacRestrictionCount > 0);
     public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based" or "multi_host") && p.Forward == "native" && p.IsUp && !p.IsUplink);
     public int UnprotectedActivePorts => Ports.Count(p =>
-        p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsUplink
+        p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsLocked && !p.IsUplink
         && p.Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"));
 }
 
@@ -319,6 +319,14 @@ public class PortDetail
     // Security
     public bool PortSecurityEnabled { get; set; }
     public List<string> PortSecurityMacs { get; set; } = new();
+
+    /// <summary>
+    /// MAC of the UniFi device this port is locked to (Lock Port to UniFi Device). Null when not locked.
+    /// </summary>
+    public string? LockedToDeviceMac { get; set; }
+
+    public bool IsLocked => !string.IsNullOrEmpty(LockedToDeviceMac);
+
     public bool Isolation { get; set; }
 
     /// <summary>
@@ -337,7 +345,7 @@ public class PortDetail
 
     public string GetPoeStatus() => DisplayFormatters.GetPoeStatus(PoePower, PoeMode, PoeEnabled);
 
-    public string GetPortSecurityStatus() => DisplayFormatters.GetPortSecurityStatus(MacRestrictionCount, PortSecurityEnabled, Dot1xCtrl);
+    public string GetPortSecurityStatus() => DisplayFormatters.GetPortSecurityStatus(MacRestrictionCount, PortSecurityEnabled, Dot1xCtrl, IsLocked);
 
     public string GetIsolationStatus() => DisplayFormatters.GetIsolationStatus(Isolation);
 
@@ -370,7 +378,7 @@ public class PortDetail
         if (Forward == "native")
         {
             // Warning if no MAC restriction, no 802.1X, and device supports it
-            if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsUplink
+            if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsLocked && !IsUplink
                 && Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"))
                 return ("No MAC", PortStatusType.Warning);
             return ("OK", PortStatusType.Ok);
@@ -395,7 +403,9 @@ public class PortDetail
                 "ubb" => "Bridge",
                 "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
                 "umbb" => "Modem",
-                "uck" => "CloudKey",
+                "uck" or "uas" => "CloudKey",
+                "usp" => "Power",
+                "unas" => "NAS",
                 _ => "Device"  // Generic for unknown UniFi device types
             };
         }

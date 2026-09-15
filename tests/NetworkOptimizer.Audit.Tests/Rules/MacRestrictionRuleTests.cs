@@ -205,6 +205,227 @@ public class MacRestrictionRuleTests
 
     #endregion
 
+    #region Lock Port to UniFi Device
+
+    [Fact]
+    public void Evaluate_PortLocked_ReturnsNull()
+    {
+        // A lock is the restriction; no MAC list is wanted on top of it
+        var port = CreatePort(isUp: true, forwardMode: "native", lockedToDeviceMac: "aa:bb:cc:dd:ee:ff");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_UniFiDeviceClient_LockAvailable_ReturnsNull()
+    {
+        // PortLockRule owns this port when the versions allow the lock
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("10.5.120", "7.6.2.17186")]   // UniFi Network too old
+    [InlineData("10.6.106", "7.5.15.17146")]  // switch firmware too old
+    [InlineData(null, "7.6.2.17186")]         // application version unknown
+    public void Evaluate_UniFiDeviceClient_LockOutOfReach_ReturnsPlainMacCopyWithoutLock(string? appVersion, string firmware)
+    {
+        // The lock is never mentioned when the user cannot enable it
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: firmware);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.Message.Should().Be(ActiveMessageFor(appVersion));
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Fact]
+    public void Evaluate_UniFiDeviceClient_ProfileBlocksLock_ReturnsIssueNamingTheProfile()
+    {
+        // Versions allow the lock, but an assigned profile (not an intentional unrestricted one) blocks it
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var profile = new UniFiPortProfile { Id = "prof-1", Name = "Camera", Forward = "native", PortSecurityEnabled = false, TaggedVlanMgmt = "auto" };
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        // The lock needs 10.6.101+, so this copy always uses the 10.6 names
+        result!.Message.Should().Be("Port should use a MAC Address Filter for AI Key (UniFi Protect), or drop its Port Profile and use Lock Port to UniFi Device");
+        result.RecommendedAction.Should().EndWith(
+            "cannot be combined with a Port Profile. Either remove the profile and lock the port, or keep the profile and " +
+            "turn on Port Security with the device's MAC address in the MAC Address Filter.");
+    }
+
+    [Theory]
+    [InlineData("10.6.106")]   // lock available on this switch
+    [InlineData("10.5.120")]   // lock not available
+    public void Evaluate_UniFiDeviceClient_SharedPort_ReturnsPlainMacCopyWithoutLock(string appVersion)
+    {
+        // Several clients on the port: MAC restriction is the tool, the lock is not mentioned, and this rule keeps the score
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186",
+            seenMacs: ["aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(3);
+        result.Message.Should().Be(ActiveMessageFor(appVersion));
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Theory]
+    [InlineData("uxg", "6.0.5.35344")]
+    [InlineData("uap", "8.8.8.20113")]
+    public void Evaluate_UniFiDeviceOnGatewayOrApPort_ReturnsPlainMacCopy(string switchType, string firmware)
+    {
+        // The lock is USW only: no "upgrade to get it" copy on a device that never offers it
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), switchType: switchType, firmwareVersion: firmware);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Message.Should().Be(ActiveMessageFor("10.6.106"));
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Fact]
+    public void Evaluate_UniFiDeviceOnLag_ReturnsPlainMacCopy()
+    {
+        // Versions allow the lock, but a LAG never takes it: plain MAC restriction, no lock mention
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var lag = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186");
+        var port = new PortInfo
+        {
+            PortIndex = lag.PortIndex, Name = lag.Name, IsUp = true, ForwardMode = "native", OpMode = "aggregate",
+            ConnectedClient = lag.ConnectedClient, Switch = lag.Switch
+        };
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Message.Should().Be(ActiveMessageFor("10.6.106"));
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Fact]
+    public void Evaluate_EndpointDevice_LockAvailable_ReturnsNull()
+    {
+        // A non-fabric Network device (modem) defers to the lock rule too
+        _rule.SetNetworkApplicationVersion("10.6.106");
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedDeviceType: "umbb", firmwareVersion: "7.6.2.17186");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_UniFiDeviceClient_RecentlyUsedDownPort_KeepsInactiveVerbiage()
+    {
+        // The lock needs a live device; a down port gets the usual disable-or-restrict copy
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: "7.6.2.17186");
+        var downPort = new PortInfo
+        {
+            PortIndex = port.PortIndex, Name = port.Name, IsUp = false, ForwardMode = "native",
+            LastConnectionSeen = 1700000000, ConnectedClient = ProtectClient(), Switch = port.Switch
+        };
+
+        var result = _rule.Evaluate(downPort, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("Port is not in use");
+    }
+
+    private const string NewActiveMessage =
+        "Port should have Port Security enabled with a MAC Address Filter, directly or via a Port Profile in UniFi Network";
+    private const string OldActiveMessage =
+        "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network";
+
+    // UniFi Network 10.6 renamed the settings; an unknown version gets the new names
+    private static string ActiveMessageFor(string? appVersion) =>
+        appVersion != null && appVersion.StartsWith("10.5") ? OldActiveMessage : NewActiveMessage;
+
+    [Theory]
+    [InlineData("10.5.120", false)]
+    [InlineData("10.6.0", true)]
+    [InlineData("10.6.106", true)]
+    [InlineData(null, true)]
+    public void Evaluate_ActiveUnrestrictedPort_UsesSettingNamesForVersion(string? appVersion, bool newNames)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        if (newNames)
+        {
+            result!.Message.Should().Be(NewActiveMessage);
+            result.RecommendedAction.Should().Be(
+                "Enable Port Security to prevent unauthorized devices from connecting. " +
+                "In UniFi Network - Ports, turn on Port Security for this port and add the device's MAC address to the MAC Address Filter. " +
+                "If this port is intended to be used by multiple devices, create a Port Profile with Port Security disabled and assign it to this port.");
+        }
+        else
+        {
+            result!.Message.Should().Be(OldActiveMessage);
+            result.RecommendedAction.Should().Contain("set the port to 'Restricted'");
+        }
+    }
+
+    [Theory]
+    [InlineData("10.5.120", false)]
+    [InlineData("10.6.106", true)]
+    public void Evaluate_RecentlyUsedDownPort_UsesSettingNamesForVersion(string appVersion, bool newNames)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var up = CreatePort(isUp: true, forwardMode: "native");
+        var port = new PortInfo { PortIndex = 1, Name = "Port 1", IsUp = false, ForwardMode = "native", LastConnectionSeen = 1700000000, Switch = up.Switch };
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        if (newNames)
+        {
+            result!.Message.Should().Be("Port is not in use - disable it, or turn on Port Security if it's still needed");
+            result.RecommendedAction.Should().Be(
+                "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi Network - Ports to prevent unauthorized access. " +
+                "If it's still in use periodically, turn on Port Security and add the device's MAC address to the MAC Address Filter.");
+        }
+        else
+        {
+            result!.Message.Should().Be("Port is not in use - disable it, or add a MAC restriction if it's still needed");
+        }
+    }
+
+    private static UniFiClientResponse ProtectClient() => new()
+    {
+        Mac = "aa:bb:cc:dd:ee:ff",
+        Name = "AI Key",
+        IsWired = true,
+        ProductLine = "unifi-protect",
+        ProductModel = "AI Key"
+    };
+
+    #endregion
+
     #region Network Fabric Device Detection
 
     [Theory]
@@ -505,11 +726,18 @@ public class MacRestrictionRuleTests
         string? connectedDeviceType = null,
         UniFiPortProfile? assignedProfile = null,
         string? dot1xCtrl = null,
-        bool dot1xPortCtrlEnabled = false)
+        bool dot1xPortCtrlEnabled = false,
+        string? lockedToDeviceMac = null,
+        UniFiClientResponse? connectedClient = null,
+        string? firmwareVersion = null,
+        string[]? seenMacs = null,
+        string? switchType = "usw")
     {
         var switchInfo = new SwitchInfo
         {
             Name = switchName,
+            Type = switchType,
+            FirmwareVersion = firmwareVersion,
             Capabilities = new SwitchCapabilities
             {
                 MaxCustomMacAcls = maxMacAcls,
@@ -529,6 +757,10 @@ public class MacRestrictionRuleTests
             AllowedMacAddresses = allowedMacs,
             NativeNetworkId = nativeNetworkId,
             ConnectedDeviceType = connectedDeviceType,
+            ConnectedClient = connectedClient,
+            SeenDeviceMacs = new HashSet<string>(seenMacs ?? [], StringComparer.OrdinalIgnoreCase),
+            LockedToDeviceMac = lockedToDeviceMac,
+            PortProfileId = assignedProfile?.Id,
             Dot1xCtrl = dot1xCtrl,
             Switch = switchInfo,
             AssignedPortProfile = assignedProfile

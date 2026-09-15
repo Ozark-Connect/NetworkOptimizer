@@ -70,7 +70,7 @@
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_runPortProfileSuggestions" />
-                        <span>Ethernet Port Profile Suggestions</span>
+                        <span>Port Profile Suggestions</span>
                     </label>
                     <label class="checkbox-label" data-tour="performance-suggestions">
                         <input type="checkbox" @bind="_runPerformanceSuggestions" />
@@ -234,7 +234,7 @@
         </div>
         }
 
-        <!-- Ethernet Port Profile Suggestions -->
+        <!-- Port Profile Suggestions -->
         @if (_ranPortProfileSuggestions)
         {
             var portHasWarnings = _result.PortProfileSuggestions.Any(s => s.Severity == PortProfileSuggestionSeverity.Recommendation) || _result.PortProfile8021xIssues.Count > 0;
@@ -243,7 +243,7 @@
             <div class="card-header card-header-collapsible @(portHasWarnings ? "header-warning" : portHasInfo ? "header-info" : "")" @onclick="TogglePortProfileSection">
                 <div class="card-header-left">
                     <span class="issue-count-badge @(portHasWarnings ? "has-warnings" : portHasInfo ? "has-info" : "")">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
-                    <h2 class="card-title">Ethernet Port Profile Suggestions</h2>
+                    <h2 class="card-title">Port Profile Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_portProfileCollapsed ? "▼" : "▲")</span>
             </div>
@@ -714,9 +714,9 @@
         if (ports.Count == 0)
             return "None";
 
-        // Format as "DeviceName port X" for each port, limit to 5
+        // Format as "DeviceName port X" (with "(locked)" when locked) for each port, limit to 5
         var formatted = ports.Take(5)
-            .Select(p => $"{p.DeviceName} port {p.PortIndex}")
+            .Select(p => p.DisplayLabel)
             .ToList();
 
         var result = string.Join(", ", formatted);

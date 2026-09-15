@@ -72,6 +72,16 @@ public class PortReference
     /// Name of the currently assigned profile (null if no profile)
     /// </summary>
     public string? CurrentProfileName { get; set; }
+
+    /// <summary>
+    /// Whether the port uses Lock Port to UniFi Device. Shown as a "(locked)" suffix in port lists.
+    /// </summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>
+    /// "Switch 1 port 3", with " (locked)" when the port is locked to a UniFi device.
+    /// </summary>
+    public string DisplayLabel => $"{DeviceName} port {PortIndex}{(IsLocked ? " (locked)" : "")}";
 }
 
 /// <summary>

@@ -96,6 +96,34 @@ public class PortInfo
     public List<string>? AllowedMacAddresses { get; init; }
 
     /// <summary>
+    /// MAC of the UniFi device this port is locked to (Lock Port to UniFi Device).
+    /// From the port's trusted_port_mac field. Null when the port is not locked.
+    /// </summary>
+    public string? LockedToDeviceMac { get; init; }
+
+    /// <summary>
+    /// Whether the port is locked to a UniFi device (Lock Port to UniFi Device).
+    /// </summary>
+    public bool IsPortLocked => !string.IsNullOrEmpty(LockedToDeviceMac);
+
+    /// <summary>
+    /// Whether the device on this port is a UniFi device: any device in the stat/device uplink
+    /// table (Network gear, power devices), or a client a UniFi app owns (Protect, Network, Drive, ...).
+    /// Lock Port to UniFi Device locks to all of them.
+    /// </summary>
+    public bool HasUniFiDevice =>
+        !string.IsNullOrEmpty(ConnectedDeviceType) ||
+        (ConnectedClientIsUniFiDevice ?? ConnectedClient?.IsUniFiDevice ?? false);
+
+    /// <summary>
+    /// Whether this console's UniFi apps own the connected client, from the v2 client list's unifi_device.
+    /// A separate UniFi OS console (a CloudKey running its own apps) reads false even though stat/sta gives it
+    /// a product_line, and UniFi Network refuses to lock a port to it. Null when that list was unavailable,
+    /// in which case the client's product_line decides.
+    /// </summary>
+    public bool? ConnectedClientIsUniFiDevice { get; init; }
+
+    /// <summary>
     /// Whether port isolation is enabled
     /// </summary>
     public bool IsolationEnabled { get; init; }
@@ -150,11 +178,29 @@ public class PortInfo
     public UniFi.Models.UniFiClientDetailResponse? HistoricalClient { get; init; }
 
     /// <summary>
+    /// Distinct client MACs seen on this port within PortSecurityAnalyzer.SharedPortWindowDays:
+    /// the connected client, the last connection, and client-history entries. Tells single-device
+    /// ports from shared ones.
+    /// </summary>
+    public IReadOnlySet<string> SeenDeviceMacs { get; init; } = new HashSet<string>();
+
+    /// <summary>
+    /// Whether more than one distinct client has used this port within the shared-port window.
+    /// </summary>
+    public bool IsSharedPort => SeenDeviceMacs.Count > 1;
+
+    /// <summary>
     /// Type of UniFi device connected to this port (e.g., "uap" for AP, "usw" for switch).
     /// Determined by matching device uplink info to this port. Null for regular clients.
     /// May be propagated from a LAG child to the LAG parent during post-parse.
     /// </summary>
     public string? ConnectedDeviceType { get; set; }
+
+    /// <summary>
+    /// Name of the UniFi device connected to this port (e.g., "[AP] Back Yard"), from the same uplink
+    /// match as ConnectedDeviceType. Null for regular clients or an unnamed device.
+    /// </summary>
+    public string? ConnectedDeviceName { get; set; }
 
     /// <summary>
     /// 802.1X control mode from the assigned port profile.
@@ -175,6 +221,12 @@ public class PortInfo
     /// Used to detect intentional configurations like unrestricted access ports.
     /// </summary>
     public UniFiPortProfile? AssignedPortProfile { get; init; }
+
+    /// <summary>
+    /// Raw portconf_id of the assigned profile, kept even when the profile itself was not
+    /// resolved. A profile assignment blocks Lock Port to UniFi Device (see PortLockSupport).
+    /// </summary>
+    public string? PortProfileId { get; init; }
 
     /// <summary>
     /// Whether this port is a LAG (Link Aggregation Group) child port.

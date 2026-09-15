@@ -44,6 +44,7 @@ public static class IssueTypes
 
     // Port Security
     public const string MacRestriction = "MAC-RESTRICT-001";
+    public const string PortLock = "PORT-LOCK-001";
     public const string UnusedPort = "UNUSED-PORT-001";
     public const string PortIsolation = "PORT-ISOLATION-001";
     public const string AccessPortVlan = "ACCESS-VLAN-001";

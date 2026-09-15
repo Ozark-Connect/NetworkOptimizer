@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Audit;
 using NetworkOptimizer.Diagnostics.Models;
 using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.UniFi.Models;
@@ -11,6 +12,8 @@ namespace NetworkOptimizer.Diagnostics.Analyzers;
 /// - Trunk ports (existing analysis)
 /// - Disabled ports (new: suggest creating a common disabled port profile)
 /// - Unrestricted access ports (new: suggest creating a common access profile)
+/// Ports locked with Lock Port to UniFi Device stay out of every group while UniFi
+/// keeps the lock and profiles mutually exclusive (PortLockSupport.LockCoexistsWithPortProfile).
 /// </summary>
 public class PortProfileSuggestionAnalyzer
 {
@@ -70,7 +73,7 @@ public class PortProfileSuggestionAnalyzer
             string.Join(", ", vlanNetworks.Select(n => $"{n.Name} (VLAN {n.Vlan})")));
 
         // Collect all trunk ports with their effective configurations
-        var trunkPorts = CollectTrunkPorts(devices, profilesById, networksById, allNetworkIds);
+        var trunkPorts = CollectTrunkPorts(devices, profilesById, networksById, allNetworkIds, out var lockedTrunkPorts);
 
         // Analyze disabled ports for profile suggestions
         var disabledPortSuggestions = AnalyzeDisabledPorts(devices, profileList, networksById);
@@ -83,6 +86,43 @@ public class PortProfileSuggestionAnalyzer
         if (trunkPorts.Count == 0)
             return suggestions;
 
+        var trunkSuggestionsStart = suggestions.Count;
+        AnalyzeTrunkPorts(trunkPorts, profileList, networksById, allNetworkIds, suggestions);
+
+        // Locked trunk ports were held out of every group above; say so, or the reader
+        // wonders why the AP port next to these is missing from the list.
+        if (lockedTrunkPorts > 0)
+        {
+            var note = LockedPortsNote(lockedTrunkPorts);
+            for (var i = trunkSuggestionsStart; i < suggestions.Count; i++)
+                suggestions[i].Recommendation += " " + note;
+        }
+
+        return suggestions;
+    }
+
+    /// <summary>
+    /// Sentence appended to trunk suggestions when locked ports were excluded.
+    /// </summary>
+    internal static string LockedPortsNote(int lockedCount) =>
+        lockedCount == 1
+            ? "1 port using Lock Port to UniFi Device was left out: a Port Profile cannot be assigned to a locked port."
+            : $"{lockedCount} ports using Lock Port to UniFi Device were left out: a Port Profile cannot be assigned to a locked port.";
+
+    /// <summary>
+    /// Whether a port must stay out of profile suggestions because it is locked to a UniFi device
+    /// and UniFi does not let a profile and the lock coexist.
+    /// </summary>
+    private static bool IsExcludedByPortLock(SwitchPort port) =>
+        !PortLockSupport.LockCoexistsWithPortProfile && !string.IsNullOrEmpty(port.TrustedPortMac);
+
+    private void AnalyzeTrunkPorts(
+        List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> trunkPorts,
+        List<UniFiPortProfile> profileList,
+        Dictionary<string, UniFiNetworkConfig> networksById,
+        HashSet<string> allNetworkIds,
+        List<PortProfileSuggestion> suggestions)
+    {
         // Build profile signatures for matching
         var profileSignatures = BuildProfileSignatures(profileList, networksById, allNetworkIds);
 
@@ -617,17 +657,17 @@ public class PortProfileSuggestionAnalyzer
                 continue;
             }
         }
-
-        return suggestions;
     }
 
     private List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> CollectTrunkPorts(
         IEnumerable<UniFiDeviceResponse> devices,
         Dictionary<string, UniFiPortProfile> profilesById,
         Dictionary<string, UniFiNetworkConfig> networksById,
-        HashSet<string> allNetworkIds)
+        HashSet<string> allNetworkIds,
+        out int lockedTrunkPorts)
     {
         var trunkPorts = new List<(PortReference, PortConfigSignature, bool, int, bool)>();
+        lockedTrunkPorts = 0;
 
         foreach (var device in devices)
         {
@@ -639,6 +679,17 @@ public class PortProfileSuggestionAnalyzer
                 // Skip LAG child ports - their config is assimilated into the parent
                 if (port.AggregatedBy.HasValue)
                     continue;
+
+                if (IsExcludedByPortLock(port))
+                {
+                    var lockedProfile = !string.IsNullOrEmpty(port.PortConfId) && profilesById.TryGetValue(port.PortConfId, out var lp) ? lp : null;
+                    if (VlanAnalysisHelper.IsTrunkPort(VlanAnalysisHelper.GetEffectiveVlanSettings(port, null, lockedProfile)))
+                    {
+                        lockedTrunkPorts++;
+                        _logger?.LogDebug("Port {Device} port {Port} is locked to a UniFi device - excluded from profile suggestions", device.Name, port.PortIdx);
+                    }
+                    continue;
+                }
 
                 // Get profile if assigned
                 var profile = !string.IsNullOrEmpty(port.PortConfId) && profilesById.TryGetValue(port.PortConfId, out var p) ? p : null;
@@ -671,7 +722,8 @@ public class PortProfileSuggestionAnalyzer
                     PortIndex = port.PortIdx,
                     PortName = port.Name,
                     CurrentProfileId = port.PortConfId,
-                    CurrentProfileName = profile?.Name
+                    CurrentProfileName = profile?.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 // Capture port's PoE state, current speed, and autoneg setting
@@ -894,7 +946,7 @@ public class PortProfileSuggestionAnalyzer
         bool hasExistingUsage)
     {
         var portList = string.Join(", ",
-            portsWithoutProfile.Take(5).Select(p => $"{p.DeviceName} port {p.PortIndex}"));
+            portsWithoutProfile.Take(5).Select(p => p.DisplayLabel));
 
         if (portsWithoutProfile.Count > 5)
             portList += $" +{portsWithoutProfile.Count - 5} more";
@@ -960,8 +1012,8 @@ public class PortProfileSuggestionAnalyzer
                 if (port.AggregatedBy.HasValue)
                     continue;
 
-                // Skip ports that already have a profile
-                if (!string.IsNullOrEmpty(port.PortConfId))
+                // Skip ports that already have a profile, or that cannot take one (locked)
+                if (!string.IsNullOrEmpty(port.PortConfId) || IsExcludedByPortLock(port))
                     continue;
 
                 // Only include disabled ports
@@ -977,7 +1029,8 @@ public class PortProfileSuggestionAnalyzer
                     DeviceMac = device.Mac,
                     DeviceName = device.Name,
                     PortIndex = port.PortIdx,
-                    PortName = port.Name
+                    PortName = port.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 disabledPortsWithoutProfile.Add((reference, port.PoeMode, port.PortPoe));
@@ -1138,8 +1191,8 @@ public class PortProfileSuggestionAnalyzer
                 if (port.AggregatedBy.HasValue)
                     continue;
 
-                // Skip uplink and disabled ports
-                if (port.IsUplink || port.Forward == "disabled")
+                // Skip uplink and disabled ports, and locked ports (a profile cannot be assigned)
+                if (port.IsUplink || port.Forward == "disabled" || IsExcludedByPortLock(port))
                     continue;
 
                 // Check if this is an access port (native mode or block_all tagged VLANs)
@@ -1182,7 +1235,8 @@ public class PortProfileSuggestionAnalyzer
                     DeviceMac = device.Mac,
                     DeviceName = device.Name,
                     PortIndex = port.PortIdx,
-                    PortName = port.Name
+                    PortName = port.Name,
+                    IsLocked = !string.IsNullOrEmpty(port.TrustedPortMac)
                 };
 
                 var hasPoEEnabled = port.PortPoe && port.PoeEnable;

@@ -349,6 +349,248 @@ public class PortSecurityAnalyzerTests
         result[0].Ports[0].AllowedMacAddresses.Should().Contain("11:22:33:44:55:66");
     }
 
+    [Fact]
+    public void ExtractSwitches_PortLockedToDevice_ExtractsLockAndFirmware()
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""version"": ""7.6.2.17186"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 3,
+                        ""trusted_port_mac"": ""aa:bb:cc:dd:ee:ff"",
+                        ""trusted_port_status"": ""trusted"",
+                        ""port_security_enabled"": false,
+                        ""port_security_mac_address"": [],
+                        ""up"": true
+                    },
+                    { ""port_idx"": 4, ""up"": true }
+                ]
+            }
+        ]").RootElement;
+
+        var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>());
+
+        result[0].FirmwareVersion.Should().Be("7.6.2.17186");
+        result[0].Ports[0].PortProfileId.Should().BeNull();
+        result[0].Ports[0].LockedToDeviceMac.Should().Be("aa:bb:cc:dd:ee:ff");
+        result[0].Ports[0].IsPortLocked.Should().BeTrue();
+        result[0].Ports[1].LockedToDeviceMac.Should().BeNull();
+        result[0].Ports[1].IsPortLocked.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ExtractSwitches_SeenDeviceMacs_UnionsConnectedLastAndHistory()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var yesterday = now - 86400;
+        var lastMonth = now - 30 * 86400;
+        var deviceData = JsonDocument.Parse($@"[
+            {{
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""00:11:22:33:44:55"",
+                ""port_table"": [
+                    {{ ""port_idx"": 1, ""up"": true, ""last_connection"": {{ ""mac"": ""aa:bb:cc:dd:ee:02"", ""last_seen"": {yesterday} }} }},
+                    {{ ""port_idx"": 2, ""up"": true }},
+                    {{ ""port_idx"": 3, ""up"": false, ""last_connection"": {{ ""mac"": ""aa:bb:cc:dd:ee:05"", ""last_seen"": {lastMonth} }} }}
+                ]
+            }}
+        ]").RootElement;
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Mac = "aa:bb:cc:dd:ee:01", IsWired = true, SwMac = "00:11:22:33:44:55", SwPort = 1 }
+        };
+        var history = new List<UniFiClientDetailResponse>
+        {
+            new() { Mac = "AA:BB:CC:DD:EE:01", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = yesterday },
+            new() { Mac = "aa:bb:cc:dd:ee:03", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = yesterday },
+            new() { Mac = "aa:bb:cc:dd:ee:06", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 1, LastSeen = lastMonth },
+            new() { Mac = "aa:bb:cc:dd:ee:04", LastUplinkMac = "00:11:22:33:44:55", LastUplinkRemotePort = 2, LastSeen = yesterday }
+        };
+
+        var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), clients, history);
+
+        // Port 1: connected 01 (history duplicate ignored by case), last connection 02, history 03; 06 is too old
+        result[0].Ports[0].SeenDeviceMacs.Should().BeEquivalentTo(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"]);
+        result[0].Ports[0].IsSharedPort.Should().BeTrue();
+        result[0].Ports[1].SeenDeviceMacs.Should().ContainSingle();
+        result[0].Ports[1].IsSharedPort.Should().BeFalse();
+        // Port 3: a month-old last connection does not count
+        result[0].Ports[2].SeenDeviceMacs.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null, true)]      // v2 list unavailable: product_line decides
+    [InlineData(false, false)]    // separate console (CloudKey): product_line alone is not enough
+    [InlineData(true, true)]      // owned by this console's apps
+    public void ExtractSwitches_UniFiDeviceClientMacs_DecideWhetherAClientIsAUniFiDevice(bool? ownedByConsole, bool expected)
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            { ""type"": ""usw"", ""name"": ""Switch"", ""mac"": ""00:11:22:33:44:55"",
+              ""port_table"": [ { ""port_idx"": 5, ""up"": true, ""forward"": ""native"" } ] }
+        ]").RootElement;
+        var cloudKey = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:05", Name = "Console", IsWired = true, SwMac = "00:11:22:33:44:55", SwPort = 5,
+            ProductLine = "unifi-network", ProductModel = "CloudKey+"
+        };
+        if (ownedByConsole.HasValue)
+            _engine.SetUniFiDeviceClientMacs(ownedByConsole.Value ? ["AA:BB:CC:DD:EE:05"] : ["aa:bb:cc:dd:ee:99"]);
+
+        var port = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), [cloudKey])[0].Ports[0];
+
+        port.ConnectedClientIsUniFiDevice.Should().Be(ownedByConsole);
+        port.HasUniFiDevice.Should().Be(expected);
+    }
+
+    [Fact]
+    public void AnalyzePorts_SeparateConsoleClient_GetsNoLockSuggestion()
+    {
+        // A CloudKey running its own apps: UniFi Network refuses the lock, so neither lock issue fires
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 5, IsUp = true, ForwardMode = "native", Switch = sw,
+            PortSecurityEnabled = true, AllowedMacAddresses = ["aa:bb:cc:dd:ee:05"],
+            ConnectedClientIsUniFiDevice = false,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:05", Name = "Console", IsWired = true, ProductLine = "unifi-network" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.PortLock);
+    }
+
+    [Fact]
+    public void CalculateStatistics_LockedPort_CountedAsProtected()
+    {
+        var sw = new SwitchInfo { Name = "Switch", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo { PortIndex = 1, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw });
+        sw.Ports.Add(new PortInfo { PortIndex = 2, IsUp = true, ForwardMode = "native", Switch = sw });
+
+        var stats = _engine.CalculateStatistics([sw]);
+
+        stats.LockedPorts.Should().Be(1);
+        stats.UnprotectedActivePorts.Should().Be(1);
+    }
+
+    [Fact]
+    public void AnalyzeHardening_LockedPorts_ListedAsMeasure()
+    {
+        var sw = new SwitchInfo { Name = "Switch" };
+        sw.Ports.Add(new PortInfo { PortIndex = 1, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw });
+        sw.Ports.Add(new PortInfo { PortIndex = 2, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:fe", Switch = sw });
+
+        var measures = _engine.AnalyzeHardening([sw], new List<NetworkInfo>());
+
+        measures.Should().Contain("Lock Port to UniFi Device enabled on 2 ports");
+    }
+
+    [Fact]
+    public void AnalyzePorts_LockedProtectDevicePort_NoPortSecurityIssues()
+    {
+        // A locked port raises neither the lock rule nor the MAC restriction rule
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", LockedToDeviceMac = "aa:bb:cc:dd:ee:ff", Switch = sw,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.PortLock || i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
+    public void AnalyzePorts_MacRestrictedProtectDevicePort_RaisesInformationalPortLockOnly()
+    {
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
+            PortSecurityEnabled = true, AllowedMacAddresses = ["aa:bb:cc:dd:ee:ff"],
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock)
+            .Which.Severity.Should().Be(AuditSeverity.Informational);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
+    public void ExtractSwitches_ProfiledApPort_RaisesInformationalPortLockOnly()
+    {
+        // End to end from raw port_table: an AP on a profiled trunk gets the lock offered, nothing scored
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"", ""name"": ""Switch"", ""mac"": ""00:11:22:33:44:55"", ""version"": ""7.6.2.17186"",
+                ""switch_caps"": { ""max_custom_mac_acls"": 256 },
+                ""port_table"": [
+                    { ""port_idx"": 3, ""up"": true, ""forward"": ""all"", ""portconf_id"": ""prof-trunk"" }
+                ]
+            },
+            {
+                ""type"": ""uap"", ""name"": ""AP"", ""mac"": ""aa:bb:cc:dd:ee:10"",
+                ""uplink"": { ""uplink_mac"": ""00:11:22:33:44:55"", ""uplink_remote_port"": 3 }
+            }
+        ]").RootElement;
+        var profiles = new List<UniFiPortProfile> { new() { Id = "prof-trunk", Name = "AP Trunk", Forward = "all" } };
+
+        var switches = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>(), null, null, profiles);
+        var issues = _engine.AnalyzePorts(switches, new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock)
+            .Which.Severity.Should().Be(AuditSeverity.Informational);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
+    [Fact]
+    public void AnalyzePorts_SharedProtectDevicePort_RaisesOnlyMacRestriction()
+    {
+        // A shared unrestricted port keeps a scored issue, from the MAC rule, and no lock issue
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
+            SeenDeviceMacs = new HashSet<string> { "aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01" },
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.MacRestriction)
+            .Which.Severity.Should().Be(AuditSeverity.Recommended);
+        issues.Should().NotContain(i => i.Type == IssueTypes.PortLock);
+    }
+
+    [Fact]
+    public void AnalyzePorts_UnlockedProtectDevicePort_RaisesOnlyPortLock()
+    {
+        _engine.SetNetworkApplicationVersion("10.6.106");
+        var sw = new SwitchInfo { Name = "Switch", Type = "usw", FirmwareVersion = "7.6.2.17186", Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 } };
+        sw.Ports.Add(new PortInfo
+        {
+            PortIndex = 3, IsUp = true, ForwardMode = "native", Switch = sw,
+            ConnectedClient = new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", Name = "AI Key", IsWired = true, ProductLine = "unifi-protect" }
+        });
+
+        var issues = _engine.AnalyzePorts([sw], new List<NetworkInfo>());
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.PortLock);
+        issues.Should().NotContain(i => i.Type == IssueTypes.MacRestriction);
+    }
+
     #endregion
 
     #region AnalyzePorts Tests

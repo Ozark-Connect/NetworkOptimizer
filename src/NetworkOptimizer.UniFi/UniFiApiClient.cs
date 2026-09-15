@@ -1205,7 +1205,17 @@ public class UniFiApiClient : IDisposable
     /// GET v2/api/site/{site}/clients/active - Get currently active clients with full details
     /// This endpoint returns IP addresses even for UX/UX7 connected clients (unlike stat/sta)
     /// </summary>
+    public Task<List<UniFiClientDetailResponse>> GetActiveClientsAsync(CancellationToken cancellationToken = default) =>
+        GetActiveClientsAsync(includeUnifiDevices: false, cancellationToken);
+
+    /// <summary>
+    /// GET v2/api/site/{site}/clients/active, optionally with the devices this console's UniFi apps own.
+    /// </summary>
+    /// <param name="includeUnifiDevices">Also list devices this console's UniFi apps own (Protect cameras, a UNAS),
+    /// which the endpoint otherwise leaves out, each with unifi_device set.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<List<UniFiClientDetailResponse>> GetActiveClientsAsync(
+        bool includeUnifiDevices,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching active clients from site {Site}", _site);
@@ -1217,7 +1227,7 @@ public class UniFiApiClient : IDisposable
 
         return await ExecuteRequestAsync(async () =>
         {
-            var url = BuildV2ApiPath($"site/{_site}/clients/active");
+            var url = BuildV2ApiPath($"site/{_site}/clients/active" + (includeUnifiDevices ? "?includeUnifiDevices=true" : ""));
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
             if (response.IsSuccessStatusCode)

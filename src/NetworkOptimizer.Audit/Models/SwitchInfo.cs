@@ -36,6 +36,11 @@ public class SwitchInfo
     public string? IpAddress { get; init; }
 
     /// <summary>
+    /// Firmware version (e.g., "7.6.2.17186") from the device's version field
+    /// </summary>
+    public string? FirmwareVersion { get; init; }
+
+    /// <summary>
     /// Configured DNS server 1 (from config_network.dns1)
     /// </summary>
     public string? ConfiguredDns1 { get; init; }
