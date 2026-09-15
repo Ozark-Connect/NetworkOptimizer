@@ -89,6 +89,11 @@ public class RolloutObserverLocator : IRolloutObserverLocator
         if (_cached != null && now - _cachedAt < CacheDuration)
             return _cached;
 
+        // An empty device list is the console not answering, not a site with no devices. Nothing
+        // placed against it would be right, and nothing from it may be cached.
+        if (devices.Count == 0)
+            return _cached ?? Unplaced();
+
         try
         {
             var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
@@ -147,9 +152,14 @@ public class RolloutObserverLocator : IRolloutObserverLocator
         }
 
         // Addresses that match no client belong to the gateway on a Cloud Gateway console. A
-        // self-hosted console that is not in the client list cannot be placed at all.
-        _standaloneConsole ??= (await _commands.GetConsoleSystemInfoAsync(cancellationToken))?.IsStandaloneConsole == true;
-        return _standaloneConsole == true || gatewayMac == null ? (null, true) : (null, false);
+        // self-hosted console that is not in the client list cannot be placed at all, and a
+        // console that did not say which it is counts as that too until it answers.
+        if (_standaloneConsole == null)
+        {
+            var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+            if (console != null) _standaloneConsole = console.IsStandaloneConsole;
+        }
+        return _standaloneConsole != false || gatewayMac == null ? (null, true) : (null, false);
     }
 
     private static async Task<string?> LocateServerAsync(INetworkPathAnalyzer analyzer, string? gatewayMac, CancellationToken cancellationToken)
