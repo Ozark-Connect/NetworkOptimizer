@@ -21,6 +21,14 @@ public static class PortLockSupport
     /// weighs a profile against the lock reads this flag, so flipping it is the whole change when
     /// UniFi adds profile support.
     /// </summary>
+    /// <remarks>
+    /// Two ways UniFi could add it, both speculative. (1) The lock stays per-port and is allowed
+    /// alongside a profile: flip this flag and nothing else changes. (2) The profile itself carries a
+    /// "lock to whatever UniFi device connects" setting: that needs a UniFiPortProfile field, the
+    /// profile suggestion analyzer treating lockable ports as profile candidates again, and a
+    /// MacRestriction/PortLock read of the profile's setting. (2) is the less likely one; a profile
+    /// that locks on first contact is a foot-gun.
+    /// </remarks>
     public const bool LockCoexistsWithPortProfile = false;
 
     /// <summary>
