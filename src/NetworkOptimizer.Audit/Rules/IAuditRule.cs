@@ -134,6 +134,12 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
+    /// Whether issue text names UniFi Network 10.6+ port settings (Port Profile, Port Security, MAC Address Filter)
+    /// rather than the older ones (Ethernet Port Profile, Restricted, allowed list).
+    /// </summary>
+    protected bool UsesPortSecurityNames => PortLockSupport.UsesPortSecurityNames(NetworkApplicationVersion);
+
+    /// <summary>
     /// Whether this port could ever take Lock Port to UniFi Device: it is on a UniFi switch and is not a LAG.
     /// Independent of versions, so copy can tell "upgrade to get it" from "never offered here".
     /// </summary>
@@ -149,7 +155,7 @@ public abstract class AuditRuleBase : IAuditRule
         PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
 
     /// <summary>
-    /// Whether an assigned Ethernet Port Profile stops this port from taking the lock.
+    /// Whether an assigned Port Profile stops this port from taking the lock.
     /// </summary>
     protected static bool IsPortLockBlockedByProfile(PortInfo port) =>
         !PortLockSupport.CanLockWithProfile(port.PortProfileId);

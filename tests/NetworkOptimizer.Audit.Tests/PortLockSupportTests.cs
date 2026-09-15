@@ -48,6 +48,20 @@ public class PortLockSupportTests
     }
 
     [Theory]
+    [InlineData("10.5.120", false)]
+    [InlineData("10.5", false)]
+    [InlineData("10.6.0", true)]
+    [InlineData("10.6", true)]
+    [InlineData("10.6.106", true)]
+    [InlineData("11.0.1", true)]
+    [InlineData(null, true)]      // unknown: the current UI's names
+    [InlineData("garbage", true)]
+    public void UsesPortSecurityNames_FromUniFiNetwork106(string? appVersion, bool expected)
+    {
+        PortLockSupport.UsesPortSecurityNames(appVersion).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("usw", true)]
     [InlineData("USW", true)]
     [InlineData("uxg", false)]

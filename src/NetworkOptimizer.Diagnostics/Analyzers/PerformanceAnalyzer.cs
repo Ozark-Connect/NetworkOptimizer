@@ -730,7 +730,7 @@ public class PerformanceAnalyzer
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Flow Control Disabled in Profile \"{profile.Name}\"",
-                        Description = $"Flow Control is enabled globally, but the Ethernet Port Profile " +
+                        Description = $"Flow Control is enabled globally, but the Port Profile " +
                             $"\"{profile.Name}\" has Flow Control disabled. Any port assigned to this profile " +
                             "will not use Flow Control, overriding the global setting.",
                         Recommendation = $"If this isn't intentional, enable Flow Control in the " +

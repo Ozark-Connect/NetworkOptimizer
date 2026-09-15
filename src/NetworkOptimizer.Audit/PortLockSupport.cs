@@ -16,6 +16,22 @@ public static class PortLockSupport
     public static readonly Version MinSwitchFirmwareVersion = new(7, 6, 2);
 
     /// <summary>
+    /// UniFi Network version that renamed the switch port settings: Ethernet Port Profiles became Port
+    /// Profiles, and Restricted with allowed MACs became Port Security with a MAC Address Filter.
+    /// </summary>
+    public static readonly Version MinPortSecurityNamesVersion = new(10, 6, 0);
+
+    /// <summary>
+    /// Whether issue text should use the 10.6+ setting names. An unknown version gets them too: it only
+    /// happens when the version read fails, and the new names match the current UI.
+    /// </summary>
+    public static bool UsesPortSecurityNames(string? networkApplicationVersion)
+    {
+        var version = ParseVersion(networkApplicationVersion);
+        return version == null || version >= MinPortSecurityNamesVersion;
+    }
+
+    /// <summary>
     /// Whether the device type can take Lock Port to UniFi Device at all. UniFi switches (usw) only:
     /// gateways and in-wall APs have switch ports but run other firmware lines, and an AP's 8.x
     /// version would otherwise pass the 7.6.2 check.

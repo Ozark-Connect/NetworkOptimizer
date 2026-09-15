@@ -245,7 +245,7 @@ public class MacRestrictionRuleTests
         result.Should().NotBeNull();
         result!.Type.Should().Be("MAC-RESTRICT-001");
         result.Severity.Should().Be(AuditSeverity.Recommended);
-        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.Message.Should().Be(ActiveMessageFor(appVersion));
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
@@ -260,8 +260,11 @@ public class MacRestrictionRuleTests
         var result = _rule.Evaluate(port, new List<NetworkInfo>());
 
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("Ethernet Port Profile removed");
-        result.RecommendedAction.Should().Contain("cannot be combined with an Ethernet Port Profile");
+        // The lock needs 10.6.101+, so this copy always uses the 10.6 names
+        result!.Message.Should().Be("Port should have Port Security with a MAC Address Filter for AI Key (UniFi Protect), or have its Port Profile removed and be locked to it with Lock Port to UniFi Device");
+        result.RecommendedAction.Should().EndWith(
+            "cannot be combined with a Port Profile. Either remove the profile and lock the port, or keep the profile and " +
+            "turn on Port Security with the device's MAC address in the MAC Address Filter.");
     }
 
     [Theory]
@@ -280,7 +283,7 @@ public class MacRestrictionRuleTests
         result!.Type.Should().Be("MAC-RESTRICT-001");
         result.Severity.Should().Be(AuditSeverity.Recommended);
         result.ScoreImpact.Should().Be(3);
-        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.Message.Should().Be(ActiveMessageFor(appVersion));
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
@@ -297,7 +300,7 @@ public class MacRestrictionRuleTests
 
         result.Should().NotBeNull();
         result!.Type.Should().Be("MAC-RESTRICT-001");
-        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.Message.Should().Be(ActiveMessageFor("10.6.106"));
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
@@ -317,7 +320,7 @@ public class MacRestrictionRuleTests
 
         result.Should().NotBeNull();
         result!.Type.Should().Be("MAC-RESTRICT-001");
-        result.Message.Should().Be("Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network");
+        result.Message.Should().Be(ActiveMessageFor("10.6.106"));
         result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
     }
 
@@ -348,6 +351,68 @@ public class MacRestrictionRuleTests
 
         result.Should().NotBeNull();
         result!.Message.Should().Contain("Port is not in use");
+    }
+
+    private const string NewActiveMessage =
+        "Port should have Port Security enabled with a MAC Address Filter, directly or via a Port Profile in UniFi Network";
+    private const string OldActiveMessage =
+        "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network";
+
+    // UniFi Network 10.6 renamed the settings; an unknown version gets the new names
+    private static string ActiveMessageFor(string? appVersion) =>
+        appVersion != null && appVersion.StartsWith("10.5") ? OldActiveMessage : NewActiveMessage;
+
+    [Theory]
+    [InlineData("10.5.120", false)]
+    [InlineData("10.6.0", true)]
+    [InlineData("10.6.106", true)]
+    [InlineData(null, true)]
+    public void Evaluate_ActiveUnrestrictedPort_UsesSettingNamesForVersion(string? appVersion, bool newNames)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        if (newNames)
+        {
+            result!.Message.Should().Be(NewActiveMessage);
+            result.RecommendedAction.Should().Be(
+                "Enable Port Security to prevent unauthorized devices from connecting. " +
+                "In UniFi Network - Ports, turn on Port Security for this port and add the device's MAC address to the MAC Address Filter. " +
+                "If this port is intended to be used by multiple devices, create a Port Profile with Port Security disabled and assign it to this port.");
+        }
+        else
+        {
+            result!.Message.Should().Be(OldActiveMessage);
+            result.RecommendedAction.Should().Contain("set the port to 'Restricted'");
+        }
+    }
+
+    [Theory]
+    [InlineData("10.5.120", false)]
+    [InlineData("10.6.106", true)]
+    public void Evaluate_RecentlyUsedDownPort_UsesSettingNamesForVersion(string appVersion, bool newNames)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var up = CreatePort(isUp: true, forwardMode: "native");
+        var port = new PortInfo { PortIndex = 1, Name = "Port 1", IsUp = false, ForwardMode = "native", LastConnectionSeen = 1700000000, Switch = up.Switch };
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        if (newNames)
+        {
+            result!.Message.Should().Be("Port is not in use - disable it, or turn on Port Security if it's still needed");
+            result.RecommendedAction.Should().Be(
+                "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi Network - Ports to prevent unauthorized access. " +
+                "If it's still in use periodically, turn on Port Security and add the device's MAC address to the MAC Address Filter.");
+        }
+        else
+        {
+            result!.Message.Should().Be("Port is not in use - disable it, or add a MAC restriction if it's still needed");
+        }
     }
 
     private static UniFiClientResponse ProtectClient() => new()

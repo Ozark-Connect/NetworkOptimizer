@@ -110,9 +110,10 @@ public class MacRestrictionRule : AuditRuleBase
             if (!IsPortLockBlockedByProfile(port))
                 return null;
 
+            // The lock needs UniFi Network 10.6.101+, so this copy always uses the 10.6 setting names
             var device = DescribeUniFiDevice(port);
             return CreateIssue(
-                $"Port should be set to Restricted w/ an Allowed MAC Address for {device}, or have its Ethernet Port Profile removed and be locked to it with Lock Port to UniFi Device",
+                $"Port should have Port Security with a MAC Address Filter for {device}, or have its Port Profile removed and be locked to it with Lock Port to UniFi Device",
                 port,
                 new Dictionary<string, object>
                 {
@@ -120,20 +121,37 @@ public class MacRestrictionRule : AuditRuleBase
                     { "device", device }
                 },
                 $"This port carries {device}. Lock Port to UniFi Device would tie the port to that device, but the lock cannot be " +
-                "combined with an Ethernet Port Profile. Either remove the profile and lock the port, or keep the profile and " +
-                "set the port to 'Restricted' with the device's MAC address in the allowed list.");
+                "combined with a Port Profile. Either remove the profile and lock the port, or keep the profile and " +
+                "turn on Port Security with the device's MAC address in the MAC Address Filter.");
         }
 
-        var message = isInactive
-            ? "Port is not in use - disable it, or add a MAC restriction if it's still needed"
-            : "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network";
-
-        var recommendation = isInactive
-            ? "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi to prevent unauthorized access. " +
-              "If it's still in use periodically, set it to 'Restricted' and add the device's MAC address to the allowed list."
-            : "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
-              "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list. " +
-              "If this port is intended to be used by multiple devices, create an Ethernet Port Profile with MAC restriction disabled and assign it to this port.";
+        // UniFi Network 10.6 renamed these settings; the user sees whichever names their version shows
+        string message;
+        string recommendation;
+        if (UsesPortSecurityNames)
+        {
+            message = isInactive
+                ? "Port is not in use - disable it, or turn on Port Security if it's still needed"
+                : "Port should have Port Security enabled with a MAC Address Filter, directly or via a Port Profile in UniFi Network";
+            recommendation = isInactive
+                ? "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi Network - Ports to prevent unauthorized access. " +
+                  "If it's still in use periodically, turn on Port Security and add the device's MAC address to the MAC Address Filter."
+                : "Enable Port Security to prevent unauthorized devices from connecting. " +
+                  "In UniFi Network - Ports, turn on Port Security for this port and add the device's MAC address to the MAC Address Filter. " +
+                  "If this port is intended to be used by multiple devices, create a Port Profile with Port Security disabled and assign it to this port.";
+        }
+        else
+        {
+            message = isInactive
+                ? "Port is not in use - disable it, or add a MAC restriction if it's still needed"
+                : "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network";
+            recommendation = isInactive
+                ? "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi to prevent unauthorized access. " +
+                  "If it's still in use periodically, set it to 'Restricted' and add the device's MAC address to the allowed list."
+                : "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
+                  "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list. " +
+                  "If this port is intended to be used by multiple devices, create an Ethernet Port Profile with MAC restriction disabled and assign it to this port.";
+        }
 
         return CreateIssue(
             message,

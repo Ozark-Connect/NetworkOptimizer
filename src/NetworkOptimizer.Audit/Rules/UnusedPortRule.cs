@@ -99,7 +99,9 @@ public class UnusedPortRule : AuditRuleBase
             thresholdDays);
 
         return CreateIssue(
-            "Unused port should be set to Disabled or disabled via an Ethernet Port Profile in UniFi Network",
+            UsesPortSecurityNames
+                ? "Unused port should be set to Disabled or disabled via a Port Profile in UniFi Network"
+                : "Unused port should be set to Disabled or disabled via an Ethernet Port Profile in UniFi Network",
             port,
             new Dictionary<string, object>
             {

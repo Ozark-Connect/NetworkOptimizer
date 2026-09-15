@@ -28,7 +28,7 @@ public class PortLockRule : AuditRuleBase
         if (!port.IsUp)
             return null;
 
-        // UniFi offers the lock on downlinks only; an uplink keeps its Ethernet Port Profile
+        // UniFi offers the lock on downlinks only; an uplink keeps its Port Profile
         if (port.ForwardMode == "disabled" || port.IsUplink || port.IsWan || port.IsMirrorDestination)
             return null;
 
@@ -91,14 +91,15 @@ public class PortLockRule : AuditRuleBase
             if (IsAccessPort(port) && !IsNetworkFabricDevice(port.ConnectedDeviceType))
                 return null;
 
+            // The lock needs UniFi Network 10.6.101+, so this copy always uses the 10.6 setting names
             var profile = string.IsNullOrEmpty(port.AssignedPortProfile?.Name)
-                ? "its Ethernet Port Profile"
-                : $"the \"{port.AssignedPortProfile.Name}\" Ethernet Port Profile";
+                ? "its Port Profile"
+                : $"the \"{port.AssignedPortProfile.Name}\" Port Profile";
             return CreateIssue(
                 $"Port could be locked to {device} if {profile} is removed",
                 port,
                 metadata,
-                "Lock Port to UniFi Device can't be enabled on a port that uses an Ethernet Port Profile. " +
+                "Lock Port to UniFi Device can't be enabled on a port that uses a Port Profile. " +
                 "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
                 "then enable Lock Port to UniFi Device.",
                 overrideSeverity: AuditSeverity.Informational,

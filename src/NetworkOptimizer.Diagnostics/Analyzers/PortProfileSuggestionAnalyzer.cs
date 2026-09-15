@@ -106,8 +106,8 @@ public class PortProfileSuggestionAnalyzer
     /// </summary>
     internal static string LockedPortsNote(int lockedCount) =>
         lockedCount == 1
-            ? "1 port using Lock Port to UniFi Device was left out: an Ethernet Port Profile cannot be assigned to a locked port."
-            : $"{lockedCount} ports using Lock Port to UniFi Device were left out: an Ethernet Port Profile cannot be assigned to a locked port.";
+            ? "1 port using Lock Port to UniFi Device was left out: a Port Profile cannot be assigned to a locked port."
+            : $"{lockedCount} ports using Lock Port to UniFi Device were left out: a Port Profile cannot be assigned to a locked port.";
 
     /// <summary>
     /// Whether a port must stay out of profile suggestions because it is locked to a UniFi device

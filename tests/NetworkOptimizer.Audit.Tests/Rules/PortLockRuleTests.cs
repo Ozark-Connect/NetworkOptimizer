@@ -206,9 +206,9 @@ public class PortLockRuleTests
         result.ScoreImpact.Should().Be(0);
         // Profile id only (not resolved to a profile): generic wording
         result.Message.Should().StartWith("Port could be locked to ");
-        result.Message.Should().EndWith(" if its Ethernet Port Profile is removed");
+        result.Message.Should().EndWith(" if its Port Profile is removed");
         result.RecommendedAction.Should().Be(
-            "Lock Port to UniFi Device can't be enabled on a port that uses an Ethernet Port Profile. " +
+            "Lock Port to UniFi Device can't be enabled on a port that uses a Port Profile. " +
             "If you'd rather lock this port than share the profile with other ports, remove the profile in UniFi Network - Ports, " +
             "then enable Lock Port to UniFi Device.");
     }
@@ -223,7 +223,7 @@ public class PortLockRuleTests
         var result = _rule.Evaluate(port, []);
 
         result.Should().NotBeNull();
-        result!.Message.Should().Be("Port could be locked to [AP] Back Yard (UniFi Access Point) if the \"AP Trunk\" Ethernet Port Profile is removed");
+        result!.Message.Should().Be("Port could be locked to [AP] Back Yard (UniFi Access Point) if the \"AP Trunk\" Port Profile is removed");
     }
 
     [Fact]

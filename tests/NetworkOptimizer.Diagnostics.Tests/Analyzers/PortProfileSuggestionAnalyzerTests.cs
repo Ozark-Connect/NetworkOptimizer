@@ -4649,7 +4649,7 @@ public class PortProfileSuggestionAnalyzerTests
     [Fact]
     public void Analyze_LockedTrunkPort_ExcludedAndNoted()
     {
-        // A locked port cannot take an Ethernet Port Profile, so it stays out of the group
+        // A locked port cannot take a Port Profile, so it stays out of the group
         // and the trunk suggestion says so.
         var device = new UniFiDeviceResponse
         {
