@@ -141,7 +141,7 @@ public class IspHealthWanScopingTests
     {
         var contexts = new[]
         {
-            new WanDiscoveryContext { WanInterface = null },
+            new WanDiscoveryContext { WanInterface = null! },
             new WanDiscoveryContext { WanInterface = "wan" },
         };
         IspHealthService.ReconcilePrimaryWanKey("wan2", contexts).Should().Be("wan");
