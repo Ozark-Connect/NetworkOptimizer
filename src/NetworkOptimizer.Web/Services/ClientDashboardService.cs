@@ -192,6 +192,29 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// The console drops a wired client while its port stays up. Its own last placement plus the
+    /// live link says the client is there, so it is online. True when the identity was marked so.
+    /// </summary>
+    private async Task<bool> TryVouchByPortAsync(ClientIdentity identity, string clientIp)
+    {
+        if (_portPresence == null || !identity.IsWired || string.IsNullOrEmpty(identity.Mac)) return false;
+        WiredPortPresence.WiredPortPresence? present;
+        try { present = await _portPresence.ResolveAsync(identity.Mac); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Wired port presence unavailable for {Mac}", identity.Mac);
+            return false;
+        }
+        if (present == null) return false;
+        identity.IsOffline = false;
+        identity.SwitchMac = present.SwitchMac;
+        identity.SwitchPort = present.Port;
+        _ipToMacCache[clientIp] = identity.Mac;
+        await EnrichWithSwitchNameAsync(identity);
+        return true;
+    }
+
     /// <summary>Listed wired clients whose port is down by the switch's own sample; empty where nothing monitors.</summary>
     private async Task<IReadOnlySet<string>> LinkDownMacsAsync()
     {
@@ -360,9 +383,14 @@ public class ClientDashboardService
             if (fromAgent != null)
                 return fromAgent;
 
-            // Device not in active list - check offline cache
+            // Device not in active list - check offline cache. A cached offline wired client is
+            // asked about again each time: the port can come alive while the console still has
+            // it dropped, and the first identification is not the only chance to see that.
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
+            {
+                if (cached.IsOffline) await TryVouchByPortAsync(cached, clientIp);
                 return cached;
+            }
 
             // Try client history API (includes offline devices)
             var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
@@ -383,18 +411,8 @@ public class ClientDashboardService
 
                 if (offlineIdentity.IsWired && !string.IsNullOrEmpty(offlineIdentity.Mac))
                 {
-                    // The console drops a wired client while its port stays up. Its own last
-                    // placement plus the live link says the client is there, so it is online.
-                    var present = _portPresence == null ? null : await _portPresence.ResolveAsync(offlineIdentity.Mac);
-                    if (present != null)
-                    {
-                        offlineIdentity.IsOffline = false;
-                        offlineIdentity.SwitchMac = present.SwitchMac;
-                        offlineIdentity.SwitchPort = present.Port;
-                        _ipToMacCache[clientIp] = offlineIdentity.Mac;
-                        await EnrichWithSwitchNameAsync(offlineIdentity);
+                    if (await TryVouchByPortAsync(offlineIdentity, clientIp))
                         return offlineIdentity;
-                    }
 
                     // The history list carries no switch or port, and a wired client's LAN usage
                     // is its port's counters: without the port, Data Usage reads zero for a client
