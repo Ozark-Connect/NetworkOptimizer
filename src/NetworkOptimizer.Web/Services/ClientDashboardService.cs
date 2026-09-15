@@ -49,6 +49,7 @@ public class ClientDashboardService
 
     // Which interfaces carry a device's console port number, resolved once per watched port.
     private readonly ConcurrentDictionary<(string Mac, int Port), List<string>> _portIfNames = new();
+    private readonly ConcurrentDictionary<(string Mac, int Port), int?> _portLinkSpeeds = new();
 
     // AP Agent live polling. Optional accelerator: absent on every site without AP Agents, and the
     // WiFiman and stat/sta paths below are untouched and remain what everything falls back to.
@@ -506,6 +507,7 @@ public class ClientDashboardService
                 // The path is what a port resolution was read against, so a changed one retires it.
                 if (result.TraceChanged)
                     _portIfNames.Clear();
+                _portLinkSpeeds.Clear();
 
                 // Trace changes always store immediately (with full trace data).
                 // Regular polls buffer signal values and flush the mean every 5 seconds.
@@ -1400,7 +1402,7 @@ public class ClientDashboardService
                 return null;
             }
 
-            return ToWiredPortStats(row, client, port, live);
+            return ToWiredPortStats(row, client, port, live, await PortLinkSpeedMbpsAsync(client.SwitchMac, port));
 
             // The physical port, never a VLAN sub-interface sitting on it.
             NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint? Match(
@@ -1424,7 +1426,8 @@ public class ClientDashboardService
         NetworkOptimizer.Storage.Services.MonitoringInfluxClient.PortStatsPoint row,
         ClientIdentity client,
         int port,
-        MonitoringLiveStats live)
+        MonitoringLiveStats live,
+        int? consoleLinkSpeedMbps)
     {
         var own = live.GetWiredClient(client.Mac);
         return new WiredPortStats
@@ -1432,7 +1435,9 @@ public class ClientDashboardService
             SwitchName = client.SwitchName,
             Port = port,
             LinkUp = row.OperStatus.HasValue ? row.OperStatus == 1 : null,
-            LinkSpeedBps = row.SpeedBps,
+            // The console's negotiated speed, as the Port Statistics table shows it. A gateway
+            // reports its copper ports' capability over SNMP, 10 Gbps for a link running at 100.
+            LinkSpeedBps = consoleLinkSpeedMbps is > 0 ? consoleLinkSpeedMbps.Value * 1_000_000L : row.SpeedBps,
             DownloadBps = row.RateOutBps ?? own?.TxThroughputBps,
             UploadBps = row.RateInBps ?? own?.RxThroughputBps,
             ErrorsToClient = row.ErrorsOut,
@@ -1481,6 +1486,20 @@ public class ClientDashboardService
             .ToListAsync();
         _portIfNames[(mac, port)] = ifNames;
         return ifNames;
+    }
+
+    /// <summary>The console's negotiated link speed for a port, from the same name maps, cached per port.</summary>
+    private async Task<int?> PortLinkSpeedMbpsAsync(string switchMac, int port)
+    {
+        var mac = switchMac.ToLowerInvariant();
+        if (_portLinkSpeeds.TryGetValue((mac, port), out var speed)) return speed;
+        await using var db = CreateSiteDb();
+        speed = await db.InterfaceNameMaps.AsNoTracking()
+            .Where(m => m.DeviceMac.ToLower() == mac && m.PortNumber == port && m.SpeedMbps > 0)
+            .Select(m => m.SpeedMbps)
+            .FirstOrDefaultAsync();
+        _portLinkSpeeds[(mac, port)] = speed;
+        return speed;
     }
 
     /// <summary>
