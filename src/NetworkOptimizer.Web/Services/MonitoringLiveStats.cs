@@ -328,13 +328,20 @@ public class MonitoringLiveStats
         if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
         if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
         if (notBefore is { } floor && row.Time <= floor) return null;
-        return oper switch
-        {
-            1 => new PortLinkSample(false, oper, row.Time),
-            2 or 7 => new PortLinkSample(true, oper, row.Time),
-            _ => null,
-        };
+        return LinkDownFromOperStatus(oper) is { } down ? new PortLinkSample(down, oper, row.Time) : null;
     }
+
+    /// <summary>
+    /// What an ifOperStatus value says about the link: up is 1, down is 2 or 7 (lowerLayerDown),
+    /// and anything else says nothing. That includes 0, which a partial SNMP walk writes for the
+    /// interfaces it did not get, and which read as "every port down" until this was drawn.
+    /// </summary>
+    public static bool? LinkDownFromOperStatus(int operStatus) => operStatus switch
+    {
+        1 => false,
+        2 or 7 => true,
+        _ => null,
+    };
 
     /// <summary>Unicast packets the host behind a port sent between the last two samples, and when.</summary>
     public readonly record struct PortUnicastIn(DateTime At, long Packets);

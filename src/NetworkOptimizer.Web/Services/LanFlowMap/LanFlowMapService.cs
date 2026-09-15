@@ -1025,7 +1025,7 @@ public class LanFlowMapService
                         if (cached.LinkStateByDevice.TryGetValue(deviceMac, out var states)
                             && ClosestLinkState(states, ifName, at) is { } state
                             && (state.Time - at).Duration() <= ClientPresenceTolerance
-                            && state.OperStatus != 1)
+                            && MonitoringLiveStats.LinkDownFromOperStatus(state.OperStatus) == true)
                             update.PresentClientIds.Remove(link.ToNodeId);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
