@@ -154,8 +154,15 @@ public static class ScheduleExecutorRegistration
         // instance either way, so "already running" still refuses a concurrent run.
         using var scope = CreatePinnedScope(services, siteKey);
 
+        IDisposable? lease = null;
         try
         {
+            // Schedules sharing a start time are all started at once. They take turns per site,
+            // and a queued test lets the link settle so it does not measure the last one's tail.
+            (lease, var queued) = await WanTestGate.EnterAsync(siteKey, ct);
+            if (queued)
+                await Task.Delay(WanTestSettle, ct);
+
             var (testType, maxMode, wanGroup, wanName, wanContextId, multiInterfaces) =
                 ParseWanTestConfig(targetConfig);
 
@@ -191,7 +198,7 @@ public static class ScheduleExecutorRegistration
                 // own WAN. The per-site instance resolves through the registry, and
                 // the service itself refuses sites that are neither (RunTestAsync).
                 var serverService = scope.ServiceProvider.GetRequiredService<IUwnSpeedTestService>();
-                if (await serverService.IsRunningAsync())
+                if (!await WaitForIdleAsync(serverService.IsRunningAsync, ct))
                     return (false, null, "WAN speed test is already running");
                 result = await serverService.RunTestAsync(
                     maxMode: maxMode, wanContextId: wanContextId, cancellationToken: ct);
@@ -201,7 +208,7 @@ public static class ScheduleExecutorRegistration
                 // The site's own gateway runs the test and the result lands in the
                 // site's database - resolved by site key through the registry.
                 var gatewayService = scope.ServiceProvider.GetRequiredService<IGatewayWanSpeedTestService>();
-                if (await gatewayService.IsRunningAsync())
+                if (!await WaitForIdleAsync(gatewayService.IsRunningAsync, ct))
                     return (false, null, "WAN speed test is already running");
 
                 if (multiInterfaces is { Length: > 1 })
@@ -227,6 +234,10 @@ public static class ScheduleExecutorRegistration
             if (result == null)
                 return (false, null, "WAN speed test returned no result");
 
+            // A failed test is stored and returned too, so a non-null result is not a pass.
+            if (!result.Success)
+                return (false, null, result.ErrorMessage ?? "WAN speed test failed");
+
             var dl = result.DownloadBitsPerSecond / 1_000_000.0;
             var ul = result.UploadBitsPerSecond / 1_000_000.0;
             return (true, $"{dl:F0} / {ul:F0} Mbps", null);
@@ -235,6 +246,32 @@ public static class ScheduleExecutorRegistration
         {
             return (false, null, ex.Message);
         }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    private static readonly SiteWanTestGate WanTestGate = new();
+
+    /// <summary>Gap between back-to-back WAN tests on one site.</summary>
+    private static readonly TimeSpan WanTestSettle = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long a scheduled test waits out a run started from the WAN Speed Test page.</summary>
+    private static readonly TimeSpan WanTestIdleWait = TimeSpan.FromMinutes(5);
+
+    /// <summary>True once the service is idle, false if it is still running when the wait runs out.</summary>
+    internal static async Task<bool> WaitForIdleAsync(
+        Func<Task<bool>> isRunning, CancellationToken ct, TimeSpan? maxWait = null, TimeSpan? poll = null)
+    {
+        var deadline = DateTime.UtcNow + (maxWait ?? WanTestIdleWait);
+        while (await isRunning())
+        {
+            if (DateTime.UtcNow >= deadline)
+                return false;
+            await Task.Delay(poll ?? TimeSpan.FromSeconds(5), ct);
+        }
+        return true;
     }
 
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteLanSpeedTestAsync(
