@@ -360,8 +360,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 
         if (!result.success)
         {
-            var error = $"Gateway speed test failed: {result.output}";
-            _logger.LogWarning(error);
+            var error = $"Gateway speed test failed: {ExtractBinaryError(result.output)}";
+            _logger.LogWarning("Gateway speed test failed: {Output}", result.output);
             report("Error", 0, error);
             return FailResult(error, wanNetworkGroup, wanName, options);
         }
@@ -385,6 +385,24 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
 
         return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken);
+    }
+
+    /// <summary>
+    /// The binary exits non-zero and prints its failure as JSON. Returns that JSON's error text, or
+    /// the output unchanged when it is not the binary's JSON (an SSH or shell failure).
+    /// </summary>
+    internal static string ExtractBinaryError(string output)
+    {
+        try
+        {
+            var json = JsonSerializer.Deserialize<WanSpeedTestResult>(output, JsonOptions);
+            if (!string.IsNullOrWhiteSpace(json?.Error))
+                return json.Error;
+        }
+        catch (JsonException)
+        {
+        }
+        return output.Trim();
     }
 
     /// <summary>A failed result: stored for a normal run, returned unstored for an ephemeral one.</summary>
