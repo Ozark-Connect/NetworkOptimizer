@@ -3042,9 +3042,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             if (before != (dark.Devices.Count, dark.Vantages.Count))
                 _logger.LogDebug(
-                    "Step {Device} on site {Site} takes {Devices} device(s) and {Vantages} vantage(s) dark: {List}",
-                    step.DeviceName, _siteSlug, dark.Devices.Count, dark.Vantages.Count,
-                    string.Join(", ", dark.Devices.Concat(dark.Vantages)));
+                    "Step {Device} on site {Site} takes {Devices} device(s) dark [{Dark}] and cuts off vantage(s) [{CutOff}]",
+                    step.DeviceName, _siteSlug, dark.Devices.Count,
+                    string.Join(", ", dark.Devices
+                        .Select(mac => byMac.TryGetValue(mac, out var seen) && !string.IsNullOrEmpty(seen.Name) ? seen.Name : mac)
+                        .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)),
+                    string.Join(", ", dark.Vantages));
 
             foreach (var mac in dark.Devices)
                 _suppression.RefreshDark(_siteSlug, mac, Now);
@@ -3073,7 +3076,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// True when there is nothing left to write: the lines went out, or debug is off. False when
     /// the console did not answer, so the caller can try again.
     /// </returns>
-    public async Task<bool> LogPlannedDarkSetsAsync(IEnumerable<FirmwareRolloutStep> steps, CancellationToken cancellationToken = default)
+    private async Task<bool> LogPlannedDarkSetsAsync(IEnumerable<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
     {
         if (!_logger.IsEnabled(LogLevel.Debug)) return true;
 

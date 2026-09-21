@@ -195,7 +195,6 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             "Firmware Rollout preview built in {Total} ms: plan {Plan} ms, channels {Channels} ms, "
             + "auto-upgrade {Auto} ms, quiet window {Window} ms",
             timer.ElapsedMilliseconds, planMs, channelsMs, autoUpgradeMs, windowMs);
-        await _orchestrator.LogPlannedDarkSetsAsync(result.Steps, cancellationToken);
 
         var preview = new RolloutPreviewView
         {
