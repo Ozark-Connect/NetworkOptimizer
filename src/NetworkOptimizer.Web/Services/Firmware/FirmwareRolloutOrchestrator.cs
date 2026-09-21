@@ -303,12 +303,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (plan.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
                 // Once per waiting plan, however it was made: autopilot builds its own and never
-                // passes through the wizard's preview.
-                if (_darkSetsLoggedPlanId != plan.Id)
+                // passes through the wizard's preview. Marked done only once it has been written:
+                // after a restart an agent-relayed console answers nothing until its tunnel is up.
+                if (_darkSetsLoggedPlanId != plan.Id && _logger.IsEnabled(LogLevel.Debug))
                 {
-                    _darkSetsLoggedPlanId = plan.Id;
                     var waiting = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
-                    await LogPlannedDarkSetsAsync(waiting, cancellationToken);
+                    if (await LogPlannedDarkSetsAsync(waiting, cancellationToken))
+                        _darkSetsLoggedPlanId = plan.Id;
                 }
 
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
@@ -3068,14 +3069,18 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     /// <param name="steps">The plan's steps.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task LogPlannedDarkSetsAsync(IEnumerable<FirmwareRolloutStep> steps, CancellationToken cancellationToken = default)
+    /// <returns>
+    /// True when there is nothing left to write: the lines went out, or debug is off. False when
+    /// the console did not answer, so the caller can try again.
+    /// </returns>
+    public async Task<bool> LogPlannedDarkSetsAsync(IEnumerable<FirmwareRolloutStep> steps, CancellationToken cancellationToken = default)
     {
-        if (!_logger.IsEnabled(LogLevel.Debug)) return;
+        if (!_logger.IsEnabled(LogLevel.Debug)) return true;
 
         try
         {
             var devices = await _observer.ObserveAsync(cancellationToken);
-            if (devices.Count == 0) return;
+            if (devices.Count == 0) return false;
 
             var positions = _observerLocator == null
                 ? RolloutObserverPositions.ConsoleAtRoot
@@ -3111,6 +3116,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     positions.ConsoleAttachMac == null ? "root" : Label(positions.ConsoleAttachMac),
                     positions.ConsoleUnlocated);
             }
+
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3118,7 +3125,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
         catch (Exception ex)
         {
+            // Done as far as the caller is concerned: a failure that is not the console being
+            // silent would repeat on every tick.
             _logger.LogDebug(ex, "Planned dark sets on site {Site} not logged", _siteSlug);
+            return true;
         }
     }
 
