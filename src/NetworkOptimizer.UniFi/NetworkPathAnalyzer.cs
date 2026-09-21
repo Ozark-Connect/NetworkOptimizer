@@ -24,6 +24,8 @@ public interface IUniFiClientProvider
 public interface INetworkPathAnalyzer
 {
     void InvalidateTopologyCache();
+    /// <summary>The site's devices, clients and networks, from the analyzer's short-lived cache.</summary>
+    Task<NetworkTopology?> GetTopologyAsync(CancellationToken cancellationToken = default);
     Task<ServerPosition?> DiscoverServerPositionAsync(string? sourceIp = null, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -1251,7 +1253,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         return result;
     }
 
-    private async Task<NetworkTopology?> GetTopologyAsync(CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<NetworkTopology?> GetTopologyAsync(CancellationToken cancellationToken = default)
     {
         if (_cache.TryGetValue(TopologyCacheKey, out NetworkTopology? cached))
         {

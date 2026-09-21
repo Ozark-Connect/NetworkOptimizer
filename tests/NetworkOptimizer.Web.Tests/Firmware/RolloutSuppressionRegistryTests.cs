@@ -218,6 +218,46 @@ public class RolloutSuppressionRegistryTests
         registry.IsSiteActiveRollout(Site, expired).Should().BeFalse();
     }
 
+    // --- Dark set (devices a step hides from the console, vantages it cuts off) ---------------
+
+    [Fact]
+    public void ADarkWindowSuppressesLikeTheStepsOwn()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshDark(Site, Mac, Now);
+
+        registry.IsInRolloutWindow(Site, "AA-BB-CC-DD-EE-01", Now).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ADarkWindowOutlivesClearAndClearSiteAndLapsesOnItsOwn()
+    {
+        // The switch reporting back says nothing about when the devices behind it re-inform.
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshDark(Site, Mac, Now);
+        registry.Clear(Site, Mac);
+        registry.ClearSite(Site);
+
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void AWanDarkVantageIsScopedToItsSiteAndLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshWanDark(Site, "server", Now);
+
+        registry.IsWanDark(Site, "server", Now).Should().BeTrue();
+        registry.IsWanDark(Site, "agent-3", Now).Should().BeFalse();
+        registry.IsWanDark("other-site", "server", Now).Should().BeFalse();
+        registry.ClearSite(Site);
+        registry.IsWanDark(Site, "server", Now).Should().BeTrue();
+        registry.IsWanDark(Site, "server", Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1))
+            .Should().BeFalse();
+    }
+
     // --- AP Agent hold (keeps the agent's supervisor off a device mid-upgrade) -----------------
 
     [Fact]
@@ -308,6 +348,27 @@ public class RolloutSuppressionRegistryTests
         var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, late);
         await evaluator.EvaluateAsync(Mac, "AP 1", "192.0.2.10", DeviceType.AccessPoint, 0, late.AddSeconds(30));
+
+        bus.Published.Should().ContainSingle().Which.EventType.Should().Be(DeviceStateAlertEvaluator.OfflineEventType);
+    }
+
+    [Fact]
+    public async Task DeviceOfflineIsNotAnnouncedForADeviceAStepTakesDark()
+    {
+        var bus = new CapturingBus();
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = new DeviceStateAlertEvaluator(
+            bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(), NullLogger<DeviceStateAlertEvaluator>.Instance, Site, registry);
+        registry.RefreshDark(Site, Mac, Now);
+
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, Now.AddSeconds(30));
+
+        bus.Published.Should().BeEmpty();
+
+        var late = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromMinutes(1);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, late);
+        await evaluator.EvaluateAsync(Mac, "Switch 2", "192.0.2.11", DeviceType.Switch, 0, late.AddSeconds(30));
 
         bus.Published.Should().ContainSingle().Which.EventType.Should().Be(DeviceStateAlertEvaluator.OfflineEventType);
     }

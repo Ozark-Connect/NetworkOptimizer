@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Enums;
+
 namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
@@ -35,6 +37,18 @@ public sealed record RolloutDeviceObservation
     /// Lets a step's alert window cover the devices its reboot takes dark.
     /// </summary>
     public string? UplinkMac { get; init; }
+
+    /// <summary>
+    /// Normalized MAC of the uplink the console last recorded. Fills in for a device that is
+    /// offline, and for a gateway behind a self-hosted console, whose live uplink names nothing.
+    /// </summary>
+    public string? LastUplinkMac { get; init; }
+
+    /// <summary>Whether the uplink is a wireless mesh backhaul.</summary>
+    public bool WirelessUplink { get; init; }
+
+    /// <summary>Whether this is the site's gateway, the root of the uplink tree.</summary>
+    public bool IsGateway { get; init; }
 }
 
 /// <summary>
@@ -92,6 +106,9 @@ public class RolloutDeviceObserver : IRolloutDeviceObserver
                     Upgradable = d.Upgradable,
                     UpgradeToFirmware = d.UpgradeToFirmware,
                     UplinkMac = string.IsNullOrEmpty(d.UplinkMac) ? null : MacNormalizer.Normalize(d.UplinkMac),
+                    LastUplinkMac = string.IsNullOrEmpty(d.LastUplinkMac) ? null : MacNormalizer.Normalize(d.LastUplinkMac),
+                    WirelessUplink = string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase),
+                    IsGateway = d.Type.IsGateway(),
                 })
                 .ToList();
         }

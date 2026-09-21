@@ -325,6 +325,55 @@ public class WanOutageEvaluatorTests
     }
 
     /// <summary>
+    /// A rollout step between the server and the gateway cuts the server's probes off from the
+    /// WAN, so their failures say nothing. They sit out the verdict rather than muting it.
+    /// </summary>
+    [Fact]
+    public async Task TargetsProbedFromAVantageAStepCutsOff_SitOutTheVerdict()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+        registry.RefreshWanDark("main", "server", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true));
+            registry.RefreshWanDark("main", "server", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The hold is per vantage: an agent on the gateway is never behind a LAN switch, so a real
+    /// outage it reports during the same step still alerts.
+    /// </summary>
+    [Fact]
+    public async Task AVantageTheStepLeavesConnected_StillReportsARealOutage()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        var evaluator = BuildEvaluator(BuildContext(), registry);
+        registry.RefreshWanDark("main", "server", _time.GetUtcNow().UtcDateTime);
+
+        for (var round = 0; round < RoundsToConfirm; round++)
+        {
+            foreach (var target in WanTargets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: false, vantage: "agent-7"));
+            foreach (var target in Wan2Targets)
+                await evaluator.EvaluateAsync(target, Probe(target, success: true, vantage: "agent-7"));
+            registry.RefreshWanDark("main", "server", _time.GetUtcNow().UtcDateTime);
+            _time.Advance(TimeSpan.FromSeconds(SecondsPerPass));
+        }
+
+        _bus.Published.Should().ContainSingle()
+            .Which.EventType.Should().Be("monitoring.wan_outage");
+    }
+
+    /// <summary>
     /// A Network app update restarts the console but the gateway stays up. WAN outages during
     /// one are real and must NOT be suppressed.
     /// </summary>
@@ -408,10 +457,10 @@ public class WanOutageEvaluatorTests
             await _evaluator.EvaluateAsync(target, Probe(target, success));
     }
 
-    private PingProbeResult Probe(MonitoringTarget target, bool success) => new()
+    private PingProbeResult Probe(MonitoringTarget target, bool success, string? vantage = null) => new()
     {
         Target = new ProbeTarget(target.Address, ProbeMode.Icmp),
-        Vantage = ProbeVantage.Server,
+        Vantage = vantage == null ? ProbeVantage.Server : new ProbeVantage(vantage, VantageKind.Server),
         Sent = 10,
         Received = success ? 10 : 0,
         Timestamp = _time.GetUtcNow().UtcDateTime,
