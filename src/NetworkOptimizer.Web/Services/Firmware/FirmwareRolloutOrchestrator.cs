@@ -3051,6 +3051,68 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Logs, per planned step, what its reboot would take dark - the same calculation an in-flight
+    /// step runs, against the same device list and observer placement. A plan nobody starts is
+    /// then enough to check the dark sets on a live site. Debug-only: the placement costs console
+    /// calls, and none are spent where nothing would be written.
+    /// </summary>
+    /// <param name="steps">The plan's steps.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task LogPlannedDarkSetsAsync(IEnumerable<FirmwareRolloutStep> steps, CancellationToken cancellationToken = default)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug)) return;
+
+        try
+        {
+            var devices = await _observer.ObserveAsync(cancellationToken);
+            if (devices.Count == 0) return;
+
+            var positions = _observerLocator == null
+                ? RolloutObserverPositions.ConsoleAtRoot
+                : await _observerLocator.LocateAsync(devices, cancellationToken);
+            var parents = RolloutDarkSet.ParentMap(devices);
+            var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            var names = devices.ToDictionary(d => d.Mac, d => d.Name, StringComparer.OrdinalIgnoreCase);
+            string Label(string mac) => names.TryGetValue(mac, out var name) && !string.IsNullOrEmpty(name) ? name : mac;
+
+            foreach (var step in steps.Where(s => s.State != FirmwareRolloutStepState.SkippedExcluded))
+            {
+                if (IsGatewayStep(step))
+                {
+                    _logger.LogDebug(
+                        "Planned dark set on site {Site}: {Device} is the gateway - every device and every WAN vantage, by the console and OS cycle windows",
+                        _siteSlug, step.DeviceName);
+                    continue;
+                }
+
+                var wiredInfrastructure = !IsAccessPointStep(step);
+                var dark = RolloutDarkSet.DevicesDarkenedBy(step.DeviceMac, wiredInfrastructure, devices, positions);
+                var cutOff = positions.VantageAttachMacs
+                    .Where(v => RolloutDarkSet.VantageDarkenedBy(step.DeviceMac, wiredInfrastructure, v.Value, gatewayMac, parents))
+                    .Select(v => v.Key)
+                    .ToList();
+
+                _logger.LogDebug(
+                    "Planned dark set on site {Site}: {Device} ({Type}) takes {Count} of {Total} device(s) dark [{Dark}] and cuts off vantage(s) [{CutOff}] of [{Vantages}]; console at {Console} (unlocated: {Unlocated})",
+                    _siteSlug, step.DeviceName, step.DeviceType, dark.Count, devices.Count - 1,
+                    string.Join(", ", dark.Select(Label).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)),
+                    string.Join(", ", cutOff),
+                    string.Join(", ", positions.VantageAttachMacs.Select(v => $"{v.Key}@{(v.Value == null ? "?" : Label(v.Value))}")),
+                    positions.ConsoleAttachMac == null ? "root" : Label(positions.ConsoleAttachMac),
+                    positions.ConsoleUnlocated);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Planned dark sets on site {Site} not logged", _siteSlug);
+        }
+    }
+
+    /// <summary>
     /// Ends a settled step's own window. The windows of what it took dark are left to lapse: the
     /// device reporting back says nothing about when the devices behind it re-inform.
     /// </summary>
