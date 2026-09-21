@@ -165,6 +165,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private int _prunedPlanId;
     private int _reconciledPlanId;
     private int _darkSetsLoggedPlanId;
+    private DateTime _darkSetsRetryAt = DateTime.MinValue;
     private bool _restoreSweepDone;
     private bool _resumeGapCharged;
 
@@ -305,11 +306,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 // Once per waiting plan, however it was made: autopilot builds its own and never
                 // passes through the wizard's preview. Marked done only once it has been written:
                 // after a restart an agent-relayed console answers nothing until its tunnel is up.
-                if (_darkSetsLoggedPlanId != plan.Id && _logger.IsEnabled(LogLevel.Debug))
+                // Retried a minute apart, not every tick: each try against a silent console makes
+                // the observer write its own warning.
+                if (_darkSetsLoggedPlanId != plan.Id && _logger.IsEnabled(LogLevel.Debug) && Now >= _darkSetsRetryAt)
                 {
                     var waiting = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
                     if (await LogPlannedDarkSetsAsync(waiting, cancellationToken))
                         _darkSetsLoggedPlanId = plan.Id;
+                    else
+                        _darkSetsRetryAt = Now + TimeSpan.FromMinutes(1);
                 }
 
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
