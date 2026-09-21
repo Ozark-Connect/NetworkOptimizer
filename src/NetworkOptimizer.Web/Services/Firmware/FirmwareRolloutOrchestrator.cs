@@ -164,6 +164,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private DateTime _lastPruneAt = DateTime.MinValue;
     private int _prunedPlanId;
     private int _reconciledPlanId;
+    private int _darkSetsLoggedPlanId;
     private bool _restoreSweepDone;
     private bool _resumeGapCharged;
 
@@ -301,6 +302,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             if (plan.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
+                // Once per waiting plan, however it was made: autopilot builds its own and never
+                // passes through the wizard's preview.
+                if (_darkSetsLoggedPlanId != plan.Id)
+                {
+                    _darkSetsLoggedPlanId = plan.Id;
+                    var waiting = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+                    await LogPlannedDarkSetsAsync(waiting, cancellationToken);
+                }
+
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
                     await BeginAsync(plan, overrideHealthGate: false, cancellationToken);
                 else if (!await PruneIfDueAsync(plan, cancellationToken))
