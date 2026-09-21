@@ -103,6 +103,28 @@ public class FlexibleIntConverter : JsonConverter<int?>
 }
 
 /// <summary>
+/// <see cref="FlexibleIntConverter"/> for a non-nullable int: a number, a stringified number, a
+/// float, or nothing. A value that cannot be read is 0, which port and speed readers already
+/// treat as "none".
+/// </summary>
+public class FlexibleNonNullableIntConverter : JsonConverter<int>
+{
+    public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.Number when reader.TryGetInt32(out var i) => i,
+            JsonTokenType.Number => (int)reader.GetDouble(),
+            JsonTokenType.String when int.TryParse(reader.GetString(), out var value) => value,
+            _ => 0,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options)
+        => writer.WriteNumberValue(value);
+}
+
+/// <summary>
 /// Tolerant parser for 64-bit counters (byte and packet totals) that may arrive as a number, a
 /// stringified number, a float, or nothing. Mirrors FlexibleIntConverter; a value that cannot be
 /// read is 0, which the byte-delta readers treat as "no sample" rather than as a reset.

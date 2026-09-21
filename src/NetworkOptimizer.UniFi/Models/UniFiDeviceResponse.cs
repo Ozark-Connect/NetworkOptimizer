@@ -764,6 +764,7 @@ public class UplinkInfo
     public string UplinkMac { get; set; } = string.Empty;
 
     [JsonPropertyName("uplink_remote_port")]
+    [JsonConverter(typeof(FlexibleNonNullableIntConverter))]
     public int UplinkRemotePort { get; set; }
 
     /// <summary>
@@ -771,6 +772,7 @@ public class UplinkInfo
     /// For wired uplinks, this is the physical port number. Not present for wireless uplinks.
     /// </summary>
     [JsonPropertyName("port_idx")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? PortIdx { get; set; }
 
     [JsonPropertyName("type")]
@@ -780,6 +782,7 @@ public class UplinkInfo
     public bool Up { get; set; }
 
     [JsonPropertyName("speed")]
+    [JsonConverter(typeof(FlexibleNonNullableIntConverter))]
     public int Speed { get; set; }
 
     [JsonPropertyName("full_duplex")]
@@ -790,6 +793,7 @@ public class UplinkInfo
     /// <see cref="MloLinks"/>, not the STA link's own rate.
     /// </summary>
     [JsonPropertyName("tx_rate")]
+    [JsonConverter(typeof(FlexibleLongConverter))]
     public long TxRate { get; set; }
 
     /// <summary>
@@ -797,6 +801,7 @@ public class UplinkInfo
     /// <see cref="MloLinks"/>, not the STA link's own rate.
     /// </summary>
     [JsonPropertyName("rx_rate")]
+    [JsonConverter(typeof(FlexibleLongConverter))]
     public long RxRate { get; set; }
 
     /// <summary>
@@ -810,6 +815,7 @@ public class UplinkInfo
     /// Channel for wireless uplinks
     /// </summary>
     [JsonPropertyName("channel")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Channel { get; set; }
 
     /// <summary>
@@ -822,12 +828,14 @@ public class UplinkInfo
     /// Signal strength in dBm for wireless uplinks
     /// </summary>
     [JsonPropertyName("signal")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Signal { get; set; }
 
     /// <summary>
     /// Noise floor in dBm for wireless uplinks
     /// </summary>
     [JsonPropertyName("noise")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Noise { get; set; }
 
     /// <summary>Cumulative bytes this device has sent over its uplink, toward the parent.</summary>
