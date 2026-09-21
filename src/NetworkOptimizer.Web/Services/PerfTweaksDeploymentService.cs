@@ -23,11 +23,11 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // Highest UniFi OS version the perf tweaks + SGMII+ module are verified against, one
     // ceiling per gateway line because the UXG and UCG lines receive UniFi OS 6 releases on
     // different schedules (6.0.5 shipped for the UXG-Fiber only; 6.0.7 for the UCG-Fiber).
-    // 6.0.7 static/bench-verified on the UCG-Fiber, the first 6.0.x image for that line:
-    // qca-ssdk.ko .text byte-identical to the live-verified 6.0.5 SSDK, every other common
-    // kernel module .text-identical, vermagic unchanged, all boot-tweak userland deps present
-    // including MongoDB (unifi-perf-tweaks docs/compat-6.0.7.md).
-    private static readonly Version MaxSupportedFirmware = new(6, 0, 7);
+    // 6.0.9 verified on a production UCG-Fiber: the boot tweaks are live-confirmed in effect, and
+    // the SGMII+ module is static-verified (vermagic, all 10 symbols and the 0x690/0x6d0 offsets
+    // unchanged; the one changed qca-ssdk function is MHT MAC polling, outside the uniphy path)
+    // (unifi-perf-tweaks docs/compat-6.0.9.md).
+    private static readonly Version MaxSupportedFirmware = new(6, 0, 9);
     // 6.0.5 live-verified on UXG-Fiber: the trixie toolchain recompiled qca-ssdk.ko, ending the
     // byte-identical streak, but vermagic, all 10 SGMII+ symbols and the 0x690/0x6d0 speed and
     // duplex offsets are unchanged (unifi-perf-tweaks docs/compat-6.0.5.md).
