@@ -223,6 +223,13 @@
         </div>
     }
 
+    @if (!string.IsNullOrEmpty(_deployMessage))
+    {
+        <div class="alert alert-danger">
+            @_deployMessage
+        </div>
+    }
+
     @if (!string.IsNullOrEmpty(_removeMessage))
     {
         <div class="alert alert-warning">
@@ -393,7 +400,7 @@
                             {
                                 <SiteAdminOnly>
                                     <SiteAdminOnly>
-                                        <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                        <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id, isUpdate: true)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                         @if (_deployingTweakId == def.Id)
                                         {
                                             <span class="spinner spinner-sm"></span>
@@ -457,7 +464,7 @@
                         {
                             <SiteAdminOnly>
                                 <SiteAdminOnly>
-                                    <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id, isUpdate: true)" disabled="@(_deployingTweakId == def.Id || IsLicenseRestricted)">
                                     @if (_deployingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -1017,6 +1024,8 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private string? _removeMessage;
     private bool _showDeployConfirm;
     private string? _pendingDeployTweakId;
+    private bool _pendingDeployIsUpdate;
+    private string? _deployMessage;
     private bool _confirmBackup;
     private bool _confirmBackupDownloaded;
     private bool _confirmWarranty;
@@ -1159,9 +1168,10 @@ ls -la /var/config/run-syslog.sh</code></pre>
         }
     }
 
-    private void ShowDeployConfirmation(string tweakId)
+    private void ShowDeployConfirmation(string tweakId, bool isUpdate = false)
     {
         _pendingDeployTweakId = tweakId;
+        _pendingDeployIsUpdate = isUpdate;
         _confirmBackup = false;
         _confirmBackupDownloaded = false;
         _confirmWarranty = false;
@@ -1171,9 +1181,12 @@ ls -la /var/config/run-syslog.sh</code></pre>
 
     private async Task ConfirmDeploy()
     {
-        if (!_allConfirmed || !_canDeploy) return;
+        if (!_allConfirmed) return;
         _showDeployConfirm = false;
-        if (_pendingDeployTweakId != null)
+        // The firmware and UDM Boot gates cover new deploys only; an installed tweak stays updatable.
+        if (!_pendingDeployIsUpdate && !_canDeploy)
+            _deployMessage = _status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first";
+        else if (_pendingDeployTweakId != null)
             await DeployTweak(_pendingDeployTweakId);
         _pendingDeployTweakId = null;
     }
@@ -1207,6 +1220,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private async Task DeployTweak(string tweakId)
     {
         _deployingTweakId = tweakId;
+        _deployMessage = null;
         _deploySteps.Clear();
         StateHasChanged();
 
@@ -1225,6 +1239,10 @@ ls -la /var/config/run-syslog.sh</code></pre>
                 if (tweakId is "sfp-sgmiiplus" or "sfp-sgmiiplus-port6")
                     _sfpDeployTimes[tweakId] = DateTime.UtcNow;
                 await LoadStatusAsync();
+            }
+            else
+            {
+                _deployMessage = result.message;
             }
         }
         finally
