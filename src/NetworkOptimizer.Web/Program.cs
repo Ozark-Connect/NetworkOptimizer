@@ -866,6 +866,14 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.Ban
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
+// Device health checks: shipped templates (JSON files), one runner per site that executes the
+// checks over SSH and runs their remedies, and the gated service the Setup page edits through.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.HealthCheckTemplateService>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.HealthCheckRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.HealthCheckRegistry>());
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.HealthCheckService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.IHealthCheckService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.HealthChecks.HealthCheckService>());
 // Per-site: buildings, floor plans, planned APs, and their heatmap cache are
 // per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
 // its own data (consumers - WiFiOptimizerService, floor-plan endpoints - are scoped).

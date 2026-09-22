@@ -7,15 +7,16 @@
 // tooltip needs comes down with the event, so this module knows nothing about devices or ports.
 //
 // Event shape from the server:
-//   { key, time, kind: 'reboot'|'alert', severity: 'info'|'warning'|'critical',
+//   { key, time, kind: 'reboot'|'alert'|'action', severity: 'info'|'warning'|'critical',
 //     title, detail, device, port? }
 
 import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
 
 // The glyph says which kind it is and the colour says how bad, so the two read independently -
 // a planned firmware restart and a panic are both ↻, in different colours, which is the
-// distinction the operator is actually scanning for.
-const EVENT_GLYPH = { reboot: '↻', alert: '⚠' };
+// distinction the operator is actually scanning for. An action is something Network Optimizer
+// did to the device on a health check's behalf.
+const EVENT_GLYPH = { reboot: '↻', alert: '⚠', action: '⚙' };
 
 const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
 

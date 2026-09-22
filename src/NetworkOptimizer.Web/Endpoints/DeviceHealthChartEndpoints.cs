@@ -7,6 +7,7 @@ using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.Web.Services.Monitoring.HealthChecks;
 using NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 
 namespace NetworkOptimizer.Web.Endpoints;
@@ -24,6 +25,7 @@ public static class DeviceHealthChartEndpoints
             MonitoringInfluxClient influx,
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
+            HealthCheckTemplateService templateService,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -69,6 +71,31 @@ public static class DeviceHealthChartEndpoints
 
             var customFieldNames = customFieldDefs.Select(f => f.fieldName).ToList();
 
+            // Health checks chart below the custom OIDs: one chart per field name, so two devices
+            // running the same template share a chart the way custom OIDs do. The threshold and
+            // operator come from the first definition of each field; a user who gives two devices
+            // different thresholds under one field name sees the first one drawn.
+            var healthChecks = await db.HealthCheckDefinitions.AsNoTracking()
+                .Where(c => c.Enabled && deviceMacs.Contains(c.DeviceMac))
+                .ToListAsync(ct);
+            var templates = healthChecks.Count > 0 ? templateService.GetTemplates() : Array.Empty<HealthCheckTemplate>();
+            var healthCheckDefs = healthChecks
+                .GroupBy(c => c.FieldName)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    var template = templates.FirstOrDefault(t => string.Equals(t.Id, first.TemplateId, StringComparison.OrdinalIgnoreCase));
+                    return new
+                    {
+                        fieldName = HealthCheckEvaluation.ValueField(g.Key),
+                        name = first.Name,
+                        threshold = first.Threshold,
+                        op = HealthCheckEvaluation.OperatorSymbol(first.Operator),
+                        unit = template?.Unit ?? "",
+                    };
+                })
+                .ToList();
+
             var result = new List<object>();
             foreach (var t in targets)
             {
@@ -85,6 +112,16 @@ public static class DeviceHealthChartEndpoints
                     customData = await influx.QueryCustomOidFieldsAsync(
                         t.DeviceMac, deviceCustomFields, queryFrom, queryTo, ct: ct);
 
+                Dictionary<string, List<(DateTime Time, double Value)>>? checkData = null;
+                var deviceCheckFields = healthChecks
+                    .Where(c => c.DeviceMac == t.DeviceMac)
+                    .Select(c => HealthCheckEvaluation.ValueField(c.FieldName))
+                    .Distinct()
+                    .ToList();
+                if (deviceCheckFields.Count > 0)
+                    checkData = await influx.QueryCustomOidFieldsAsync(
+                        t.DeviceMac, deviceCheckFields, queryFrom, queryTo, ct: ct);
+
                 result.Add(new
                 {
                     name = t.Name,
@@ -98,6 +135,9 @@ public static class DeviceHealthChartEndpoints
                         fan = p.FanSpeedRpm
                     }),
                     custom = customData?.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value.Select(v => new { time = v.Time.ToString("o"), value = v.Value })),
+                    checks = checkData?.ToDictionary(
                         kvp => kvp.Key,
                         kvp => kvp.Value.Select(v => new { time = v.Time.ToString("o"), value = v.Value }))
                 });
@@ -113,7 +153,7 @@ public static class DeviceHealthChartEndpoints
 
             var events = await BuildAnnotationsAsync(influx, db, macsByNormalized, queryFrom, queryTo, ct);
 
-            return Results.Ok(new { devices = result, customFields = customFieldDefs, events });
+            return Results.Ok(new { devices = result, customFields = customFieldDefs, healthChecks = healthCheckDefs, events });
         });
     }
 
@@ -124,7 +164,20 @@ public static class DeviceHealthChartEndpoints
     /// not just the ones recent enough to alert on.
     /// </summary>
     private static readonly HashSet<string> AlertTypesCoveredElsewhere =
-        new(StringComparer.OrdinalIgnoreCase) { DeviceRebootAlertEvaluator.RebootEventType };
+        new(StringComparer.OrdinalIgnoreCase) { DeviceRebootAlertEvaluator.RebootEventType, HealthCheckAlertTypes.Action };
+
+    /// <summary>Short label for a health check remedy mark: the check, then what it did.</summary>
+    internal static string ActionLabel(string checkName, string remedy)
+    {
+        var did = remedy switch
+        {
+            "RestartService" => "restarted service",
+            "KillProcess" => "killed process",
+            "RebootDevice" => "rebooted",
+            _ => "action",
+        };
+        return string.IsNullOrWhiteSpace(checkName) ? $"Health check {did}" : $"{checkName}: {did}";
+    }
 
     /// <summary>
     /// Reboot categories the operator did not ask for. Mirrors DeviceRebootReason.IsUnexpected,
@@ -191,6 +244,24 @@ public static class DeviceHealthChartEndpoints
                         ? $"Firmware {reboot.FirmwareVersion}"
                         : $"{reboot.Detail}. Firmware {reboot.FirmwareVersion}",
                 firmware = FirmwareVersionFormat.ShortOrNull(reboot.FirmwareVersion),
+            }));
+        }
+
+        // Health check remedies. Long-term like reboots, and drawn as their own kind: the alert
+        // that announced the action is filtered out below so one restart is not marked twice.
+        foreach (var action in await influx.QueryHealthCheckEventsAsync(from, to, ct))
+        {
+            if (!macsByNormalized.TryGetValue(NormalizeMac(action.DeviceMac), out var series)) continue;
+            events.Add((action.At, new
+            {
+                key = series.Key,
+                device = series.Name,
+                time = action.At.ToString("o"),
+                kind = "action",
+                severity = action.Severity == "critical" ? "critical" : "warning",
+                title = ActionLabel(action.CheckName, action.Remedy),
+                detail = action.Detail,
+                reading = action.Value?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture),
             }));
         }
 
@@ -326,8 +397,19 @@ public static class DeviceHealthChartEndpoints
         DeviceHealthAlertEvaluator.HighCpuEventType => "High CPU",
         DeviceHealthAlertEvaluator.HighMemoryEventType => "High memory",
         DeviceHealthAlertEvaluator.HighTemperatureEventType => "High temperature",
+        // The stored title already names the check; the device the chart shows is trimmed off.
+        HealthCheckAlertTypes.Failed or HealthCheckAlertTypes.Recovered => StripDeviceSuffix(title),
         _ => title,
     };
+
+    /// <summary>"JVM GC Thrash on Gateway (site x)" becomes "JVM GC Thrash" for the mark.</summary>
+    private static string StripDeviceSuffix(string title)
+    {
+        var site = title.LastIndexOf(" (site ", StringComparison.Ordinal);
+        if (site > 0 && title.EndsWith(')')) title = title[..site];
+        var on = title.LastIndexOf(" on ", StringComparison.Ordinal);
+        return on > 0 ? title[..on] : title;
+    }
 
     private static readonly Regex ReadingPattern = new(@"(\d+\.?\d*)\s*(%|°?C)(?!\w)", RegexOptions.Compiled);
 

@@ -1649,6 +1649,99 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
+    /// Records that a device health check ran its remedy. Long-term, like reboots: the mark on the
+    /// chart is the whole point and a 30d view has to reach it.
+    /// </summary>
+    /// <param name="deviceMac">Device MAC.</param>
+    /// <param name="deviceType">Device type, matching the <c>device_health</c> tag values.</param>
+    /// <param name="checkName">Display name of the check.</param>
+    /// <param name="fieldName">The check's field name, so the mark lands on its own chart.</param>
+    /// <param name="remedy">Remedy that ran (RestartService, KillProcess, RebootDevice).</param>
+    /// <param name="severity">warning when it ran, critical when it failed to run.</param>
+    /// <param name="detail">One sentence for the tooltip.</param>
+    /// <param name="value">The reading that tripped the check.</param>
+    /// <param name="at">When the remedy ran.</param>
+    public Task WriteHealthCheckEventAsync(
+        string deviceMac,
+        string deviceType,
+        string checkName,
+        string fieldName,
+        string remedy,
+        string severity,
+        string detail,
+        double value,
+        DateTime at)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("events")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("event_type", HealthCheckEventType)
+            .Tag("severity", severity)
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(at.ToUniversalTime(), WritePrecision.Ns)
+            .Field("detail", detail)
+            .Field("check_name", checkName)
+            .Field("check_field", fieldName)
+            .Field("remedy", remedy)
+            .Field("value", value);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A stored health check remedy record.</summary>
+    public class HealthCheckEventPoint
+    {
+        public string DeviceMac { get; init; } = "";
+        public string CheckName { get; init; } = "";
+        public string CheckField { get; init; } = "";
+        public string Remedy { get; init; } = "";
+        public string Severity { get; init; } = "";
+        public string? Detail { get; init; }
+        public double? Value { get; init; }
+        public DateTime At { get; init; }
+    }
+
+    /// <summary>Every health check remedy that ran in the window, across all devices.</summary>
+    public async Task<IReadOnlyList<HealthCheckEventPoint>> QueryHealthCheckEventsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<HealthCheckEventPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{HealthCheckEventType}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<HealthCheckEventPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var deviceMac = record.GetValueByKey("device_mac") as string ?? "";
+            if (deviceMac.Length == 0) continue;
+            results.Add(new HealthCheckEventPoint
+            {
+                DeviceMac = deviceMac,
+                CheckName = record.GetValueByKey("check_name") as string ?? "",
+                CheckField = record.GetValueByKey("check_field") as string ?? "",
+                Remedy = record.GetValueByKey("remedy") as string ?? "",
+                Severity = record.GetValueByKey("severity") as string ?? "info",
+                Detail = record.GetValueByKey("detail") as string,
+                Value = AsDoubleOrNull(record.GetValueByKey("value")),
+                At = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        results.Sort((a, b) => a.At.CompareTo(b.At));
+        return results;
+    }
+
+    /// <summary>Event type tag for health check remedy records on the <c>events</c> measurement.</summary>
+    public const string HealthCheckEventType = "health_check";
+
+    /// <summary>
     /// Event type tag used for device reboot records on the <c>events</c> measurement.
     /// </summary>
     public const string DeviceRebootEventType = "device_reboot";

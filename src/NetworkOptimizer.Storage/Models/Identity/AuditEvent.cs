@@ -136,6 +136,12 @@ public static class AuditActions
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
 
+    // Device health checks
+    public const string HealthCheckChanged = "health_check.changed";
+    public const string HealthCheckTested = "health_check.tested";
+    /// <summary>A health check ran its remedy on a device (restart, kill, reboot). System actor.</summary>
+    public const string HealthCheckRemedyRun = "health_check.remedy.run";
+
     /// <summary>A cellular modem's radio was power-cycled to force a fresh tower selection.</summary>
     public const string CellularRadioReset = "cellular_radio.reset";
     public const string DbRestored = "db.restored";

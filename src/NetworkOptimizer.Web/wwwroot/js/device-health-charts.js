@@ -5,7 +5,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=17';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createMarkLayer } from './chart-event-marks.js?v=5';
+import { createMarkLayer } from './chart-event-marks.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
@@ -49,6 +49,11 @@ let memChart = null;
 let fanChart = null;
 let customCharts = {};
 let customFieldDefs = [];
+// Health check charts, keyed by the check's Influx field. Below the custom OID ones; each carries
+// a dashed threshold line as its own series so the mark layer's annotation updates never touch it.
+let checkCharts = {};
+let checkDefs = [];
+const THRESHOLD_COLOR = '#9ca3af';
 let pollTimer = null;
 let currentRangeHours = 1;
 let windowOffset = 0;
@@ -206,10 +211,43 @@ function drawSeries() {
             data: customPoints(d, field),
         }))), false);
     }
+    for (const def of checkDefs) {
+        const chart = checkCharts[def.fieldName];
+        if (!chart) continue;
+        chart.updateSeries(checkSeries(def, devices), false);
+    }
 }
 
 function customPoints(d, field) {
     return (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+}
+
+function checkPoints(d, field) {
+    return (d.checks?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+}
+
+// The device lines first, then the threshold spanning the group's window - drawn last so the
+// device colours keep their positions in the palette and the tooltip lists it at the bottom.
+function checkSeries(def, devices) {
+    const series = padFirst(devices.map(d => ({
+        name: d.name,
+        color: hashColor(d.name),
+        data: checkPoints(d, def.fieldName),
+    })));
+    const ext = groupExtents;
+    if (ext && Number.isFinite(ext.min) && Number.isFinite(ext.max) && ext.max > ext.min) {
+        series.push({
+            name: `Threshold (${def.op} ${def.threshold}${def.unit || ''})`,
+            color: THRESHOLD_COLOR,
+            data: [{ x: ext.min, y: def.threshold }, { x: ext.max, y: def.threshold }],
+        });
+    }
+    return series;
+}
+
+// Every series is solid except the threshold, which is the last one when it is present.
+function checkDashes(series) {
+    return series.map((s, i) => (i === series.length - 1 && s.color === THRESHOLD_COLOR ? 5 : 0));
 }
 
 function updateVisibility() {
@@ -226,6 +264,7 @@ function chartEntries() {
         [memChart, chartEls.mem],
         [fanChart, chartEls.fan],
         ...Object.keys(customCharts).map(k => [customCharts[k], chartEls[`custom:${k}`]]),
+        ...Object.keys(checkCharts).map(k => [checkCharts[k], chartEls[`check:${k}`]]),
     ].filter(([c]) => c);
 }
 
@@ -263,6 +302,7 @@ async function loadAndUpdate() {
     const fanCard = container?.querySelector('.health-fan-card');
     if (fanCard) fanCard.style.display = hasFan ? '' : 'none';
     if (container) await syncCustomCharts(container, data.devices, newDefs);
+    if (container) await syncCheckCharts(container, data.devices, data.healthChecks || []);
 
     // Ahead of the redraw below - see apply().
     axisDate.apply();
@@ -320,6 +360,50 @@ async function syncCustomCharts(container, devices, defs) {
     customFieldDefs = defs;
 }
 
+async function syncCheckCharts(container, devices, defs) {
+    const checkContainer = container.querySelector('.health-check-charts');
+    if (!checkContainer) return;
+
+    const newKeys = new Set(defs.map(d => d.fieldName));
+    for (const key of Object.keys(checkCharts)) {
+        if (newKeys.has(key)) continue;
+        checkCharts[key].destroy();
+        delete checkCharts[key];
+        delete chartEls[`check:${key}`];
+        checkContainer.querySelector(`[data-check-field="${key}"]`)?.closest('.chart-card')?.remove();
+    }
+
+    for (const def of defs) {
+        const series = checkSeries(def, devices.filter(d => visibility[d.mac] !== false));
+        const fmt = v => v != null ? `${fmtCustom(v)}${def.unit || ''}` : '-';
+
+        if (checkCharts[def.fieldName]) {
+            checkCharts[def.fieldName].updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: checkDashes(series) } }, false, false, false);
+            checkCharts[def.fieldName].updateSeries(series, false);
+            continue;
+        }
+
+        let chartDiv = checkContainer.querySelector(`[data-check-field="${def.fieldName}"]`);
+        if (!chartDiv) {
+            const card = document.createElement('div');
+            card.className = 'chart-card';
+            card.innerHTML = `<div class="chart-header"><h3 class="chart-title">${escapeHtml(def.name)}</h3></div><div data-check-field="${escapeHtml(def.fieldName)}"></div>`;
+            checkContainer.appendChild(card);
+            chartDiv = card.querySelector('[data-check-field]');
+        }
+        const chart = new ApexCharts(chartDiv, {
+            ...baseOpts(200, def.unit || '', fmt),
+            stroke: { curve: 'smooth', width: 2, dashArray: checkDashes(series) },
+            series, colors: PALETTE,
+        });
+        await chart.render();
+        checkCharts[def.fieldName] = chart;
+        chartEls[`check:${def.fieldName}`] = chartDiv;
+    }
+
+    checkDefs = defs;
+}
+
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 const fmtPct = v => v != null ? v.toFixed(1) + '%' : '-';
 const fmtRpm = v => v != null ? Math.round(v).toLocaleString() : '-';
@@ -336,6 +420,15 @@ function renderStatsTable(container, showAll) {
             { header: `${def.description} Mean`, format: fmtCustom },
             { header: `${def.description} Min`, format: fmtCustom },
             { header: `${def.description} Max`, format: fmtCustom },
+        );
+    }
+
+    const checkCols = [];
+    for (const def of checkDefs) {
+        const fmt = v => v != null ? `${fmtCustom(v)}${def.unit || ''}` : '-';
+        checkCols.push(
+            { header: `${def.name} Latest`, format: fmt, cls: 'stats-lead' },
+            { header: `${def.name} Max`, format: fmt },
         );
     }
 
@@ -365,6 +458,12 @@ function renderStatsTable(container, showAll) {
             baseValues.push(stats?.latest, stats?.mean, stats?.min, stats?.max);
         }
 
+        for (const def of checkDefs) {
+            const vals = (d.checks?.[def.fieldName] || []).map(p => p.value).filter(v => v != null);
+            const stats = computeStats(vals);
+            baseValues.push(stats?.latest, stats?.max);
+        }
+
         return { id: d.mac, label: d.name, color: hashColor(d.name),
             visible: deviceMeta.some(dm => dm.mac === d.mac) && visibility[d.mac] !== false,
             values: baseValues };
@@ -378,6 +477,7 @@ function renderStatsTable(container, showAll) {
             { header: 'Mem Latest', format: fmtPct, cls: 'stats-lead' }, { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
             ...fanCols,
             ...customCols,
+            ...checkCols,
         ],
         filter: { meta: () => deviceMeta, key: 'mac', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
@@ -711,6 +811,9 @@ export function unmount() {
     for (const chart of Object.values(customCharts)) chart.destroy();
     customCharts = {};
     customFieldDefs = [];
+    for (const chart of Object.values(checkCharts)) chart.destroy();
+    checkCharts = {};
+    checkDefs = [];
     chartEls = {};
     containerId = null;
     deviceMeta = [];
