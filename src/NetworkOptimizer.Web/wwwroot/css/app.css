@@ -4650,13 +4650,43 @@ tr:hover .snmp-row-chevron {
 }
 
 .snmp-form-field input,
-.snmp-form-field select {
+.snmp-form-field select,
+.snmp-form-field textarea {
     width: 100%;
     padding: 0.4rem 0.6rem;
     font-size: 0.85rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
+    color: var(--text-primary);
+}
+
+.snmp-form-field textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    resize: vertical;
+}
+
+.snmp-form-field input[type="checkbox"],
+.snmp-form-field input[type="radio"] {
+    width: auto;
+    padding: 0;
+}
+
+.snmp-form-field .checkbox-group,
+.snmp-form-field .radio-group {
+    gap: 0.35rem;
+    padding: 0.4rem 0;
+}
+
+.snmp-form-field .form-help {
+    margin-top: 0.35rem;
+}
+
+.snmp-form-field .checkbox-label,
+.snmp-form-field .radio-label {
+    display: flex;
+    margin-bottom: 0;
+    font-size: 0.85rem;
     color: var(--text-primary);
 }
 
@@ -4689,6 +4719,7 @@ tr:hover .snmp-row-chevron {
 .snmp-form-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
@@ -4697,7 +4728,7 @@ tr:hover .snmp-row-chevron {
     color: var(--danger-color);
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .snmp-detail-panel {
         padding: 0.75rem;
     }
