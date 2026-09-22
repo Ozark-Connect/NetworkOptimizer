@@ -144,7 +144,7 @@
                     @if (deploymentStatus?.ScriptsUsingBc > 0)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
-                            <strong>Redeploy recommended:</strong> the scripts on this gateway calculate rates with <code>bc</code>, which a UniFi OS major version upgrade removes. Redeploy to switch them to <code>awk</code>, which ships with the firmware.
+                            <strong>Redeploy recommended:</strong> a UniFi OS upgrade can stop these scripts adjusting your rates. Redeploy to make them upgrade-proof.
                         </div>
                     }
 
