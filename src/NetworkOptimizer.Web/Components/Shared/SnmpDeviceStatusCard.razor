@@ -220,7 +220,7 @@
                                                         }
                                                     </div>
 
-                                                    <div class="snmp-detail-section hc-section">
+                                                    <div class="snmp-detail-section" style="margin-top: 1.25rem;">
                                                         <div class="snmp-detail-header">
                                                             <h4>Health Checks</h4>
                                                             @if (!_showCheckForm)
@@ -248,7 +248,7 @@
                                                                         @foreach (var check in _healthChecks)
                                                                         {
                                                                             var status = _checkStatus.GetValueOrDefault(check.Id);
-                                                                            <tr class="@(check.Enabled ? "" : "hc-row-disabled")">
+                                                                            <tr>
                                                                                 <td>
                                                                                     <span class="snmp-device-name">@check.Name</span>
                                                                                     @if (!check.Enabled)
@@ -282,13 +282,13 @@
 
                                                         @if (_showCheckForm && _editCheck != null)
                                                         {
-                                                            <div class="snmp-add-oid-form hc-form" @onclick:stopPropagation="true">
-                                                                @if (_editCheck.Id == 0)
-                                                                {
-                                                                    <div class="snmp-form-row">
-                                                                        <div class="snmp-form-field snmp-form-field-oid">
-                                                                            <label>Start from</label>
-                                                                            <select value="@_selectedTemplateId" @onchange="e => ApplyTemplate(d, e.Value?.ToString())">
+                                                            <div class="snmp-add-oid-form" @onclick:stopPropagation="true">
+                                                                <div class="threshold-fields">
+                                                                    @if (_editCheck.Id == 0)
+                                                                    {
+                                                                        <div class="form-group">
+                                                                            <label class="form-label">Start from</label>
+                                                                            <select class="form-control" value="@_selectedTemplateId" @onchange="e => ApplyTemplate(d, e.Value?.ToString())">
                                                                                 <option value="">Custom check</option>
                                                                                 @foreach (var t in _templates)
                                                                                 {
@@ -296,46 +296,39 @@
                                                                                 }
                                                                             </select>
                                                                         </div>
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Name</label>
-                                                                            <input type="text" @bind="_editCheck.Name" placeholder="What this check watches" />
-                                                                        </div>
+                                                                    }
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Name</label>
+                                                                        <input type="text" class="form-control" @bind="_editCheck.Name" placeholder="What this check watches" />
                                                                     </div>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <div class="snmp-form-row">
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Name</label>
-                                                                            <input type="text" @bind="_editCheck.Name" />
+                                                                    @if (_editCheck.Id != 0)
+                                                                    {
+                                                                        <div class="form-group">
+                                                                            <label class="form-label">Enabled</label>
+                                                                            <label class="checkbox-label"><input type="checkbox" @bind="_editCheck.Enabled" /><span>Run this check</span></label>
                                                                         </div>
-                                                                        <div class="snmp-form-field hc-field-toggle">
-                                                                            <label>Enabled</label>
-                                                                            <label class="hc-check"><input type="checkbox" @bind="_editCheck.Enabled" /> Run this check</label>
-                                                                        </div>
-                                                                    </div>
-                                                                }
+                                                                    }
+                                                                </div>
 
                                                                 @if (_selectedTemplate != null)
                                                                 {
-                                                                    <div class="hc-template-notes">
-                                                                        <div><strong>Watches</strong> @_selectedTemplate.WhatItWatches</div>
-                                                                        <div><strong>Fires</strong> @_selectedTemplate.WhenItFires</div>
-                                                                        <div><strong>Does</strong> @_selectedTemplate.WhatItDoes</div>
+                                                                    <div class="form-group">
+                                                                        <small class="form-help"><strong>Watches:</strong> @_selectedTemplate.WhatItWatches</small>
+                                                                        <small class="form-help"><strong>Fires:</strong> @_selectedTemplate.WhenItFires</small>
+                                                                        <small class="form-help"><strong>Does:</strong> @_selectedTemplate.WhatItDoes</small>
                                                                     </div>
                                                                 }
 
-                                                                <div class="snmp-form-row">
-                                                                    <div class="snmp-form-field hc-field-wide">
-                                                                        <label>What to run <span class="text-muted">(as the SSH user, on the device)</span></label>
-                                                                        <textarea rows="3" @bind="_editCheck.Command" placeholder="e.g. df /data | awk 'NR==2 {print $5}'"></textarea>
-                                                                    </div>
+                                                                <div class="form-group">
+                                                                    <label class="form-label">What to run</label>
+                                                                    <textarea class="form-control" rows="3" @bind="_editCheck.Command" placeholder="e.g. df /data | awk 'NR==2 {print $5}'"></textarea>
+                                                                    <small class="form-help">Runs on the device over SSH as the configured SSH user.</small>
                                                                 </div>
 
-                                                                <div class="snmp-form-row">
-                                                                    <div class="snmp-form-field">
-                                                                        <label>What to look for</label>
-                                                                        <select @bind="_editCheck.Parser">
+                                                                <div class="threshold-fields">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">What to look for</label>
+                                                                        <select class="form-control" @bind="_editCheck.Parser">
                                                                             <option value="@HealthCheckParser.FirstNumber">First number on the last line</option>
                                                                             <option value="@HealthCheckParser.RegexGroup">Number captured by a regex</option>
                                                                             <option value="@HealthCheckParser.MatchingLineCount">Count of lines matching a regex</option>
@@ -344,39 +337,40 @@
                                                                     </div>
                                                                     @if (_editCheck.Parser is HealthCheckParser.RegexGroup or HealthCheckParser.MatchingLineCount)
                                                                     {
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Regular expression</label>
-                                                                            <input type="text" @bind="_editCheck.ParserArg" placeholder="@(_editCheck.Parser == HealthCheckParser.RegexGroup ? "e.g. used=(\\d+)" : "e.g. ^ERROR")" />
+                                                                        <div class="form-group">
+                                                                            <label class="form-label">Regular expression</label>
+                                                                            <input type="text" class="form-control" @bind="_editCheck.ParserArg" placeholder="@(_editCheck.Parser == HealthCheckParser.RegexGroup ? "e.g. used=(\\d+)" : "e.g. ^ERROR")" />
                                                                         </div>
                                                                     }
                                                                 </div>
 
-                                                                <div class="snmp-form-row">
-                                                                    <div class="snmp-form-field">
-                                                                        <label>It's a problem when the value is</label>
-                                                                        <div class="hc-inline">
-                                                                            <select @bind="_editCheck.Operator">
-                                                                                <option value="@HealthCheckOperator.GreaterOrEqual">at or above</option>
-                                                                                <option value="@HealthCheckOperator.LessOrEqual">at or below</option>
-                                                                                <option value="@HealthCheckOperator.Equal">equal to</option>
-                                                                                <option value="@HealthCheckOperator.NotEqual">anything but</option>
-                                                                            </select>
-                                                                            <input type="number" step="any" @bind="_editCheck.Threshold" class="hc-number" />
-                                                                        </div>
+                                                                <div class="threshold-fields">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">It's a problem when the value is</label>
+                                                                        <select class="form-control" @bind="_editCheck.Operator">
+                                                                            <option value="@HealthCheckOperator.GreaterOrEqual">at or above</option>
+                                                                            <option value="@HealthCheckOperator.LessOrEqual">at or below</option>
+                                                                            <option value="@HealthCheckOperator.Equal">equal to</option>
+                                                                            <option value="@HealthCheckOperator.NotEqual">anything but</option>
+                                                                        </select>
                                                                     </div>
-                                                                    <div class="snmp-form-field">
-                                                                        <label>For this many samples in a row</label>
-                                                                        <input type="number" min="1" max="60" @bind="_editCheck.ConsecutiveSamples" class="hc-number" />
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Threshold</label>
+                                                                        <input type="number" class="form-control" step="any" @bind="_editCheck.Threshold" />
+                                                                    </div>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Samples in a row</label>
+                                                                        <input type="number" class="form-control" min="1" max="60" @bind="_editCheck.ConsecutiveSamples" />
                                                                     </div>
                                                                 </div>
 
-                                                                <div class="snmp-form-row">
-                                                                    <div class="snmp-form-field">
-                                                                        <label>Then</label>
-                                                                        <label class="hc-check"><input type="checkbox" @bind="_editCheck.AlertEnabled" /> Alert</label>
+                                                                <div class="threshold-fields">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Then</label>
+                                                                        <label class="checkbox-label"><input type="checkbox" @bind="_editCheck.AlertEnabled" /><span>Alert</span></label>
                                                                         @if (_editCheck.AlertEnabled)
                                                                         {
-                                                                            <select @bind="_editCheck.AlertSeverity" class="hc-severity">
+                                                                            <select class="form-control" style="margin-top: 0.5rem;" @bind="_editCheck.AlertSeverity">
                                                                                 <option value="0">Info</option>
                                                                                 <option value="1">Warning</option>
                                                                                 <option value="2">Error</option>
@@ -384,72 +378,72 @@
                                                                             </select>
                                                                         }
                                                                     </div>
-                                                                    <div class="snmp-form-field hc-field-wide">
-                                                                        <label>And on the device</label>
-                                                                        <div class="hc-remedies">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">And on the device</label>
+                                                                        <div class="radio-group">
                                                                             @foreach (var remedy in AvailableRemedies(d))
                                                                             {
-                                                                                <label class="hc-check">
+                                                                                <label class="radio-label">
                                                                                     <input type="radio" name="hc-remedy-@d.Mac" checked="@(_editCheck.Remedy == remedy)" @onchange="() => _editCheck.Remedy = remedy" />
-                                                                                    @HealthCheckRemedies.Label(remedy)
+                                                                                    <span>@HealthCheckRemedies.Label(remedy)</span>
                                                                                 </label>
-                                                                                @if (_editCheck.Remedy == remedy && HealthCheckRemedies.NeedsArgument(remedy))
-                                                                                {
-                                                                                    <input type="text" class="hc-remedy-arg" @bind="_editCheck.RemedyArg" placeholder="@(remedy == HealthCheckRemedy.RestartService ? "service name, e.g. unifi" : "process name")" />
-                                                                                }
                                                                             }
                                                                         </div>
+                                                                        @if (HealthCheckRemedies.NeedsArgument(_editCheck.Remedy))
+                                                                        {
+                                                                            <input type="text" class="form-control" style="margin-top: 0.5rem;" @bind="_editCheck.RemedyArg" placeholder="@(_editCheck.Remedy == HealthCheckRemedy.RestartService ? "Service name, e.g. unifi" : "Process name")" />
+                                                                        }
                                                                     </div>
                                                                 </div>
 
-                                                                <details class="hc-advanced">
-                                                                    <summary>Advanced</summary>
-                                                                    <div class="snmp-form-row">
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Run every (seconds)</label>
-                                                                            <input type="number" min="30" @bind="_editCheck.IntervalSeconds" class="hc-number" />
-                                                                        </div>
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Command timeout (seconds)</label>
-                                                                            <input type="number" min="5" max="120" @bind="_editCheck.TimeoutSeconds" class="hc-number" />
-                                                                        </div>
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Wait between actions (seconds)</label>
-                                                                            <input type="number" min="60" @bind="_editCheck.RemedyCooldownSeconds" class="hc-number" />
-                                                                        </div>
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Most actions per day <span class="text-muted">(0 = no cap)</span></label>
-                                                                            <input type="number" min="0" @bind="_editCheck.RemedyMaxPerDay" class="hc-number" />
-                                                                        </div>
+                                                                <div class="threshold-fields">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Run every (seconds)</label>
+                                                                        <input type="number" class="form-control" min="30" @bind="_editCheck.IntervalSeconds" />
                                                                     </div>
-                                                                    <div class="snmp-form-row">
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Not applicable when output matches</label>
-                                                                            <input type="text" @bind="_editCheck.NotApplicablePattern" placeholder="regex; empty means an empty output" />
-                                                                        </div>
-                                                                        <div class="snmp-form-field">
-                                                                            <label>Stored as field</label>
-                                                                            <input type="text" @bind="_editCheck.FieldName" placeholder="derived from the name" />
-                                                                        </div>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Command timeout (seconds)</label>
+                                                                        <input type="number" class="form-control" min="5" max="120" @bind="_editCheck.TimeoutSeconds" />
                                                                     </div>
-                                                                </details>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Wait between actions (seconds)</label>
+                                                                        <input type="number" class="form-control" min="60" @bind="_editCheck.RemedyCooldownSeconds" />
+                                                                    </div>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Most actions per day</label>
+                                                                        <input type="number" class="form-control" min="0" @bind="_editCheck.RemedyMaxPerDay" />
+                                                                        <small class="form-help">0 means no cap.</small>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="threshold-fields">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Not applicable when output matches</label>
+                                                                        <input type="text" class="form-control" @bind="_editCheck.NotApplicablePattern" placeholder="Regular expression" />
+                                                                        <small class="form-help">Empty means an empty output. A not-applicable run records nothing.</small>
+                                                                    </div>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Stored as field</label>
+                                                                        <input type="text" class="form-control" @bind="_editCheck.FieldName" placeholder="Derived from the name" />
+                                                                    </div>
+                                                                </div>
 
                                                                 @if (_checkTest != null)
                                                                 {
-                                                                    <div class="snmp-test-result @(TestResultClass(_checkTest))">
-                                                                        <div><strong>@TestVerdict(_checkTest)</strong></div>
-                                                                        @if (_checkTest.Ran)
+                                                                    <div class="snmp-test-result @(TestResultClass(_checkTest))" style="margin-bottom: 0.75rem;">
+                                                                        <strong>@TestVerdict(_checkTest)</strong>
+                                                                        @if (_checkTest.ExitCode.HasValue)
                                                                         {
-                                                                            <pre class="hc-test-output">@(string.IsNullOrWhiteSpace(_checkTest.Output) ? "(no output)" : _checkTest.Output)</pre>
-                                                                            @if (_checkTest.ExitCode.HasValue)
-                                                                            {
-                                                                                <div class="text-muted">Exit code @_checkTest.ExitCode</div>
-                                                                            }
+                                                                            <span> (exit code @_checkTest.ExitCode)</span>
                                                                         }
                                                                     </div>
+                                                                    @if (_checkTest.Ran)
+                                                                    {
+                                                                        <pre class="gateway-diag-raw">@(string.IsNullOrWhiteSpace(_checkTest.Output) ? "(no output)" : _checkTest.Output)</pre>
+                                                                    }
                                                                 }
 
-                                                                <div class="snmp-form-actions">
+                                                                <div class="action-buttons">
                                                                     <button class="btn btn-sm btn-contrast" @onclick="TestCheck" disabled="@_testingCheck">@(_testingCheck ? "Running..." : "Test")</button>
                                                                     <SiteAdminOnly>
                                                                         <button class="btn btn-sm btn-primary" @onclick="() => SaveCheck(d)" disabled="@_savingCheck">Save</button>
