@@ -4624,79 +4624,25 @@ tr:hover .snmp-row-chevron {
     border: 1px solid var(--border-color);
 }
 
-.snmp-form-row {
+.snmp-add-oid-form .form-row {
     display: flex;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    gap: 1rem;
     flex-wrap: wrap;
 }
 
-.snmp-form-field {
-    flex: 1;
-    min-width: 140px;
+.snmp-add-oid-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
 }
 
-.snmp-form-field-oid {
-    flex: 2;
-    min-width: 200px;
+.snmp-add-oid-form .form-group > .checkbox-label,
+.snmp-add-oid-form .form-group > .radio-group {
+    padding: 0.625rem 0;
 }
 
-.snmp-form-field label {
-    display: block;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    margin-bottom: 0.25rem;
-}
-
-.snmp-form-field input,
-.snmp-form-field select,
-.snmp-form-field textarea {
-    width: 100%;
-    padding: 0.4rem 0.6rem;
-    font-size: 0.85rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    color: var(--text-primary);
-}
-
-.snmp-form-field textarea {
+.snmp-add-oid-form textarea.form-control {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     resize: vertical;
-}
-
-.snmp-form-field input[type="checkbox"],
-.snmp-form-field input[type="radio"] {
-    width: auto;
-    padding: 0;
-}
-
-.snmp-form-field .checkbox-group,
-.snmp-form-field .radio-group {
-    gap: 0.35rem;
-    padding: 0.4rem 0;
-}
-
-.snmp-form-field .form-help {
-    margin-top: 0.35rem;
-}
-
-.snmp-form-field .checkbox-label,
-.snmp-form-field .radio-label {
-    display: flex;
-    margin-bottom: 0;
-    font-size: 0.85rem;
-    color: var(--text-primary);
-}
-
-.snmp-oid-input-group {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.snmp-oid-input-group input {
-    flex: 1;
 }
 
 .snmp-test-result {
@@ -4716,13 +4662,6 @@ tr:hover .snmp-row-chevron {
     color: var(--danger-color);
 }
 
-.snmp-form-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
 .snmp-save-error {
     font-size: 0.8rem;
     color: var(--danger-color);
@@ -4733,13 +4672,13 @@ tr:hover .snmp-row-chevron {
         padding: 0.75rem;
     }
 
-    .snmp-form-row {
+    .snmp-add-oid-form .form-row {
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0;
     }
 
-    .snmp-form-field {
-        min-width: 100%;
+    .snmp-add-oid-form .form-row > .form-group {
+        flex: 0 0 auto;
     }
 
     .snmp-detail-header {
