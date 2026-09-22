@@ -64,7 +64,7 @@ public class HealthCheckService : IHealthCheckService
         HealthCheckTemplateService templates,
         HealthCheckRegistry registry,
         IGatewaySshService gatewaySsh,
-        IUniFiSshService deviceSsh,
+        UniFiSshService deviceSsh,
         UniFiConnectionService connection)
     {
         _siteDbFactory = siteDbFactory;
