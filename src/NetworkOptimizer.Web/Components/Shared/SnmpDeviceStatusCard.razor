@@ -446,8 +446,8 @@
                                                                 }
 
                                                                 <div class="action-buttons">
-                                                                    <button class="btn btn-contrast" @onclick="TestCheck" disabled="@_testingCheck">@(_testingCheck ? "Running..." : "Test")</button>
                                                                     <SiteAdminOnly>
+                                                                        <button class="btn btn-contrast" @onclick="TestCheck" disabled="@_testingCheck">@(_testingCheck ? "Running..." : "Test")</button>
                                                                         <button class="btn btn-primary" @onclick="() => SaveCheck(d)" disabled="@_savingCheck">Save</button>
                                                                     </SiteAdminOnly>
                                                                     <button class="btn btn-contrast" @onclick="CancelCheck">Cancel</button>
@@ -595,7 +595,7 @@
 
     private async Task ShowCheckForm(SnmpDeviceStatus device)
     {
-        _templates = await HealthChecks.GetTemplatesAsync(device.DeviceType);
+        _templates = await HealthChecks.GetTemplatesAsync(device.Mac, device.DeviceType);
         _editCheck = new HealthCheckDefinition { DeviceMac = device.Mac };
         _selectedTemplateId = string.Empty;
         _selectedTemplate = null;
@@ -606,7 +606,7 @@
 
     private async Task EditCheck(SnmpDeviceStatus device, HealthCheckDefinition check)
     {
-        _templates = await HealthChecks.GetTemplatesAsync(device.DeviceType);
+        _templates = await HealthChecks.GetTemplatesAsync(device.Mac, device.DeviceType);
         // A copy, so Cancel leaves the table's row untouched.
         _editCheck = new HealthCheckDefinition
         {

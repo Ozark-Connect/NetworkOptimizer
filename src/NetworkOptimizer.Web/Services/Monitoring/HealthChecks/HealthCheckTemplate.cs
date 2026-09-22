@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.HealthChecks;
 
@@ -15,7 +16,11 @@ public class HealthCheckTemplate
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 
-    /// <summary>Device types the template fits: gateway, switch, ap.</summary>
+    /// <summary>
+    /// Device classes the template fits: <c>gateway</c> (any), <c>cloud-gateway</c> (a gateway that
+    /// is its own UniFi OS console: UDM, UDR, UCG lines), <c>network-gateway</c> (a gateway managed
+    /// by a console elsewhere: UXG, USG), <c>switch</c>, <c>ap</c>. Empty fits everything.
+    /// </summary>
     public List<string> AppliesTo { get; set; } = new();
 
     public string? WhatItWatches { get; set; }
@@ -56,18 +61,32 @@ public class HealthCheckTemplate
     public int RemedyCooldownSeconds { get; set; } = 1800;
     public int RemedyMaxPerDay { get; set; } = 4;
 
-    /// <summary>Whether the template fits a device type.</summary>
-    public bool Fits(DeviceType type)
+    /// <summary>
+    /// Whether the template fits a device. The gateway classes come from the product catalog, and
+    /// a gateway the catalog does not know answers neither cloud nor network-only, so a template
+    /// scoped to either is withheld from it: offering a UniFi OS check on a box that may not run
+    /// UniFi OS is the wrong default.
+    /// </summary>
+    /// <param name="type">Hardware type (a UDR acting as an AP is still gateway hardware).</param>
+    /// <param name="model">Model code from the UniFi API, when known.</param>
+    /// <param name="shortname">Shortname from the UniFi API, when known.</param>
+    public bool Fits(DeviceType type, string? model = null, string? shortname = null)
     {
         if (AppliesTo.Count == 0) return true;
-        var key = type switch
+        foreach (var key in AppliesTo)
         {
-            DeviceType.Gateway => "gateway",
-            DeviceType.Switch => "switch",
-            DeviceType.AccessPoint => "ap",
-            _ => "",
-        };
-        return AppliesTo.Any(a => string.Equals(a, key, StringComparison.OrdinalIgnoreCase));
+            var fits = key.ToLowerInvariant() switch
+            {
+                "gateway" => type == DeviceType.Gateway,
+                "cloud-gateway" => type == DeviceType.Gateway && UniFiProductDatabase.IsCloudGateway(model, shortname),
+                "network-gateway" => type == DeviceType.Gateway && UniFiProductDatabase.IsNetworkOnlyGateway(model, shortname),
+                "switch" => type == DeviceType.Switch,
+                "ap" => type == DeviceType.AccessPoint,
+                _ => false,
+            };
+            if (fits) return true;
+        }
+        return false;
     }
 
     /// <summary>Whether the editor may offer a remedy for a check made from this template.</summary>

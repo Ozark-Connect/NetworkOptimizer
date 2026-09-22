@@ -24,9 +24,13 @@ public interface IHealthCheckService
     [RequireRole(Roles.Viewer)]
     Task<bool> AnyAsync();
 
-    /// <summary>Templates that fit a device type.</summary>
+    /// <summary>
+    /// Templates that fit a device. The device is looked up for its model so a Cloud Gateway
+    /// template is withheld from a UXG; <paramref name="fallbackType"/> is used when UniFi does
+    /// not currently list the device.
+    /// </summary>
     [RequireRole(Roles.Viewer)]
-    Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(DeviceType deviceType);
+    Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(string deviceMac, DeviceType fallbackType);
 
     /// <summary>Live status of a check, or null before its first run.</summary>
     [RequireRole(Roles.Viewer)]
@@ -94,8 +98,15 @@ public class HealthCheckService : IHealthCheckService
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(DeviceType deviceType) =>
-        Task.FromResult<IReadOnlyList<HealthCheckTemplate>>(_templates.GetTemplates().Where(t => t.Fits(deviceType)).ToList());
+    public async Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(string deviceMac, DeviceType fallbackType)
+    {
+        var device = await FindDeviceAsync(deviceMac);
+        // Hardware type, not role: a UDR meshing as an AP is still the UniFi OS console.
+        var type = device == null ? fallbackType : HealthCheckRunner.EffectiveType(device);
+        return _templates.GetTemplates()
+            .Where(t => t.Fits(type, device?.Model, device?.Shortname))
+            .ToList();
+    }
 
     /// <inheritdoc />
     public Task<HealthCheckLiveStatus?> GetStatusAsync(int checkId) =>
@@ -105,7 +116,7 @@ public class HealthCheckService : IHealthCheckService
     public async Task<HealthCheckDefinition> SaveAsync(HealthCheckDefinition draft)
     {
         var device = await FindDeviceAsync(draft.DeviceMac);
-        Validate(draft, device?.Type ?? DeviceType.Unknown);
+        Validate(draft, device == null ? DeviceType.Unknown : HealthCheckRunner.EffectiveType(device));
 
         await using var db = _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
         var now = DateTime.UtcNow;
@@ -178,7 +189,7 @@ public class HealthCheckService : IHealthCheckService
             return new HealthCheckRunResult { Ran = false, Error = "UniFi does not currently list this device, so there is nowhere to run it." };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(draft.TimeoutSeconds, 5, 120) + 15));
-        return await HealthCheckExecutor.RunAsync(draft, device.Type, device.DisplayIpAddress, _gatewaySsh, _deviceSsh, cts.Token);
+        return await HealthCheckExecutor.RunAsync(draft, HealthCheckRunner.EffectiveType(device), device.DisplayIpAddress, _gatewaySsh, _deviceSsh, cts.Token);
     }
 
     private void Validate(HealthCheckDefinition draft, DeviceType deviceType)

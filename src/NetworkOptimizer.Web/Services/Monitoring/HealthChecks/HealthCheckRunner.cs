@@ -199,7 +199,7 @@ public sealed class HealthCheckRunner
             await _sshGate.WaitAsync(ct);
             try
             {
-                result = await HealthCheckExecutor.RunAsync(check, device.Type, device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
+                result = await HealthCheckExecutor.RunAsync(check, EffectiveType(device), device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
             }
             finally
             {
@@ -311,9 +311,10 @@ public sealed class HealthCheckRunner
         var status = state.Status;
         var now = DateTime.UtcNow;
 
-        if (!HealthCheckRemedies.SupportedOn(check.Remedy, device.Type))
+        var type = EffectiveType(device);
+        if (!HealthCheckRemedies.SupportedOn(check.Remedy, type))
         {
-            _logger.LogDebug("Health check {Check}: {Remedy} is not supported on a {Type}", check.Name, check.Remedy, device.Type);
+            _logger.LogDebug("Health check {Check}: {Remedy} is not supported on a {Type}", check.Name, check.Remedy, type);
             return;
         }
 
@@ -353,7 +354,7 @@ public sealed class HealthCheckRunner
         _logger.LogInformation("Health check {Check} on {Device}: value {Value}, running remedy: {Command}",
             check.Name, device.Name, value, command);
 
-        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, device.Type, device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
+        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, type, device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
 
         // A reboot drops the session, which the SSH layer reports as a failure that is not one.
         if (check.Remedy == HealthCheckRemedy.RebootDevice) ok = true;
@@ -407,14 +408,14 @@ public sealed class HealthCheckRunner
         {
             switch (check.Remedy)
             {
-                case HealthCheckRemedy.RebootDevice when device.Type == DeviceType.Gateway:
+                case HealthCheckRemedy.RebootDevice when EffectiveType(device) == DeviceType.Gateway:
                     _suppression.RefreshOsCycle(_siteSlug, at);
                     _suppression.RefreshConsoleCycle(_siteSlug, at);
                     break;
                 case HealthCheckRemedy.RebootDevice:
                     _suppression.Refresh(_siteSlug, check.DeviceMac, at);
                     break;
-                case HealthCheckRemedy.RestartService when device.Type == DeviceType.Gateway:
+                case HealthCheckRemedy.RestartService when EffectiveType(device) == DeviceType.Gateway:
                     _suppression.RefreshConsoleCycle(_siteSlug, at);
                     break;
             }
@@ -539,6 +540,13 @@ public sealed class HealthCheckRunner
         var wanted = Normalize(mac);
         return _devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.Mac) && Normalize(d.Mac) == wanted);
     }
+
+    /// <summary>
+    /// Gateway hardware is a gateway for SSH credentials and remedies whatever role it is in: a
+    /// UDR meshing as an access point still runs UniFi OS and still takes the console credentials.
+    /// </summary>
+    internal static DeviceType EffectiveType(DiscoveredDevice device) =>
+        device.HardwareType == DeviceType.Gateway ? DeviceType.Gateway : device.Type;
 
     private static string Normalize(string mac) => mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
 

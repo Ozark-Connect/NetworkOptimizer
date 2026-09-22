@@ -116,6 +116,33 @@ public class HealthCheckEvaluationTests
     }
 }
 
+public class HealthCheckTemplateFitTests
+{
+    private static HealthCheckTemplate CloudOnly() => new() { AppliesTo = ["cloud-gateway"] };
+
+    [Fact]
+    public void Cloud_gateway_template_fits_a_udm_and_a_ucg_fiber()
+    {
+        CloudOnly().Fits(DeviceType.Gateway, "UDMPRO", null).Should().BeTrue();
+        CloudOnly().Fits(DeviceType.Gateway, null, "UCG-Fiber").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Cloud_gateway_template_is_withheld_from_a_uxg_and_from_unknown_hardware()
+    {
+        CloudOnly().Fits(DeviceType.Gateway, "UXGPRO", null).Should().BeFalse();
+        CloudOnly().Fits(DeviceType.Gateway, null, null).Should().BeFalse();
+        CloudOnly().Fits(DeviceType.AccessPoint, "UDMPRO", null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Plain_gateway_and_empty_scopes_fit_any_gateway()
+    {
+        new HealthCheckTemplate { AppliesTo = ["gateway"] }.Fits(DeviceType.Gateway, "UXGPRO", null).Should().BeTrue();
+        new HealthCheckTemplate().Fits(DeviceType.Switch).Should().BeTrue();
+    }
+}
+
 public class HealthCheckRemediesTests
 {
     [Theory]
