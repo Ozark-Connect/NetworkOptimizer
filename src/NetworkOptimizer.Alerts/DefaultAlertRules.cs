@@ -350,6 +350,35 @@ public static class DefaultAlertRules
             CooldownSeconds = 21600 // 6 hours - this is a slow warning, not an incident
         },
 
+        // --- Device health checks (enabled - only fires where a check is configured) ---
+        new AlertRule
+        {
+            Name = "Device: Health Check Failing",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.health_check_failed",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 1800 // 30 minutes - the runner re-notifies on the same cadence
+        },
+        new AlertRule
+        {
+            Name = "Device: Health Check Action Taken",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.health_check_action",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // every action is worth telling
+        },
+        new AlertRule
+        {
+            Name = "Device: Health Check Recovered",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.health_check_recovered",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 300
+        },
+
         // --- Gateway health (enabled - always available when monitoring is active) ---
         new AlertRule
         {

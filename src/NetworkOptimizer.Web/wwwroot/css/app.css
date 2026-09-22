@@ -4697,6 +4697,108 @@ tr:hover .snmp-row-chevron {
     color: var(--danger-color);
 }
 
+.hc-section {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.hc-row-disabled .snmp-device-name {
+    color: var(--text-muted);
+}
+
+.hc-field-wide {
+    flex: 3;
+    min-width: 260px;
+}
+
+.hc-form textarea {
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    resize: vertical;
+}
+
+.hc-template-notes {
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.hc-template-notes strong {
+    color: var(--text-primary);
+    margin-right: 0.35rem;
+}
+
+.hc-inline {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.hc-inline select {
+    flex: 1;
+}
+
+.hc-number {
+    width: 7rem;
+}
+
+.hc-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin-right: 0.75rem;
+    cursor: pointer;
+}
+
+.hc-severity {
+    margin-top: 0.35rem;
+}
+
+.hc-remedies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    align-items: center;
+}
+
+.hc-remedy-arg {
+    width: 12rem;
+}
+
+.hc-advanced {
+    margin-bottom: 0.75rem;
+}
+
+.hc-advanced summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.hc-test-output {
+    margin: 0.35rem 0 0;
+    padding: 0.5rem;
+    max-height: 12rem;
+    overflow: auto;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
 @@media (max-width: 768px) {
     .snmp-detail-panel {
         padding: 0.75rem;

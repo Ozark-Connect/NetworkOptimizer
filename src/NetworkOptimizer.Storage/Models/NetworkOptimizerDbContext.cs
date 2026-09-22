@@ -81,6 +81,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<StarlinkConfiguration> StarlinkConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
+    public DbSet<HealthCheckDefinition> HealthCheckDefinitions { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
     public DbSet<ApRoamRecord> ApRoamRecords { get; set; }
@@ -643,6 +644,13 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("CustomOidConfigurations");
             entity.HasIndex(e => e.DeviceMac);
             entity.HasIndex(e => new { e.DeviceMac, e.Oid }).IsUnique();
+        });
+
+        modelBuilder.Entity<HealthCheckDefinition>(entity =>
+        {
+            entity.ToTable("HealthCheckDefinitions");
+            entity.HasIndex(e => e.DeviceMac);
+            entity.HasIndex(e => new { e.DeviceMac, e.FieldName }).IsUnique();
         });
 
         // ApChannelOutcome configuration (channel recommendation outcome memory)
