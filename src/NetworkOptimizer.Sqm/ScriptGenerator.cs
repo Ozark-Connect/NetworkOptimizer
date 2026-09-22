@@ -57,7 +57,7 @@ public class ScriptGenerator
 
     /// <summary>
     /// Generate the self-contained boot script that:
-    /// 1. Installs dependencies (speedtest, bc)
+    /// 1. Installs dependencies (speedtest, jq)
     /// 2. Creates /data/sqm/ directory
     /// 3. Writes speedtest and ping scripts via heredoc
     /// 4. Sets up IFB device and TC classes
@@ -106,18 +106,12 @@ public class ScriptGenerator
         sb.AppendLine("    apt-get install -y speedtest");
         sb.AppendLine("fi");
         sb.AppendLine();
-        // Refresh the package index once if either base dependency is missing, so a
-        // console with stale/empty apt lists can still resolve bc/jq. The Ookla block
-        // above gets its index refresh from the packagecloud script; these don't.
+        // Refresh the package index once if a base dependency is missing, so a console with
+        // stale/empty apt lists can still resolve jq. The Ookla block above gets its index
+        // refresh from the packagecloud script; this doesn't.
         sb.AppendLine("# Refresh package lists once if a base dependency is missing");
-        sb.AppendLine("if ! which bc > /dev/null 2>&1 || ! which jq > /dev/null 2>&1; then");
+        sb.AppendLine("if ! which jq > /dev/null 2>&1; then");
         sb.AppendLine("    apt-get update");
-        sb.AppendLine("fi");
-        sb.AppendLine();
-        sb.AppendLine("# Install bc if not present");
-        sb.AppendLine("if ! which bc > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"Installing bc...\" >> $LOG_FILE");
-        sb.AppendLine("    apt-get install -y bc");
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("# Install jq if not present");
@@ -125,6 +119,13 @@ public class ScriptGenerator
         sb.AppendLine("    echo \"Installing jq...\" >> $LOG_FILE");
         sb.AppendLine("    apt-get install -y jq");
         sb.AppendLine("fi");
+        sb.AppendLine();
+        // An install that fails silently used to let the calibration run anyway.
+        sb.AppendLine("# Verify what the generated scripts actually need before scheduling them");
+        sb.AppendLine("for dep in awk jq speedtest; do");
+        sb.AppendLine("    which \"$dep\" > /dev/null 2>&1 && continue");
+        sb.AppendLine("    echo \"[$(date)] ERROR: dependency '$dep' is missing and could not be installed; Adaptive SQM will not change rates until it is present\" >> $LOG_FILE");
+        sb.AppendLine("done");
         sb.AppendLine();
 
         // Section 2: Create directories
@@ -279,6 +280,29 @@ public class ScriptGenerator
         if (dynamicUpload)
             AppendUploadBaseline(sb, uploadBaseline!);
 
+        sb.AppendLine(GetArithmeticFunctions());
+        sb.AppendLine();
+
+        // Runs before the probe-rate lift below: bailing here leaves tc untouched, not opened up.
+        sb.AppendLine("# awk runs every rate calculation, jq parses the speedtest JSON.");
+        sb.AppendLine("# A major firmware upgrade drops apt-installed packages, so try once to restore them.");
+        sb.AppendLine("for dep in awk jq; do");
+        sb.AppendLine("    which \"$dep\" > /dev/null 2>&1 && continue");
+        sb.AppendLine("    case \"$dep\" in awk) pkg=mawk ;; *) pkg=\"$dep\" ;; esac");
+        sb.AppendLine("    echo \"[$(date)] $dep is missing, installing $pkg...\" >> $LOG_FILE");
+        sb.AppendLine("    apt-get install -y \"$pkg\" >> $LOG_FILE 2>&1");
+        sb.AppendLine("    # Retry behind a refreshed index: an upgrade can leave the apt lists stale or empty.");
+        sb.AppendLine("    if ! which \"$dep\" > /dev/null 2>&1; then");
+        sb.AppendLine("        apt-get update >> $LOG_FILE 2>&1");
+        sb.AppendLine("        apt-get install -y \"$pkg\" >> $LOG_FILE 2>&1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    if ! which \"$dep\" > /dev/null 2>&1; then");
+        sb.AppendLine("        echo \"[$(date)] ERROR: $dep still missing after install, leaving tc untouched\" >> $LOG_FILE");
+        sb.AppendLine("        exit 1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("done");
+        sb.AppendLine();
+
         // Check for speedtest
         sb.AppendLine("# Check if speedtest is installed");
         sb.AppendLine("if ! which speedtest > /dev/null 2>&1; then");
@@ -330,14 +354,14 @@ public class ScriptGenerator
         sb.AppendLine();
         sb.AppendLine("# Parse download speed (bytes/sec to Mbps)");
         sb.AppendLine("download_speed_bytes=$(echo \"$speedtest_output\" | jq .download.bandwidth)");
-        sb.AppendLine("download_speed_mbps=$(echo \"scale=0; $download_speed_bytes * 8 / 1000000\" | bc)");
+        sb.AppendLine("download_speed_mbps=$(num_i \"$download_speed_bytes * 8 / 1000000\")");
         sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] Measured: $download_speed_mbps Mbps\" >> $LOG_FILE");
         sb.AppendLine();
         if (_config.MeasuredToShapedFactor != 1.0)
         {
             sb.AppendLine("# Learned profile: the schedule is in shaper rates, so convert the payload figure first");
-            sb.AppendLine("download_speed_mbps=$(echo \"scale=0; $download_speed_mbps * $MEASURED_TO_SHAPED / 1\" | bc)");
+            sb.AppendLine("download_speed_mbps=$(num_i \"$download_speed_mbps * $MEASURED_TO_SHAPED\")");
             sb.AppendLine();
         }
 
@@ -362,21 +386,37 @@ public class ScriptGenerator
 
         // Apply safety cap
         sb.AppendLine("# Apply safety cap");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP / 1\" | bc)");
+        sb.AppendLine("max_adjusted_rate=$(num_i \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > max_adjusted_rate ? max_adjusted_rate : download_speed_mbps))");
         sb.AppendLine();
 
         // Apply physical link speed ceiling (with HTB headroom) as final clamp
         sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
         sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
-        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    link_ceiling=$(num_i \"$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM\")");
         sb.AppendLine("    if [ \"$download_speed_mbps\" -gt \"$link_ceiling\" ]; then");
         sb.AppendLine("        download_speed_mbps=$link_ceiling");
         sb.AppendLine("    fi");
         sb.AppendLine("fi");
         sb.AppendLine();
 
-        // Save result and apply
+        // The probe-rate lift above is still in effect, so an unusable rate must restore rather
+        // than exit and leave download unshaped.
+        sb.AppendLine("# Refuse an unusable rate, and restore rather than leave the probe rate in place");
+        sb.AppendLine("if ! rate_is_valid \"$download_speed_mbps\"; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: computed rate '$download_speed_mbps' is unusable, not applying\" >> $LOG_FILE");
+        sb.AppendLine("    previous_rate=$(awk '{print $4}' \"$RESULT_FILE\" 2>/dev/null)");
+        sb.AppendLine("    if rate_is_valid \"$previous_rate\"; then");
+        sb.AppendLine("        echo \"[$(date)] Restoring last good rate $previous_rate Mbps\" >> $LOG_FILE");
+        sb.AppendLine("        update_all_tc_classes $IFB_DEVICE $previous_rate $DOWNLOAD_BURST_MODE");
+        sb.AppendLine("    else");
+        sb.AppendLine("        echo \"[$(date)] ERROR: no last good rate to restore, download left at probe rate $SPEEDTEST_PROBE_RATE Mbps\" >> $LOG_FILE");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    exit 1");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
+        // Written only once the rate is known good: a bad run must not poison the ping script.
         sb.AppendLine("# Save result for ping script");
         sb.AppendLine("echo \"Measured download speed: $download_speed_mbps Mbps\" > \"$RESULT_FILE\"");
         sb.AppendLine();
@@ -454,6 +494,17 @@ public class ScriptGenerator
         // A probe (congestion learning sample) holds the shaper lifted for ~15 s and leaves this
         // lock while it does. Adjusting in that window would write a latency-driven cut over the
         // lift and shorten the measurement; the probe restores the rates itself when it exits.
+        sb.AppendLine(GetArithmeticFunctions());
+        sb.AppendLine();
+
+        // Check only: this runs every minute and must not touch apt.
+        sb.AppendLine("# awk runs every rate calculation here");
+        sb.AppendLine("if ! which awk > /dev/null 2>&1; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: awk not found, skipping ping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         sb.AppendLine(GetProbeLockGuard());
         sb.AppendLine();
 
@@ -483,7 +534,7 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("# Check if value is reasonable (> 0 and < 100000 Mbps)");
-        sb.AppendLine("if (( $(echo \"$SPEEDTEST_SPEED <= 0\" | bc -l) )) || (( $(echo \"$SPEEDTEST_SPEED > 100000\" | bc -l) )); then");
+        sb.AppendLine("if (( $(num_bool \"$SPEEDTEST_SPEED <= 0\") )) || (( $(num_bool \"$SPEEDTEST_SPEED > 100000\") )); then");
         sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result '$SPEEDTEST_SPEED' Mbps is out of valid range (0-100000), skipping ping adjustment\" >> $LOG_FILE");
         sb.AppendLine("    exit 0");
         sb.AppendLine("fi");
@@ -515,30 +566,30 @@ public class ScriptGenerator
         {
             sb.AppendLine("# Apply baseline-proportional safety cap before latency adjustment (fiber)");
             sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
-            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+            sb.AppendLine("    baseline_ratio=$(num_s 4 \"$baseline_speed / $NOMINAL_SPEED\")");
+            sb.AppendLine("    max_adjusted_rate=$(num_i \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio\")");
             sb.AppendLine("else");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("    max_adjusted_rate=$(num_f \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
             sb.AppendLine("fi");
         }
         else
         {
             sb.AppendLine("# Apply flat safety cap before latency adjustment");
-            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("max_adjusted_rate=$(num_f \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
         }
-        sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
-        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("if (( $(num_bool \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\") )); then");
+        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(num_i \"$max_adjusted_rate\")");
         sb.AppendLine("fi");
         sb.AppendLine();
 
         // Physical link speed ceiling (with HTB headroom) as final clamp on the schedule cap
         sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
         sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
-        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
-        sb.AppendLine("    if (( $(echo \"$max_adjusted_rate > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("    link_ceiling=$(num_i \"$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM\")");
+        sb.AppendLine("    if (( $(num_bool \"$max_adjusted_rate > $link_ceiling\") )); then");
         sb.AppendLine("        max_adjusted_rate=$link_ceiling");
         sb.AppendLine("    fi");
-        sb.AppendLine("    if (( $(echo \"$MAX_DOWNLOAD_SPEED > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("    if (( $(num_bool \"$MAX_DOWNLOAD_SPEED > $link_ceiling\") )); then");
         sb.AppendLine("        MAX_DOWNLOAD_SPEED=$link_ceiling");
         sb.AppendLine("    fi");
         sb.AppendLine("fi");
@@ -560,7 +611,7 @@ public class ScriptGenerator
         sb.AppendLine("    exit 0");
         sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("deviation_count=$(echo \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\" | bc)");
+        sb.AppendLine("deviation_count=$(num_i \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\")");
         sb.AppendLine();
 
         // Latency adjustment logic (operates on capped MAX_DOWNLOAD_SPEED, can decrease freely)
@@ -568,13 +619,13 @@ public class ScriptGenerator
         sb.AppendLine();
 
         // Post-latency ceiling: prevent increase branch from exceeding schedule cap
-        sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
+        sb.AppendLine("if (( $(num_bool \"$new_rate > $max_adjusted_rate\") )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("new_rate=$(echo \"scale=1; $new_rate / 1\" | bc)");
+        sb.AppendLine("new_rate=$(num_s 1 \"$new_rate\")");
         sb.AppendLine();
-        sb.AppendLine("if (( $(echo \"$new_rate > $MAX_DOWNLOAD_SPEED_CONFIG\" | bc) )); then");
+        sb.AppendLine("if (( $(num_bool \"$new_rate > $MAX_DOWNLOAD_SPEED_CONFIG\") )); then");
         sb.AppendLine("    new_rate=$MAX_DOWNLOAD_SPEED_CONFIG");
         sb.AppendLine("fi");
         sb.AppendLine();
@@ -605,8 +656,8 @@ public class ScriptGenerator
             // The ping cannot tell which direction is saturated, so a latency cut scales upload
             // by the same fraction it took off download. The floor still holds.
             sb.AppendLine("# Latency cut applies to upload in the same proportion");
-            sb.AppendLine("if (( $(echo \"$new_rate < $MAX_DOWNLOAD_SPEED\" | bc) )); then");
-            sb.AppendLine("    upload_rate=$(echo \"scale=0; $upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\" | bc)");
+            sb.AppendLine("if (( $(num_bool \"$new_rate < $MAX_DOWNLOAD_SPEED\") )); then");
+            sb.AppendLine("    upload_rate=$(num_i \"$upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\")");
             sb.AppendLine("    if [ \"$upload_rate\" -lt \"$MIN_UPLOAD_SPEED\" ]; then upload_rate=$MIN_UPLOAD_SPEED; fi");
             sb.AppendLine("fi");
             sb.AppendLine();
@@ -726,6 +777,23 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     /// </summary>
     private string GetTcUpdateFunction() => TcFunctionsText;
 
+    /// <summary>The shell arithmetic helpers every generated rate calculation goes through.</summary>
+    private static string GetArithmeticFunctions() => ArithmeticFunctionsText;
+
+    /// <summary>
+    /// Arithmetic helpers built on awk. Never reintroduce bc: it is apt-installed, a UniFi OS major
+    /// upgrade drops it, and every calculation then returns empty, which the clamps read as 0.
+    /// LC_ALL=C is required because awk honours LC_NUMERIC for printf.
+    /// num_i truncates like "scale=0; x / 1", num_s sets places like "scale=N", num_f keeps the
+    /// fraction bc carried from its operands, num_bool prints the 1 or 0 that (( )) expects.
+    /// </summary>
+    internal static string ArithmeticFunctionsText =>
+        @"# Arithmetic helpers (awk, never bc - see ScriptGenerator.ArithmeticFunctionsText)
+num_i() { LC_ALL=C awk ""BEGIN{print int($*)}""; }
+num_f() { LC_ALL=C awk ""BEGIN{printf \""%.6f\"", $*}""; }
+num_s() { local places=$1; shift; LC_ALL=C awk -v p=""$places"" ""BEGIN{printf \""%.*f\"", p, $*}""; }
+num_bool() { LC_ALL=C awk ""BEGIN{print ($*)?1:0}""; }";
+
     /// <summary>
     /// The shell functions that size burst and fq_codel memory and rewrite the HTB classes. Shared
     /// with the shaper-lift wrapper so there is exactly one copy of the tc logic.
@@ -795,9 +863,22 @@ calc_fq_limit() {
 }
 
 # Function to update all TC classes on a device
+# Usable means a number carrying a non-zero digit. Pure shell: the arithmetic that produced the
+# value may be exactly what failed, and an integer test would truncate a fractional rate to 0.
+rate_is_valid() {
+    [ -n ""$1"" ] || return 1
+    echo ""$1"" | grep -qE '^[0-9]+\.?[0-9]*$' || return 1
+    echo ""$1"" | grep -q '[1-9]'
+}
+
 update_all_tc_classes() {
     local device=$1
     local new_rate=$2
+    # rate 0Mbit on the root class takes the whole direction down.
+    if ! rate_is_valid ""$new_rate""; then
+        echo ""[$(date)] ERROR: refusing tc update on $device, rate '$new_rate' is not a usable rate"" >> ""${LOG_FILE:-/dev/null}""
+        return 1
+    fi
     # Burst mode is opt-in and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
     # egress callers omit it and stay on the conservative sizing.
     local burst_mode=${3:-0}
@@ -910,19 +991,19 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
 fi
 
 if [ -n ""$baseline_speed"" ]; then
-    threshold=$(echo ""scale=0; $baseline_speed * 0.9 / 1"" | bc)
+    threshold=$(num_i ""$baseline_speed * 0.9"")
 
     if [ ""$download_speed_mbps"" -ge ""$threshold"" ]; then
         # Within 10%: blend {withinRatio}
-        blended_speed=$(echo ""scale=0; ($baseline_speed * {withinBaseline} + $download_speed_mbps * {withinMeasured}) / 1"" | bc)
+        blended_speed=$(num_i ""($baseline_speed * {withinBaseline} + $download_speed_mbps * {withinMeasured})"")
     else
         # Below 10%: favor baseline {belowRatio}
-        blended_speed=$(echo ""scale=0; ($baseline_speed * {belowBaseline} + $download_speed_mbps * {belowMeasured}) / 1"" | bc)
+        blended_speed=$(num_i ""($baseline_speed * {belowBaseline} + $download_speed_mbps * {belowMeasured})"")
     fi
 
-    download_speed_mbps=$(echo ""scale=0; $blended_speed * $DOWNLOAD_SPEED_MULTIPLIER / 1"" | bc)
+    download_speed_mbps=$(num_i ""$blended_speed * $DOWNLOAD_SPEED_MULTIPLIER"")
 else
-    download_speed_mbps=$(echo ""scale=0; $download_speed_mbps * $DOWNLOAD_SPEED_MULTIPLIER / 1"" | bc)
+    download_speed_mbps=$(num_i ""$download_speed_mbps * $DOWNLOAD_SPEED_MULTIPLIER"")
 fi";
     }
 
@@ -963,11 +1044,11 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
 fi
 
 if [ -n ""$baseline_speed"" ]; then
-    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {overheadMultiplier} / 1"" | bc)
+    baseline_with_overhead=$(num_i ""$baseline_speed * {overheadMultiplier}"")
     if [ ""$baseline_with_overhead"" -gt ""$MAX_DOWNLOAD_SPEED_CONFIG"" ]; then
         baseline_with_overhead=$MAX_DOWNLOAD_SPEED_CONFIG
     fi
-    MAX_DOWNLOAD_SPEED=$(echo ""scale=0; ($baseline_with_overhead * {baselineWeight} + $SPEEDTEST_SPEED * {measuredWeight}) / 1"" | bc)
+    MAX_DOWNLOAD_SPEED=$(num_i ""($baseline_with_overhead * {baselineWeight} + $SPEEDTEST_SPEED * {measuredWeight})"")
 else
     MAX_DOWNLOAD_SPEED=$SPEEDTEST_SPEED
 fi";
@@ -979,23 +1060,23 @@ fi";
     private string GetLatencyAdjustmentLogic()
     {
         return @"# Latency-based adjustment
-if (( $(echo ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"" | bc -l) )); then
+if (( $(num_bool ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"") )); then
     # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
     # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
-    effective_count=$(echo ""scale=4; e(0.7 * l($deviation_count + 1)) - 1"" | bc -l)
-    decrease_multiplier=$(echo ""e($effective_count * l($LATENCY_DECREASE))"" | bc -l)
-    new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"" | bc)
-    if (( $(echo ""$new_rate < $MIN_DOWNLOAD_SPEED"" | bc) )); then
+    effective_count=$(num_s 4 ""exp(0.7 * log($deviation_count + 1)) - 1"")
+    decrease_multiplier=$(num_f ""exp($effective_count * log($LATENCY_DECREASE))"")
+    new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"")
+    if (( $(num_bool ""$new_rate < $MIN_DOWNLOAD_SPEED"") )); then
         new_rate=$MIN_DOWNLOAD_SPEED
     fi
 
-elif (( $(echo ""$latency < $BASELINE_LATENCY - 0.4"" | bc -l) )); then
+elif (( $(num_bool ""$latency < $BASELINE_LATENCY - 0.4"") )); then
     # Low latency: can increase
-    lower_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"" | bc)
-    mid_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.94"" | bc)
-    if (( $(echo ""$MAX_DOWNLOAD_SPEED < $lower_bound"" | bc -l) )); then
-        new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE * $LATENCY_INCREASE"" | bc -l)
-    elif (( $(echo ""$MAX_DOWNLOAD_SPEED < $mid_bound"" | bc -l) )); then
+    lower_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"")
+    mid_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.94"")
+    if (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $lower_bound"") )); then
+        new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE * $LATENCY_INCREASE"")
+    elif (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $mid_bound"") )); then
         new_rate=$mid_bound
     else
         new_rate=$MAX_DOWNLOAD_SPEED
@@ -1003,14 +1084,14 @@ elif (( $(echo ""$latency < $BASELINE_LATENCY - 0.4"" | bc -l) )); then
 
 else
     # Normal latency
-    lower_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.9"" | bc)
-    mid_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"" | bc)
-    latency_diff=$(echo ""$latency - $BASELINE_LATENCY"" | bc -l)
-    latency_normal=$(echo ""$latency_diff <= 0.3"" | bc -l)
+    lower_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.9"")
+    mid_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"")
+    latency_diff=$(num_f ""$latency - $BASELINE_LATENCY"")
+    latency_normal=$(num_bool ""$latency_diff <= 0.3"")
 
-    if (( $(echo ""$MAX_DOWNLOAD_SPEED < $lower_bound"" | bc -l) )) && (( latency_normal == 1 )); then
-        new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE"" | bc)
-    elif (( $(echo ""$MAX_DOWNLOAD_SPEED < $mid_bound"" | bc -l) )) && (( latency_normal == 1 )); then
+    if (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $lower_bound"") )) && (( latency_normal == 1 )); then
+        new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE"")
+    elif (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $mid_bound"") )) && (( latency_normal == 1 )); then
         new_rate=$mid_bound
     else
         new_rate=$MAX_DOWNLOAD_SPEED

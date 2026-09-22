@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
+    <InternalsVisibleTo Include="NetworkOptimizer.Sqm.Tests" />
   </ItemGroup>
 
 

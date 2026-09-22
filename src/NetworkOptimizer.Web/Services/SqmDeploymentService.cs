@@ -27,7 +27,7 @@ public class SqmDeploymentService : ISqmDeploymentService
 
     // The boot script installs its dependencies inline on a first deploy: it adds the
     // Ookla packagecloud repo (which runs its own apt-get update and fetches a GPG key),
-    // then apt-get installs speedtest, bc and jq. On a cold apt cache or a slow WAN that
+    // then apt-get installs speedtest and jq. On a cold apt cache or a slow WAN that
     // runs well past the 30 second default, so give it room rather than tearing down a
     // deployment that is still working. Re-deploys skip the whole block and finish fast.
     // Five minutes is comfortably clear of a slow first install without leaving the page
@@ -146,6 +146,9 @@ public class SqmDeploymentService : ISqmDeploymentService
                 "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
                 "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
                 "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+                // Scripts from before the awk change compute every rate with bc, which a major
+                // firmware upgrade removes. A redeploy replaces them.
+                $"echo '---SCRIPTS_ON_BC---'; grep -l '| bc' {SqmDir}/*.sh 2>/dev/null | wc -l; " +
                 // Ping scripts from before the probe lock existed keep adjusting during a congestion
                 // learning sample; a redeploy installs the guard.
                 $"echo '---PING_GUARD_MISSING---'; for f in {SqmDir}/*-ping.sh; do [ -f \"$f\" ] && ! grep -q PROBE_LOCK \"$f\" && echo \"$f\"; done | wc -l";
@@ -187,6 +190,11 @@ public class SqmDeploymentService : ISqmDeploymentService
             if (int.TryParse(GetSection(sections, "PING_GUARD_MISSING").Trim(), out int unguarded))
             {
                 status.PingScriptsWithoutProbeGuard = unguarded;
+            }
+
+            if (int.TryParse(GetSection(sections, "SCRIPTS_ON_BC").Trim(), out int onBc))
+            {
+                status.ScriptsUsingBc = onBc;
             }
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
@@ -1005,7 +1013,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             {
                 var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
                     line, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
-                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted))
+                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted)
+                    && adjusted > 0)
                 {
                     status.LastSpeedtestAdjusted = adjusted;
                     if (status.LastSpeedtest == null)
@@ -1395,6 +1404,9 @@ public class SqmDeploymentStatus
     /// learning sample. Zero once Adaptive SQM has been redeployed from a build that has the guard.
     /// </summary>
     public int PingScriptsWithoutProbeGuard { get; set; }
+
+    /// <summary>Deployed scripts still calculating rates with bc, which a firmware upgrade removes.</summary>
+    public int ScriptsUsingBc { get; set; }
 
     /// <summary>
     /// True when the gateway is unreachable only because this site's on-site agent

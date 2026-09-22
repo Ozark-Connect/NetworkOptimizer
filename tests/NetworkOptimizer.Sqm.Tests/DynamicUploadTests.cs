@@ -72,7 +72,7 @@ public class DynamicUploadTests
         script.IndexOf("update_all_tc_classes $INTERFACE $UPLOAD_SPEED", StringComparison.Ordinal)
             .Should().BeLessThan(script.IndexOf("speedtest_output=$(speedtest", StringComparison.Ordinal));
         // The ping script also follows a latency cut and only skips when both directions are unchanged.
-        script.Should().Contain("upload_rate=$(echo \"scale=0; $upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\" | bc)");
+        script.Should().Contain("upload_rate=$(num_i \"$upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\")");
         script.Should().Contain("[ \"$upload_rate\" = \"$current_up_rate\" ]");
     }
 
