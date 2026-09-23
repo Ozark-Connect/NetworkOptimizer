@@ -1761,9 +1761,7 @@ public class ClientDashboardService
             // source, and the counter scan reads the whole measurement (client_mac is a field).
             if (bucket >= TimeSpan.FromHours(1) && span <= TimeSpan.FromDays(7))
             {
-                var firstRolled = await influx.QueryFirstUsageRollupHourAsync(
-                    NetworkOptimizer.Storage.Services.MonitoringInfluxClient.RollupVersion);
-                if (firstRolled == null || firstRolled.Value > from.AddHours(1))
+                if (!await influx.UsageRollupReachesAsync(from))
                     points = await LanUsageFromCountersAsync(influx, client, ifNames, from, to, TimeSpan.FromHours(1));
             }
 
