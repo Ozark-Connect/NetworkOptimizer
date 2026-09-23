@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
@@ -3611,10 +3611,11 @@ union(tables: [means, chan])
     /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
     /// 3: the sample after a 32-bit read is dropped by the hc_counters flip, not by a speed cap.
     /// 4: Wi-Fi counters zero negative deltas instead of skipping them, so a roam-back counts.
+    /// 5: Wi-Fi rows tag client_mac; before it, clients sharing a radio overwrote one another's hour.
     /// The port fall-detection rework deliberately shipped without a bump: re-rolling every
     /// site's history was not worth the load for LAN-only undercounts.
     /// </summary>
-    public const int RollupVersion = 4;
+    public const int RollupVersion = 5;
 
     // A rollup row a reader may count: built at the current version. An hour rolled the old way
     // reads as empty until the rollup service rebuilds it (newest first, within minutes for a day),
@@ -3763,7 +3764,8 @@ union(tables: [means, chan])
     // per client per hour to the longterm bucket, as added fields on the existing measurements:
     // wifi_client carries tx_bytes_1h / rx_bytes_1h (same frame as tx_bytes: AP to client),
     // interface_counters carries bytes_in_1h / bytes_out_1h. Written at the hour start, so a re-run
-    // overwrites rather than double counts.
+    // overwrites rather than double counts. A Wi-Fi row tags client_mac (a field in the raw rows):
+    // every client on one radio shares that timestamp, so without the tag they are one point.
 
     /// <summary>Rolls one hour of every wireless client's counters into the longterm bucket.</summary>
     public async Task<int> RollupWifiClientUsageHourAsync(DateTime hourStart, CancellationToken ct = default)
@@ -3790,7 +3792,7 @@ union(tables: [means, chan])
             var point = PointData.Measurement("wifi_client")
                 .Tag("device_mac", total.DeviceMac ?? "")
                 .Tag("band", total.Band ?? "")
-                .Field("client_mac", mac)
+                .Tag("client_mac", mac)
                 .Field("tx_bytes_1h", total.ToClientBytes)
                 .Field("rx_bytes_1h", total.FromClientBytes)
                 .Field("rollup_v", (long)RollupVersion)
@@ -3928,10 +3930,10 @@ union(tables: [means, chan])
         var mac = NormalizeMac(clientMac);
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes_1h and {RollupRowCurrent})
+  |> filter(fn: (r) => exists r.tx_bytes_1h and {RollupRowCurrent})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
   |> group()
