@@ -3032,7 +3032,13 @@
         // and scroll to it. Applied once so a later manual collapse isn't fought by re-renders.
         if (!_thresholdExpandApplied && !string.IsNullOrEmpty(ExpandParam))
         {
-            if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
+            // The Devices card on Setup is collapsed by default; the tour lands on it open.
+            if (_activeTab == "setup" && ExpandParam == "devices")
+            {
+                _pendingExpandSnmpCard = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
             {
                 _sfpThresholdsCollapsed = false;
                 _scrollToSfpThresholdsPending = true;
