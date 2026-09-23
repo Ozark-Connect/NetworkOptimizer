@@ -1,0 +1,30 @@
+{
+  "id": "2.9.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.9.0",
+  "summary": "Health checks you write yourself: a command run on any UniFi device, a condition on what it returns, and an alert or an action on the device when it fails.",
+  "steps": [
+    {
+      "id": "health-checks",
+      "level": "major",
+      "url": "/monitoring?tab=setup&expand=devices",
+      "selector": "[data-tour=\"health-checks\"]",
+      "title": "Health Checks",
+      "listLabel": "Watch anything on a device, and act on it when it fails",
+      "body": "Open a device on the **Devices** card and add a command to run on it over SSH, what counts as a problem, and what to do about it: alert, restart a service, kill a process, or reboot. The **UniFi Network JVM GC Thrash** template catches a Cloud Gateway's Network application stalled in garbage collection and restarts it.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "device-health-check-charts",
+      "level": "minor",
+      "url": "/monitoring?tab=devices",
+      "selector": "[data-tour=\"device-health-checks\"]",
+      "title": "Health Check Charts",
+      "body": "Each check gets its own chart here with its threshold drawn on it, and an action the check took is marked on the device's charts.",
+      "placement": "top",
+      "optional": true,
+      "hideFromList": true
+    }
+  ]
+}

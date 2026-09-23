@@ -16,7 +16,7 @@
 @inject IHealthCheckService HealthChecks
 @using NetworkOptimizer.Web.Services.Monitoring.HealthChecks
 
-<div class="card">
+<div class="card" data-tour="health-checks">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <div class="card-title-group">
             <h2 class="card-title">Devices <span class="card-title-suffix">SNMP, Custom OIDs, and Health Checks</span></h2>
