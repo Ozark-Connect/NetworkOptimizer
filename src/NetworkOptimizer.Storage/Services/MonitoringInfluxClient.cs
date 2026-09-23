@@ -3922,6 +3922,26 @@ union(tables: [means, chan])
         return null;
     }
 
+    /// <summary>
+    /// Whether the current-version rollup reaches back to <paramref name="at"/>: a row within the
+    /// hour after it. The rollup fills contiguously newest first, so this answers what
+    /// <see cref="QueryFirstUsageRollupHourAsync"/> would without scanning its whole history.
+    /// </summary>
+    public async Task<bool> UsageRollupReachesAsync(DateTime at, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return false;
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(at)}, stop: {ToFluxInstant(at.AddHours(1).AddSeconds(1))})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
+  {RollupHourFilter(RollupVersion)}
+  |> keep(columns: [""_time""])
+  |> group()
+  |> limit(n: 1)";
+        await foreach (var _ in QueryFluxAsync(flux, ct))
+            return true;
+        return false;
+    }
+
     /// <summary>A wireless client's rolled-up bytes per hour from the longterm bucket.</summary>
     public async Task<IReadOnlyList<ByteUsagePoint>> QueryWifiClientUsageRollupAsync(
         string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
