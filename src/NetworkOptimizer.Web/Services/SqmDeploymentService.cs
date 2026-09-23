@@ -146,8 +146,8 @@ public class SqmDeploymentService : ISqmDeploymentService
                 "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
                 "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
                 "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                // Scripts from before the awk change compute every rate with bc, which a major
-                // firmware upgrade removes. A redeploy replaces them.
+                // Scripts from before the awk change compute rates with bc, which every upgrade
+                // removes. A redeploy replaces them.
                 $"echo '---SCRIPTS_ON_BC---'; grep -l '| bc' {SqmDir}/*.sh 2>/dev/null | wc -l; " +
                 // Ping scripts from before the probe lock existed keep adjusting during a congestion
                 // learning sample; a redeploy installs the guard.
@@ -1405,7 +1405,7 @@ public class SqmDeploymentStatus
     /// </summary>
     public int PingScriptsWithoutProbeGuard { get; set; }
 
-    /// <summary>Deployed scripts still calculating rates with bc, which a firmware upgrade removes.</summary>
+    /// <summary>Deployed scripts still calculating rates with bc, which every upgrade removes.</summary>
     public int ScriptsUsingBc { get; set; }
 
     /// <summary>

@@ -285,7 +285,7 @@ public class ScriptGenerator
 
         // Runs before the probe-rate lift below: bailing here leaves tc untouched, not opened up.
         sb.AppendLine("# awk runs every rate calculation, jq parses the speedtest JSON.");
-        sb.AppendLine("# A major firmware upgrade drops apt-installed packages, so try once to restore them.");
+        sb.AppendLine("# Every firmware upgrade drops apt-installed packages, so try once to restore them.");
         sb.AppendLine("for dep in awk jq; do");
         sb.AppendLine("    which \"$dep\" > /dev/null 2>&1 && continue");
         sb.AppendLine("    case \"$dep\" in awk) pkg=mawk ;; *) pkg=\"$dep\" ;; esac");
@@ -781,11 +781,11 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     private static string GetArithmeticFunctions() => ArithmeticFunctionsText;
 
     /// <summary>
-    /// Arithmetic helpers built on awk. Never reintroduce bc: it is apt-installed, a UniFi OS major
-    /// upgrade drops it, and every calculation then returns empty, which the clamps read as 0.
+    /// Arithmetic helpers built on awk. Never reintroduce bc: it is not in the firmware base, so
+    /// every upgrade drops it, and one reported UCG-Max never got it back - rates came out empty.
     /// LC_ALL=C is required because awk honours LC_NUMERIC for printf.
-    /// num_i truncates like "scale=0; x / 1", num_s sets places like "scale=N", num_f keeps the
-    /// fraction bc carried from its operands, num_bool prints the 1 or 0 that (( )) expects.
+    /// num_i truncates like "scale=0; x / 1", num_s sets places like "scale=N", num_f keeps bc's
+    /// operand scale, num_bool prints the 1 or 0 that (( )) expects.
     /// </summary>
     internal static string ArithmeticFunctionsText =>
         @"# Arithmetic helpers (awk, never bc - see ScriptGenerator.ArithmeticFunctionsText)
