@@ -16,6 +16,8 @@ public static class MeshBackhaulPhyRecorder
     public static void Record(IReadOnlyList<UniFiDeviceResponse> devices, MonitoringInfluxClient influx, DateTime now)
     {
         var claims = UniFiDiscovery.BuildMeshParentByChild(devices);
+        // Mesh children of one parent and band share a series; a tick apiece keeps each point.
+        long tickOffset = 0;
         foreach (var dev in devices)
         {
             if (string.IsNullOrEmpty(dev.Mac)) continue;
@@ -56,7 +58,7 @@ public static class MeshBackhaulPhyRecorder
                 txThroughputBps: null,
                 rxThroughputBps: null,
                 signalDbm: dev.Uplink?.Signal,
-                timestamp: now,
+                timestamp: now.AddTicks(tickOffset++),
                 txRateKbps: txKbps > 0 ? txKbps : null,
                 rxRateKbps: rxKbps > 0 ? rxKbps : null);
         }
