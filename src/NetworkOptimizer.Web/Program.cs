@@ -369,6 +369,7 @@ builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
 builder.Services.AddSingleton<ICableModemProvider, TechnicolorCgaProvider>();
 builder.Services.AddSingleton<ICableModemProvider, VodafoneStationProvider>();
+builder.Services.AddSingleton<ICableModemProvider, SagemcomF3896Provider>();
 builder.Services.AddSiteScopedRegistry<ModemMonitorRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegistry>());
 
