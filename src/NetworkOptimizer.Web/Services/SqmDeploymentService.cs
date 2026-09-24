@@ -428,10 +428,10 @@ public class SqmDeploymentService : ISqmDeploymentService
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
-                var success = await DeployScriptAsync(filename, content);
-                if (!success)
+                var (deployed, deployError) = await DeployScriptAsync(filename, content);
+                if (!deployed)
                 {
-                    throw new Exception($"Failed to deploy {filename}");
+                    throw new Exception($"Failed to deploy {filename}: {deployError}");
                 }
             }
 
@@ -503,20 +503,18 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// <summary>
     /// Deploy a single script to the gateway
     /// </summary>
-    private async Task<bool> DeployScriptAsync(string filename, string content)
+    private async Task<(bool success, string? error)> DeployScriptAsync(string filename, string content)
     {
         // All SQM scripts now go to on_boot.d (self-contained boot scripts)
         var targetPath = $"{OnBootDir}/{filename}";
 
-        // Base64 to avoid shell quoting issues; GatewayFile normalizes to LF on the way.
-        var base64Content = GatewayFile.ToBase64(content);
-        var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
-        var writeResult = await RunCommandAsync(writeCmd);
+        // SFTP, not an echo | base64 -d exec: a boot script with dynamic upload outgrows the SSH exec packet.
+        var (written, error) = await _gatewaySsh.UploadTextFileAsync(content, targetPath);
 
-        if (!writeResult.success)
+        if (!written)
         {
-            _logger.LogError("Failed to write {File}: {Error}", filename, writeResult.output);
-            return false;
+            _logger.LogError("Failed to write {File}: {Error}", filename, error);
+            return (false, error);
         }
 
         // Make executable
@@ -527,7 +525,7 @@ public class SqmDeploymentService : ISqmDeploymentService
         }
 
         _logger.LogDebug("Deployed {File} to {Path}", filename, targetPath);
-        return true;
+        return (true, null);
     }
 
     /// <summary>
@@ -563,10 +561,10 @@ public class SqmDeploymentService : ISqmDeploymentService
             var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
-            if (!success)
+            var (deployed, deployError) = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
+            if (!deployed)
             {
-                return (false, null);
+                return (false, $"Failed to deploy 20-sqm-monitor.sh: {deployError}");
             }
 
             // Run the script to set up SQM monitor

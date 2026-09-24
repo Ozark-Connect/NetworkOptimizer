@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -368,6 +369,39 @@ public class GatewaySshService : IGatewaySshService
 
     private static SshCommandResult StreamingPreconditionFailure(string message) =>
         new() { Success = false, ExitCode = -1, Error = message };
+
+    /// <inheritdoc />
+    public async Task<(bool success, string? error)> UploadTextFileAsync(
+        string content,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+            return (false, "Gateway SSH access is disabled");
+
+        if (string.IsNullOrEmpty(settings.Host))
+            return (false, "Gateway host not configured");
+
+        if (!settings.HasCredentials)
+            return (false, "SSH credentials not configured");
+
+        if (await IsAwaitingAgentAsync())
+            return (false, AwaitingAgentMessage);
+
+        try
+        {
+            var connection = await CreateConnectionInfoAsync(settings);
+            await _sshClient.UploadFileAsync(connection, GatewayFile.ToUnixText(content), remotePath, cancellationToken);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SFTP upload of {Path} to gateway {Host} failed", remotePath, settings.Host);
+            return (false, ex.Message);
+        }
+    }
 
     /// <inheritdoc />
     public async Task<SshConnectionInfo?> GetConnectionInfoAsync()
