@@ -327,6 +327,14 @@ public sealed class HealthCheckRunner
             return;
         }
 
+        // A gateway is reached through its SSH settings; any other device through its last-known
+        // address, which UniFi Network cannot confirm still belongs to it. Never act on a stale one.
+        if (device.FromLastKnown && type != DeviceType.Gateway)
+        {
+            _logger.LogInformation("Health check {Check} on {Device}: holding the remedy until UniFi Network confirms the device's address", check.Name, device.Name);
+            return;
+        }
+
         if (_suppression.IsSiteActiveRollout(_siteSlug, now) || _suppression.IsOsCycling(_siteSlug, now))
         {
             _logger.LogInformation("Health check {Check} on {Device}: holding the remedy, a firmware rollout is in progress", check.Name, device.Name);
