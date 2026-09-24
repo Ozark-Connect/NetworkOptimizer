@@ -160,6 +160,7 @@ public class HealthCheckService : IHealthCheckService
         row.RemedyMaxPerDay = Math.Max(0, draft.RemedyMaxPerDay);
         row.Description = string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim();
         row.UpdatedAt = now;
+        if (device != null) HealthCheckTarget.Remember(row, device, now);
 
         await db.SaveChangesAsync();
         _registry.GetFor(_siteContext.Slug).InvalidateDefinitions();
@@ -185,11 +186,25 @@ public class HealthCheckService : IHealthCheckService
             return new HealthCheckRunResult { Ran = false, Error = "Enter a command to run first." };
 
         var device = await FindDeviceAsync(draft.DeviceMac);
-        if (device == null)
+        var target = device != null
+            ? HealthCheckTarget.FromDevice(device, draft)
+            : await FindLastKnownAsync(draft.DeviceMac);
+        if (target == null)
             return new HealthCheckRunResult { Ran = false, Error = "UniFi does not currently list this device, so there is nowhere to run it." };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(draft.TimeoutSeconds, 5, 120) + 15));
-        return await HealthCheckExecutor.RunAsync(draft, HealthCheckRunner.EffectiveType(device), device.DisplayIpAddress, _gatewaySsh, _deviceSsh, cts.Token);
+        return await HealthCheckExecutor.RunAsync(draft, target.EffectiveType, target.Host, _gatewaySsh, _deviceSsh, cts.Token);
+    }
+
+    /// <summary>The last-known device from any saved check on it, for a test while UniFi Network is down.</summary>
+    private async Task<HealthCheckTarget?> FindLastKnownAsync(string deviceMac)
+    {
+        await using var db = _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+        var row = await db.HealthCheckDefinitions.AsNoTracking()
+            .Where(c => c.DeviceMac == deviceMac && c.LastKnownDeviceType != null)
+            .OrderByDescending(c => c.LastKnownAt)
+            .FirstOrDefaultAsync();
+        return row == null ? null : HealthCheckTarget.FromCheck(row);
     }
 
     private void Validate(HealthCheckDefinition draft, DeviceType deviceType)

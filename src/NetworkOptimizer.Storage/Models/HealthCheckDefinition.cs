@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -88,6 +89,27 @@ public class HealthCheckDefinition
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Device address as UniFi Network last listed it. The runner falls back to it while UniFi
+    /// Network is unreachable, which is when a check like the JVM thrash check matters most.
+    /// Overwritten only by a UniFi listing that carries the device, never cleared by a failed one.
+    /// </summary>
+    [MaxLength(255)]
+    public string? LastKnownHost { get; set; }
+
+    /// <summary>Device name as UniFi Network last listed it, for alerts sent from the fallback.</summary>
+    [MaxLength(100)]
+    public string? LastKnownDeviceName { get; set; }
+
+    /// <summary>Device role as UniFi Network last listed it (the Influx <c>device_type</c> tag).</summary>
+    public DeviceType? LastKnownDeviceType { get; set; }
+
+    /// <summary>Device hardware type as UniFi Network last listed it (picks the SSH path).</summary>
+    public DeviceType? LastKnownHardwareType { get; set; }
+
+    /// <summary>When a UniFi Network listing last changed the last-known fields.</summary>
+    public DateTime? LastKnownAt { get; set; }
 }
 
 /// <summary>How a health check reads its value out of the command output.</summary>
