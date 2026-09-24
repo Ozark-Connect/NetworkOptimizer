@@ -2143,6 +2143,8 @@
     private static SqmDeploymentStatus? _cachedDeploymentStatus;
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
+    // Own slug, not _cachedSlug: a refresh sets that one before comparing against the previous WANs.
+    private static string? _cachedWanInterfacesSlug;
     private static bool _cachedGatewayConnected;
     private static bool _cachedGatewayConfigured;
     private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
@@ -2649,7 +2651,10 @@
 
         foreach (var wan in newInterfaces)
         {
-            oldLookup.TryGetValue(wan.Interface, out var wasEnabled);
+            // Absent from the old list is no evidence it was disabled: that list can be empty after a
+            // failed WAN fetch. The list carries every WAN, so a real toggle is present with false.
+            if (!oldLookup.TryGetValue(wan.Interface, out var wasEnabled))
+                continue;
 
             // The timestamps dictionary is static (shared across sites), so key by
             // site to keep same-named interfaces (e.g. "eth8") on different sites
@@ -2676,6 +2681,11 @@
         foreach (var key in staleKeys)
             _smartqEnabledTimestamps.Remove(key);
     }
+
+    // The previous WAN list only when it was fetched for this site; another site's WANs would read
+    // as Smart Queues just enabled on every interface, and trip the settle timer on a site switch.
+    private static List<WanInterfaceInfo>? CachedWanInterfacesFor(string siteSlug) =>
+        _cachedWanInterfacesSlug == siteSlug ? _cachedWanInterfaces : null;
 
     // Site-scoped key for the static SmartQ settle-timer dictionary.
     private static string SmartqKey(string siteSlug, string iface) => $"{siteSlug}:{iface}";
@@ -3073,7 +3083,7 @@
                 try
                 {
                     wanInterfaces = await wanInterfacesTask;
-                    TrackSmartqTransitions(SiteContext.Slug, _cachedWanInterfaces, wanInterfaces);
+                    TrackSmartqTransitions(SiteContext.Slug, CachedWanInterfacesFor(SiteContext.Slug), wanInterfaces);
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
@@ -3094,6 +3104,7 @@
                 _cachedDeploymentStatus = deploymentStatus;
                 _cachedTcInterfaces = tcInterfaces;
                 _cachedWanInterfaces = wanInterfaces;
+                _cachedWanInterfacesSlug = SiteContext.Slug;
                 _lastStatusCheck = DateTime.UtcNow;
             }
             else
@@ -3306,8 +3317,9 @@
             deploymentSteps.Add("Checking Smart Queue configuration...");
             await ScrollDeploymentLog();
             wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
-            TrackSmartqTransitions(SiteContext.Slug, _cachedWanInterfaces, wanInterfaces);
+            TrackSmartqTransitions(SiteContext.Slug, CachedWanInterfacesFor(SiteContext.Slug), wanInterfaces);
             _cachedWanInterfaces = wanInterfaces;
+            _cachedWanInterfacesSlug = SiteContext.Slug;
 
             // Validate WANs still have Smart Queues enabled - disable any that don't
             var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
