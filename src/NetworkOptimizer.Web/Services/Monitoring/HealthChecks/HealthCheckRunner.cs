@@ -55,6 +55,8 @@ public sealed class HealthCheckRunner
         public DateTime RemedyDayUtc { get; set; }
         /// <summary>The first sample after a remedy is thrown away: it describes the run that was just ended.</summary>
         public bool DiscardNext { get; set; }
+        /// <summary>The last run fell back to the last-known fields; logs the switch once each way.</summary>
+        public bool UsingLastKnown { get; set; }
         public int InFlight;
     }
 
@@ -188,10 +190,10 @@ public sealed class HealthCheckRunner
     {
         try
         {
-            var device = await FindDeviceAsync(check.DeviceMac, ct);
+            var (device, error) = await ResolveTargetAsync(check, state, ct);
             if (device == null)
             {
-                state.Status.Outcome = "device not found in UniFi";
+                state.Status.Outcome = error;
                 return;
             }
 
@@ -199,7 +201,7 @@ public sealed class HealthCheckRunner
             await _sshGate.WaitAsync(ct);
             try
             {
-                result = await HealthCheckExecutor.RunAsync(check, EffectiveType(device), device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
+                result = await HealthCheckExecutor.RunAsync(check, device.EffectiveType, device.Host, _gatewaySsh, _deviceSsh, ct);
             }
             finally
             {
@@ -223,7 +225,7 @@ public sealed class HealthCheckRunner
     }
 
     private async Task ApplyResultAsync(
-        HealthCheckDefinition check, CheckState state, DiscoveredDevice device, HealthCheckRunResult result, CancellationToken ct)
+        HealthCheckDefinition check, CheckState state, HealthCheckTarget device, HealthCheckRunResult result, CancellationToken ct)
     {
         var status = state.Status;
 
@@ -306,12 +308,12 @@ public sealed class HealthCheckRunner
     }
 
     private async Task MaybeRunRemedyAsync(
-        HealthCheckDefinition check, CheckState state, DiscoveredDevice device, double value, CancellationToken ct)
+        HealthCheckDefinition check, CheckState state, HealthCheckTarget device, double value, CancellationToken ct)
     {
         var status = state.Status;
         var now = DateTime.UtcNow;
 
-        var type = EffectiveType(device);
+        var type = device.EffectiveType;
         if (!HealthCheckRemedies.SupportedOn(check.Remedy, type))
         {
             _logger.LogDebug("Health check {Check}: {Remedy} is not supported on a {Type}", check.Name, check.Remedy, type);
@@ -354,7 +356,7 @@ public sealed class HealthCheckRunner
         _logger.LogInformation("Health check {Check} on {Device}: value {Value}, running remedy: {Command}",
             check.Name, device.Name, value, command);
 
-        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, type, device.DisplayIpAddress, _gatewaySsh, _deviceSsh, ct);
+        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, type, device.Host, _gatewaySsh, _deviceSsh, ct);
 
         // A reboot drops the session, which the SSH layer reports as a failure that is not one.
         if (check.Remedy == HealthCheckRemedy.RebootDevice) ok = true;
@@ -389,7 +391,7 @@ public sealed class HealthCheckRunner
             Message = detail,
             DeviceId = check.DeviceMac,
             DeviceName = device.Name,
-            DeviceIp = device.DisplayIpAddress,
+            DeviceIp = device.Host,
             MetricValue = value,
             ThresholdValue = check.Threshold,
             SourceUrl = MonitoringLinks.DeviceStats(check.DeviceMac, MonitoringLinks.NowMs()),
@@ -402,20 +404,20 @@ public sealed class HealthCheckRunner
     /// Tells the offline and reboot alerting that what is about to happen was asked for. A console
     /// restart takes every device dark for a minute or two; a gateway reboot takes the WAN too.
     /// </summary>
-    private void RegisterExpectedOutage(HealthCheckDefinition check, DiscoveredDevice device, DateTime now)
+    private void RegisterExpectedOutage(HealthCheckDefinition check, HealthCheckTarget device, DateTime now)
     {
         void Refresh(DateTime at)
         {
             switch (check.Remedy)
             {
-                case HealthCheckRemedy.RebootDevice when EffectiveType(device) == DeviceType.Gateway:
+                case HealthCheckRemedy.RebootDevice when device.EffectiveType == DeviceType.Gateway:
                     _suppression.RefreshOsCycle(_siteSlug, at);
                     _suppression.RefreshConsoleCycle(_siteSlug, at);
                     break;
                 case HealthCheckRemedy.RebootDevice:
                     _suppression.Refresh(_siteSlug, check.DeviceMac, at);
                     break;
-                case HealthCheckRemedy.RestartService when EffectiveType(device) == DeviceType.Gateway:
+                case HealthCheckRemedy.RestartService when device.EffectiveType == DeviceType.Gateway:
                     _suppression.RefreshConsoleCycle(_siteSlug, at);
                     break;
             }
@@ -437,7 +439,7 @@ public sealed class HealthCheckRunner
         });
     }
 
-    private async Task PublishFailedAsync(HealthCheckDefinition check, DiscoveredDevice device, double value, CancellationToken ct)
+    private async Task PublishFailedAsync(HealthCheckDefinition check, HealthCheckTarget device, double value, CancellationToken ct)
     {
         if (!check.AlertEnabled) return;
         var severity = Enum.IsDefined(typeof(AlertSeverity), check.AlertSeverity) ? (AlertSeverity)check.AlertSeverity : AlertSeverity.Warning;
@@ -455,7 +457,7 @@ public sealed class HealthCheckRunner
                 + $"for {Math.Max(1, check.ConsecutiveSamples)} consecutive sample(s).{remedyNote}",
             DeviceId = check.DeviceMac,
             DeviceName = device.Name,
-            DeviceIp = device.DisplayIpAddress,
+            DeviceIp = device.Host,
             MetricValue = value,
             ThresholdValue = check.Threshold,
             SourceUrl = MonitoringLinks.DeviceStats(check.DeviceMac, MonitoringLinks.NowMs()),
@@ -464,7 +466,7 @@ public sealed class HealthCheckRunner
         }, ct);
     }
 
-    private async Task PublishRecoveredAsync(HealthCheckDefinition check, DiscoveredDevice device, double value, CancellationToken ct)
+    private async Task PublishRecoveredAsync(HealthCheckDefinition check, HealthCheckTarget device, double value, CancellationToken ct)
     {
         if (!check.AlertEnabled) return;
         await _eventBus.PublishAsync(new AlertEvent
@@ -476,7 +478,7 @@ public sealed class HealthCheckRunner
             Message = $"{check.Name} read {value:0.##} on {device.Name}, no longer {HealthCheckEvaluation.DescribeCondition(check.Operator, check.Threshold)}.",
             DeviceId = check.DeviceMac,
             DeviceName = device.Name,
-            DeviceIp = device.DisplayIpAddress,
+            DeviceIp = device.Host,
             MetricValue = value,
             ThresholdValue = check.Threshold,
             SourceUrl = MonitoringLinks.DeviceStats(check.DeviceMac, MonitoringLinks.NowMs()),
@@ -502,9 +504,7 @@ public sealed class HealthCheckRunner
         if (DateTime.UtcNow - _definitionsLoadedAt < DefinitionsCacheTtl) return _definitions;
         try
         {
-            await using var db = _isDefault
-                ? await _mainDbFactory.CreateDbContextAsync(ct)
-                : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+            await using var db = await CreateDbAsync(ct);
             _definitions = await db.HealthCheckDefinitions.AsNoTracking().ToListAsync(ct);
             _definitionsLoadedAt = DateTime.UtcNow;
 
@@ -520,26 +520,100 @@ public sealed class HealthCheckRunner
         return _definitions;
     }
 
-    private async Task<DiscoveredDevice?> FindDeviceAsync(string mac, CancellationToken ct)
+    /// <summary>
+    /// The device to run the check on. UniFi Network is the source of truth while it answers; while
+    /// it does not, the check's last-known fields stand in, so a check that watches UniFi Network
+    /// itself keeps running through the outage it exists to catch.
+    /// </summary>
+    private async Task<(HealthCheckTarget? Target, string? Error)> ResolveTargetAsync(
+        HealthCheckDefinition check, CheckState state, CancellationToken ct)
     {
-        if (DateTime.UtcNow - _devicesLoadedAt >= DevicesCacheTtl)
+        var devices = await ListDevicesAsync(ct);
+        if (devices != null)
         {
-            if (!_connection.IsConnected) return null;
-            try
+            var wanted = Normalize(check.DeviceMac);
+            var device = devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.Mac) && Normalize(d.Mac) == wanted);
+            if (device == null) return (null, "device not found in UniFi");
+
+            if (state.UsingLastKnown)
             {
-                _devices = await _connection.GetDiscoveredDevicesAsync(ct) ?? new List<DiscoveredDevice>();
-                _devicesLoadedAt = DateTime.UtcNow;
+                state.UsingLastKnown = false;
+                _logger.LogInformation("Health check {Check} on {Device}: UniFi Network lists the device again", check.Name, device.Name);
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not list devices for health checks on site {Site}", _siteSlug);
-                return null;
-            }
+            await RememberAsync(check, device, ct);
+            return (HealthCheckTarget.FromDevice(device, check), null);
         }
 
-        var wanted = Normalize(mac);
-        return _devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.Mac) && Normalize(d.Mac) == wanted);
+        var cached = HealthCheckTarget.FromCheck(check);
+        if (cached == null) return (null, "UniFi Network is unreachable and this device has no last-known address yet");
+
+        if (!state.UsingLastKnown)
+        {
+            state.UsingLastKnown = true;
+            _logger.LogInformation(
+                "Health check {Check} on {Device}: UniFi Network is unreachable, running against the last-known address {Host} (recorded {At:u})",
+                check.Name, cached.Name, cached.Host ?? "(gateway SSH settings)", check.LastKnownAt);
+        }
+        return (cached, null);
     }
+
+    /// <summary>
+    /// UniFi Network's device list, or null when it cannot be listed right now. An empty list is a
+    /// failed fetch (<see cref="UniFiConnectionService.GetDiscoveredDevicesAsync"/> returns one
+    /// rather than throwing), so it is never cached as the answer.
+    /// </summary>
+    private async Task<List<DiscoveredDevice>?> ListDevicesAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _devicesLoadedAt < DevicesCacheTtl) return _devices;
+        if (!_connection.IsConnected) return null;
+        try
+        {
+            var devices = await _connection.GetDiscoveredDevicesAsync(ct);
+            if (devices == null || devices.Count == 0) return null;
+            _devices = devices;
+            _devicesLoadedAt = DateTime.UtcNow;
+            return _devices;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Could not list devices for health checks on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Persists what UniFi Network lists for the device onto every check on it, when it changed.
+    /// The in-memory definitions are updated too, so the next run does not write it again.
+    /// </summary>
+    private async Task RememberAsync(HealthCheckDefinition check, DiscoveredDevice device, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (!HealthCheckTarget.Remember(check, device, now)) return;
+
+        foreach (var other in _definitions.Where(d => d.DeviceMac == check.DeviceMac && !ReferenceEquals(d, check)))
+            HealthCheckTarget.Remember(other, device, now);
+
+        try
+        {
+            await using var db = await CreateDbAsync(ct);
+            await db.HealthCheckDefinitions
+                .Where(d => d.DeviceMac == check.DeviceMac)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(d => d.LastKnownHost, check.LastKnownHost)
+                    .SetProperty(d => d.LastKnownDeviceName, check.LastKnownDeviceName)
+                    .SetProperty(d => d.LastKnownDeviceType, check.LastKnownDeviceType)
+                    .SetProperty(d => d.LastKnownHardwareType, check.LastKnownHardwareType)
+                    .SetProperty(d => d.LastKnownAt, check.LastKnownAt), ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Could not save the last-known address for {Mac} on site {Site}", check.DeviceMac, _siteSlug);
+        }
+    }
+
+    private async Task<NetworkOptimizerDbContext> CreateDbAsync(CancellationToken ct) => _isDefault
+        ? await _mainDbFactory.CreateDbContextAsync(ct)
+        : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
 
     /// <summary>
     /// Gateway hardware is a gateway for SSH credentials and remedies whatever role it is in: a
