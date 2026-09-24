@@ -4,7 +4,7 @@
   "description": "Catches the UniFi Network application on a UniFi OS gateway spending most of its time in Full GC pauses. Routing keeps working while it happens, but the UniFi Console web UI and app stop responding and settings cannot be changed. Restarting the unifi service clears it.",
   "appliesTo": ["cloud-gateway"],
   "whatItWatches": "The share of the last 60 seconds the Network application's JVM spent paused in Full GC, read from /data/unifi/logs/gc.log on the gateway.",
-  "whenItFires": "25% or more of the window in Full GC pauses on two consecutive samples, a minute apart. A healthy gateway sits under 1%.",
+  "whenItFires": "25% or more of the window in Full GC pauses on two consecutive samples, a minute apart. A healthy gateway sits at 1-5%.",
   "whatItDoes": "Alerts, and restarts the unifi service. Either can be switched off below. Offered on Cloud Gateways only (UDM, UDR, UCG lines), since a UXG or USG runs no Network application of its own.",
   "fieldName": "unifi_jvm_full_gc_pct",
   "unit": "%",
