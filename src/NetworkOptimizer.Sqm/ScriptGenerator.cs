@@ -941,12 +941,12 @@ num_bool() { LC_ALL=C awk ""BEGIN{print ($*)?1:0}""; }";
 # downstream drop_overmemory for bulk flows at gig speeds, and 8KB+ creates bursty HTB
 # send patterns that increase queue depth variance in fq_codel.
 #
-# Mode 1 is the opt-in rate-proportional sizing (~1 ms of line time), for paths where the
+# Mode 1 is the rate-proportional sizing (~1 ms of line time), for paths where the
 # conservative bucket is only 1-3 packets: at 900 Mbit, 5KB is ~44 us of line time, so HTB
 # releases only a few packets per timer wakeup and throughput degenerates into a function
-# of scheduling latency. It is off by default because it showed no gain on other platforms,
-# raised the loaded latency tail on the path where it did help, and can compound with an
-# upstream token-bucket policer. Download (IFB) path only; egress always uses mode 0.
+# of scheduling latency. It is a per-WAN setting, on for new WANs: it showed no gain on other
+# platforms, raised the loaded latency tail on the path where it did help, and can compound
+# with an upstream token-bucket policer. Download (IFB) path only; egress always uses mode 0.
 calc_burst() {
     local rate_mbps=$1
     local mode=${2:-0}
@@ -1017,7 +1017,7 @@ update_all_tc_classes() {
         echo ""[$(date)] ERROR: refusing tc update on $device, rate '$new_rate' is not a usable rate"" >> ""${LOG_FILE:-/dev/null}""
         return 1
     fi
-    # Burst mode is opt-in and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
+    # Burst mode is per-WAN and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
     # egress callers omit it and stay on the conservative sizing.
     local burst_mode=${3:-0}
     local burst=$(calc_burst $new_rate $burst_mode)
