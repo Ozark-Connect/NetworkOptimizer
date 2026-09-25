@@ -11,6 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 public static class DashboardCards
 {
     public const string StatsRow = "stats-row";
+    public const string ActiveAlerts = "active-alerts";
     public const string SecurityPosture = "security-posture";
     public const string SqmStatus = "sqm-status";
     public const string ThreatTrends = "threat-trends";
@@ -27,7 +28,7 @@ public static class DashboardCards
     /// <summary>All valid card IDs</summary>
     public static readonly string[] All =
     [
-        StatsRow, SecurityPosture, SqmStatus, ThreatTrends, CellularStats, CmStats, OntStats,
+        StatsRow, ActiveAlerts, SecurityPosture, SqmStatus, ThreatTrends, CellularStats, CmStats, OntStats,
         StarlinkStats, SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus, LiveView
     ];
 
@@ -41,6 +42,7 @@ public static class DashboardCards
     public static string GetDisplayName(string cardId) => cardId switch
     {
         StatsRow => "Quick Stats",
+        ActiveAlerts => "Active Alerts",
         SecurityPosture => "Security Posture",
         SqmStatus => "Adaptive SQM",
         ThreatTrends => "Threat Trends",

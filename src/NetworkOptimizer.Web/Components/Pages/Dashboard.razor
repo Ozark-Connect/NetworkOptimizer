@@ -306,6 +306,7 @@
     private List<HealthIssue> _wifiHealthIssues = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
+    private int _activeAlertsKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
 
@@ -336,6 +337,7 @@
     private RenderFragment RenderCard(string cardId) => cardId switch
     {
         DashboardCards.StatsRow => RenderStatsRow,
+        DashboardCards.ActiveAlerts => RenderActiveAlerts,
         DashboardCards.SecurityPosture => RenderSecurityPosture,
         DashboardCards.SqmStatus => RenderSqmStatus,
         DashboardCards.ThreatTrends => RenderThreatTrends,
@@ -805,6 +807,19 @@
         </div>
     };
 
+    private RenderFragment RenderActiveAlerts => __builder =>
+    {
+        <div class="card clickable-card" id="active-alerts" data-tour="dashboard-active-alerts" @onclick="@(() => NavigationManager.NavigateTo("/alerts?tab=active"))">
+            <div class="card-header">
+                <a href="/alerts?tab=active" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Active Alerts</h2></a>
+                <a href="/alerts?tab=active" class="card-action" @onclick:stopPropagation>View All →</a>
+            </div>
+            <div class="card-body">
+                <ActiveAlertsPanel @key="_activeAlertsKey" />
+            </div>
+        </div>
+    };
+
     private RenderFragment RenderDeviceStatus => __builder =>
     {
         <div class="card" id="device-status">
@@ -1203,6 +1218,7 @@
         {
             _sqmPanelKey++;
             _alertsListKey++;
+            _activeAlertsKey++;
             await Task.WhenAll(
                 LoadDashboardData(),
                 LoadSpeedTestData(),
