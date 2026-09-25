@@ -188,7 +188,10 @@ Runs at the two configured times, after every boot, and on demand from the page 
 1. Ensure `awk` and `jq`. A missing one is installed from apt (`mawk` for awk), retried after
    `apt-get update`. Still missing: ERROR, exit, tc untouched.
 2. Validate the managed Ookla binary. Invalid: ERROR, exit, tc untouched.
-3. Wait up to 90 s for the probe lock to clear. A lock older than 120 s is stale and removed.
+3. Wait up to 90 s for the probe lock to clear. A lock older than 120 s is stale and removed. Then
+   wait up to 20 s for a running `ping.sh` to finish, and hold the probe lock until the script
+   exits, so no ping run rewrites tc during the measurement. Cron skips the ping only in the
+   scheduled minutes; boot and manual calibrations rely on the lock.
 4. Require `ifb<interface>`.
 5. Lift download to the probe rate with the configured burst mode, and set upload to nominal, so the
    measurement runs unshaped.
@@ -213,7 +216,8 @@ Runs at the two configured times, after every boot, and on demand from the page 
 
 Runs every minute except during a calibration minute. It never calls apt.
 
-1. Require `awk`. Stand down (exit 0) while a fresh probe lock exists.
+1. Require `awk`. Stand down (exit 0) while a fresh probe lock exists: a learning sample or a
+   calibration holds it.
 2. Read `result.txt` and require a number above 0 and below 100000.
 3. Require `ifb<interface>`.
 4. Starting rate, from the interpolated slot and the last calibration:
