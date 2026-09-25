@@ -240,23 +240,38 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     }
 
     /// <summary>
-    /// Ensure any newly added cards/stats appear in existing saved layouts.
+    /// Ensure any newly added cards/stats appear in existing saved layouts. A new card goes in at its
+    /// default position: right after the nearest card that precedes it in <see cref="DashboardCards.All"/>,
+    /// or first when none does, so it is not buried under every card the site already has.
     /// </summary>
-    private static void MergeDefaults(DashboardLayout layout)
+    internal static void MergeDefaults(DashboardLayout layout)
     {
         var existingCardIds = new HashSet<string>(layout.Cards.Select(c => c.Id));
-        foreach (var cardId in DashboardCards.All)
+        for (var i = 0; i < DashboardCards.All.Length; i++)
         {
-            if (!existingCardIds.Contains(cardId))
+            var cardId = DashboardCards.All[i];
+            if (existingCardIds.Contains(cardId))
+                continue;
+
+            var isLiveView = cardId == DashboardCards.LiveView;
+            var card = new DashboardCardConfig
             {
-                var isLiveView = cardId == DashboardCards.LiveView;
-                layout.Cards.Add(new DashboardCardConfig
-                {
-                    Id = cardId,
-                    Visible = !isLiveView,
-                    FullWidth = isLiveView || DashboardCards.DefaultFullWidth.Contains(cardId)
-                });
+                Id = cardId,
+                Visible = !isLiveView,
+                FullWidth = isLiveView || DashboardCards.DefaultFullWidth.Contains(cardId)
+            };
+
+            var insertAt = 0;
+            for (var p = i - 1; p >= 0; p--)
+            {
+                var predecessor = layout.Cards.FindIndex(c => c.Id == DashboardCards.All[p]);
+                if (predecessor < 0) continue;
+                insertAt = predecessor + 1;
+                break;
             }
+
+            layout.Cards.Insert(insertAt, card);
+            existingCardIds.Add(cardId);
         }
 
         var existingStatIds = new HashSet<string>(layout.StatItems);

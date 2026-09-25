@@ -8,13 +8,16 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class AlertSeverityDisplay
 {
-    /// <summary>The <c>.alert-item</c> modifier class (border and icon color) for a severity.</summary>
+    /// <summary>
+    /// The <c>.alert-item</c> modifier class (border and icon color) for a severity. Never the bare
+    /// <c>alert-warning</c> / <c>alert-info</c>: those are the global banner classes and restyle the row.
+    /// </summary>
     public static string GetItemClass(AlertSeverity severity) => severity switch
     {
-        AlertSeverity.Critical => "alert-critical",
-        AlertSeverity.Error => "alert-critical",
-        AlertSeverity.Warning => "alert-warning",
-        _ => "alert-info"
+        AlertSeverity.Critical => "alert-item-critical",
+        AlertSeverity.Error => "alert-item-critical",
+        AlertSeverity.Warning => "alert-item-warning",
+        _ => "alert-item-info"
     };
 
     /// <summary>The inline SVG icon for a severity, rendered inside <c>.alert-icon</c>.</summary>
