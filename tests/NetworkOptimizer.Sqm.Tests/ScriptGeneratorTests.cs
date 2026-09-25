@@ -586,6 +586,39 @@ public class ScriptGeneratorTests
     }
 
     [Fact]
+    public void GenerateBootScript_CalibrationHoldsTheProbeLockSoThePingScriptStandsDown()
+    {
+        var generator = new ScriptGenerator(new SqmConfiguration
+        {
+            ConnectionName = "WAN",
+            Interface = "eth8.201",
+            MaxDownloadSpeed = 1000,
+            MinDownloadSpeed = 100,
+            AbsoluteMaxDownloadSpeed = 1100,
+            PingHost = "1.1.1.1"
+        });
+
+        var script = generator.GenerateBootScript(new Dictionary<string, string>());
+        var speedtest = ExtractHeredocSection(script, "SPEEDTEST_EOF");
+        var ping = ExtractHeredocSection(script, "PING_EOF");
+
+        var wait = speedtest.IndexOf("Wait for a probe", StringComparison.Ordinal);
+        var pingWait = speedtest.IndexOf("pgrep -f -- '[-]ping\\.sh'", StringComparison.Ordinal);
+        var take = speedtest.IndexOf("touch \"$PROBE_LOCK\"", StringComparison.Ordinal);
+        var release = speedtest.IndexOf("trap 'rm -f \"$PROBE_LOCK\"' EXIT", StringComparison.Ordinal);
+        var lift = speedtest.IndexOf("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", StringComparison.Ordinal);
+
+        // Wait out a learning sample, let a running ping finish, take the lock, then lift.
+        Assert.True(wait >= 0 && pingWait > wait, "the hold follows the wait for a learning sample");
+        Assert.True(take > pingWait, "the lock is taken once no ping adjustment is running");
+        Assert.True(release > take, "the lock is released from an EXIT trap");
+        Assert.True(lift > release, "the lock is held before the shaper is lifted");
+
+        // Only the calibration takes the lock; the ping script only reads it.
+        Assert.DoesNotContain("touch \"$PROBE_LOCK\"", ping);
+    }
+
+    [Fact]
     public void GenerateBootScript_HasValidBashSyntax()
     {
         if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash"))
