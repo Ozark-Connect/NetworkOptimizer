@@ -208,7 +208,7 @@ public class WanContextRoutingTests
     [Fact]
     public void Snmp_NoRegisteredCollectorYet_PollsRatherThanLeavingTheSiteDark()
     {
-        // First connect, before the registry lists this agent: it is the only candidate there is.
+        // An empty registry: polling beats leaving the site with no poller at all.
         AgentProbeResultSink.ShouldPushSnmpConfig(agentId: PrimaryAgent, collectorAgentId: null)
             .Should().BeTrue();
     }
