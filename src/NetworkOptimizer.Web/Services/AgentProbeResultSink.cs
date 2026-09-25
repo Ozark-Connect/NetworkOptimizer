@@ -366,7 +366,8 @@ public class AgentProbeResultSink
             var unassignedOwnerId = agentCoversPrimary
                 ? SelectCollectorAgentId(
                     _tunnelRegistry.GetForSite(connection.SiteSlug).Select(c => c.AgentId),
-                    contextsById.Values, primaryWanKey, connection.AgentId)
+                    contextsById.Values, primaryWanKey, connection.AgentId,
+                    OnGatewayAgentIds(connection.SiteSlug))
                 : NoCollectorAgentId;
 
             // An agent running ON the gateway cannot usefully probe it: the target is the box the
@@ -444,8 +445,15 @@ public class AgentProbeResultSink
     }
 
     /// <summary>
+    /// Stands in for "no agent collects here", where the server does it. Never a real agent id, so
+    /// every ownership comparison simply fails.
+    /// </summary>
+    internal const int NoCollectorAgentId = -1;
+
+    /// <summary>
     /// The one agent that collects for a site: its SNMP, its fabric targets, and the primary WAN's
-    /// targets. The lowest-id CONNECTED agent that is not steered behind a secondary WAN.
+    /// targets. The lowest-id CONNECTED agent that is not steered behind a secondary WAN, preferring
+    /// one that is not on the gateway.
     /// <para>
     /// Lowest-id makes it deterministic, so a refresh does not move the workload around; taking it
     /// from the connected set makes it self-healing, because the next agent picks the work up on
@@ -453,28 +461,40 @@ public class AgentProbeResultSink
     /// send leaves by the wrong WAN. <paramref name="fallbackAgentId"/> is returned when nothing is
     /// eligible, which keeps a lone steered agent collecting rather than leaving a site dark.
     /// </para>
+    /// <para>
+    /// A gateway agent still collects when it is the only eligible one, but never ahead of an agent
+    /// on another box: the gateway is the host with the least headroom on the site.
+    /// </para>
     /// </summary>
-    /// <summary>
-    /// Stands in for "no agent collects here", where the server does it. Never a real agent id, so
-    /// every ownership comparison simply fails.
-    /// </summary>
-    internal const int NoCollectorAgentId = -1;
-
+    /// <param name="onGatewayAgentIds">Connected agents that reported running on the gateway.</param>
     internal static int SelectCollectorAgentId(
         IEnumerable<int> connectedAgentIds,
         IEnumerable<WanContext> contexts,
         string? primaryWanKey,
-        int fallbackAgentId)
+        int fallbackAgentId,
+        IReadOnlyCollection<int>? onGatewayAgentIds = null)
     {
         var contextList = contexts as IReadOnlyCollection<WanContext> ?? contexts.ToList();
-        return connectedAgentIds
+        var eligible = connectedAgentIds
             .Where(id => !contextList.Any(c =>
                 c.AgentId == id
                 && string.IsNullOrEmpty(c.InterfaceName)
                 && !IsPrimaryWanContext(c, primaryWanKey)))
-            .DefaultIfEmpty(fallbackAgentId)
-            .Min();
+            .ToList();
+        if (eligible.Count == 0) return fallbackAgentId;
+        var offGateway = onGatewayAgentIds is { Count: > 0 }
+            ? eligible.Where(id => !onGatewayAgentIds.Contains(id)).ToList()
+            : eligible;
+        return (offGateway.Count > 0 ? offGateway : eligible).Min();
     }
+
+    /// <summary>
+    /// The site's connected agents that reported running on the gateway. The hello flag only: it is
+    /// in hand without asking the console, which this push path must never wait on. An agent that
+    /// predates the flag is left out, so it is ranked as it was before the preference existed.
+    /// </summary>
+    private IReadOnlyCollection<int> OnGatewayAgentIds(string siteSlug) =>
+        _tunnelRegistry.GetForSite(siteSlug).Where(c => c.OnGateway == true).Select(c => c.AgentId).ToList();
 
     /// <summary>
     /// Which agent currently collects for a site, for display. Same answer the push path acts on,
@@ -498,7 +518,8 @@ public class AgentProbeResultSink
             await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
             var contexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
             var primaryWanKey = await ResolvePersistedPrimaryWanKeyAsync(db, ct);
-            return SelectCollectorAgentId(connected, contexts, primaryWanKey, connected.Min());
+            return SelectCollectorAgentId(connected, contexts, primaryWanKey, connected.Min(),
+                OnGatewayAgentIds(siteSlug));
         }
         catch (Exception ex)
         {
@@ -669,14 +690,14 @@ public class AgentProbeResultSink
     internal static bool ShouldPushSiteCollectionConfig(bool agentIsSteeredToWan) => !agentIsSteeredToWan;
 
     /// <summary>
-    /// Whether this agent should poll SNMP. Steered agents stand down so the site's collector does
-    /// it once, but only when there IS another one to do it: on a site where every agent sits
-    /// behind its own WAN, the collector is necessarily a steered agent, and standing it down too
-    /// leaves the site with no poller at all. <see cref="SelectCollectorAgentId"/> already falls
-    /// back to one for that reason; this is what lets its answer reach the agent.
+    /// Whether this agent should poll SNMP: only the site's collector, so each device is polled once
+    /// however many agents the site runs. Never gate this on steering alone - two ordinary agents on
+    /// one site both passed that gate and polled every device twice.
+    /// <paramref name="collectorAgentId"/> is null only when no connected agent is registered yet,
+    /// which on a first connect means this one is the only candidate.
     /// </summary>
-    internal static bool ShouldPushSnmpConfig(bool agentIsSteeredToWan, bool agentIsCollector) =>
-        !agentIsSteeredToWan || agentIsCollector;
+    internal static bool ShouldPushSnmpConfig(int agentId, int? collectorAgentId) =>
+        collectorAgentId is null || collectorAgentId == agentId;
 
     /// <summary>
     /// Whether this agent sits ENTIRELY behind one WAN: a context names it and gives no interface
@@ -786,9 +807,9 @@ public class AgentProbeResultSink
     /// connection, filtered and addressed by the same SnmpDeviceRules the
     /// local collection agent uses. A default-site agent gets SNMP config only when the site is
     /// configured for its agent to cover it - otherwise the server's own collection agent is still
-    /// polling those devices and pushing a second poller would double every sample. A
-    /// context-assigned agent gets an explicitly disabled config for the same reason: it is a probe
-    /// vantage behind one WAN, and the site already has a collector.
+    /// polling those devices and pushing a second poller would double every sample. Of the agents
+    /// that do collect, only the site's collector (<see cref="GetCollectorAgentIdAsync"/>) polls;
+    /// every other agent gets an explicitly disabled config for the same reason.
     /// </summary>
     public async Task PushSnmpConfigAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
@@ -800,15 +821,15 @@ public class AgentProbeResultSink
             connection.TrySend(new ServerMessage { SnmpConfig = new SnmpConfig { Enabled = false } });
             return;
         }
-        var steered = await IsSteeredToWanAgentAsync(connection, ct);
-        var isCollector = steered && await GetCollectorAgentIdAsync(connection.SiteSlug, ct) == connection.AgentId;
-        if (!ShouldPushSnmpConfig(steered, isCollector))
+        var collectorId = await GetCollectorAgentIdAsync(connection.SiteSlug, ct);
+        if (!ShouldPushSnmpConfig(connection.AgentId, collectorId))
         {
-            // Disabled rather than absent: an agent that polled before being assigned a context
-            // keeps polling on its last config until a new one tells it to stop.
+            // Disabled rather than absent: an agent that was the collector keeps polling on its last
+            // config until a new one tells it to stop. The periodic push hands the work back if the
+            // collector drops.
             connection.TrySend(new ServerMessage { SnmpConfig = new SnmpConfig { Enabled = false } });
-            _logger.LogDebug("Agent {Id} (site {Slug}) probes a WAN context; SNMP polling left to the site's collector",
-                connection.AgentId, connection.SiteSlug);
+            _logger.LogDebug("Agent {Id} (site {Slug}) is not the collector; SNMP polling left to agent {Collector}",
+                connection.AgentId, connection.SiteSlug, collectorId);
             return;
         }
         try
