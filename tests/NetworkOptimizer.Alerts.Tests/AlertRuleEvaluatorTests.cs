@@ -403,4 +403,22 @@ public class AlertRuleEvaluatorTests
     }
 
     #endregion
+
+    #region Threshold
+
+    [Theory]
+    [InlineData(79.9, false)]
+    [InlineData(80.0, true)]
+    [InlineData(85.0, true)]
+    public void Evaluate_ValuePercentContext_ComparedAgainstThreshold(double reading, bool expected)
+    {
+        var evt = CreateTestEvent("device.gateway_high_cpu", source: "device");
+        evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading.ToString("0.###");
+        var rule = CreateTestRule(eventTypePattern: "device.gateway_high_cpu");
+        rule.ThresholdPercent = 80;
+
+        _evaluator.Evaluate(evt, [rule]).Should().HaveCount(expected ? 1 : 0);
+    }
+
+    #endregion
 }

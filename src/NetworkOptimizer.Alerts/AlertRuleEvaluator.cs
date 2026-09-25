@@ -9,6 +9,12 @@ namespace NetworkOptimizer.Alerts;
 /// </summary>
 public class AlertRuleEvaluator
 {
+    /// <summary>
+    /// Event context key carrying a percent reading (e.g. gateway CPU) that a rule's
+    /// <see cref="AlertRule.ThresholdPercent"/> is compared against.
+    /// </summary>
+    public const string ValuePercentContextKey = "value_percent";
+
     private readonly AlertCooldownTracker _cooldownTracker;
     private readonly ILogger<AlertRuleEvaluator> _logger;
 
@@ -80,7 +86,7 @@ public class AlertRuleEvaluator
     /// <summary>
     /// Match event type against pattern. Supports exact match and trailing wildcard (e.g., "audit.*").
     /// </summary>
-    internal static bool MatchesEventType(string eventType, string pattern)
+    public static bool MatchesEventType(string eventType, string pattern)
     {
         if (string.IsNullOrEmpty(pattern) || pattern == "*")
             return true;
@@ -96,8 +102,9 @@ public class AlertRuleEvaluator
     }
 
     /// <summary>
-    /// Check if the event meets the rule's degradation threshold.
-    /// If the rule has a ThresholdPercent, the event must have a "drop_percent" context value >= threshold.
+    /// Check if the event meets the rule's threshold.
+    /// If the rule has a ThresholdPercent, the event's "drop_percent" (degradation) or
+    /// <see cref="ValuePercentContextKey"/> (a usage reading) context value must be >= threshold.
     /// </summary>
     private static bool MeetsThreshold(AlertEvent alertEvent, AlertRule rule)
     {
@@ -105,7 +112,8 @@ public class AlertRuleEvaluator
             return true;
 
         if (alertEvent.Context.TryGetValue("drop_percent", out var dropStr) ||
-            alertEvent.Context.TryGetValue("drop", out dropStr))
+            alertEvent.Context.TryGetValue("drop", out dropStr) ||
+            alertEvent.Context.TryGetValue(ValuePercentContextKey, out dropStr))
         {
             if (double.TryParse(dropStr, out var dropValue))
                 return dropValue >= rule.ThresholdPercent.Value;
