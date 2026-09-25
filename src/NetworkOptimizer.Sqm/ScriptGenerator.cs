@@ -457,6 +457,8 @@ public class ScriptGenerator
         // top of it would measure against its lift and then write over its restore.
         sb.AppendLine(GetProbeLockWait());
         sb.AppendLine();
+        sb.AppendLine(GetProbeLockHold());
+        sb.AppendLine();
 
         // Verify IFB device exists (created by UniFi Smart Queues)
         sb.AppendLine("# Verify IFB device exists (created by UniFi Smart Queues)");
@@ -859,6 +861,22 @@ for _ in $(seq 1 90); do
     if [ ""$lock_age"" -ge {ProbeLockMaxAgeSeconds} ]; then rm -f ""$PROBE_LOCK""; break; fi
     sleep 1
 done";
+    }
+
+    /// <summary>
+    /// Speedtest-script hold: let a running ping adjustment finish, then keep the probe lock for
+    /// the rest of the calibration, so no ping run rewrites tc while Ookla is measuring. Cron only
+    /// skips the ping in the scheduled minutes; boot and manual calibrations need this.
+    /// </summary>
+    private static string GetProbeLockHold()
+    {
+        return @"# Hold the probe lock while calibrating so the ping script stands down
+for _ in $(seq 1 20); do
+    pgrep -f -- '[-]ping\.sh' >/dev/null 2>&1 || break
+    sleep 1
+done
+touch ""$PROBE_LOCK""
+trap 'rm -f ""$PROBE_LOCK""' EXIT";
     }
 
     /// <summary>
