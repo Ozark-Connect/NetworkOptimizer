@@ -56,7 +56,7 @@ public class DashboardLayoutMergeTests
 
         var activeAlerts = layout.Cards.Single(c => c.Id == DashboardCards.ActiveAlerts);
         activeAlerts.Visible.Should().BeTrue();
-        activeAlerts.FullWidth.Should().BeFalse();
+        activeAlerts.FullWidth.Should().BeTrue();
         var liveView = layout.Cards.Single(c => c.Id == DashboardCards.LiveView);
         liveView.Visible.Should().BeFalse();
         liveView.FullWidth.Should().BeTrue();

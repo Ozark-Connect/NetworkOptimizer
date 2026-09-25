@@ -35,7 +35,7 @@ public static class DashboardCards
     /// <summary>Default full-width cards</summary>
     public static readonly HashSet<string> DefaultFullWidth = new()
     {
-        StatsRow, DeviceStatus, LiveView
+        StatsRow, ActiveAlerts, DeviceStatus, LiveView
     };
 
     /// <summary>Display names for cards</summary>
