@@ -462,8 +462,8 @@ public class AgentProbeResultSink
     /// eligible, which keeps a lone steered agent collecting rather than leaving a site dark.
     /// </para>
     /// <para>
-    /// A gateway agent still collects when it is the only eligible one, but never ahead of an agent
-    /// on another box: the gateway is the host with the least headroom on the site.
+    /// A gateway agent still collects when it is the only eligible one, but never ahead of an eligible
+    /// agent on another box: the gateway is the host with the least headroom on the site.
     /// </para>
     /// </summary>
     /// <param name="onGatewayAgentIds">Connected agents that reported running on the gateway.</param>
@@ -693,8 +693,8 @@ public class AgentProbeResultSink
     /// Whether this agent should poll SNMP: only the site's collector, so each device is polled once
     /// however many agents the site runs. Never gate this on steering alone - two ordinary agents on
     /// one site both passed that gate and polled every device twice.
-    /// <paramref name="collectorAgentId"/> is null only when no connected agent is registered yet,
-    /// which on a first connect means this one is the only candidate.
+    /// <paramref name="collectorAgentId"/> is null only when the registry lists no agent at all, which
+    /// the connect path never sees (it registers first); polling then beats leaving the site dark.
     /// </summary>
     internal static bool ShouldPushSnmpConfig(int agentId, int? collectorAgentId) =>
         collectorAgentId is null || collectorAgentId == agentId;
