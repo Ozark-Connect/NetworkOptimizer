@@ -2375,20 +2375,55 @@
     private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan PostDeploySingleWanFastPolling = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan PostDeployDualWanFastPolling = TimeSpan.FromSeconds(65);
+    // Covers a calibration's run (about 20 s) plus a poll's worth of slack after it starts.
+    private static readonly TimeSpan CalibrationFastPollingMargin = TimeSpan.FromSeconds(30);
+    // Wide enough that a 60 s poll always lands inside it before the scheduled minute.
+    private static readonly TimeSpan ScheduledCalibrationLeadIn = TimeSpan.FromSeconds(75);
+    private static readonly TimeSpan ScheduledCalibrationTail = TimeSpan.FromSeconds(90);
     private bool _isFastPolling = false;
     private DateTime? _fastPollingUntil = null;
+
+    // Seconds from the boot script to the first calibration; WAN2 staggers behind WAN1 by default.
+    private int Wan1BootDelaySeconds => wan1Config.BootDelaySeconds ?? 5;
+    private int Wan2BootDelaySeconds => wan2Config.BootDelaySeconds ?? (wan1Config.Enabled ? 50 : 5);
+
+    /// <summary>
+    /// True from shortly before to shortly after an enabled WAN's scheduled calibration. The
+    /// schedule is gateway-local and compared with server-local time, the same assumption the
+    /// ISP Health probe exclusions make.
+    /// </summary>
+    private bool IsNearScheduledCalibration()
+    {
+        if (deploymentStatus?.IsDeployed != true) return false;
+        var now = DateTime.Now;
+        foreach (var wan in new[] { wan1Config, wan2Config })
+        {
+            if (!wan.Enabled) continue;
+            foreach (var (hour, minute) in new[] { (wan.MorningHour, wan.MorningMinute), (wan.EveningHour, wan.EveningMinute) })
+            {
+                var due = now.Date.AddHours(hour).AddMinutes(minute);
+                // The nearest occurrence, so a time just past midnight still counts.
+                foreach (var candidate in new[] { due.AddDays(-1), due, due.AddDays(1) })
+                {
+                    if (now >= candidate - ScheduledCalibrationLeadIn && now <= candidate + ScheduledCalibrationTail)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
 
     private void AdjustRefreshInterval(bool useInitialDelay = false)
     {
         if (_refreshTimer == null) return;
 
-        // Fast poll if: speedtest running, UI-initiated adjustment, or within post-deploy window
+        // Fast poll if: speedtest running, UI-initiated adjustment, within the post-deploy window,
+        // or around a scheduled calibration
         var shouldFastPoll = sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
                              sqmMonitorData?.Wan2?.SpeedtestRunning == true ||
                              isRunningAdjustment ||
-                             (_fastPollingUntil != null && DateTime.UtcNow < _fastPollingUntil);
+                             (_fastPollingUntil != null && DateTime.UtcNow < _fastPollingUntil) ||
+                             IsNearScheduledCalibration();
 
         if (shouldFastPoll && !_isFastPolling)
         {
@@ -3402,7 +3437,7 @@
             // Deploy first WAN
             if (wan1Config.Enabled)
             {
-                var wan1Delay = wan1Config.BootDelaySeconds ?? 5;
+                var wan1Delay = Wan1BootDelaySeconds;
                 deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
                 await ScrollDeploymentLog();
 
@@ -3429,7 +3464,7 @@
             // Deploy second WAN (stagger speedtest only if first WAN is also deployed and no custom delay set)
             if (wan2Config.Enabled)
             {
-                var wan2Delay = wan2Config.BootDelaySeconds ?? (wan1Config.Enabled ? 50 : 5);
+                var wan2Delay = Wan2BootDelaySeconds;
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
                 await ScrollDeploymentLog();
 
@@ -3500,12 +3535,11 @@
             InvalidateCache();
             await RefreshStatus();
 
-            // Deploy triggers initial speedtests - start fast polling after delay to catch them
-            // Duration depends on number of enabled WANs (staggered speedtests)
-            var postDeployDuration = (wan1Config.Enabled && wan2Config.Enabled)
-                ? PostDeployDualWanFastPolling
-                : PostDeploySingleWanFastPolling;
-            _fastPollingUntil = DateTime.UtcNow.Add(postDeployDuration);
+            // Deploy triggers initial speedtests - fast poll until the last one has had time to run
+            var lastDelaySeconds = Math.Max(
+                wan1Config.Enabled ? Wan1BootDelaySeconds : 0,
+                wan2Config.Enabled ? Wan2BootDelaySeconds : 0);
+            _fastPollingUntil = DateTime.UtcNow.AddSeconds(lastDelaySeconds).Add(CalibrationFastPollingMargin);
 
             // 5s delay + 3s initial poll delay = poll at 8s mark
             _ = Task.Run(async () =>
