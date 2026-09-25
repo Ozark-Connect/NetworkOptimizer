@@ -35,6 +35,7 @@ public sealed class ManagedSpeedtestInstallerTests
     }
 
     [Theory]
+    [InlineData("403", "aarch64", "arm64")]
     [InlineData("404", "x86_64", "amd64")]
     [InlineData("404", "aarch64", "arm64")]
     [InlineData("410", "armv7l", "armhf")]
