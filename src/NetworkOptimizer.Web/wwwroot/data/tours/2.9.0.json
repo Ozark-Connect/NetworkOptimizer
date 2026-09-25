@@ -14,6 +14,17 @@
       "body": "Open a device on the **Devices** card and add a command to run on it over SSH, what counts as a problem, and what to do about it: alert, restart a service, kill a process, or reboot.\n\nThe **UniFi Network JVM GC Thrash** template catches a Cloud Gateway's Network application stalled in garbage collection and restarts it.\n\nEach check gets its own chart on **Device Stats**.",
       "placement": "top",
       "optional": true
+    },
+    {
+      "id": "dashboard-active-alerts",
+      "level": "minor",
+      "url": "/",
+      "selector": "[data-tour=\"dashboard-active-alerts\"]",
+      "title": "Active Alerts",
+      "listLabel": "Handle your most urgent alerts from the Dashboard",
+      "body": "The **Active Alerts** card shows your three most severe unresolved alerts. **Acknowledge** or **Resolve** them in place, or open **View All** for the rest.",
+      "placement": "auto",
+      "optional": true
     }
   ]
 }

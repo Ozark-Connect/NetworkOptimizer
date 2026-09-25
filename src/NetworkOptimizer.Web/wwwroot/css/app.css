@@ -2163,16 +2163,16 @@ a.stat-card-link:active {
     border-left: 4px solid var(--border-color);
 }
 
-.alert-item.alert-critical {
+.alert-item.alert-item-critical {
     border-left-color: var(--danger-color);
 }
 
-.alert-item.alert-warning,
-.alert-item.alert-recommended {
+.alert-item.alert-item-warning,
+.alert-item.alert-item-recommended {
     border-left-color: var(--warning-color);
 }
 
-.alert-item.alert-info {
+.alert-item.alert-item-info {
     border-left-color: var(--info-color);
 }
 
@@ -2185,16 +2185,16 @@ a.stat-card-link:active {
     min-height: 24px;
 }
 
-.alert-item.alert-critical .alert-icon {
+.alert-item.alert-item-critical .alert-icon {
     color: var(--danger-color);
 }
 
-.alert-item.alert-warning .alert-icon,
-.alert-item.alert-recommended .alert-icon {
+.alert-item.alert-item-warning .alert-icon,
+.alert-item.alert-item-recommended .alert-icon {
     color: var(--warning-color);
 }
 
-.alert-item.alert-info .alert-icon {
+.alert-item.alert-item-info .alert-icon {
     color: var(--info-color);
 }
 

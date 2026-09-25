@@ -41,7 +41,7 @@
         {
             @foreach (var alert in GetDisplayAlerts())
             {
-                <div class="alert-item alert-@alert.Severity.ToLower()">
+                <div class="alert-item alert-item-@alert.Severity.ToLower()">
                     <div class="alert-icon">
                         @((MarkupString)GetAlertIcon(alert.Severity))
                     </div>
