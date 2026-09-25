@@ -192,8 +192,9 @@ public class ScriptGenerator
         sb.AppendLine("        tar -xzf \"$SPEEDTEST_STAGE/speedtest.tgz\" -C \"$SPEEDTEST_STAGE\" speedtest \\");
         sb.AppendLine("            || { log_speedtest_install_error \"failed to extract Ookla speedtest\"; return 1; }");
         sb.AppendLine("    else");
+        // install.speedtest.net answers 403, not 404, for a release it no longer hosts.
         sb.AppendLine("        case \"$SPEEDTEST_HTTP_STATUS\" in");
-        sb.AppendLine("            404|410) ;;");
+        sb.AppendLine("            403|404|410) ;;");
         sb.AppendLine("            *) log_speedtest_install_error \"failed to download Ookla speedtest (HTTP $SPEEDTEST_HTTP_STATUS)\"; return 1 ;;");
         sb.AppendLine("        esac");
         sb.AppendLine("        echo \"[$(date)] Ookla archive unavailable (HTTP $SPEEDTEST_HTTP_STATUS); trying the verified Packagecloud package\" >> \"$LOG_FILE\"");
