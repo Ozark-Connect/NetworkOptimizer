@@ -166,8 +166,8 @@ Runs on every boot and on every deploy.
      matches the pinned SHA-256 for the architecture (aarch64, armhf, x86_64), and prints the pinned
      `Speedtest by Ookla <version> (<build>)` line. When it fails, the script downloads the pinned
      tarball from `install.speedtest.net` over HTTPS only, capped at 120 s and 4 MiB, and checks the
-     archive hash. On HTTP 404 or 410 it downloads Ookla's `.deb` for the same build from
-     Packagecloud, checks that hash, and extracts the binary with `dpkg-deb`. It adds no apt
+     archive hash. On HTTP 403, 404 or 410 (the CDN answers 403 for a release it no longer
+     hosts) it downloads Ookla's `.deb` for the same build from Packagecloud, checks that hash, and extracts the binary with `dpkg-deb`. It adds no apt
      repository, runs no maintainer scripts, and leaves the gateway's own `speedtest` package alone.
      The binary hash is checked again, then `mv` activates it atomically. A failed install logs a
      WARNING and the deploy continues; calibration then refuses to run until the binary validates.
