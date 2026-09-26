@@ -33,6 +33,9 @@ public static class FirewallRuleOverlapDetector
         if (!ZonesOverlap(rule1, rule2))
             return false;
 
+        if (!IpVersionsOverlap(rule1, rule2))
+            return false;
+
         return ProtocolsOverlap(rule1, rule2) &&
                SourcesOverlap(rule1, rule2, networkConfigs) &&
                DestinationsOverlap(rule1, rule2, networkConfigs) &&
@@ -59,6 +62,21 @@ public static class FirewallRuleOverlapDetector
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Check if address families overlap. Only an IPV4 rule against an IPV6 rule is disjoint;
+    /// BOTH, a missing ip_version, or an unknown value matches either family.
+    /// </summary>
+    public static bool IpVersionsOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        var v1 = rule1.IpVersion?.ToUpperInvariant();
+        var v2 = rule2.IpVersion?.ToUpperInvariant();
+
+        if (v1 is not ("IPV4" or "IPV6") || v2 is not ("IPV4" or "IPV6"))
+            return true;
+
+        return v1 == v2;
     }
 
     /// <summary>

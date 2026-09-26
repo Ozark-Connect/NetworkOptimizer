@@ -48,6 +48,11 @@ public class FirewallRule
     public bool MatchOppositeProtocol { get; init; }
 
     /// <summary>
+    /// Address family the rule matches (IPV4, IPV6, BOTH). Null or BOTH matches either family.
+    /// </summary>
+    public string? IpVersion { get; init; }
+
+    /// <summary>
     /// Source type (address, network, group, any)
     /// </summary>
     public string? SourceType { get; init; }

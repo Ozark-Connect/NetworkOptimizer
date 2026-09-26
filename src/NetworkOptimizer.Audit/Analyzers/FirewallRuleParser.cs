@@ -135,6 +135,7 @@ public class FirewallRuleParser
         var action = policy.GetStringOrNull("action");
         var protocol = policy.GetStringOrNull("protocol");
         var matchOppositeProtocol = policy.GetBoolOrDefault("match_opposite_protocol", false);
+        var ipVersion = policy.GetStringOrNull("ip_version");
         var index = policy.GetIntOrDefault("index", 0);
         var predefined = policy.GetBoolOrDefault("predefined", false);
         var icmpTypename = policy.GetStringOrNull("icmp_typename");
@@ -373,6 +374,7 @@ public class FirewallRuleParser
             Action = action,
             Protocol = protocol,
             MatchOppositeProtocol = matchOppositeProtocol,
+            IpVersion = ipVersion,
             SourcePort = sourcePort,
             DestinationType = destMatchingTarget,
             DestinationPort = destPort,
