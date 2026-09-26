@@ -36,11 +36,11 @@ public class GatewaySshService : IGatewaySshService
         "Waiting for the on-site agent to connect. This site's gateway is reached through its agent, and will connect automatically once the agent is online.";
 
     /// <summary>
-    /// Shown when the Gateway SSH host answers as a UniFi Cloud Key. Gateway probes read hardware
-    /// registers that only gateways have, and those reads can reset a Cloud Key.
+    /// Shown when the Gateway SSH host answers as a UniFi CloudKey. Gateway probes read hardware
+    /// registers that only gateways have, and those reads can reset a CloudKey.
     /// </summary>
     public const string CloudKeyMessage =
-        "This host is a UniFi Cloud Key, not a gateway. Set Gateway Host to your UniFi gateway's IP address.";
+        "This host is a UniFi CloudKey, not a gateway. Set Gateway Host to your UniFi gateway's IP address.";
 
     // The marker the test checks for, then the firmware image name and the device-tree model. Ends in
     // `true`: a gateway missing either file must still pass, and the test fails on a non-zero exit.
@@ -48,7 +48,7 @@ public class GatewaySshService : IGatewaySshService
         "echo Connection_OK; cat /usr/lib/version 2>/dev/null; echo; tr -d '\\000' < /proc/device-tree/model 2>/dev/null; true";
 
     /// <summary>
-    /// True when <see cref="VerifyCommand"/> output identifies a Cloud Key: a firmware image named
+    /// True when <see cref="VerifyCommand"/> output identifies a CloudKey: a firmware image named
     /// UCK* (UCKP.apq8053..., UCKG2...) or a device-tree model naming a CloudKey.
     /// </summary>
     public static bool IsCloudKey(string output) =>

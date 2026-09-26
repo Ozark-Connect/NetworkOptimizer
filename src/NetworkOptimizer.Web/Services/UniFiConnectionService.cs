@@ -1447,6 +1447,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// The last fetched device list, without fetching or checking freshness. For watchers that must
+    /// not add Console load of their own; null until something has fetched devices.
+    /// </summary>
+    public IReadOnlyList<DiscoveredDevice>? CachedDevices => _cachedDevices;
+
+    /// <summary>
     /// Invalidates the device cache, forcing a fresh fetch on next request.
     /// </summary>
     public void InvalidateDeviceCache()
