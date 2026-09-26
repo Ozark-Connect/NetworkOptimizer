@@ -200,7 +200,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["Cellular Modem", "Cellular Stats"],
             ["5g", "lte", "signal strength", "cell info", "u5g-max", "u5g backup",
              "ubiquiti modem", "netgear nighthawk hotspot", "gl-inet", "quectel", "qmicli",
-             "inseego", "fx4100",
+             "inseego", "fx4100", "zyxel", "nr7302", "nr7101", "nr5103",
              "qmi device path", "usb bus path", "ssh credentials", "scan for modems",
              "auto-discovered modems", "polling interval", "show the cellular stats tab"]),
 
