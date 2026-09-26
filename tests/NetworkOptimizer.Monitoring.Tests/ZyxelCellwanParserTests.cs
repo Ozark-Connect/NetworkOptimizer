@@ -18,7 +18,7 @@ public class ZyxelCellwanParserTests
         Id = 1,
         Name = "Test CPE",
         Host = "192.0.2.1",  // RFC 5737 documentation address
-        ModemType = "Zyxel NR",
+        ModemType = "Zyxel CPE",
     };
 
     // An EN-DC session: LTE anchor in INTF_*, the NR leg in NSA_*.
@@ -326,7 +326,7 @@ public class ZyxelCellwanParserTests
     [Fact]
     public void Parse_WithoutDeviceInfo_UsesTheConfiguredType()
     {
-        Parse(NsaCellwan, deviceInfo: null).ModemModel.Should().Be("Zyxel NR");
+        Parse(NsaCellwan, deviceInfo: null).ModemModel.Should().Be("Zyxel CPE");
     }
 
     [Theory]

@@ -39,7 +39,7 @@ public class RegistryConstructionTests
         { typeof(NetgearNighthawkHotspotProvider), Array.Empty<Type>() },
         { typeof(QuectelAtModemProvider), Array.Empty<Type>() },
         { typeof(InseegoFxProvider), Array.Empty<Type>() },
-        { typeof(ZyxelNrProvider), Array.Empty<Type>() },
+        { typeof(ZyxelCpeProvider), Array.Empty<Type>() },
         { typeof(CableModemMonitorService), new[] { typeof(string) } },
         { typeof(OntMonitorService), new[] { typeof(string) } },
         { typeof(CellularModemService), new[] { typeof(string), typeof(UniFiSshService), typeof(List<ICellularModemProvider>) } },

@@ -1383,7 +1383,7 @@
                                     <option value="netgear-nighthawk-hotspot">Netgear Nighthawk hotspot (HTTP)</option>
                                     <option value="quectel-at">GL-iNet / Quectel modem (SSH)</option>
                                     <option value="inseego-fx">Inseego FX gateway (HTTPS)</option>
-                                    <option value="zyxel-nr">Zyxel 5G/LTE CPE (HTTPS)</option>
+                                    <option value="zyxel-cpe">Zyxel 5G/LTE CPE (HTTPS)</option>
                                 </select>
                                 <small class="form-help">Selects the transport used to poll this modem.</small>
                             </div>
@@ -1439,10 +1439,10 @@
                                 </div>
                             </div>
                         }
-                        else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-nr")
+                        else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
                         {
                             <div class="form-row">
-                                @if (editingModem.Provider == "zyxel-nr")
+                                @if (editingModem.Provider == "zyxel-cpe")
                                 {
                                     <div class="form-group" style="flex: 1;">
                                         <label class="form-label">Admin Username</label>
@@ -6894,7 +6894,7 @@
         }
 
         // A new row still carries the SSH default port; tunnel routing needs the real one.
-        if (editingModem.Provider is "inseego-fx" or "zyxel-nr")
+        if (editingModem.Provider is "inseego-fx" or "zyxel-cpe")
             editingModem.Port = 443;
 
         probingModem = true;
@@ -6925,7 +6925,7 @@
                               editingModem.Provider == "qmicli";
         var isQuectelProvider = editingModem.Provider == "quectel-at";
         var isInseegoProvider = editingModem.Provider == "inseego-fx";
-        var isZyxelProvider = editingModem.Provider == "zyxel-nr";
+        var isZyxelProvider = editingModem.Provider == "zyxel-cpe";
         var isHttpProvider = !isUniFiProvider && !isQuectelProvider;
 
         // UniFi modems use shared SSH credentials; require them to be configured
@@ -6983,9 +6983,9 @@
             editingModem.PrivateKeyPath = "";
             editingModem.QmiDevice = "";
             if (string.IsNullOrEmpty(editingModem.ModemType) ||
-                editingModem.ModemType is "U5G-Max" or "Netgear Nighthawk Hotspot" or "Inseego FX" or "Zyxel NR")
+                editingModem.ModemType is "U5G-Max" or "Netgear Nighthawk Hotspot" or "Inseego FX" or "Zyxel CPE")
             {
-                editingModem.ModemType = isZyxelProvider ? "Zyxel NR"
+                editingModem.ModemType = isZyxelProvider ? "Zyxel CPE"
                     : isInseegoProvider ? "Inseego FX"
                     : "Netgear Nighthawk Hotspot";
             }
