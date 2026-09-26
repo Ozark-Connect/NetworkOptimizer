@@ -6064,10 +6064,23 @@
             }
 
             gatewaySettings = await SshSettingsAdmin.SaveGatewayAsync(settings);
+            var typedPassword = gatewayPassword;
             gatewayPassword = ""; // Clear password field
             hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             gatewayMessage = "Gateway settings saved successfully";
             gatewayMessageClass = "success";
+
+            // Only a Cloud Key answer is reported here; any other test failure is left to Test Connection.
+            if (gatewayEnabled)
+            {
+                var check = await GatewaySshService.TestConnectionAsync(
+                    gatewayHost, gatewayPort, gatewayUsername, typedPassword, gatewayPrivateKeyPath);
+                if (!check.success && check.message == NetworkOptimizer.Web.Services.Ssh.GatewaySshService.CloudKeyMessage)
+                {
+                    gatewayMessage = $"Gateway settings saved. {check.message}";
+                    gatewayMessageClass = "danger";
+                }
+            }
         }
         catch (Exception ex)
         {
