@@ -809,9 +809,10 @@ builder.Services.AddMutatingService<ISshKeyService, SshKeyService>();
 builder.Services.AddMutatingService<ISshSettingsAdminService, SshSettingsAdminService>();
 // One-click placement of the site's public key on a Cloud Gateway, via the shared udm-boot mechanism.
 builder.Services.AddMutatingService<ISshKeyDeploymentService, SshKeyDeploymentService>();
-// Per site: the update banner reflects the current site's gateway module deployment
-// state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
-// is session-lived, so the compute still runs about once per session.
+// Per site: the update banner reflects the current site's gateway module deployment state. The
+// registry holds one shared state per site and runs the SSH checks on triggers, never per circuit.
+builder.Services.AddSiteScopedRegistry<ModuleUpdateRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModuleUpdateRegistry>());
 builder.Services.AddScoped<ModuleUpdateNotificationService>();
 builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, MonitoringInterfaceDeploymentService>();
 // Curating the site's monitoring configuration from the Monitoring page: the Latency targets card's

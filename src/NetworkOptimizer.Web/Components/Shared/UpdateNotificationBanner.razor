@@ -45,13 +45,6 @@
         Updates.OnStateChanged += HandleStateChanged;
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        // Triggers the once-per-startup check; no-ops if already computed or not yet connected.
-        if (firstRender)
-            await Updates.ComputeOnceAsync();
-    }
-
     private void HandleStateChanged() => _ = InvokeAsync(StateHasChanged);
 
     public void Dispose() => Updates.OnStateChanged -= HandleStateChanged;
