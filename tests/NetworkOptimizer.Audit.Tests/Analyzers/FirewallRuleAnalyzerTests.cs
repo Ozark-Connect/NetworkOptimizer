@@ -1934,6 +1934,116 @@ public class FirewallRuleAnalyzerTests
         issues.Should().HaveCount(4);
     }
 
+    private FirewallRule ParseIpVersionPolicy(
+        string id, string action, int index, string? ipVersion,
+        string sourceJson, string destJson, string protocol = "all")
+    {
+        var ipVersionJson = ipVersion == null ? "" : $@"""ip_version"": ""{ipVersion}"",";
+        return _analyzer.ParseFirewallPolicy(System.Text.Json.JsonDocument.Parse($@"{{
+            ""_id"": ""{id}"",
+            ""name"": ""{id}"",
+            ""action"": ""{action}"",
+            ""enabled"": true,
+            ""index"": {index},
+            {ipVersionJson}
+            ""protocol"": ""{protocol}"",
+            ""source"": {sourceJson},
+            ""destination"": {destJson}
+        }}").RootElement)!;
+    }
+
+    private const string AnyLanSource = @"{ ""matching_target"": ""ANY"", ""zone_id"": ""lan-zone"" }";
+    private const string AnyExternalDest = @"{ ""matching_target"": ""ANY"", ""zone_id"": ""external-zone"" }";
+
+    [Fact]
+    public void DetectShadowedRules_DnsLockdownSplitByIpVersion_NoCrossFamilySubvert()
+    {
+        // Issue #1231: per-family authorized-client allows ahead of per-family "NOT authorized"
+        // DoH blocks. An IPv4-only allow cannot subvert an IPv6-only block, and vice versa.
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-dns-v4", "ALLOW", 10000, "IPV4",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""192.0.2.10"", ""192.0.2.11""], ""zone_id"": ""lan-zone"" }",
+                @"{ ""matching_target"": ""ANY"", ""port"": ""53,443,853"", ""zone_id"": ""external-zone"" }",
+                protocol: "tcp_udp"),
+            ParseIpVersionPolicy("allow-dns-v6", "ALLOW", 10001, "IPV6",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""2001:db8::10"", ""2001:db8::11""], ""zone_id"": ""lan-zone"" }",
+                @"{ ""matching_target"": ""ANY"", ""port"": ""53,443,853"", ""zone_id"": ""external-zone"" }",
+                protocol: "tcp_udp"),
+            ParseIpVersionPolicy("block-doh-v4", "BLOCK", 10002, "IPV4",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""192.0.2.10"", ""192.0.2.11""], ""match_opposite_ips"": true, ""zone_id"": ""lan-zone"" }",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""198.51.100.1"", ""198.51.100.2""], ""port"": ""443"", ""zone_id"": ""external-zone"" }",
+                protocol: "tcp"),
+            ParseIpVersionPolicy("block-doh-v6", "BLOCK", 10003, "IPV6",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""2001:db8::10"", ""2001:db8::11""], ""match_opposite_ips"": true, ""zone_id"": ""lan-zone"" }",
+                @"{ ""matching_target"": ""IP"", ""ips"": [""2001:db8:ffff::1""], ""port"": ""443"", ""zone_id"": ""external-zone"" }",
+                protocol: "tcp")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.AllowSubvertsDeny);
+        issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
+    [Theory]
+    [InlineData("IPV4", "IPV4")]
+    [InlineData("IPV6", "IPV6")]
+    [InlineData("IPV4", "BOTH")]
+    [InlineData("BOTH", "IPV6")]
+    [InlineData(null, "IPV4")]
+    [InlineData(null, null)]
+    public void DetectShadowedRules_AllowBeforeDeny_SharedIpFamily_StillReturnsSubvertIssue(string? allowVersion, string? denyVersion)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-all", "ALLOW", 1, allowVersion, AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy("block-all", "BLOCK", 2, denyVersion, AnyLanSource, AnyExternalDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny);
+    }
+
+    [Theory]
+    [InlineData("IPV4", "IPV6")]
+    [InlineData("IPV6", "IPV4")]
+    public void DetectShadowedRules_AllowBeforeDeny_DisjointIpFamilies_ReturnsNoIssues(string allowVersion, string denyVersion)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-all", "ALLOW", 1, allowVersion, AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy("block-all", "BLOCK", 2, denyVersion, AnyLanSource, AnyExternalDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("IPV4", "IPV4", true)]
+    [InlineData("BOTH", "IPV6", true)]
+    [InlineData(null, "IPV4", true)]
+    [InlineData("IPV6", "IPV4", false)]
+    [InlineData("IPV4", "IPV6", false)]
+    public void DetectShadowedRules_DenyBeforeAllow_ShadowsOnlyWithinSharedIpFamily(string? denyVersion, string? allowVersion, bool expectShadow)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("block-all", "BLOCK", 1, denyVersion, AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy("allow-all", "ALLOW", 2, allowVersion, AnyLanSource, AnyExternalDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        if (expectShadow)
+            issues.Should().ContainSingle(i => i.Type == IssueTypes.DenyShadowsAllow);
+        else
+            issues.Should().BeEmpty();
+    }
+
     [Fact]
     public void DetectShadowedRules_MacScopedDenyBeforeMacScopedAllow_SameDevice_ReturnsShadowedIssue()
     {

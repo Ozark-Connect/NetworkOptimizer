@@ -48,6 +48,24 @@ public class FirewallRule
     public bool MatchOppositeProtocol { get; init; }
 
     /// <summary>
+    /// Address family the rule matches (IPV4, IPV6, BOTH). Null or BOTH matches either family.
+    /// </summary>
+    public string? IpVersion { get; init; }
+
+    /// <summary>
+    /// Set on UniFi's predefined "Isolate IPv6 traffic from PD interface brN" rules: the VLAN of the
+    /// prefix-delegated network the gateway enforces them for. The API reports their source as ANY,
+    /// so the parser rescopes it to this network. Null on every other rule.
+    /// </summary>
+    public int? PdIsolationVlanId { get; init; }
+
+    /// <summary>
+    /// Whether the rule matches traffic of the given address family.
+    /// BOTH, a missing ip_version, or an unknown value matches either family.
+    /// </summary>
+    public bool MatchesIpFamily(IpFamily family) => IpVersionMatcher.Matches(IpVersion, family);
+
+    /// <summary>
     /// Source type (address, network, group, any)
     /// </summary>
     public string? SourceType { get; init; }
@@ -329,10 +347,22 @@ public class FirewallRule
 
     /// <summary>
     /// Returns true if this rule applies to traffic from a specific source network.
-    /// Checks zone matching, network ID matching (with Match Opposite), and IP/CIDR coverage.
+    /// Checks zone matching, network ID matching (with Match Opposite), and IP/CIDR coverage
+    /// against the network's IPv4 subnet. Family-agnostic: ip_version is not consulted, so use
+    /// the <see cref="IpFamily"/> overload for any claim about what traffic is blocked or allowed.
     /// Handles v2 API format (SourceMatchingTarget) and legacy format (Source).
     /// </summary>
-    public bool AppliesToSourceNetwork(NetworkInfo network)
+    public bool AppliesToSourceNetwork(NetworkInfo network) =>
+        AppliesToSourceNetworkCore(network, network.SubnetsFor(IpFamily.IPv4));
+
+    /// <summary>
+    /// Returns true if this rule applies to the given family's traffic from a source network:
+    /// the rule must match the family, and IP/CIDR sources are matched against that family's subnets.
+    /// </summary>
+    public bool AppliesToSourceNetwork(NetworkInfo network, IpFamily family) =>
+        MatchesIpFamily(family) && AppliesToSourceNetworkCore(network, network.SubnetsFor(family));
+
+    private bool AppliesToSourceNetworkCore(NetworkInfo network, IReadOnlyList<string> subnets)
     {
         // Zone check: if rule has a source zone and network has a zone, they must match
         if (!string.IsNullOrEmpty(SourceZoneId) && !string.IsNullOrEmpty(network.FirewallZoneId))
@@ -340,6 +370,9 @@ public class FirewallRule
             if (!string.Equals(SourceZoneId, network.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
                 return false;
         }
+
+        if (PdIsolationVlanId is { } pdVlanId)
+            return network.VlanId == pdVlanId;
 
         // v2 API: Check SourceMatchingTarget
         if (!string.IsNullOrEmpty(SourceMatchingTarget))
@@ -356,10 +389,12 @@ public class FirewallRule
             }
 
             if (SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase) &&
-                SourceIps?.Count > 0 && !string.IsNullOrEmpty(network.Subnet))
+                SourceIps?.Count > 0 && subnets.Count > 0)
             {
-                var cidrCovers = NetworkUtilities.AnyCidrCoversSubnet(SourceIps, network.Subnet);
-                return SourceMatchOppositeIps ? !cidrCovers : cidrCovers;
+                // Match Opposite excludes the network only when one of its subnets is listed
+                return SourceMatchOppositeIps
+                    ? !subnets.Any(s => NetworkUtilities.AnyCidrCoversSubnet(SourceIps, s))
+                    : subnets.All(s => NetworkUtilities.AnyCidrCoversSubnet(SourceIps, s));
             }
 
             // CLIENT, etc. - doesn't match by network

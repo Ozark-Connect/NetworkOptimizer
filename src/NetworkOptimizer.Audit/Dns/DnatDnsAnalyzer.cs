@@ -153,8 +153,9 @@ public class DnatDnsAnalyzer
     /// <param name="networks">List of networks to check coverage against</param>
     /// <param name="excludedVlanIds">Optional VLAN IDs to exclude from coverage checks</param>
     /// <param name="firewallGroups">Optional firewall groups for resolving FIREWALL_GROUPS filter types</param>
+    /// <param name="family">Address family: only NAT rules whose ip_version matches it count, and subnet sources are matched against its subnets</param>
     /// <returns>Coverage analysis result</returns>
-    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
+    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, IpFamily family = IpFamily.IPv4)
     {
         var result = new DnatCoverageResult();
 
@@ -176,7 +177,7 @@ public class DnatDnsAnalyzer
             networks.Where(n => excludedVlanSet.Contains(n.VlanId)).Select(n => n.Name));
 
         // Parse DNAT rules targeting UDP port 53
-        var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value, firewallGroups);
+        var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value, firewallGroups, family);
         result.Rules.AddRange(dnatDnsRules);
         result.HasDnatDnsRules = dnatDnsRules.Count > 0;
 
@@ -258,8 +259,9 @@ public class DnatDnsAnalyzer
                         // Check which networks are covered by any of the CIDRs
                         foreach (var network in allNetworks)
                         {
-                            if (!string.IsNullOrEmpty(network.Subnet) &&
-                                rule.SubnetCidrs.Any(cidr => CidrCoversSubnet(cidr, network.Subnet)))
+                            var subnets = network.SubnetsFor(family);
+                            if (subnets.Count > 0 &&
+                                subnets.All(s => rule.SubnetCidrs.Any(cidr => CidrCoversSubnet(cidr, s))))
                             {
                                 Cover(rule, network.Id);
                             }
@@ -307,7 +309,7 @@ public class DnatDnsAnalyzer
     /// <summary>
     /// Parse NAT rules JSON and extract enabled DNAT rules targeting UDP port 53
     /// </summary>
-    private List<DnatRuleInfo> ParseDnatDnsRules(JsonElement natRulesData, Dictionary<string, UniFiFirewallGroup>? firewallGroups)
+    private List<DnatRuleInfo> ParseDnatDnsRules(JsonElement natRulesData, Dictionary<string, UniFiFirewallGroup>? firewallGroups, IpFamily family)
     {
         var rules = new List<DnatRuleInfo>();
 
@@ -327,6 +329,12 @@ public class DnatDnsAnalyzer
 
             // Check enabled
             if (!rule.GetBoolOrDefault("enabled"))
+            {
+                continue;
+            }
+
+            // An IPv4 redirect leaves IPv6 DNS untouched, and the reverse
+            if (!IpVersionMatcher.Matches(rule.GetStringOrNull("ip_version"), family))
             {
                 continue;
             }

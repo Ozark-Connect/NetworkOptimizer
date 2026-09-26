@@ -57,6 +57,7 @@ public static class DohProviderRegistry
             StampPrefix = "cloudflare",
             Hostnames = new[] { "cloudflare-dns.com", "1dot1dot1dot1.cloudflare-dns.com", "one.one.one.one", "dns.cloudflare.com", "mozilla.cloudflare-dns.com", "family.cloudflare-dns.com", "security.cloudflare-dns.com" },
             DnsIps = new[] { "1.1.1.1", "1.0.0.1", "1.1.1.2", "1.0.0.2", "1.1.1.3", "1.0.0.3" },
+            Ipv6Addresses = new[] { "2606:4700:4700::1111", "2606:4700:4700::1001", "2606:4700:4700::1112", "2606:4700:4700::1002", "2606:4700:4700::1113", "2606:4700:4700::1003" },
             SupportsFiltering = false,
             HasCustomConfig = false,
             Description = "Cloudflare 1.1.1.1 DNS"
@@ -67,6 +68,7 @@ public static class DohProviderRegistry
             StampPrefix = "google",
             Hostnames = new[] { "dns.google", "dns.google.com", "8888.google", "dns64.dns.google" },
             DnsIps = new[] { "8.8.8.8", "8.8.4.4" },
+            Ipv6Addresses = new[] { "2001:4860:4860::8888", "2001:4860:4860::8844" },
             SupportsFiltering = false,
             HasCustomConfig = false,
             Description = "Google Public DNS"
@@ -77,6 +79,7 @@ public static class DohProviderRegistry
             StampPrefix = "quad9",
             Hostnames = new[] { "dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net" },
             DnsIps = new[] { "9.9.9.9", "149.112.112.112", "9.9.9.10", "149.112.112.10" },
+            Ipv6Addresses = new[] { "2620:fe::fe", "2620:fe::9", "2620:fe::11", "2620:fe::fe:11", "2620:fe::10", "2620:fe::fe:10" },
             SupportsFiltering = true,
             HasCustomConfig = false,
             Description = "Quad9 Security-focused DNS"
@@ -87,6 +90,7 @@ public static class DohProviderRegistry
             StampPrefix = "opendns",
             Hostnames = new[] { "doh.opendns.com", "doh.familyshield.opendns.com", "doh.sandbox.opendns.com" },
             DnsIps = new[] { "208.67.222.222", "208.67.220.220", "208.67.222.123", "208.67.220.123" },
+            Ipv6Addresses = new[] { "2620:119:35::35", "2620:119:53::53" },
             SupportsFiltering = true,
             HasCustomConfig = false,
             Description = "Cisco OpenDNS"
@@ -358,6 +362,11 @@ public class DohProviderInfo
     public required string[] Hostnames { get; init; }
     public required string[] DnsIps { get; init; }
     public string[]? Ipv6Prefixes { get; init; }
+
+    /// <summary>
+    /// Published IPv6 resolver addresses, matched by value so any written form of the address matches.
+    /// </summary>
+    public string[]? Ipv6Addresses { get; init; }
     public required bool SupportsFiltering { get; init; }
     public required bool HasCustomConfig { get; init; }
     public required string Description { get; init; }
@@ -374,6 +383,11 @@ public class DohProviderInfo
             expected.EndsWith('.')
                 ? ip.StartsWith(expected) // Prefix match (e.g., "45.90.")
                 : ip == expected))        // Exact match
+            return true;
+
+        // IPv6 exact matching (by value: "2620:fe::fe" equals "2620:00fe:0:0:0:0:0:fe")
+        if (Ipv6Addresses != null && ip.Contains(':') && IPAddress.TryParse(ip, out var parsed) &&
+            Ipv6Addresses.Any(expected => IPAddress.Parse(expected).Equals(parsed)))
             return true;
 
         // IPv6 prefix matching

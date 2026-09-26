@@ -402,9 +402,32 @@ public class DohProviderRegistryTests : IDisposable
     [Fact]
     public void IdentifyProviderFromIp_UnknownIpv6_ReturnsNull()
     {
-        var result = DohProviderRegistry.IdentifyProviderFromIp("2001:4860:4860::8888");
+        var result = DohProviderRegistry.IdentifyProviderFromIp("2001:db8::1");
 
         result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("2606:4700:4700::1111", "Cloudflare")]
+    [InlineData("2606:4700:4700::1003", "Cloudflare")]
+    [InlineData("2001:4860:4860::8888", "Google")]
+    [InlineData("2001:4860:4860:0:0:0:0:8844", "Google")]
+    [InlineData("2620:fe::fe", "Quad9")]
+    [InlineData("2620:FE::FE:10", "Quad9")]
+    [InlineData("2620:119:35::35", "OpenDNS")]
+    [InlineData("2620:119:53::53", "OpenDNS")]
+    public void IdentifyProviderFromIp_PublishedIpv6Resolver_ReturnsProvider(string ip, string expectedProvider)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip)!.Name.Should().Be(expectedProvider);
+    }
+
+    [Theory]
+    [InlineData("2606:4700:4700::1114")]
+    [InlineData("2620:119:35::123")]
+    [InlineData("2620:fe::")]
+    public void IdentifyProviderFromIp_NeighborOfPublishedIpv6Resolver_ReturnsNull(string ip)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip).Should().BeNull();
     }
 
     #endregion
