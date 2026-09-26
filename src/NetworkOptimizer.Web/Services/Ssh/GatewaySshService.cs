@@ -35,6 +35,28 @@ public class GatewaySshService : IGatewaySshService
     public const string AwaitingAgentMessage =
         "Waiting for the on-site agent to connect. This site's gateway is reached through its agent, and will connect automatically once the agent is online.";
 
+    /// <summary>
+    /// Shown when the Gateway SSH host answers as a UniFi Cloud Key. Gateway probes read hardware
+    /// registers that only gateways have, and those reads can reset a Cloud Key.
+    /// </summary>
+    public const string CloudKeyMessage =
+        "This host is a UniFi Cloud Key, not a gateway. Set Gateway Host to your UniFi gateway's IP address.";
+
+    // The marker the test checks for, then the firmware image name and the device-tree model. Ends in
+    // `true`: a gateway missing either file must still pass, and the test fails on a non-zero exit.
+    private const string VerifyCommand =
+        "echo Connection_OK; cat /usr/lib/version 2>/dev/null; echo; tr -d '\\000' < /proc/device-tree/model 2>/dev/null; true";
+
+    /// <summary>
+    /// True when <see cref="VerifyCommand"/> output identifies a Cloud Key: a firmware image named
+    /// UCK* (UCKP.apq8053..., UCKG2...) or a device-tree model naming a CloudKey.
+    /// </summary>
+    public static bool IsCloudKey(string output) =>
+        output.Split('\n').Select(l => l.Trim()).Any(l =>
+            l.StartsWith("UCK", StringComparison.OrdinalIgnoreCase)
+            || l.Contains("CloudKey", StringComparison.OrdinalIgnoreCase)
+            || l.Contains("Cloud Key", StringComparison.OrdinalIgnoreCase));
+
     public GatewaySshService(
         ILogger<GatewaySshService> logger,
         IServiceProvider serviceProvider,
@@ -212,9 +234,12 @@ public class GatewaySshService : IGatewaySshService
             if (success)
             {
                 // Verify with a simple command
-                var result = await _sshClient.ExecuteCommandAsync(connection, "echo Connection_OK");
+                var result = await _sshClient.ExecuteCommandAsync(connection, VerifyCommand);
                 if (result.Success && result.Output.Contains("Connection_OK"))
                 {
+                    if (IsCloudKey(result.Output))
+                        return (false, CloudKeyMessage);
+
                     // Update last tested
                     settings.LastTestedAt = DateTime.UtcNow;
                     settings.LastTestResult = "Success";
@@ -291,9 +316,12 @@ public class GatewaySshService : IGatewaySshService
             if (success)
             {
                 // Verify with a simple command
-                var result = await _sshClient.ExecuteCommandAsync(connection, "echo Connection_OK");
+                var result = await _sshClient.ExecuteCommandAsync(connection, VerifyCommand);
                 if (result.Success && result.Output.Contains("Connection_OK"))
                 {
+                    if (IsCloudKey(result.Output))
+                        return (false, CloudKeyMessage);
+
                     return (true, "SSH connection successful");
                 }
                 return (false, result.Error ?? "Connection test command failed");

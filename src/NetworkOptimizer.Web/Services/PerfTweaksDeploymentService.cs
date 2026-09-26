@@ -156,7 +156,9 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 $"echo '---SFP_PORT6_MODULE_FILE---'; test -f {SfpModuleDir}/force_uniphy2_sgmiiplus.ko && echo 'exists' || echo 'missing'; " +
                 "echo '---SFP_PORT6_MODULE_LOADED---'; lsmod | grep -q force_uniphy2_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_PORT6_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy2_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
-                "echo '---SFP_PORT6_SERDES_REG---'; busybox devmem 0x07A20218 32 2>/dev/null || echo 'N/A'; " +
+                // Raw MMIO reads can hard-reset hardware without this SerDes, so each runs only under
+                // the same condition the parser reads its value under (boot script or module present).
+                $"echo '---SFP_PORT6_SERDES_REG---'; if [ -f {OnBootDir}/19-sfp-sgmiiplus-eth5.sh ] || lsmod | grep -q force_uniphy2_sgmiiplus; then busybox devmem 0x07A20218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_PORT6_ETH5_SPEED---'; ethtool eth5 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
                 "echo '---SFP_PORT6_LOG---'; tail -3 /var/log/sfp-sgmiiplus-eth5.log 2>/dev/null || echo 'no log'; " +
                 // SFP SGMII+ Port 7 (eth6 / uniphy1)
@@ -165,7 +167,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---SFP_QCA_SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_MODULE_LOADED---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
-                "echo '---SFP_SERDES_REG---'; busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; " +
+                $"echo '---SFP_SERDES_REG---'; if [ -f {OnBootDir}/20-sfp-sgmiiplus.sh ] || lsmod | grep -q force_uniphy1_sgmiiplus; then busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_ETH6_SPEED---'; ethtool eth6 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
                 "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'";
 
