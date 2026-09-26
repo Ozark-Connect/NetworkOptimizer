@@ -65,10 +65,11 @@ public class UniFiApiClient : IDisposable
     private string? _lastLoginError;
     private string? _lastApiError;
     private string? _lastApiErrorCode;
-    // Set on a 405 from the Network app (a CloudKey serves neither endpoint). Scoped to this client,
-    // which is rebuilt on every Console connect, so a Console that gains support is re-probed.
-    private volatile bool _trafficFlowsUnsupported;
-    private volatile bool _threatLogUnsupported;
+    // Set on a 405 from the Network app (a CloudKey serves neither endpoint). Expires after an hour and
+    // dies with this client, which is rebuilt on every Console connect, so a stray 405 cannot stick.
+    private static readonly TimeSpan UnsupportedEndpointBackoff = TimeSpan.FromHours(1);
+    private long _trafficFlowsUnsupportedUntilTicks;
+    private long _threatLogUnsupportedUntilTicks;
 
     /// <summary>
     /// Gets the last login error message (e.g., rate limiting, SSL errors)
@@ -3609,7 +3610,7 @@ public class UniFiApiClient : IDisposable
     {
         _logger.LogTrace("Fetching threat log events from {Start} to {End}, page {Page}", start, end, pageNumber);
 
-        if (_threatLogUnsupported)
+        if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _threatLogUnsupportedUntilTicks))
             return default;
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
@@ -3655,8 +3656,8 @@ public class UniFiApiClient : IDisposable
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
                 {
-                    _threatLogUnsupported = true;
-                    _logger.LogInformation("UniFi Network on this Console does not serve threat log events (405); skipping them until the next Console connect");
+                    Interlocked.Exchange(ref _threatLogUnsupportedUntilTicks, (DateTime.UtcNow + UnsupportedEndpointBackoff).Ticks);
+                    _logger.LogInformation("UniFi Network on this Console does not serve threat log events (405); skipping them for an hour");
                 }
                 else
                 {
@@ -3685,7 +3686,7 @@ public class UniFiApiClient : IDisposable
     {
         _logger.LogTrace("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
 
-        if (_trafficFlowsUnsupported)
+        if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _trafficFlowsUnsupportedUntilTicks))
             return default;
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
@@ -3752,8 +3753,8 @@ public class UniFiApiClient : IDisposable
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
                 {
-                    _trafficFlowsUnsupported = true;
-                    _logger.LogInformation("UniFi Network on this Console does not serve traffic flows (405); skipping them until the next Console connect");
+                    Interlocked.Exchange(ref _trafficFlowsUnsupportedUntilTicks, (DateTime.UtcNow + UnsupportedEndpointBackoff).Ticks);
+                    _logger.LogInformation("UniFi Network on this Console does not serve traffic flows (405); skipping them for an hour");
                 }
                 else
                 {
