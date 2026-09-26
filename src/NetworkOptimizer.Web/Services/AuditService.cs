@@ -1649,7 +1649,9 @@ public class AuditService : IAuditScanService
             {
                 Severity = issue.Severity,
                 Category = category,
-                Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity, issue.Description, exceptionPattern),
+                // The suffix also keeps an IPv6-only finding's dismissal key apart from its IPv4 twin
+                Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity, issue.Description, exceptionPattern)
+                        + Audit.Models.IpFamilyText.Suffix(Audit.Models.IpFamilyText.IsIpv6Only(issue.Metadata)),
                 Description = issue.Message,
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
                 // Context fields
