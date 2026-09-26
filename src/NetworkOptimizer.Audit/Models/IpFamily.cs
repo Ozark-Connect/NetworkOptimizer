@@ -24,6 +24,8 @@ public static class IpVersionMatcher
             return family == IpFamily.IPv4;
         if (string.Equals(ipVersion, "IPV6", StringComparison.OrdinalIgnoreCase))
             return family == IpFamily.IPv6;
+
+        // Fall-through on purpose: BOTH, null, and unknown values all mean either family.
         return true;
     }
 }
