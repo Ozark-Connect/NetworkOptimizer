@@ -73,6 +73,7 @@ public static class FirewallRuleOverlapDetector
         var v1 = rule1.IpVersion?.ToUpperInvariant();
         var v2 = rule2.IpVersion?.ToUpperInvariant();
 
+        // Negative match on purpose: BOTH, null, and unknown values all mean either family.
         if (v1 is not ("IPV4" or "IPV6") || v2 is not ("IPV4" or "IPV6"))
             return true;
 
