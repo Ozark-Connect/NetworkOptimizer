@@ -1203,7 +1203,7 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup, Netgear Nighthawk hotspots, GL-iNet routers, etc.)
+                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup, Netgear Nighthawk hotspots, Inseego FX gateways, GL-iNet routers, etc.)
                 for signal strength and cell info. Stats are polled every 5 minutes.
                 SSH credentials are required for Ubiquiti and GL-iNet modems.
             </p>
@@ -1382,6 +1382,7 @@
                                     <option value="qmicli">Ubiquiti modem (SSH)</option>
                                     <option value="netgear-nighthawk-hotspot">Netgear Nighthawk hotspot (HTTP)</option>
                                     <option value="quectel-at">GL-iNet / Quectel modem (SSH)</option>
+                                    <option value="inseego-fx">Inseego FX gateway (HTTPS)</option>
                                 </select>
                                 <small class="form-help">Selects the transport used to poll this modem.</small>
                             </div>
@@ -1437,17 +1438,30 @@
                                 </div>
                             </div>
                         }
-                        else if (editingModem.Provider == "netgear-nighthawk-hotspot")
+                        else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx")
                         {
                             <div class="form-row">
-                                <div class="form-group" style="flex: 2;">
-                                    <label class="form-label">Admin Password (optional)</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
-                                    <small class="form-help">
-                                        Without a password, signal/band/cell metrics are still polled.
-                                        Setting the admin password unlocks throughput counters.
-                                    </small>
-                                </div>
+                                @if (editingModem.Provider == "inseego-fx")
+                                {
+                                    <div class="form-group" style="flex: 2;">
+                                        <label class="form-label">Admin Password</label>
+                                        <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                                        <small class="form-help">
+                                            The password for the gateway's web interface. Signal data is only available when signed in.
+                                        </small>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="form-group" style="flex: 2;">
+                                        <label class="form-label">Admin Password (optional)</label>
+                                        <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                                        <small class="form-help">
+                                            Without a password, signal/band/cell metrics are still polled.
+                                            Setting the admin password unlocks throughput counters.
+                                        </small>
+                                    </div>
+                                }
                                 <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
                                     <button class="btn btn-secondary" type="button" @onclick="ProbeModem" disabled="@probingModem">
                                         @if (probingModem)
@@ -6864,6 +6878,10 @@
             return;
         }
 
+        // A new row still carries the SSH default port; tunnel routing needs the real one.
+        if (editingModem.Provider == "inseego-fx")
+            editingModem.Port = 443;
+
         probingModem = true;
         probeResult = "";
         StateHasChanged();
@@ -6891,6 +6909,7 @@
         var isUniFiProvider = string.IsNullOrWhiteSpace(editingModem.Provider) ||
                               editingModem.Provider == "qmicli";
         var isQuectelProvider = editingModem.Provider == "quectel-at";
+        var isInseegoProvider = editingModem.Provider == "inseego-fx";
         var isHttpProvider = !isUniFiProvider && !isQuectelProvider;
 
         // UniFi modems use shared SSH credentials; require them to be configured
@@ -6926,17 +6945,24 @@
             return;
         }
 
+        if (isInseegoProvider && string.IsNullOrWhiteSpace(editingModem.Password))
+        {
+            modemMessage = "The admin password is required for Inseego gateways";
+            modemMessageClass = "danger";
+            return;
+        }
+
         // HTTP-based providers don't use SSH/QMI fields
         if (isHttpProvider)
         {
-            editingModem.Port = 80;
+            editingModem.Port = isInseegoProvider ? 443 : 80;
             editingModem.Username = "";
             editingModem.PrivateKeyPath = "";
             editingModem.QmiDevice = "";
             if (string.IsNullOrEmpty(editingModem.ModemType) ||
-                editingModem.ModemType == "U5G-Max")
+                editingModem.ModemType is "U5G-Max" or "Netgear Nighthawk Hotspot" or "Inseego FX")
             {
-                editingModem.ModemType = "Netgear Nighthawk Hotspot";
+                editingModem.ModemType = isInseegoProvider ? "Inseego FX" : "Netgear Nighthawk Hotspot";
             }
         }
 
