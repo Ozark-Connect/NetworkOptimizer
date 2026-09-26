@@ -60,15 +60,17 @@ public static class FirewallRuleEvaluator
     /// <param name="rules">All firewall rules to evaluate.</param>
     /// <param name="matchesPredicate">Predicate that returns true if a rule matches the traffic pattern.</param>
     /// <param name="forNewConnections">If true, skip allow rules that don't allow NEW connections (e.g., RESPOND_ONLY rules).</param>
+    /// <param name="family">When set, only rules that match this address family take part.</param>
     /// <returns>Evaluation result indicating the effective rule and whether traffic is blocked/allowed.</returns>
     public static EvaluationResult Evaluate(
         IEnumerable<FirewallRule> rules,
         Func<FirewallRule, bool> matchesPredicate,
-        bool forNewConnections = false)
+        bool forNewConnections = false,
+        IpFamily? family = null)
     {
         // Find all matching rules sorted by index (lower = higher priority)
         var matchingRules = rules
-            .Where(r => r.Enabled && matchesPredicate(r))
+            .Where(r => r.Enabled && (family is not { } f || r.MatchesIpFamily(f)) && matchesPredicate(r))
             .OrderBy(r => r.Index)
             .ToList();
 
