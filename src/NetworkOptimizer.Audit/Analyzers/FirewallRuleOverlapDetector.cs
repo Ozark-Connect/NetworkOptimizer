@@ -68,17 +68,9 @@ public static class FirewallRuleOverlapDetector
     /// Check if address families overlap. Only an IPV4 rule against an IPV6 rule is disjoint;
     /// BOTH, a missing ip_version, or an unknown value matches either family.
     /// </summary>
-    public static bool IpVersionsOverlap(FirewallRule rule1, FirewallRule rule2)
-    {
-        var v1 = rule1.IpVersion?.ToUpperInvariant();
-        var v2 = rule2.IpVersion?.ToUpperInvariant();
-
-        // Negative match on purpose: BOTH, null, and unknown values all mean either family.
-        if (v1 is not ("IPV4" or "IPV6") || v2 is not ("IPV4" or "IPV6"))
-            return true;
-
-        return v1 == v2;
-    }
+    public static bool IpVersionsOverlap(FirewallRule rule1, FirewallRule rule2) =>
+        (rule1.MatchesIpFamily(IpFamily.IPv4) && rule2.MatchesIpFamily(IpFamily.IPv4)) ||
+        (rule1.MatchesIpFamily(IpFamily.IPv6) && rule2.MatchesIpFamily(IpFamily.IPv6));
 
     /// <summary>
     /// Check if protocols overlap (same protocol or either is "all").

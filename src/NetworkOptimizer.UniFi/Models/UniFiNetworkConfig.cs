@@ -265,6 +265,12 @@ public class UniFiNetworkConfig
     [JsonPropertyName("ipv6_interface_type")]
     public string? Ipv6InterfaceType { get; set; }
 
+    /// <summary>
+    /// Static IPv6 prefix in gateway form (e.g., "2001:db8:1::1/64"). Absent for prefix-delegated networks.
+    /// </summary>
+    [JsonPropertyName("ipv6_subnet")]
+    public string? Ipv6Subnet { get; set; }
+
     [JsonPropertyName("ipv6_pd_interface")]
     public string? Ipv6PdInterface { get; set; }
 
