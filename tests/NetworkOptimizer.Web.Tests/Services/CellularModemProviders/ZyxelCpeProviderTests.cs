@@ -11,11 +11,11 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests.Services.CellularModemProviders;
 
 /// <summary>
-/// End-to-end session handling for <see cref="ZyxelNrProvider"/> against a stub ZCFG router that
+/// End-to-end session handling for <see cref="ZyxelCpeProvider"/> against a stub ZCFG router that
 /// holds a real RSA key pair. The stub decrypts the login and encrypts its replies with its own
 /// crypto code, so these tests pin the wire format rather than round-tripping the provider's.
 /// </summary>
-public class ZyxelNrProviderTests
+public class ZyxelCpeProviderTests
 {
     private const string Password = "test-password";
 
@@ -51,11 +51,11 @@ public class ZyxelNrProviderTests
         Port = port,
         Username = username,
         Password = password,
-        ModemType = "Zyxel NR",
+        ModemType = "Zyxel CPE",
     };
 
-    private static ZyxelNrProvider Create(StubRouter router) =>
-        new(NullLogger<ZyxelNrProvider>.Instance, router);
+    private static ZyxelCpeProvider Create(StubRouter router) =>
+        new(NullLogger<ZyxelCpeProvider>.Instance, router);
 
     // ----- Encrypted firmware -----
 
@@ -214,7 +214,7 @@ public class ZyxelNrProviderTests
 
         var result = await provider.PollAsync(Context());
 
-        result.Stats!.ModemModel.Should().Be("Zyxel NR");
+        result.Stats!.ModemModel.Should().Be("Zyxel CPE");
         router.LoginCount.Should().Be(1);
     }
 
@@ -369,7 +369,7 @@ public class ZyxelNrProviderTests
         public bool LoginWasEnvelope { get; private set; }
         public int LoginCount { get; private set; }
 
-        public string Password { get; set; } = ZyxelNrProviderTests.Password;
+        public string Password { get; set; } = ZyxelCpeProviderTests.Password;
         public string? PublicKeyResponse { get; init; }
         public HttpStatusCode LoginStatus { get; init; } = HttpStatusCode.OK;
         public string? LoginBodyOverride { get; init; }

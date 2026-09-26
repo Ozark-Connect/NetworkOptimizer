@@ -7,9 +7,9 @@ using NetworkOptimizer.Monitoring.Models;
 namespace NetworkOptimizer.Monitoring.Providers;
 
 /// <summary>
-/// Pure-function translator from the Zyxel DAL <c>cellwan_status</c> object (NR7101/NR7102,
-/// NR730x, NR5103, FWA505 and other ZCFG-based 5G/LTE CPEs) into
-/// <see cref="CellularModemStats"/>. Kept separate from <c>ZyxelNrProvider</c> so it can be
+/// Pure-function translator from the Zyxel DAL <c>cellwan_status</c> object (the NR, FWA, and
+/// LTE series of ZCFG-based CPEs) into
+/// <see cref="CellularModemStats"/>. Kept separate from <c>ZyxelCpeProvider</c> so it can be
 /// unit-tested without an HTTP transport or the session encryption.
 /// </summary>
 /// <remarks>

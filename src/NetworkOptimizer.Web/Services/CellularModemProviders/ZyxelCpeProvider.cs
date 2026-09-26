@@ -10,8 +10,10 @@ using NetworkOptimizer.Web.Services.Monitoring;
 namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
 /// <summary>
-/// Cellular modem provider for Zyxel 5G/LTE CPEs on the ZCFG web API: the NR7301/NR7302/NR7303
-/// outdoor units, NR7101/NR7102, NR5103, FWA505 and relatives.
+/// Cellular modem provider for Zyxel 5G/LTE CPEs on the ZCFG web API: the NR series
+/// (NR7301/NR7302/NR7303, NR7101/NR7102, NR5103), the FWA series (FWA505/510/710), and the LTE
+/// series (LTE3202, LTE5398, LTE7490). Zyxel's DSL and fiber routers share the API but have no
+/// cellular interface, so they have no cellwan_status to read.
 ///
 /// Signs in the way the web UI does (<c>/getRSAPublickKey</c>, then <c>/UserLogin</c>) and reads
 /// <c>/cgi-bin/DAL?oid=cellwan_status</c>. Newer firmware encrypts the whole session (see
@@ -19,10 +21,10 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// The session cookie and AES key are kept per modem and renewed when the router refuses them.
 /// Parsing lives in <see cref="ZyxelCellwanParser"/>.
 /// </summary>
-public sealed class ZyxelNrProvider : ICellularModemProvider, IDisposable
+public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
 {
     /// <inheritdoc/>
-    public string ProviderKey => "zyxel-nr";
+    public string ProviderKey => "zyxel-cpe";
 
     /// <inheritdoc/>
     public string DisplayName => "Zyxel 5G/LTE CPE (HTTPS)";
@@ -32,7 +34,7 @@ public sealed class ZyxelNrProvider : ICellularModemProvider, IDisposable
 
     private const int DefaultTimeoutSeconds = 15;
 
-    private readonly ILogger<ZyxelNrProvider> _logger;
+    private readonly ILogger<ZyxelCpeProvider> _logger;
     private readonly HttpClient _client;
     private readonly ConcurrentDictionary<string, ZyxelSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
 
@@ -40,7 +42,7 @@ public sealed class ZyxelNrProvider : ICellularModemProvider, IDisposable
     // retried by the poll loop. Only changed credentials or a Probe try again.
     private readonly ConcurrentDictionary<string, string> _rejectedCredentials = new(StringComparer.OrdinalIgnoreCase);
 
-    public ZyxelNrProvider(ILogger<ZyxelNrProvider> logger)
+    public ZyxelCpeProvider(ILogger<ZyxelCpeProvider> logger)
         : this(logger, new HttpClientHandler
         {
             // The router serves a self-signed certificate.
@@ -54,7 +56,7 @@ public sealed class ZyxelNrProvider : ICellularModemProvider, IDisposable
     }
 
     /// <summary>Test seam: supply the transport.</summary>
-    internal ZyxelNrProvider(ILogger<ZyxelNrProvider> logger, HttpMessageHandler handler)
+    internal ZyxelCpeProvider(ILogger<ZyxelCpeProvider> logger, HttpMessageHandler handler)
     {
         _logger = logger;
         _client = new HttpClient(handler, disposeHandler: true)
