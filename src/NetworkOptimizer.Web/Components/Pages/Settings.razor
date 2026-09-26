@@ -1203,7 +1203,7 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup, Netgear Nighthawk hotspots, Inseego FX gateways, GL-iNet routers, etc.)
+                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup, Netgear Nighthawk hotspots, Inseego FX gateways, Zyxel 5G/LTE CPEs, GL-iNet routers, etc.)
                 for signal strength and cell info. Stats are polled every 5 minutes.
                 SSH credentials are required for Ubiquiti and GL-iNet modems.
             </p>
@@ -1383,6 +1383,7 @@
                                     <option value="netgear-nighthawk-hotspot">Netgear Nighthawk hotspot (HTTP)</option>
                                     <option value="quectel-at">GL-iNet / Quectel modem (SSH)</option>
                                     <option value="inseego-fx">Inseego FX gateway (HTTPS)</option>
+                                    <option value="zyxel-nr">Zyxel 5G/LTE CPE (HTTPS)</option>
                                 </select>
                                 <small class="form-help">Selects the transport used to poll this modem.</small>
                             </div>
@@ -1438,10 +1439,24 @@
                                 </div>
                             </div>
                         }
-                        else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx")
+                        else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-nr")
                         {
                             <div class="form-row">
-                                @if (editingModem.Provider == "inseego-fx")
+                                @if (editingModem.Provider == "zyxel-nr")
+                                {
+                                    <div class="form-group" style="flex: 1;">
+                                        <label class="form-label">Admin Username</label>
+                                        <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="admin" />
+                                    </div>
+                                    <div class="form-group" style="flex: 1;">
+                                        <label class="form-label">Admin Password</label>
+                                        <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                                        <small class="form-help">
+                                            The sign-in for the router's web interface. Signal data is only available when signed in.
+                                        </small>
+                                    </div>
+                                }
+                                else if (editingModem.Provider == "inseego-fx")
                                 {
                                     <div class="form-group" style="flex: 2;">
                                         <label class="form-label">Admin Password</label>
@@ -6879,7 +6894,7 @@
         }
 
         // A new row still carries the SSH default port; tunnel routing needs the real one.
-        if (editingModem.Provider == "inseego-fx")
+        if (editingModem.Provider is "inseego-fx" or "zyxel-nr")
             editingModem.Port = 443;
 
         probingModem = true;
@@ -6910,6 +6925,7 @@
                               editingModem.Provider == "qmicli";
         var isQuectelProvider = editingModem.Provider == "quectel-at";
         var isInseegoProvider = editingModem.Provider == "inseego-fx";
+        var isZyxelProvider = editingModem.Provider == "zyxel-nr";
         var isHttpProvider = !isUniFiProvider && !isQuectelProvider;
 
         // UniFi modems use shared SSH credentials; require them to be configured
@@ -6952,17 +6968,26 @@
             return;
         }
 
-        // HTTP-based providers don't use SSH/QMI fields
+        if (isZyxelProvider && string.IsNullOrWhiteSpace(editingModem.Password))
+        {
+            modemMessage = "The admin password is required for Zyxel routers";
+            modemMessageClass = "danger";
+            return;
+        }
+
+        // HTTP-based providers don't use SSH/QMI fields; only Zyxel signs in with a username
         if (isHttpProvider)
         {
-            editingModem.Port = isInseegoProvider ? 443 : 80;
-            editingModem.Username = "";
+            editingModem.Port = isInseegoProvider || isZyxelProvider ? 443 : 80;
+            editingModem.Username = isZyxelProvider ? editingModem.Username.Trim() : "";
             editingModem.PrivateKeyPath = "";
             editingModem.QmiDevice = "";
             if (string.IsNullOrEmpty(editingModem.ModemType) ||
-                editingModem.ModemType is "U5G-Max" or "Netgear Nighthawk Hotspot" or "Inseego FX")
+                editingModem.ModemType is "U5G-Max" or "Netgear Nighthawk Hotspot" or "Inseego FX" or "Zyxel NR")
             {
-                editingModem.ModemType = isInseegoProvider ? "Inseego FX" : "Netgear Nighthawk Hotspot";
+                editingModem.ModemType = isZyxelProvider ? "Zyxel NR"
+                    : isInseegoProvider ? "Inseego FX"
+                    : "Netgear Nighthawk Hotspot";
             }
         }
 
