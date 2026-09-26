@@ -23,11 +23,11 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // Highest UniFi OS version the perf tweaks + SGMII+ module are verified against, one
     // ceiling per gateway line because the UXG and UCG lines receive UniFi OS 6 releases on
     // different schedules (6.0.5 shipped for the UXG-Fiber only; 6.0.7 for the UCG-Fiber).
-    // 6.0.9 verified on a production UCG-Fiber: the boot tweaks are live-confirmed in effect, and
-    // the SGMII+ module is static-verified (vermagic, all 10 symbols and the 0x690/0x6d0 offsets
-    // unchanged; the one changed qca-ssdk function is MHT MAC polling, outside the uniphy path)
-    // (unifi-perf-tweaks docs/compat-6.0.9.md).
-    private static readonly Version MaxSupportedFirmware = new(6, 0, 9);
+    // 6.0.10 static-verified on the UCG-Fiber image: the tweak dependencies are unchanged and
+    // qca-ssdk.ko's .text is byte-identical to 6.0.9, so the SGMII+ contract holds; the one module
+    // with changed code, qca-nss-dp (an EDMA loopback ring), is outside it
+    // (unifi-perf-tweaks docs/compat-6.0.10.md).
+    private static readonly Version MaxSupportedFirmware = new(6, 0, 10);
     // 6.0.5 live-verified on UXG-Fiber: the trixie toolchain recompiled qca-ssdk.ko, ending the
     // byte-identical streak, but vermagic, all 10 SGMII+ symbols and the 0x690/0x6d0 speed and
     // duplex offsets are unchanged (unifi-perf-tweaks docs/compat-6.0.5.md).
@@ -156,7 +156,9 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 $"echo '---SFP_PORT6_MODULE_FILE---'; test -f {SfpModuleDir}/force_uniphy2_sgmiiplus.ko && echo 'exists' || echo 'missing'; " +
                 "echo '---SFP_PORT6_MODULE_LOADED---'; lsmod | grep -q force_uniphy2_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_PORT6_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy2_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
-                "echo '---SFP_PORT6_SERDES_REG---'; busybox devmem 0x07A20218 32 2>/dev/null || echo 'N/A'; " +
+                // Raw MMIO reads can hard-reset hardware without this SerDes, so each runs only under
+                // the same condition the parser reads its value under (boot script or module present).
+                $"echo '---SFP_PORT6_SERDES_REG---'; if [ -f {OnBootDir}/19-sfp-sgmiiplus-eth5.sh ] || lsmod | grep -q force_uniphy2_sgmiiplus; then busybox devmem 0x07A20218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_PORT6_ETH5_SPEED---'; ethtool eth5 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
                 "echo '---SFP_PORT6_LOG---'; tail -3 /var/log/sfp-sgmiiplus-eth5.log 2>/dev/null || echo 'no log'; " +
                 // SFP SGMII+ Port 7 (eth6 / uniphy1)
@@ -165,7 +167,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---SFP_QCA_SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_MODULE_LOADED---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
-                "echo '---SFP_SERDES_REG---'; busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; " +
+                $"echo '---SFP_SERDES_REG---'; if [ -f {OnBootDir}/20-sfp-sgmiiplus.sh ] || lsmod | grep -q force_uniphy1_sgmiiplus; then busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_ETH6_SPEED---'; ethtool eth6 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
                 "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'";
 

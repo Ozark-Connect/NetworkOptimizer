@@ -60,8 +60,9 @@ public class AlertRule
     public string? TargetDevices { get; set; }
 
     /// <summary>
-    /// Percent degradation threshold for threshold-based rules (e.g., speed regression, score drop).
-    /// The event's Context["drop_percent"] must meet or exceed this value for the rule to fire.
+    /// Percent threshold for threshold-based rules (e.g., speed regression, score drop, gateway CPU).
+    /// The event's Context["drop_percent"] or Context["value_percent"] must meet or exceed this
+    /// value for the rule to fire. Gateway CPU and memory events are also raised at this value.
     /// Null means no threshold check (rule fires on any matching event).
     /// </summary>
     public double? ThresholdPercent { get; set; }

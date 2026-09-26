@@ -80,6 +80,20 @@ public interface IGatewaySshService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Write a text file to the gateway over SFTP, with line endings normalized to LF.
+    /// For content too large for an exec request: SSH.NET caps a packet at 68,536 bytes, so an
+    /// "echo '&lt;base64&gt;' | base64 -d" write fails once a script grows past about 50 KB.
+    /// </summary>
+    /// <param name="content">File content</param>
+    /// <param name="remotePath">Destination path on the gateway; an existing file is overwritten</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Success, and the error when it failed</returns>
+    Task<(bool success, string? error)> UploadTextFileAsync(
+        string content,
+        string remotePath,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ready-to-use connection info for direct SSH.NET operations (SFTP uploads),
     /// with decrypted credentials and any agent-tunnel routing applied.
     /// Null when gateway SSH is disabled or not configured.

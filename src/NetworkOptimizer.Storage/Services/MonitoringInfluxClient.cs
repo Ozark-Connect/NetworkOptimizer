@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
@@ -1647,6 +1647,99 @@ from(bucket: ""{_longtermBucket}"")
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Records that a device health check ran its remedy. Long-term, like reboots: the mark on the
+    /// chart is the whole point and a 30d view has to reach it.
+    /// </summary>
+    /// <param name="deviceMac">Device MAC.</param>
+    /// <param name="deviceType">Device type, matching the <c>device_health</c> tag values.</param>
+    /// <param name="checkName">Display name of the check.</param>
+    /// <param name="fieldName">The check's field name, so the mark lands on its own chart.</param>
+    /// <param name="remedy">Remedy that ran (RestartService, KillProcess, RebootDevice).</param>
+    /// <param name="severity">warning when it ran, critical when it failed to run.</param>
+    /// <param name="detail">One sentence for the tooltip.</param>
+    /// <param name="value">The reading that tripped the check.</param>
+    /// <param name="at">When the remedy ran.</param>
+    public Task WriteHealthCheckEventAsync(
+        string deviceMac,
+        string deviceType,
+        string checkName,
+        string fieldName,
+        string remedy,
+        string severity,
+        string detail,
+        double value,
+        DateTime at)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("events")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("event_type", HealthCheckEventType)
+            .Tag("severity", severity)
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(at.ToUniversalTime(), WritePrecision.Ns)
+            .Field("detail", detail)
+            .Field("check_name", checkName)
+            .Field("check_field", fieldName)
+            .Field("remedy", remedy)
+            .Field("value", value);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A stored health check remedy record.</summary>
+    public class HealthCheckEventPoint
+    {
+        public string DeviceMac { get; init; } = "";
+        public string CheckName { get; init; } = "";
+        public string CheckField { get; init; } = "";
+        public string Remedy { get; init; } = "";
+        public string Severity { get; init; } = "";
+        public string? Detail { get; init; }
+        public double? Value { get; init; }
+        public DateTime At { get; init; }
+    }
+
+    /// <summary>Every health check remedy that ran in the window, across all devices.</summary>
+    public async Task<IReadOnlyList<HealthCheckEventPoint>> QueryHealthCheckEventsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<HealthCheckEventPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{HealthCheckEventType}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<HealthCheckEventPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var deviceMac = record.GetValueByKey("device_mac") as string ?? "";
+            if (deviceMac.Length == 0) continue;
+            results.Add(new HealthCheckEventPoint
+            {
+                DeviceMac = deviceMac,
+                CheckName = record.GetValueByKey("check_name") as string ?? "",
+                CheckField = record.GetValueByKey("check_field") as string ?? "",
+                Remedy = record.GetValueByKey("remedy") as string ?? "",
+                Severity = record.GetValueByKey("severity") as string ?? "info",
+                Detail = record.GetValueByKey("detail") as string,
+                Value = AsDoubleOrNull(record.GetValueByKey("value")),
+                At = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        results.Sort((a, b) => a.At.CompareTo(b.At));
+        return results;
+    }
+
+    /// <summary>Event type tag for health check remedy records on the <c>events</c> measurement.</summary>
+    public const string HealthCheckEventType = "health_check";
 
     /// <summary>
     /// Event type tag used for device reboot records on the <c>events</c> measurement.
@@ -3518,10 +3611,11 @@ union(tables: [means, chan])
     /// 2: per-source differencing for wireless counters and zero-read rejection for ports.
     /// 3: the sample after a 32-bit read is dropped by the hc_counters flip, not by a speed cap.
     /// 4: Wi-Fi counters zero negative deltas instead of skipping them, so a roam-back counts.
+    /// 5: Wi-Fi rows tag client_mac; before it, clients sharing a radio overwrote one another's hour.
     /// The port fall-detection rework deliberately shipped without a bump: re-rolling every
     /// site's history was not worth the load for LAN-only undercounts.
     /// </summary>
-    public const int RollupVersion = 4;
+    public const int RollupVersion = 5;
 
     // A rollup row a reader may count: built at the current version. An hour rolled the old way
     // reads as empty until the rollup service rebuilds it (newest first, within minutes for a day),
@@ -3670,7 +3764,8 @@ union(tables: [means, chan])
     // per client per hour to the longterm bucket, as added fields on the existing measurements:
     // wifi_client carries tx_bytes_1h / rx_bytes_1h (same frame as tx_bytes: AP to client),
     // interface_counters carries bytes_in_1h / bytes_out_1h. Written at the hour start, so a re-run
-    // overwrites rather than double counts.
+    // overwrites rather than double counts. A Wi-Fi row tags client_mac (a field in the raw rows):
+    // every client on one radio shares that timestamp, so without the tag they are one point.
 
     /// <summary>Rolls one hour of every wireless client's counters into the longterm bucket.</summary>
     public async Task<int> RollupWifiClientUsageHourAsync(DateTime hourStart, CancellationToken ct = default)
@@ -3697,7 +3792,7 @@ union(tables: [means, chan])
             var point = PointData.Measurement("wifi_client")
                 .Tag("device_mac", total.DeviceMac ?? "")
                 .Tag("band", total.Band ?? "")
-                .Field("client_mac", mac)
+                .Tag("client_mac", mac)
                 .Field("tx_bytes_1h", total.ToClientBytes)
                 .Field("rx_bytes_1h", total.FromClientBytes)
                 .Field("rollup_v", (long)RollupVersion)
@@ -3827,6 +3922,26 @@ union(tables: [means, chan])
         return null;
     }
 
+    /// <summary>
+    /// Whether the current-version rollup reaches back to <paramref name="at"/>: a row within the
+    /// hour after it. The rollup fills contiguously newest first, so this answers what
+    /// <see cref="QueryFirstUsageRollupHourAsync"/> would without scanning its whole history.
+    /// </summary>
+    public async Task<bool> UsageRollupReachesAsync(DateTime at, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return false;
+        var flux = $@"from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(at)}, stop: {ToFluxInstant(at.AddHours(1).AddSeconds(1))})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
+  {RollupHourFilter(RollupVersion)}
+  |> keep(columns: [""_time""])
+  |> group()
+  |> limit(n: 1)";
+        await foreach (var _ in QueryFluxAsync(flux, ct))
+            return true;
+        return false;
+    }
+
     /// <summary>A wireless client's rolled-up bytes per hour from the longterm bucket.</summary>
     public async Task<IReadOnlyList<ByteUsagePoint>> QueryWifiClientUsageRollupAsync(
         string clientMac, DateTime from, DateTime to, CancellationToken ct = default)
@@ -3835,10 +3950,10 @@ union(tables: [means, chan])
         var mac = NormalizeMac(clientMac);
         var flux = $@"from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""wifi_client"")
-  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes_1h and {RollupRowCurrent})
+  |> filter(fn: (r) => exists r.tx_bytes_1h and {RollupRowCurrent})
   |> group(columns: [""_time""])
   |> reduce(fn: (r, accumulator) => ({{to: accumulator.to + r.tx_bytes_1h, from: accumulator.from + r.rx_bytes_1h}}), identity: {{to: 0, from: 0}})
   |> group()

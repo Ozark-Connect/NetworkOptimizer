@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
+using NetworkOptimizer.Alerts;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Interfaces;
+using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -9,7 +12,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// alert events on state transitions. CPU uses a sliding window of 5 samples
 /// (~2.5-5 minutes at typical poll intervals) to avoid alerting on transient
 /// spikes. Memory is evaluated per-sample since sustained high memory is
-/// immediately actionable.
+/// immediately actionable. Both thresholds come from the Threshold % on the site's
+/// Gateway: High CPU / Gateway: High Memory rules.
 ///
 /// Temperature is evaluated for gateways and switches against a user-configurable
 /// high threshold (per device type, falling back to <see cref="DefaultDeviceTempHighC"/>).
@@ -26,10 +30,15 @@ public class DeviceHealthAlertEvaluator
     internal const string HighTemperatureEventType = "device.high_temperature";
 
     private const int CpuWindowSize = 5;
-    private const double CpuHighThresholdPercent = 70.0;
-    private const double CpuClearThresholdPercent = 55.0;
-    private const double MemoryHighThresholdPercent = 95.0;
-    private const double MemoryClearThresholdPercent = 85.0;
+
+    // Defaults for when the site has no enabled rule with a Threshold % for the event type.
+    // The rule's threshold wins otherwise; the clear level sits a fixed margin below it.
+    private const double DefaultCpuHighThresholdPercent = 70.0;
+    private const double CpuClearMarginPercent = 15.0;
+    private const double DefaultMemoryHighThresholdPercent = 95.0;
+    private const double MemoryClearMarginPercent = 10.0;
+
+    private static readonly TimeSpan RuleCacheDuration = TimeSpan.FromSeconds(60);
 
     /// <summary>Default high-temperature alert threshold (Celsius) when the user hasn't set one.</summary>
     public const double DefaultDeviceTempHighC = 85.0;
@@ -42,17 +51,25 @@ public class DeviceHealthAlertEvaluator
     private readonly ILogger<DeviceHealthAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, DeviceHealthState> _states = new();
     private readonly string _siteSuffix;
+    private readonly string _siteSlug;
+    private readonly IServiceScopeFactory? _scopeFactory;
+    private RuleSnapshot? _ruleCache;
 
     /// <param name="siteSlug">
     /// Site this instance evaluates for (one instance per site, owned by
     /// <see cref="MonitoringAlertRegistry"/>). Non-default sites get their slug
     /// appended to alert titles; the default site reads exactly as before.
     /// </param>
+    /// <param name="scopeFactory">
+    /// Reads the site's alert rules for the CPU and memory thresholds. Null uses the defaults.
+    /// </param>
     public DeviceHealthAlertEvaluator(IAlertEventBus eventBus, ILogger<DeviceHealthAlertEvaluator> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug, IServiceScopeFactory? scopeFactory = null)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSlug = siteSlug;
+        _scopeFactory = scopeFactory;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
             ? "" : $" (site {siteSlug})";
     }
@@ -81,8 +98,9 @@ public class DeviceHealthAlertEvaluator
             if (state.CpuWindow.Count >= CpuWindowSize)
             {
                 var avg = state.CpuWindow.Average();
+                var cpuThreshold = await GetThresholdAsync(HighCpuEventType, DefaultCpuHighThresholdPercent, ct);
 
-                if (!state.CpuBreached && avg >= CpuHighThresholdPercent)
+                if (!state.CpuBreached && avg >= cpuThreshold)
                 {
                     state.CpuBreached = true;
                     _logger.LogDebug("Gateway CPU threshold breached: {DeviceMac} avg={Avg:0.#}%", deviceMac, avg);
@@ -93,22 +111,23 @@ public class DeviceHealthAlertEvaluator
                         Source = "device",
                         Severity = AlertSeverity.Warning,
                         Title = $"{label} CPU usage high{_siteSuffix}",
-                        Message = $"Gateway {label} CPU averaged {avg:0.#}% over the last {CpuWindowSize} samples, exceeding the {CpuHighThresholdPercent}% threshold.",
+                        Message = $"Gateway {label} CPU averaged {avg:0.#}% over the last {CpuWindowSize} samples, exceeding the {cpuThreshold:0.#}% threshold.",
                         DeviceId = deviceMac,
                         DeviceName = deviceName,
                         MetricValue = avg,
-                        ThresholdValue = CpuHighThresholdPercent,
+                        ThresholdValue = cpuThreshold,
                         SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs()),
                         Tags = ["device", "gateway", "cpu"],
                         Context = new Dictionary<string, string>
                         {
                             ["device_mac"] = deviceMac,
                             ["device_type"] = deviceType,
-                            ["metric"] = "cpu_percent"
+                            ["metric"] = "cpu_percent",
+                            [AlertRuleEvaluator.ValuePercentContextKey] = avg.ToString("0.###")
                         }
                     }, ct);
                 }
-                else if (state.CpuBreached && avg <= CpuClearThresholdPercent)
+                else if (state.CpuBreached && avg <= cpuThreshold - CpuClearMarginPercent)
                 {
                     state.CpuBreached = false;
                 }
@@ -117,7 +136,9 @@ public class DeviceHealthAlertEvaluator
 
         if (isGateway && memoryUsedPercent.HasValue)
         {
-            if (!state.MemoryBreached && memoryUsedPercent.Value >= MemoryHighThresholdPercent)
+            var memoryThreshold = await GetThresholdAsync(HighMemoryEventType, DefaultMemoryHighThresholdPercent, ct);
+
+            if (!state.MemoryBreached && memoryUsedPercent.Value >= memoryThreshold)
             {
                 state.MemoryBreached = true;
                 _logger.LogDebug("Gateway memory threshold breached: {DeviceMac} mem={Mem:0.#}%", deviceMac, memoryUsedPercent.Value);
@@ -128,22 +149,23 @@ public class DeviceHealthAlertEvaluator
                     Source = "device",
                     Severity = AlertSeverity.Warning,
                     Title = $"{label} memory usage high{_siteSuffix}",
-                    Message = $"Gateway {label} memory usage at {memoryUsedPercent.Value:0.#}%, exceeding the {MemoryHighThresholdPercent}% threshold.",
+                    Message = $"Gateway {label} memory usage at {memoryUsedPercent.Value:0.#}%, exceeding the {memoryThreshold:0.#}% threshold.",
                     DeviceId = deviceMac,
                     DeviceName = deviceName,
                     MetricValue = memoryUsedPercent.Value,
-                    ThresholdValue = MemoryHighThresholdPercent,
+                    ThresholdValue = memoryThreshold,
                     SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs()),
                     Tags = ["device", "gateway", "memory"],
                     Context = new Dictionary<string, string>
                     {
                         ["device_mac"] = deviceMac,
                         ["device_type"] = deviceType,
-                        ["metric"] = "memory_used_percent"
+                        ["metric"] = "memory_used_percent",
+                        [AlertRuleEvaluator.ValuePercentContextKey] = memoryUsedPercent.Value.ToString("0.###")
                     }
                 }, ct);
             }
-            else if (state.MemoryBreached && memoryUsedPercent.Value <= MemoryClearThresholdPercent)
+            else if (state.MemoryBreached && memoryUsedPercent.Value <= memoryThreshold - MemoryClearMarginPercent)
             {
                 state.MemoryBreached = false;
             }
@@ -187,6 +209,49 @@ public class DeviceHealthAlertEvaluator
             }
         }
     }
+
+    /// <summary>
+    /// The lowest Threshold % among the site's enabled rules for the event type, so every such
+    /// rule gets an event it can check; each rule then filters on the reading in the event context.
+    /// </summary>
+    private async ValueTask<double> GetThresholdAsync(string eventType, double defaultPercent, CancellationToken ct)
+    {
+        var thresholds = (await GetRulesAsync(ct))
+            .Where(r => r.IsEnabled
+                && r.ThresholdPercent is > 0
+                && AlertRuleEvaluator.MatchesEventType(eventType, r.EventTypePattern)
+                && (string.IsNullOrEmpty(r.Source) || string.Equals(r.Source, "device", StringComparison.OrdinalIgnoreCase)))
+            .Select(r => r.ThresholdPercent!.Value)
+            .ToList();
+        return thresholds.Count > 0 ? thresholds.Min() : defaultPercent;
+    }
+
+    private async ValueTask<IReadOnlyList<AlertRule>> GetRulesAsync(CancellationToken ct)
+    {
+        if (_scopeFactory == null)
+            return [];
+
+        var cached = _ruleCache;
+        if (cached != null && DateTime.UtcNow - cached.CachedAt < RuleCacheDuration)
+            return cached.Rules;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<IAlertSiteScope>().UseSite(_siteSlug);
+            var rules = await scope.ServiceProvider.GetRequiredService<IAlertRepository>().GetEnabledRulesAsync(ct);
+            _ruleCache = new RuleSnapshot(rules, DateTime.UtcNow);
+            return rules;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to read alert rules for gateway health thresholds; using {Source}",
+                cached != null ? "the last read" : "defaults");
+            return cached?.Rules ?? [];
+        }
+    }
+
+    private sealed record RuleSnapshot(IReadOnlyList<AlertRule> Rules, DateTime CachedAt);
 
     private class DeviceHealthState
     {

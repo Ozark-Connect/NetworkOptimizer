@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -33,6 +34,28 @@ public class GatewaySshService : IGatewaySshService
     /// </summary>
     public const string AwaitingAgentMessage =
         "Waiting for the on-site agent to connect. This site's gateway is reached through its agent, and will connect automatically once the agent is online.";
+
+    /// <summary>
+    /// Shown when the Gateway SSH host answers as a UniFi CloudKey. Gateway probes read hardware
+    /// registers that only gateways have, and those reads can reset a CloudKey.
+    /// </summary>
+    public const string CloudKeyMessage =
+        "This host is a UniFi CloudKey, not a gateway. Set Gateway Host to your UniFi gateway's IP address.";
+
+    // The marker the test checks for, then the firmware image name and the device-tree model. Ends in
+    // `true`: a gateway missing either file must still pass, and the test fails on a non-zero exit.
+    private const string VerifyCommand =
+        "echo Connection_OK; cat /usr/lib/version 2>/dev/null; echo; tr -d '\\000' < /proc/device-tree/model 2>/dev/null; true";
+
+    /// <summary>
+    /// True when <see cref="VerifyCommand"/> output identifies a CloudKey: a firmware image named
+    /// UCK* (UCKP.apq8053..., UCKG2...) or a device-tree model naming a CloudKey.
+    /// </summary>
+    public static bool IsCloudKey(string output) =>
+        output.Split('\n').Select(l => l.Trim()).Any(l =>
+            l.StartsWith("UCK", StringComparison.OrdinalIgnoreCase)
+            || l.Contains("CloudKey", StringComparison.OrdinalIgnoreCase)
+            || l.Contains("Cloud Key", StringComparison.OrdinalIgnoreCase));
 
     public GatewaySshService(
         ILogger<GatewaySshService> logger,
@@ -211,9 +234,12 @@ public class GatewaySshService : IGatewaySshService
             if (success)
             {
                 // Verify with a simple command
-                var result = await _sshClient.ExecuteCommandAsync(connection, "echo Connection_OK");
+                var result = await _sshClient.ExecuteCommandAsync(connection, VerifyCommand);
                 if (result.Success && result.Output.Contains("Connection_OK"))
                 {
+                    if (IsCloudKey(result.Output))
+                        return (false, CloudKeyMessage);
+
                     // Update last tested
                     settings.LastTestedAt = DateTime.UtcNow;
                     settings.LastTestResult = "Success";
@@ -290,9 +316,12 @@ public class GatewaySshService : IGatewaySshService
             if (success)
             {
                 // Verify with a simple command
-                var result = await _sshClient.ExecuteCommandAsync(connection, "echo Connection_OK");
+                var result = await _sshClient.ExecuteCommandAsync(connection, VerifyCommand);
                 if (result.Success && result.Output.Contains("Connection_OK"))
                 {
+                    if (IsCloudKey(result.Output))
+                        return (false, CloudKeyMessage);
+
                     return (true, "SSH connection successful");
                 }
                 return (false, result.Error ?? "Connection test command failed");
@@ -368,6 +397,39 @@ public class GatewaySshService : IGatewaySshService
 
     private static SshCommandResult StreamingPreconditionFailure(string message) =>
         new() { Success = false, ExitCode = -1, Error = message };
+
+    /// <inheritdoc />
+    public async Task<(bool success, string? error)> UploadTextFileAsync(
+        string content,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+            return (false, "Gateway SSH access is disabled");
+
+        if (string.IsNullOrEmpty(settings.Host))
+            return (false, "Gateway host not configured");
+
+        if (!settings.HasCredentials)
+            return (false, "SSH credentials not configured");
+
+        if (await IsAwaitingAgentAsync())
+            return (false, AwaitingAgentMessage);
+
+        try
+        {
+            var connection = await CreateConnectionInfoAsync(settings);
+            await _sshClient.UploadFileAsync(connection, GatewayFile.ToUnixText(content), remotePath, cancellationToken);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SFTP upload of {Path} to gateway {Host} failed", remotePath, settings.Host);
+            return (false, ex.Message);
+        }
+    }
 
     /// <inheritdoc />
     public async Task<SshConnectionInfo?> GetConnectionInfoAsync()

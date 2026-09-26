@@ -191,27 +191,25 @@ public class WanContextRoutingTests
     }
 
     [Fact]
-    public void Snmp_UnsteeredAgent_Polls()
+    public void Snmp_TheCollectorPolls()
     {
-        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: false, agentIsCollector: false)
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentId: PrimaryAgent, collectorAgentId: PrimaryAgent)
             .Should().BeTrue();
     }
 
     [Fact]
-    public void Snmp_SteeredAgent_StandsDownWhenAnotherCollects()
+    public void Snmp_AnOrdinaryAgentThatIsNotTheCollector_StandsDown()
     {
-        // Unchanged: the site has a collector, so a context agent polling too would double every
-        // sample.
-        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: true, agentIsCollector: false)
+        // Two unsteered agents on one site used to both poll, doubling every device's samples.
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentId: GatewayAgent, collectorAgentId: PrimaryAgent)
             .Should().BeFalse();
     }
 
     [Fact]
-    public void Snmp_SteeredCollector_PollsRatherThanLeavingTheSiteDark()
+    public void Snmp_NoRegisteredCollectorYet_PollsRatherThanLeavingTheSiteDark()
     {
-        // One agent per WAN: every agent is steered, so the collector is necessarily one of them.
-        // Standing it down too left the site with no poller at all.
-        AgentProbeResultSink.ShouldPushSnmpConfig(agentIsSteeredToWan: true, agentIsCollector: true)
+        // An empty registry: polling beats leaving the site with no poller at all.
+        AgentProbeResultSink.ShouldPushSnmpConfig(agentId: PrimaryAgent, collectorAgentId: null)
             .Should().BeTrue();
     }
 
@@ -437,5 +435,37 @@ public class WanContextRoutingTests
         AgentProbeResultSink.SelectCollectorAgentId(
             new[] { GatewayAgent }, Array.Empty<WanContext>(),
             primaryWanKey: "wan", fallbackAgentId: 0).Should().Be(GatewayAgent);
+    }
+
+    [Fact]
+    public void AnAgentOffTheGatewayCollectsAheadOfALowerIdGatewayAgent()
+    {
+        const int onGateway = 1, offGateway = 5;
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { onGateway, offGateway }, Array.Empty<WanContext>(),
+            primaryWanKey: "wan", fallbackAgentId: 0,
+            onGatewayAgentIds: new[] { onGateway }).Should().Be(offGateway);
+    }
+
+    [Fact]
+    public void AGatewayAgentStillCollectsWhenItIsTheOnlyEligibleOne()
+    {
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { GatewayAgent }, Array.Empty<WanContext>(),
+            primaryWanKey: "wan", fallbackAgentId: 0,
+            onGatewayAgentIds: new[] { GatewayAgent }).Should().Be(GatewayAgent);
+    }
+
+    [Fact]
+    public void TheGatewayPreferenceNeverPicksASteeredAgent()
+    {
+        // The only box off the gateway sits behind a secondary WAN, so the gateway agent collects.
+        var contexts = new[] { new WanContext { AgentId = ContextAgent, WanInterface = "wan2" } };
+
+        AgentProbeResultSink.SelectCollectorAgentId(
+            new[] { ContextAgent, GatewayAgent }, contexts,
+            primaryWanKey: "wan", fallbackAgentId: 0,
+            onGatewayAgentIds: new[] { GatewayAgent }).Should().Be(GatewayAgent);
     }
 }

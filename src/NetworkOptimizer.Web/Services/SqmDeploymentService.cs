@@ -25,9 +25,8 @@ public class SqmDeploymentService : ISqmDeploymentService
     private const string OnBootDir = "/data/on_boot.d";
     private const string SqmDir = "/data/sqm";
 
-    // The boot script installs its dependencies inline on a first deploy: it adds the
-    // Ookla packagecloud repo (which runs its own apt-get update and fetches a GPG key),
-    // then apt-get installs speedtest, bc and jq. On a cold apt cache or a slow WAN that
+    // The boot script installs its dependencies inline on a first deploy: it downloads
+    // the verified Ookla binary, then apt-get installs jq. On a cold apt cache or a slow WAN that
     // runs well past the 30 second default, so give it room rather than tearing down a
     // deployment that is still working. Re-deploys skip the whole block and finish fast.
     // Five minutes is comfortably clear of a slow first install without leaving the page
@@ -123,6 +122,27 @@ public class SqmDeploymentService : ISqmDeploymentService
     private static string GetSection(Dictionary<string, string> sections, string key)
         => sections.TryGetValue(key, out var value) ? value : "";
 
+    internal static string BuildDeploymentStatusCommand()
+    {
+        return
+            "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
+            "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
+            $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
+            $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
+            $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
+            "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
+            "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
+            $"echo '---SPEEDTEST_CLI---'; SPEEDTEST_SHA256=$(case \"$(uname -m)\" in aarch64|arm64) echo '{ScriptGenerator.ManagedSpeedtestAarch64BinarySha256}' ;; armv7l|armv7) echo '{ScriptGenerator.ManagedSpeedtestArmhfBinarySha256}' ;; x86_64|amd64) echo '{ScriptGenerator.ManagedSpeedtestX86_64BinarySha256}' ;; *) echo 'unsupported' ;; esac); test \"$SPEEDTEST_SHA256\" != 'unsupported' && command -v sha256sum >/dev/null 2>&1 && test -f '{ScriptGenerator.ManagedSpeedtestPath}' && test ! -L '{ScriptGenerator.ManagedSpeedtestPath}' && test -x '{ScriptGenerator.ManagedSpeedtestPath}' && printf '%s  %s\\n' \"$SPEEDTEST_SHA256\" '{ScriptGenerator.ManagedSpeedtestPath}' | sha256sum -c - >/dev/null 2>&1 && '{ScriptGenerator.ManagedSpeedtestPath}' --version 2>/dev/null | head -n 1 | grep -Fq 'Speedtest by Ookla {ScriptGenerator.ManagedSpeedtestCliVersion} ({ScriptGenerator.ManagedSpeedtestBuildId})' && echo 'installed' || echo 'missing'; " +
+            "echo '---BC_CHECK---'; command -v bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+            "echo '---JQ_CHECK---'; command -v jq >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+            // Scripts from before the awk change compute rates with bc, which every upgrade
+            // removes. A redeploy replaces them.
+            $"echo '---SCRIPTS_ON_BC---'; grep -l '| bc' {SqmDir}/*.sh 2>/dev/null | wc -l; " +
+            // Ping scripts from before the probe lock existed keep adjusting during a congestion
+            // learning sample; a redeploy installs the guard.
+            $"echo '---PING_GUARD_MISSING---'; for f in {SqmDir}/*-ping.sh; do [ -f \"$f\" ] && ! grep -q PROBE_LOCK \"$f\" && echo \"$f\"; done | wc -l";
+    }
+
     /// <summary>
     /// Check if SQM scripts are already deployed
     /// </summary>
@@ -136,19 +156,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             // TODO: use IUdmBootService.IsInstalledAsync() for the udm-boot check instead of
             // this inline test (shared gateway boot infrastructure -
             // NetworkOptimizer.Web.Services.Ssh.UdmBootService).
-            var combinedCommand =
-                "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
-                "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
-                $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
-                $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
-                $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
-                "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
-                "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
-                "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
-                // Ping scripts from before the probe lock existed keep adjusting during a congestion
-                // learning sample; a redeploy installs the guard.
-                $"echo '---PING_GUARD_MISSING---'; for f in {SqmDir}/*-ping.sh; do [ -f \"$f\" ] && ! grep -q PROBE_LOCK \"$f\" && echo \"$f\"; done | wc -l";
+            var combinedCommand = BuildDeploymentStatusCommand();
 
             var result = await RunCommandAsync(combinedCommand);
             var sections = ParseDelimitedOutput(result.output);
@@ -183,10 +191,16 @@ public class SqmDeploymentService : ISqmDeploymentService
             status.SpeedtestCliInstalled = result.success && GetSection(sections, "SPEEDTEST_CLI").Contains("installed");
 
             status.BcInstalled = result.success && GetSection(sections, "BC_CHECK").Contains("installed");
+            status.JqInstalled = result.success && GetSection(sections, "JQ_CHECK").Contains("installed");
 
             if (int.TryParse(GetSection(sections, "PING_GUARD_MISSING").Trim(), out int unguarded))
             {
                 status.PingScriptsWithoutProbeGuard = unguarded;
+            }
+
+            if (int.TryParse(GetSection(sections, "SCRIPTS_ON_BC").Trim(), out int onBc))
+            {
+                status.ScriptsUsingBc = onBc;
             }
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
@@ -420,10 +434,10 @@ public class SqmDeploymentService : ISqmDeploymentService
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
-                var success = await DeployScriptAsync(filename, content);
-                if (!success)
+                var (deployed, deployError) = await DeployScriptAsync(filename, content);
+                if (!deployed)
                 {
-                    throw new Exception($"Failed to deploy {filename}");
+                    throw new Exception($"Failed to deploy {filename}: {deployError}");
                 }
             }
 
@@ -495,20 +509,18 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// <summary>
     /// Deploy a single script to the gateway
     /// </summary>
-    private async Task<bool> DeployScriptAsync(string filename, string content)
+    private async Task<(bool success, string? error)> DeployScriptAsync(string filename, string content)
     {
         // All SQM scripts now go to on_boot.d (self-contained boot scripts)
         var targetPath = $"{OnBootDir}/{filename}";
 
-        // Base64 to avoid shell quoting issues; GatewayFile normalizes to LF on the way.
-        var base64Content = GatewayFile.ToBase64(content);
-        var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
-        var writeResult = await RunCommandAsync(writeCmd);
+        // SFTP, not an echo | base64 -d exec: a boot script with dynamic upload outgrows the SSH exec packet.
+        var (written, error) = await _gatewaySsh.UploadTextFileAsync(content, targetPath);
 
-        if (!writeResult.success)
+        if (!written)
         {
-            _logger.LogError("Failed to write {File}: {Error}", filename, writeResult.output);
-            return false;
+            _logger.LogError("Failed to write {File}: {Error}", filename, error);
+            return (false, error);
         }
 
         // Make executable
@@ -519,7 +531,7 @@ public class SqmDeploymentService : ISqmDeploymentService
         }
 
         _logger.LogDebug("Deployed {File} to {Path}", filename, targetPath);
-        return true;
+        return (true, null);
     }
 
     /// <summary>
@@ -555,10 +567,10 @@ public class SqmDeploymentService : ISqmDeploymentService
             var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
-            if (!success)
+            var (deployed, deployError) = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
+            if (!deployed)
             {
-                return (false, null);
+                return (false, $"Failed to deploy 20-sqm-monitor.sh: {deployError}");
             }
 
             // Run the script to set up SQM monitor
@@ -1005,7 +1017,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             {
                 var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
                     line, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
-                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted))
+                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted)
+                    && adjusted > 0)
                 {
                     status.LastSpeedtestAdjusted = adjusted;
                     if (status.LastSpeedtest == null)
@@ -1388,6 +1401,7 @@ public class SqmDeploymentStatus
     public int CronJobsConfigured { get; set; }
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
+    public bool JqInstalled { get; set; }
     public string? Error { get; set; }
 
     /// <summary>
@@ -1395,6 +1409,9 @@ public class SqmDeploymentStatus
     /// learning sample. Zero once Adaptive SQM has been redeployed from a build that has the guard.
     /// </summary>
     public int PingScriptsWithoutProbeGuard { get; set; }
+
+    /// <summary>Deployed scripts still calculating rates with bc, which every upgrade removes.</summary>
+    public int ScriptsUsingBc { get; set; }
 
     /// <summary>
     /// True when the gateway is unreachable only because this site's on-site agent

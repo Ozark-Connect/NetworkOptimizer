@@ -10,6 +10,22 @@ namespace NetworkOptimizer.Sqm;
 /// </summary>
 public class ScriptGenerator
 {
+    public const string ManagedSpeedtestPath = "/data/network-optimizer/bin/speedtest";
+    public const string ManagedSpeedtestArchiveRelease = "1.2.0";
+    public const string ManagedSpeedtestCliVersion = "1.2.0.84";
+    public const string ManagedSpeedtestBuildId = "ea6b6773cf";
+    // Reviewed Ookla install.speedtest.net archives and Packagecloud Debian bookworm packages.
+    // Both distributions contain the same executable for each architecture.
+    public const string ManagedSpeedtestAarch64ArchiveSha256 = "3953d231da3783e2bf8904b6dd72767c5c6e533e163d3742fd0437affa431bd3";
+    public const string ManagedSpeedtestAarch64DebSha256 = "98e7de9db3bf181d08bc67e647bcfc71349c8014e387289c08e54e5c55d82f37";
+    public const string ManagedSpeedtestAarch64BinarySha256 = "d99fa13293f658b53eaa79fe81f4b210db39fdfc1e9698f33da3f234a6008df7";
+    public const string ManagedSpeedtestArmhfArchiveSha256 = "e45fcdebbd8a185553535533dd032d6b10bc8c64eee4139b1147b9c09835d08d";
+    public const string ManagedSpeedtestArmhfDebSha256 = "f00c46b4945e3e1fea08e4858db78c9d8f3e35a8c9daa4c033df7eb03931294d";
+    public const string ManagedSpeedtestArmhfBinarySha256 = "66ad57568664e6f8580e14ad67316a57038fd22b30548bef98531df4ebcc8956";
+    public const string ManagedSpeedtestX86_64ArchiveSha256 = "5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7";
+    public const string ManagedSpeedtestX86_64DebSha256 = "35e084567a6388631fb10cf01e5e0d6b57a67d34ede2b72ba111b3d9164c8b94";
+    public const string ManagedSpeedtestX86_64BinarySha256 = "31f1124c5ab8acdae6b9fe1741e704df420f9f2e7d429679fabe62075453c051";
+
     private readonly SqmConfiguration _config;
     private readonly string _name; // Normalized name for files (e.g., "wan1", "wan2")
     private readonly int _initialDelaySeconds; // Delay before first speedtest (for staggering multiple WANs)
@@ -57,7 +73,7 @@ public class ScriptGenerator
 
     /// <summary>
     /// Generate the self-contained boot script that:
-    /// 1. Installs dependencies (speedtest, bc)
+    /// 1. Installs dependencies (speedtest, jq)
     /// 2. Creates /data/sqm/ directory
     /// 3. Writes speedtest and ping scripts via heredoc
     /// 4. Sets up IFB device and TC classes
@@ -81,6 +97,15 @@ public class ScriptGenerator
         sb.AppendLine("PING_SCRIPT=\"$SQM_DIR/${SQM_NAME}-ping.sh\"");
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
+        sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
+        sb.AppendLine($"SPEEDTEST_RELEASE=\"{ManagedSpeedtestArchiveRelease}\"");
+        sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");
+        sb.AppendLine($"SPEEDTEST_BUILD_ID=\"{ManagedSpeedtestBuildId}\"");
+        sb.AppendLine();
+        sb.AppendLine("log_speedtest_install_error() {");
+        sb.AppendLine("    echo \"[$(date)] ERROR: $*\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    echo \"ERROR: $*\" >&2");
+        sb.AppendLine("}");
         sb.AppendLine();
         // Rotate log on boot/deploy: keep last 2000 lines (~1.5 days at 1 min ping interval)
         sb.AppendLine("# Rotate log to prevent unbounded growth");
@@ -96,28 +121,124 @@ public class ScriptGenerator
         sb.AppendLine("# Section 1: Install Dependencies");
         sb.AppendLine("# ============================================");
         sb.AppendLine();
-        sb.AppendLine("# Install official Ookla speedtest if not present");
-        sb.AppendLine("if ! which speedtest > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"Installing Ookla speedtest...\" >> $LOG_FILE");
-        sb.AppendLine("    # Remove UniFi's speedtest if present");
-        sb.AppendLine("    apt-get remove -y speedtest 2>/dev/null || true");
-        sb.AppendLine("    # Install official Speedtest by Ookla");
-        sb.AppendLine("    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash");
-        sb.AppendLine("    apt-get install -y speedtest");
+        sb.AppendLine("case \"$(uname -m)\" in");
+        sb.AppendLine("    aarch64|arm64)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"aarch64\"");
+        sb.AppendLine($"        SPEEDTEST_ARCHIVE_SHA256=\"{ManagedSpeedtestAarch64ArchiveSha256}\"");
+        sb.AppendLine("        SPEEDTEST_DEB_ARCH=\"arm64\"");
+        sb.AppendLine($"        SPEEDTEST_DEB_SHA256=\"{ManagedSpeedtestAarch64DebSha256}\"");
+        sb.AppendLine($"        SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestAarch64BinarySha256}\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    armv7l|armv7)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"armhf\"");
+        sb.AppendLine($"        SPEEDTEST_ARCHIVE_SHA256=\"{ManagedSpeedtestArmhfArchiveSha256}\"");
+        sb.AppendLine("        SPEEDTEST_DEB_ARCH=\"armhf\"");
+        sb.AppendLine($"        SPEEDTEST_DEB_SHA256=\"{ManagedSpeedtestArmhfDebSha256}\"");
+        sb.AppendLine($"        SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestArmhfBinarySha256}\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    x86_64|amd64)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"x86_64\"");
+        sb.AppendLine($"        SPEEDTEST_ARCHIVE_SHA256=\"{ManagedSpeedtestX86_64ArchiveSha256}\"");
+        sb.AppendLine("        SPEEDTEST_DEB_ARCH=\"amd64\"");
+        sb.AppendLine($"        SPEEDTEST_DEB_SHA256=\"{ManagedSpeedtestX86_64DebSha256}\"");
+        sb.AppendLine($"        SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestX86_64BinarySha256}\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("    *)");
+        sb.AppendLine("        SPEEDTEST_ARCH=\"unsupported\"");
+        sb.AppendLine("        SPEEDTEST_ARCHIVE_SHA256=\"unsupported\"");
+        sb.AppendLine("        SPEEDTEST_BINARY_SHA256=\"unsupported\"");
+        sb.AppendLine("        ;;");
+        sb.AppendLine("esac");
+        sb.AppendLine("SPEEDTEST_URL=\"https://install.speedtest.net/app/cli/ookla-speedtest-${SPEEDTEST_RELEASE}-linux-${SPEEDTEST_ARCH}.tgz\"");
+        // Ookla publishes the same executable separately on Packagecloud; no repository setup or package install.
+        sb.AppendLine("SPEEDTEST_DEB_URL=\"https://packagecloud.io/ookla/speedtest-cli/packages/debian/bookworm/speedtest_${SPEEDTEST_CLI_VERSION}-1.${SPEEDTEST_BUILD_ID}_${SPEEDTEST_DEB_ARCH}.deb/download.deb\"");
+        sb.AppendLine();
+        sb.AppendLine("speedtest_is_valid() {");
+        sb.AppendLine("    [ \"$SPEEDTEST_BINARY_SHA256\" != \"unsupported\" ] && command -v sha256sum >/dev/null 2>&1 \\");
+        sb.AppendLine("        && [ -f \"$SPEEDTEST_BIN\" ] && [ ! -L \"$SPEEDTEST_BIN\" ] && [ -x \"$SPEEDTEST_BIN\" ] \\");
+        sb.AppendLine("        && printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_BIN\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("        && \"$SPEEDTEST_BIN\" --version 2>/dev/null | head -n 1 | grep -Fq \"Speedtest by Ookla ${SPEEDTEST_CLI_VERSION} (${SPEEDTEST_BUILD_ID})\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("install_managed_speedtest() (");
+        sb.AppendLine("    for required_command in curl tar sha256sum; do");
+        sb.AppendLine("        if ! command -v \"$required_command\" >/dev/null 2>&1; then");
+        sb.AppendLine("            log_speedtest_install_error \"required command not found: $required_command\"");
+        sb.AppendLine("            return 1");
+        sb.AppendLine("        fi");
+        sb.AppendLine("    done");
+        sb.AppendLine("    if [ \"$SPEEDTEST_ARCH\" = \"unsupported\" ]; then");
+        sb.AppendLine("        log_speedtest_install_error \"unsupported gateway architecture: $(uname -m)\"");
+        sb.AppendLine("        return 1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    SPEEDTEST_DIR=$(dirname \"$SPEEDTEST_BIN\")");
+        sb.AppendLine("    if ! mkdir -p \"$SPEEDTEST_DIR\"; then");
+        sb.AppendLine("        log_speedtest_install_error \"could not create speedtest directory\"");
+        sb.AppendLine("        return 1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    SPEEDTEST_STAGE=$(mktemp -d \"${SPEEDTEST_DIR}/.speedtest-install.XXXXXX\") || {");
+        sb.AppendLine("        log_speedtest_install_error \"could not create speedtest staging directory\"");
+        sb.AppendLine("        return 1");
+        sb.AppendLine("    }");
+        sb.AppendLine("    cleanup_speedtest_stage() {");
+        sb.AppendLine("        rm -rf \"$SPEEDTEST_STAGE\"");
+        sb.AppendLine("        rm -f \"${SPEEDTEST_BIN}.new\"");
+        sb.AppendLine("    }");
+        sb.AppendLine("    trap cleanup_speedtest_stage EXIT");
+        sb.AppendLine("    trap 'exit 1' HUP INT TERM");
+        sb.AppendLine("    if SPEEDTEST_HTTP_STATUS=$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 4194304 --write-out '%{http_code}' \"$SPEEDTEST_URL\" -o \"$SPEEDTEST_STAGE/speedtest.tgz\"); then");
+        sb.AppendLine("        printf '%s  %s\\n' \"$SPEEDTEST_ARCHIVE_SHA256\" \"$SPEEDTEST_STAGE/speedtest.tgz\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"Ookla speedtest archive checksum mismatch\"; return 1; }");
+        sb.AppendLine("        tar -xzf \"$SPEEDTEST_STAGE/speedtest.tgz\" -C \"$SPEEDTEST_STAGE\" speedtest \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"failed to extract Ookla speedtest\"; return 1; }");
+        sb.AppendLine("    else");
+        // install.speedtest.net answers 403, not 404, for a release it no longer hosts.
+        sb.AppendLine("        case \"$SPEEDTEST_HTTP_STATUS\" in");
+        sb.AppendLine("            403|404|410) ;;");
+        sb.AppendLine("            *) log_speedtest_install_error \"failed to download Ookla speedtest (HTTP $SPEEDTEST_HTTP_STATUS)\"; return 1 ;;");
+        sb.AppendLine("        esac");
+        sb.AppendLine("        echo \"[$(date)] Ookla archive unavailable (HTTP $SPEEDTEST_HTTP_STATUS); trying the verified Packagecloud package\" >> \"$LOG_FILE\"");
+        sb.AppendLine("        command -v dpkg-deb >/dev/null 2>&1 \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"dpkg-deb is required for the Ookla package fallback\"; return 1; }");
+        sb.AppendLine("        curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 4194304 \"$SPEEDTEST_DEB_URL\" -o \"$SPEEDTEST_STAGE/speedtest.deb\" \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"failed to download Ookla speedtest fallback\"; return 1; }");
+        sb.AppendLine("        printf '%s  %s\\n' \"$SPEEDTEST_DEB_SHA256\" \"$SPEEDTEST_STAGE/speedtest.deb\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"Ookla speedtest package checksum mismatch\"; return 1; }");
+        sb.AppendLine("        dpkg-deb --extract \"$SPEEDTEST_STAGE/speedtest.deb\" \"$SPEEDTEST_STAGE/package\" \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"failed to extract Ookla speedtest package\"; return 1; }");
+        sb.AppendLine("        [ -f \"$SPEEDTEST_STAGE/package/usr/bin/speedtest\" ] && [ ! -L \"$SPEEDTEST_STAGE/package/usr/bin/speedtest\" ] \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"Ookla package did not contain a regular binary\"; return 1; }");
+        sb.AppendLine("        cp \"$SPEEDTEST_STAGE/package/usr/bin/speedtest\" \"$SPEEDTEST_STAGE/speedtest\" \\");
+        sb.AppendLine("            || { log_speedtest_install_error \"could not stage Ookla speedtest from package\"; return 1; }");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    [ -f \"$SPEEDTEST_STAGE/speedtest\" ] && [ ! -L \"$SPEEDTEST_STAGE/speedtest\" ] \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"Ookla speedtest archive did not contain a regular binary\"; return 1; }");
+        sb.AppendLine("    chmod 0755 \"$SPEEDTEST_STAGE/speedtest\" \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"could not make Ookla speedtest executable\"; return 1; }");
+        sb.AppendLine("    printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_STAGE/speedtest\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"Ookla speedtest binary checksum mismatch\"; return 1; }");
+        sb.AppendLine("    mv -f \"$SPEEDTEST_STAGE/speedtest\" \"${SPEEDTEST_BIN}.new\" \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"could not stage Ookla speedtest\"; return 1; }");
+        sb.AppendLine("    mv -f \"${SPEEDTEST_BIN}.new\" \"$SPEEDTEST_BIN\" \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"could not activate Ookla speedtest\"; return 1; }");
+        sb.AppendLine("    speedtest_is_valid \\");
+        sb.AppendLine("        || { log_speedtest_install_error \"installed Ookla speedtest failed validation\"; return 1; }");
+        sb.AppendLine(")");
+        sb.AppendLine();
+        sb.AppendLine("# A missing calibration CLI should not prevent the SQM scripts and cron entries from deploying.");
+        sb.AppendLine("if ! speedtest_is_valid; then");
+        sb.AppendLine("    echo \"[$(date)] Installing Ookla speedtest ${SPEEDTEST_CLI_VERSION}...\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    if ! install_managed_speedtest; then");
+        sb.AppendLine("        echo \"[$(date)] WARNING: Ookla speedtest installation failed; continuing without adaptive calibration\" >> \"$LOG_FILE\"");
+        sb.AppendLine("        echo \"WARNING: Ookla speedtest installation failed; continuing without adaptive calibration\" >&2");
+        sb.AppendLine("    fi");
         sb.AppendLine("fi");
         sb.AppendLine();
-        // Refresh the package index once if either base dependency is missing, so a
-        // console with stale/empty apt lists can still resolve bc/jq. The Ookla block
-        // above gets its index refresh from the packagecloud script; these don't.
+        // Refresh the package index once if jq is missing, so a console with
+        // stale/empty apt lists can still resolve it.
         sb.AppendLine("# Refresh package lists once if a base dependency is missing");
-        sb.AppendLine("if ! which bc > /dev/null 2>&1 || ! which jq > /dev/null 2>&1; then");
+        sb.AppendLine("if ! which jq > /dev/null 2>&1; then");
         sb.AppendLine("    apt-get update");
-        sb.AppendLine("fi");
-        sb.AppendLine();
-        sb.AppendLine("# Install bc if not present");
-        sb.AppendLine("if ! which bc > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"Installing bc...\" >> $LOG_FILE");
-        sb.AppendLine("    apt-get install -y bc");
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("# Install jq if not present");
@@ -125,6 +246,13 @@ public class ScriptGenerator
         sb.AppendLine("    echo \"Installing jq...\" >> $LOG_FILE");
         sb.AppendLine("    apt-get install -y jq");
         sb.AppendLine("fi");
+        sb.AppendLine();
+        // An install that fails silently used to let the calibration run anyway.
+        sb.AppendLine("# Verify what the generated scripts actually need before scheduling them");
+        sb.AppendLine("for dep in awk jq; do");
+        sb.AppendLine("    which \"$dep\" > /dev/null 2>&1 && continue");
+        sb.AppendLine("    echo \"[$(date)] ERROR: dependency '$dep' is missing and could not be installed; Adaptive SQM will not change rates until it is present\" >> $LOG_FILE");
+        sb.AppendLine("done");
         sb.AppendLine();
 
         // Section 2: Create directories
@@ -266,6 +394,15 @@ public class ScriptGenerator
         sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
+        sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
+        sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");
+        sb.AppendLine($"SPEEDTEST_BUILD_ID=\"{ManagedSpeedtestBuildId}\"");
+        sb.AppendLine("case \"$(uname -m)\" in");
+        sb.AppendLine($"    aarch64|arm64) SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestAarch64BinarySha256}\" ;;");
+        sb.AppendLine($"    armv7l|armv7) SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestArmhfBinarySha256}\" ;;");
+        sb.AppendLine($"    x86_64|amd64) SPEEDTEST_BINARY_SHA256=\"{ManagedSpeedtestX86_64BinarySha256}\" ;;");
+        sb.AppendLine("    *) SPEEDTEST_BINARY_SHA256=\"unsupported\" ;;");
+        sb.AppendLine("esac");
         sb.AppendLine();
 
         // Baseline data
@@ -279,10 +416,36 @@ public class ScriptGenerator
         if (dynamicUpload)
             AppendUploadBaseline(sb, uploadBaseline!);
 
+        sb.AppendLine(GetArithmeticFunctions());
+        sb.AppendLine();
+
+        // Runs before the probe-rate lift below: bailing here leaves tc untouched, not opened up.
+        sb.AppendLine("# awk runs every rate calculation, jq parses the speedtest JSON.");
+        sb.AppendLine("# Every firmware upgrade drops apt-installed packages, so try once to restore them.");
+        sb.AppendLine("for dep in awk jq; do");
+        sb.AppendLine("    which \"$dep\" > /dev/null 2>&1 && continue");
+        sb.AppendLine("    case \"$dep\" in awk) pkg=mawk ;; *) pkg=\"$dep\" ;; esac");
+        sb.AppendLine("    echo \"[$(date)] $dep is missing, installing $pkg...\" >> $LOG_FILE");
+        sb.AppendLine("    apt-get install -y \"$pkg\" >> $LOG_FILE 2>&1");
+        sb.AppendLine("    # Retry behind a refreshed index: an upgrade can leave the apt lists stale or empty.");
+        sb.AppendLine("    if ! which \"$dep\" > /dev/null 2>&1; then");
+        sb.AppendLine("        apt-get update >> $LOG_FILE 2>&1");
+        sb.AppendLine("        apt-get install -y \"$pkg\" >> $LOG_FILE 2>&1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    if ! which \"$dep\" > /dev/null 2>&1; then");
+        sb.AppendLine("        echo \"[$(date)] ERROR: $dep still missing after install, leaving tc untouched\" >> $LOG_FILE");
+        sb.AppendLine("        exit 1");
+        sb.AppendLine("    fi");
+        sb.AppendLine("done");
+        sb.AppendLine();
+
         // Check for speedtest
-        sb.AppendLine("# Check if speedtest is installed");
-        sb.AppendLine("if ! which speedtest > /dev/null 2>&1; then");
-        sb.AppendLine("    echo \"[$(date)] ERROR: speedtest not found\" >> $LOG_FILE");
+        sb.AppendLine("# Validate the exact managed speedtest build before changing TC rates");
+        sb.AppendLine("if [ \"$SPEEDTEST_BINARY_SHA256\" = \"unsupported\" ] \\");
+        sb.AppendLine("    || [ ! -f \"$SPEEDTEST_BIN\" ] || [ -L \"$SPEEDTEST_BIN\" ] || [ ! -x \"$SPEEDTEST_BIN\" ] \\");
+        sb.AppendLine("    || ! printf '%s  %s\\n' \"$SPEEDTEST_BINARY_SHA256\" \"$SPEEDTEST_BIN\" | sha256sum -c - >/dev/null 2>&1 \\");
+        sb.AppendLine("    || ! \"$SPEEDTEST_BIN\" --version 2>/dev/null | head -n 1 | grep -Fq \"Speedtest by Ookla ${SPEEDTEST_CLI_VERSION} (${SPEEDTEST_BUILD_ID})\"; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: managed speedtest binary is missing or failed validation\" >> $LOG_FILE");
         sb.AppendLine("    exit 1");
         sb.AppendLine("fi");
         sb.AppendLine();
@@ -293,6 +456,8 @@ public class ScriptGenerator
         // A probe (congestion learning sample) may hold the shaper lifted for ~15 s; calibrating on
         // top of it would measure against its lift and then write over its restore.
         sb.AppendLine(GetProbeLockWait());
+        sb.AppendLine();
+        sb.AppendLine(GetProbeLockHold());
         sb.AppendLine();
 
         // Verify IFB device exists (created by UniFi Smart Queues)
@@ -326,18 +491,18 @@ public class ScriptGenerator
             ? ""
             : $" --server-id={_config.PreferredSpeedtestServerId}";
         sb.AppendLine("# Run speedtest");
-        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --accept-gdpr --format=json --interface=$INTERFACE{serverIdArg})");
+        sb.AppendLine($"speedtest_output=$(\"$SPEEDTEST_BIN\" --accept-license --accept-gdpr --format=json --interface=$INTERFACE{serverIdArg})");
         sb.AppendLine();
         sb.AppendLine("# Parse download speed (bytes/sec to Mbps)");
         sb.AppendLine("download_speed_bytes=$(echo \"$speedtest_output\" | jq .download.bandwidth)");
-        sb.AppendLine("download_speed_mbps=$(echo \"scale=0; $download_speed_bytes * 8 / 1000000\" | bc)");
+        sb.AppendLine("download_speed_mbps=$(num_i \"$download_speed_bytes * 8 / 1000000\")");
         sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] Measured: $download_speed_mbps Mbps\" >> $LOG_FILE");
         sb.AppendLine();
         if (_config.MeasuredToShapedFactor != 1.0)
         {
             sb.AppendLine("# Learned profile: the schedule is in shaper rates, so convert the payload figure first");
-            sb.AppendLine("download_speed_mbps=$(echo \"scale=0; $download_speed_mbps * $MEASURED_TO_SHAPED / 1\" | bc)");
+            sb.AppendLine("download_speed_mbps=$(num_i \"$download_speed_mbps * $MEASURED_TO_SHAPED\")");
             sb.AppendLine();
         }
 
@@ -362,21 +527,37 @@ public class ScriptGenerator
 
         // Apply safety cap
         sb.AppendLine("# Apply safety cap");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP / 1\" | bc)");
+        sb.AppendLine("max_adjusted_rate=$(num_i \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > max_adjusted_rate ? max_adjusted_rate : download_speed_mbps))");
         sb.AppendLine();
 
         // Apply physical link speed ceiling (with HTB headroom) as final clamp
         sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
         sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
-        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    link_ceiling=$(num_i \"$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM\")");
         sb.AppendLine("    if [ \"$download_speed_mbps\" -gt \"$link_ceiling\" ]; then");
         sb.AppendLine("        download_speed_mbps=$link_ceiling");
         sb.AppendLine("    fi");
         sb.AppendLine("fi");
         sb.AppendLine();
 
-        // Save result and apply
+        // The probe-rate lift above is still in effect, so an unusable rate must restore rather
+        // than exit and leave download unshaped.
+        sb.AppendLine("# Refuse an unusable rate, and restore rather than leave the probe rate in place");
+        sb.AppendLine("if ! rate_is_valid \"$download_speed_mbps\"; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: computed rate '$download_speed_mbps' is unusable, not applying\" >> $LOG_FILE");
+        sb.AppendLine("    previous_rate=$(awk '{print $4}' \"$RESULT_FILE\" 2>/dev/null)");
+        sb.AppendLine("    if rate_is_valid \"$previous_rate\"; then");
+        sb.AppendLine("        echo \"[$(date)] Restoring last good rate $previous_rate Mbps\" >> $LOG_FILE");
+        sb.AppendLine("        update_all_tc_classes $IFB_DEVICE $previous_rate $DOWNLOAD_BURST_MODE");
+        sb.AppendLine("    else");
+        sb.AppendLine("        echo \"[$(date)] ERROR: no last good rate to restore, download left at probe rate $SPEEDTEST_PROBE_RATE Mbps\" >> $LOG_FILE");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    exit 1");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
+        // Written only once the rate is known good: a bad run must not poison the ping script.
         sb.AppendLine("# Save result for ping script");
         sb.AppendLine("echo \"Measured download speed: $download_speed_mbps Mbps\" > \"$RESULT_FILE\"");
         sb.AppendLine();
@@ -454,6 +635,17 @@ public class ScriptGenerator
         // A probe (congestion learning sample) holds the shaper lifted for ~15 s and leaves this
         // lock while it does. Adjusting in that window would write a latency-driven cut over the
         // lift and shorten the measurement; the probe restores the rates itself when it exits.
+        sb.AppendLine(GetArithmeticFunctions());
+        sb.AppendLine();
+
+        // Check only: this runs every minute and must not touch apt.
+        sb.AppendLine("# awk runs every rate calculation here");
+        sb.AppendLine("if ! which awk > /dev/null 2>&1; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: awk not found, skipping ping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         sb.AppendLine(GetProbeLockGuard());
         sb.AppendLine();
 
@@ -483,7 +675,7 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
         sb.AppendLine("# Check if value is reasonable (> 0 and < 100000 Mbps)");
-        sb.AppendLine("if (( $(echo \"$SPEEDTEST_SPEED <= 0\" | bc -l) )) || (( $(echo \"$SPEEDTEST_SPEED > 100000\" | bc -l) )); then");
+        sb.AppendLine("if (( $(num_bool \"$SPEEDTEST_SPEED <= 0\") )) || (( $(num_bool \"$SPEEDTEST_SPEED > 100000\") )); then");
         sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result '$SPEEDTEST_SPEED' Mbps is out of valid range (0-100000), skipping ping adjustment\" >> $LOG_FILE");
         sb.AppendLine("    exit 0");
         sb.AppendLine("fi");
@@ -515,30 +707,30 @@ public class ScriptGenerator
         {
             sb.AppendLine("# Apply baseline-proportional safety cap before latency adjustment (fiber)");
             sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
-            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+            sb.AppendLine("    baseline_ratio=$(num_s 4 \"$baseline_speed / $NOMINAL_SPEED\")");
+            sb.AppendLine("    max_adjusted_rate=$(num_i \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio\")");
             sb.AppendLine("else");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("    max_adjusted_rate=$(num_f \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
             sb.AppendLine("fi");
         }
         else
         {
             sb.AppendLine("# Apply flat safety cap before latency adjustment");
-            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("max_adjusted_rate=$(num_f \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\")");
         }
-        sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
-        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("if (( $(num_bool \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\") )); then");
+        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(num_i \"$max_adjusted_rate\")");
         sb.AppendLine("fi");
         sb.AppendLine();
 
         // Physical link speed ceiling (with HTB headroom) as final clamp on the schedule cap
         sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
         sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
-        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
-        sb.AppendLine("    if (( $(echo \"$max_adjusted_rate > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("    link_ceiling=$(num_i \"$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM\")");
+        sb.AppendLine("    if (( $(num_bool \"$max_adjusted_rate > $link_ceiling\") )); then");
         sb.AppendLine("        max_adjusted_rate=$link_ceiling");
         sb.AppendLine("    fi");
-        sb.AppendLine("    if (( $(echo \"$MAX_DOWNLOAD_SPEED > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("    if (( $(num_bool \"$MAX_DOWNLOAD_SPEED > $link_ceiling\") )); then");
         sb.AppendLine("        MAX_DOWNLOAD_SPEED=$link_ceiling");
         sb.AppendLine("    fi");
         sb.AppendLine("fi");
@@ -560,7 +752,7 @@ public class ScriptGenerator
         sb.AppendLine("    exit 0");
         sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("deviation_count=$(echo \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\" | bc)");
+        sb.AppendLine("deviation_count=$(num_i \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\")");
         sb.AppendLine();
 
         // Latency adjustment logic (operates on capped MAX_DOWNLOAD_SPEED, can decrease freely)
@@ -568,13 +760,13 @@ public class ScriptGenerator
         sb.AppendLine();
 
         // Post-latency ceiling: prevent increase branch from exceeding schedule cap
-        sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
+        sb.AppendLine("if (( $(num_bool \"$new_rate > $max_adjusted_rate\") )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("new_rate=$(echo \"scale=1; $new_rate / 1\" | bc)");
+        sb.AppendLine("new_rate=$(num_s 1 \"$new_rate\")");
         sb.AppendLine();
-        sb.AppendLine("if (( $(echo \"$new_rate > $MAX_DOWNLOAD_SPEED_CONFIG\" | bc) )); then");
+        sb.AppendLine("if (( $(num_bool \"$new_rate > $MAX_DOWNLOAD_SPEED_CONFIG\") )); then");
         sb.AppendLine("    new_rate=$MAX_DOWNLOAD_SPEED_CONFIG");
         sb.AppendLine("fi");
         sb.AppendLine();
@@ -605,8 +797,8 @@ public class ScriptGenerator
             // The ping cannot tell which direction is saturated, so a latency cut scales upload
             // by the same fraction it took off download. The floor still holds.
             sb.AppendLine("# Latency cut applies to upload in the same proportion");
-            sb.AppendLine("if (( $(echo \"$new_rate < $MAX_DOWNLOAD_SPEED\" | bc) )); then");
-            sb.AppendLine("    upload_rate=$(echo \"scale=0; $upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\" | bc)");
+            sb.AppendLine("if (( $(num_bool \"$new_rate < $MAX_DOWNLOAD_SPEED\") )); then");
+            sb.AppendLine("    upload_rate=$(num_i \"$upload_rate * $new_rate / $MAX_DOWNLOAD_SPEED\")");
             sb.AppendLine("    if [ \"$upload_rate\" -lt \"$MIN_UPLOAD_SPEED\" ]; then upload_rate=$MIN_UPLOAD_SPEED; fi");
             sb.AppendLine("fi");
             sb.AppendLine();
@@ -672,6 +864,22 @@ done";
     }
 
     /// <summary>
+    /// Speedtest-script hold: let a running ping adjustment finish, then keep the probe lock for
+    /// the rest of the calibration, so no ping run rewrites tc while Ookla is measuring. Cron only
+    /// skips the ping in the scheduled minutes; boot and manual calibrations need this.
+    /// </summary>
+    private static string GetProbeLockHold()
+    {
+        return @"# Hold the probe lock while calibrating so the ping script stands down
+for _ in $(seq 1 20); do
+    pgrep -f -- '[-]ping\.sh' >/dev/null 2>&1 || break
+    sleep 1
+done
+touch ""$PROBE_LOCK""
+trap 'rm -f ""$PROBE_LOCK""' EXIT";
+    }
+
+    /// <summary>
     /// Ping-script guard: stand down while a fresh probe lock exists for this interface.
     /// </summary>
     private static string GetProbeLockGuard()
@@ -726,6 +934,23 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     /// </summary>
     private string GetTcUpdateFunction() => TcFunctionsText;
 
+    /// <summary>The shell arithmetic helpers every generated rate calculation goes through.</summary>
+    private static string GetArithmeticFunctions() => ArithmeticFunctionsText;
+
+    /// <summary>
+    /// Arithmetic helpers built on awk. Never reintroduce bc: it is not in the firmware base, so
+    /// every upgrade drops it, and one reported UCG-Max never got it back - rates came out empty.
+    /// LC_ALL=C is required because awk honours LC_NUMERIC for printf.
+    /// num_i truncates like "scale=0; x / 1", num_s sets places like "scale=N", num_f keeps bc's
+    /// operand scale, num_bool prints the 1 or 0 that (( )) expects.
+    /// </summary>
+    internal static string ArithmeticFunctionsText =>
+        @"# Arithmetic helpers (awk, never bc - see ScriptGenerator.ArithmeticFunctionsText)
+num_i() { LC_ALL=C awk ""BEGIN{print int($*)}""; }
+num_f() { LC_ALL=C awk ""BEGIN{printf \""%.6f\"", $*}""; }
+num_s() { local places=$1; shift; LC_ALL=C awk -v p=""$places"" ""BEGIN{printf \""%.*f\"", p, $*}""; }
+num_bool() { LC_ALL=C awk ""BEGIN{print ($*)?1:0}""; }";
+
     /// <summary>
     /// The shell functions that size burst and fq_codel memory and rewrite the HTB classes. Shared
     /// with the shaper-lift wrapper so there is exactly one copy of the tc logic.
@@ -735,12 +960,12 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
 # downstream drop_overmemory for bulk flows at gig speeds, and 8KB+ creates bursty HTB
 # send patterns that increase queue depth variance in fq_codel.
 #
-# Mode 1 is the opt-in rate-proportional sizing (~1 ms of line time), for paths where the
+# Mode 1 is the rate-proportional sizing (~1 ms of line time), for paths where the
 # conservative bucket is only 1-3 packets: at 900 Mbit, 5KB is ~44 us of line time, so HTB
 # releases only a few packets per timer wakeup and throughput degenerates into a function
-# of scheduling latency. It is off by default because it showed no gain on other platforms,
-# raised the loaded latency tail on the path where it did help, and can compound with an
-# upstream token-bucket policer. Download (IFB) path only; egress always uses mode 0.
+# of scheduling latency. It is a per-WAN setting, on for new WANs: it showed no gain on other
+# platforms, raised the loaded latency tail on the path where it did help, and can compound
+# with an upstream token-bucket policer. Download (IFB) path only; egress always uses mode 0.
 calc_burst() {
     local rate_mbps=$1
     local mode=${2:-0}
@@ -795,10 +1020,23 @@ calc_fq_limit() {
 }
 
 # Function to update all TC classes on a device
+# Usable means a number carrying a non-zero digit. Pure shell: the arithmetic that produced the
+# value may be exactly what failed, and an integer test would truncate a fractional rate to 0.
+rate_is_valid() {
+    [ -n ""$1"" ] || return 1
+    echo ""$1"" | grep -qE '^[0-9]+\.?[0-9]*$' || return 1
+    echo ""$1"" | grep -q '[1-9]'
+}
+
 update_all_tc_classes() {
     local device=$1
     local new_rate=$2
-    # Burst mode is opt-in and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
+    # rate 0Mbit on the root class takes the whole direction down.
+    if ! rate_is_valid ""$new_rate""; then
+        echo ""[$(date)] ERROR: refusing tc update on $device, rate '$new_rate' is not a usable rate"" >> ""${LOG_FILE:-/dev/null}""
+        return 1
+    fi
+    # Burst mode is per-WAN and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
     # egress callers omit it and stay on the conservative sizing.
     local burst_mode=${3:-0}
     local burst=$(calc_burst $new_rate $burst_mode)
@@ -910,19 +1148,19 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
 fi
 
 if [ -n ""$baseline_speed"" ]; then
-    threshold=$(echo ""scale=0; $baseline_speed * 0.9 / 1"" | bc)
+    threshold=$(num_i ""$baseline_speed * 0.9"")
 
     if [ ""$download_speed_mbps"" -ge ""$threshold"" ]; then
         # Within 10%: blend {withinRatio}
-        blended_speed=$(echo ""scale=0; ($baseline_speed * {withinBaseline} + $download_speed_mbps * {withinMeasured}) / 1"" | bc)
+        blended_speed=$(num_i ""($baseline_speed * {withinBaseline} + $download_speed_mbps * {withinMeasured})"")
     else
         # Below 10%: favor baseline {belowRatio}
-        blended_speed=$(echo ""scale=0; ($baseline_speed * {belowBaseline} + $download_speed_mbps * {belowMeasured}) / 1"" | bc)
+        blended_speed=$(num_i ""($baseline_speed * {belowBaseline} + $download_speed_mbps * {belowMeasured})"")
     fi
 
-    download_speed_mbps=$(echo ""scale=0; $blended_speed * $DOWNLOAD_SPEED_MULTIPLIER / 1"" | bc)
+    download_speed_mbps=$(num_i ""$blended_speed * $DOWNLOAD_SPEED_MULTIPLIER"")
 else
-    download_speed_mbps=$(echo ""scale=0; $download_speed_mbps * $DOWNLOAD_SPEED_MULTIPLIER / 1"" | bc)
+    download_speed_mbps=$(num_i ""$download_speed_mbps * $DOWNLOAD_SPEED_MULTIPLIER"")
 fi";
     }
 
@@ -963,11 +1201,11 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
 fi
 
 if [ -n ""$baseline_speed"" ]; then
-    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {overheadMultiplier} / 1"" | bc)
+    baseline_with_overhead=$(num_i ""$baseline_speed * {overheadMultiplier}"")
     if [ ""$baseline_with_overhead"" -gt ""$MAX_DOWNLOAD_SPEED_CONFIG"" ]; then
         baseline_with_overhead=$MAX_DOWNLOAD_SPEED_CONFIG
     fi
-    MAX_DOWNLOAD_SPEED=$(echo ""scale=0; ($baseline_with_overhead * {baselineWeight} + $SPEEDTEST_SPEED * {measuredWeight}) / 1"" | bc)
+    MAX_DOWNLOAD_SPEED=$(num_i ""($baseline_with_overhead * {baselineWeight} + $SPEEDTEST_SPEED * {measuredWeight})"")
 else
     MAX_DOWNLOAD_SPEED=$SPEEDTEST_SPEED
 fi";
@@ -979,23 +1217,23 @@ fi";
     private string GetLatencyAdjustmentLogic()
     {
         return @"# Latency-based adjustment
-if (( $(echo ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"" | bc -l) )); then
+if (( $(num_bool ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"") )); then
     # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
     # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
-    effective_count=$(echo ""scale=4; e(0.7 * l($deviation_count + 1)) - 1"" | bc -l)
-    decrease_multiplier=$(echo ""e($effective_count * l($LATENCY_DECREASE))"" | bc -l)
-    new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"" | bc)
-    if (( $(echo ""$new_rate < $MIN_DOWNLOAD_SPEED"" | bc) )); then
+    effective_count=$(num_s 4 ""exp(0.7 * log($deviation_count + 1)) - 1"")
+    decrease_multiplier=$(num_f ""exp($effective_count * log($LATENCY_DECREASE))"")
+    new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"")
+    if (( $(num_bool ""$new_rate < $MIN_DOWNLOAD_SPEED"") )); then
         new_rate=$MIN_DOWNLOAD_SPEED
     fi
 
-elif (( $(echo ""$latency < $BASELINE_LATENCY - 0.4"" | bc -l) )); then
+elif (( $(num_bool ""$latency < $BASELINE_LATENCY - 0.4"") )); then
     # Low latency: can increase
-    lower_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"" | bc)
-    mid_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.94"" | bc)
-    if (( $(echo ""$MAX_DOWNLOAD_SPEED < $lower_bound"" | bc -l) )); then
-        new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE * $LATENCY_INCREASE"" | bc -l)
-    elif (( $(echo ""$MAX_DOWNLOAD_SPEED < $mid_bound"" | bc -l) )); then
+    lower_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"")
+    mid_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.94"")
+    if (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $lower_bound"") )); then
+        new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE * $LATENCY_INCREASE"")
+    elif (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $mid_bound"") )); then
         new_rate=$mid_bound
     else
         new_rate=$MAX_DOWNLOAD_SPEED
@@ -1003,14 +1241,14 @@ elif (( $(echo ""$latency < $BASELINE_LATENCY - 0.4"" | bc -l) )); then
 
 else
     # Normal latency
-    lower_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.9"" | bc)
-    mid_bound=$(echo ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"" | bc)
-    latency_diff=$(echo ""$latency - $BASELINE_LATENCY"" | bc -l)
-    latency_normal=$(echo ""$latency_diff <= 0.3"" | bc -l)
+    lower_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.9"")
+    mid_bound=$(num_f ""$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.92"")
+    latency_diff=$(num_f ""$latency - $BASELINE_LATENCY"")
+    latency_normal=$(num_bool ""$latency_diff <= 0.3"")
 
-    if (( $(echo ""$MAX_DOWNLOAD_SPEED < $lower_bound"" | bc -l) )) && (( latency_normal == 1 )); then
-        new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE"" | bc)
-    elif (( $(echo ""$MAX_DOWNLOAD_SPEED < $mid_bound"" | bc -l) )) && (( latency_normal == 1 )); then
+    if (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $lower_bound"") )) && (( latency_normal == 1 )); then
+        new_rate=$(num_f ""$MAX_DOWNLOAD_SPEED * $LATENCY_INCREASE"")
+    elif (( $(num_bool ""$MAX_DOWNLOAD_SPEED < $mid_bound"") )) && (( latency_normal == 1 )); then
         new_rate=$mid_bound
     else
         new_rate=$MAX_DOWNLOAD_SPEED

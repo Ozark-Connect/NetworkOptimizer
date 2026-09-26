@@ -1,0 +1,264 @@
+@using NetworkOptimizer.Alerts.Interfaces
+@using NetworkOptimizer.Alerts.Models
+@using NetworkOptimizer.Core.Enums
+@inject IAlertRepository AlertRepository
+@inject IAlertConfigService AlertConfig
+@inject ILogger<ActiveAlertsPanel> Logger
+@implements IDisposable
+
+<div class="active-alerts-panel">
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <span class="spinner-sm"></span>
+            <span>Loading...</span>
+        </div>
+    }
+    else if (_shown.Count == 0)
+    {
+        <div class="no-alerts">
+            <div class="no-alerts-icon">&#10003;</div>
+            <p>All clear. No active alerts at this time.</p>
+        </div>
+    }
+    else
+    {
+        @if (_pending is not null)
+        {
+            <button class="btn btn-sm btn-secondary alert-pending-pill" @onclick="ApplyPending" @onclick:stopPropagation>
+                @PendingNewCount new @(PendingNewCount == 1 ? "alert" : "alerts") - show
+            </button>
+        }
+        <div class="alerts-list">
+            @foreach (var alert in _shown)
+            {
+                var busy = _busyIds.Contains(alert.Id);
+                <div class="alert-item @AlertSeverityDisplay.GetItemClass(alert.Severity)" @key="alert.Id">
+                    <div class="alert-icon">@((MarkupString)AlertSeverityDisplay.GetIcon(alert.Severity))</div>
+                    <div class="alert-content">
+                        <div class="alert-header">
+                            <h3 class="alert-title">@alert.Title</h3>
+                            <span class="alert-time">@TimeFormatHelper.FormatRelativeTimeTerse(alert.TriggeredAt)</span>
+                        </div>
+                        <p class="alert-message">@alert.Message</p>
+                        <span class="alert-source">
+                            @alert.Source
+                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                            {
+                                <text> &middot; @alert.DeviceName</text>
+                            }
+                            @if (!string.IsNullOrEmpty(alert.DeviceIp))
+                            {
+                                <text> &middot; @alert.DeviceIp</text>
+                            }
+                        </span>
+                    </div>
+                    <div class="alert-actions" @onclick:stopPropagation>
+                        @if (!string.IsNullOrEmpty(alert.SourceUrl))
+                        {
+                            <a href="@alert.SourceUrl" class="btn btn-sm btn-outline-primary">View</a>
+                        }
+                        @if (alert.Status == AlertStatus.Acknowledged)
+                        {
+                            <span class="status-badge status-active">Acknowledged</span>
+                        }
+                        <SiteOperatorOnly>
+                            @if (alert.Status == AlertStatus.Active)
+                            {
+                                <button class="btn btn-sm btn-tertiary" @onclick="() => AcknowledgeAsync(alert)" disabled="@busy">
+                                    Acknowledge
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-primary" @onclick="() => ResolveAsync(alert)" disabled="@busy">
+                                Resolve
+                            </button>
+                        </SiteOperatorOnly>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (_unresolvedCount > _shown.Count)
+        {
+            <a href="/alerts?tab=active" class="active-alerts-more" @onclick:stopPropagation>
+                +@(_unresolvedCount - _shown.Count) more unresolved
+            </a>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>How many alerts the card shows, highest severity first.</summary>
+    [Parameter] public int MaxItems { get; set; } = 3;
+
+    // Same cadence as the Alerts page's own poll of the unresolved list.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+
+    private List<AlertHistoryEntry> _shown = [];
+    private List<AlertHistoryEntry>? _pending;
+    private int _unresolvedCount;
+    private int _pendingUnresolvedCount;
+    private bool _loading = true;
+    private readonly HashSet<int> _busyIds = [];
+    private System.Threading.Timer? _pollTimer;
+
+    private int PendingNewCount
+    {
+        get
+        {
+            if (_pending is null) return 0;
+            var shown = _shown.Select(a => a.Id).ToHashSet();
+            return _pending.Count(a => !shown.Contains(a.Id));
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _loading = false;
+
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await PollAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { /* component disposed or circuit gone - never let the timer die */ }
+        }, null, PollInterval, PollInterval);
+    }
+
+    /// <summary>
+    /// Unresolved alerts ranked for the card: highest severity, then Active before Acknowledged
+    /// (the one still waiting on someone), then newest.
+    /// </summary>
+    public static List<AlertHistoryEntry> RankTop(IEnumerable<AlertHistoryEntry> unresolved, int count) =>
+        unresolved
+            .Where(a => a.Status is AlertStatus.Active or AlertStatus.Acknowledged)
+            .OrderByDescending(a => a.Severity)
+            .ThenBy(a => a.Status == AlertStatus.Active ? 0 : 1)
+            .ThenByDescending(a => a.TriggeredAt)
+            .Take(count)
+            .ToList();
+
+    private async Task<(List<AlertHistoryEntry> Top, int Count)> ReadAsync()
+    {
+        var unresolved = await AlertRepository.GetUnresolvedAlertsAsync();
+        var count = unresolved.Count(a => a.Status is AlertStatus.Active or AlertStatus.Acknowledged);
+        return (RankTop(unresolved, MaxItems), count);
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            (_shown, _unresolvedCount) = await ReadAsync();
+            _pending = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading active alerts for the dashboard");
+        }
+    }
+
+    /// <summary>
+    /// A new alert entering the card is held behind the pill instead of shifting the rows under the
+    /// reader's cursor, the same rule as the Alerts page. Anything else applies at once.
+    /// </summary>
+    private async Task PollAsync()
+    {
+        if (_busyIds.Count > 0) return;
+        try
+        {
+            var (top, count) = await ReadAsync();
+            var shown = _shown.Select(a => a.Id).ToHashSet();
+            var isNew = top.Any(a => !shown.Contains(a.Id));
+            _pending = top;
+            _pendingUnresolvedCount = count;
+            if (!isNew || _shown.Count == 0) ApplyPending();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Polling active alerts for the dashboard failed; the card on screen stands");
+        }
+    }
+
+    private void ApplyPending()
+    {
+        if (_pending is null) return;
+        _shown = _pending;
+        _unresolvedCount = _pendingUnresolvedCount;
+        _pending = null;
+    }
+
+    private Task AcknowledgeAsync(AlertHistoryEntry alert) =>
+        RunActionAsync(alert, "acknowledging", () => AlertConfig.AcknowledgeAlertAsync(alert.Id));
+
+    private Task ResolveAsync(AlertHistoryEntry alert) =>
+        RunActionAsync(alert, "resolving", () => AlertConfig.ResolveAlertAsync(alert.Id));
+
+    private async Task RunActionAsync(AlertHistoryEntry alert, string verb, Func<Task<AlertHistoryEntry?>> action)
+    {
+        if (!_busyIds.Add(alert.Id)) return;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error {Verb} alert {Id} from the dashboard", verb, alert.Id);
+        }
+        finally
+        {
+            _busyIds.Remove(alert.Id);
+        }
+    }
+
+    public void Dispose() => _pollTimer?.Dispose();
+}
+
+<style>
+    .active-alerts-panel .alert-message {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        margin: 0 0 0.5rem 0;
+    }
+
+    .active-alerts-panel .alert-content {
+        min-width: 0;
+    }
+
+    .active-alerts-panel .no-alerts p {
+        font-size: 0.8125rem;
+    }
+
+    .active-alerts-panel .no-alerts-icon {
+        margin-bottom: 0;
+    }
+
+    @@media (max-width: 768px) {
+        .active-alerts-panel .alert-actions > * {
+            flex: 1 1 0;
+            min-width: 0;
+            justify-content: center;
+            text-align: center;
+        }
+    }
+
+    .active-alerts-more {
+        display: block;
+        margin-top: 0.75rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        text-align: center;
+    }
+
+    .active-alerts-more:hover {
+        color: var(--text-primary);
+    }
+</style>

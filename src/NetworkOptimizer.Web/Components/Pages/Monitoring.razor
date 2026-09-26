@@ -792,6 +792,7 @@
                     <div class="health-fan-chart"></div>
                 </div>
                 <div class="health-custom-charts"></div>
+                <div class="health-check-charts" data-tour="device-health-checks"></div>
                 <div class="health-stats-table"></div>
 
                 <details class="setup-guide" style="margin-top: 1.25rem;">
@@ -3014,6 +3015,9 @@
         // while the investigation is on screen, so arming on every re-supply re-ran the search
         // whenever anything else touched the URL - a drag-zoom drops ?at=/?wan= and did exactly
         // that, reframing the chart over the range the user had just drawn.
+        // The arm is once per visit: leaving the tab releases it, or the next jump from ISP Health
+        // (the same URL every time) matches the stale arm and never runs.
+        if (_activeTab != "performance") _armedInvestigateUri = null;
         if (_activeTab == "performance" && NavigationManager.Uri != _armedInvestigateUri
             && (InvestigateParam == "packet-loss" || InvestigateParam == "loaded-loss"))
         {
@@ -3031,7 +3035,13 @@
         // and scroll to it. Applied once so a later manual collapse isn't fought by re-renders.
         if (!_thresholdExpandApplied && !string.IsNullOrEmpty(ExpandParam))
         {
-            if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
+            // The Devices card on Setup is collapsed by default; the tour lands on it open.
+            if (_activeTab == "setup" && ExpandParam == "devices")
+            {
+                _pendingExpandSnmpCard = true;
+                _thresholdExpandApplied = true;
+            }
+            else if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
             {
                 _sfpThresholdsCollapsed = false;
                 _scrollToSfpThresholdsPending = true;

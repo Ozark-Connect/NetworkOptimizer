@@ -1689,6 +1689,121 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("GatewaySshSettings", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.HealthCheckDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AlertEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AlertSeverity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Command")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ConsecutiveSamples")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("IntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastKnownAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastKnownDeviceName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("LastKnownDeviceType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LastKnownHardwareType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastKnownHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NotApplicablePattern")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Operator")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Parser")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ParserArg")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Remedy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RemedyArg")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RemedyCooldownSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RemedyMaxPerDay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TemplateId")
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Threshold")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac");
+
+                    b.HasIndex("DeviceMac", "FieldName")
+                        .IsUnique();
+
+                    b.ToTable("HealthCheckDefinitions", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.HogRowBaseline", b =>
                 {
                     b.Property<string>("RowKey")
