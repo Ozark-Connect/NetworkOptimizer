@@ -254,6 +254,32 @@ public class DnsIpv6ResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task Ipv6Wan_NextDnsSwapped_WithNoPtrForDns1_StillReportsWrongOrder()
+    {
+        // Live shape: NextDNS publishes a PTR for its dns2 IPv6 range only
+        DohProviderRegistry.DnsResolver = ip => Task.FromResult<string?>(
+            ip.ToString().StartsWith("2a07:a8c1") ? "dns2.nextdns.io" : null);
+
+        var result = await Analyze([DualStack()],
+            wans: [Wan("WAN2", "dhcpv6", "manual", "2a07:a8c1::ab:cd12", "2a07:a8c0::ab:cd12")], dohServer: "NextDNS-abc123");
+
+        result.Issues.Where(i => i.Type == IssueTypes.DnsWanOrder && IpFamilyText.IsIpv6Only(i.Metadata))
+            .Should().ContainSingle().Which.Message
+            .Should().EndWith("Should be 2a07:a8c0::ab:cd12, 2a07:a8c1::ab:cd12");
+    }
+
+    [Theory]
+    [InlineData("2a07:a8c0::1", null, "dns1.")]
+    [InlineData("2a07:a8c1::1", null, "dns2.")]
+    [InlineData("2A07:A8C0:0:0:0:0:0:1", null, "dns1.")]
+    [InlineData("2001:db8::1", "dns2.nextdns.io", "dns2.")]  // A PTR name wins
+    [InlineData("2001:db8::1", null, null)]
+    public void NextDnsIpv6Role_ReturnsExpected(string server, string? reverseDns, string? expected)
+    {
+        DnsSecurityAnalyzer.NextDnsIpv6Role(server, reverseDns).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task Wan_Ipv6Disabled_ReportsNothingOverIpv6()
     {
         var result = await Analyze([DualStack()], wans: [Wan("WAN2", "disabled", "manual", "2001:4860:4860::8888")]);
