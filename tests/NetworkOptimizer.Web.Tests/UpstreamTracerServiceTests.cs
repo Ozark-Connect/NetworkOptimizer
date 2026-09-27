@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
@@ -1401,6 +1402,39 @@ public class AccessIspFallbackTests
     public void IsOffPath_flags_ping_rtt_well_above_trace_rtt(double traceRtt, double pingRtt, bool expected)
     {
         UpstreamTracerService.IsOffPath(traceRtt, pingRtt).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(49.0, 16.0, 27.5, true)]    // slow time-exceeded reply; the later hop at 16 ms caps it
+    [InlineData(18.6, 16.0, 27.9, true)]    // own trace RTT already catches it
+    [InlineData(53.3, 20.0, 53.1, false)]   // own reply not slow vs its ping: no cap, genuine long-return hop
+    [InlineData(49.0, 25.0, 27.5, false)]   // slow reply, but the later hop does not undercut the ping enough
+    [InlineData(49.0, null, 27.5, false)]   // slow reply with no later responding hop
+    public void IsOffPath_caps_a_slow_trace_reply_with_the_later_hop_rtt(double traceRtt, double? laterRtt, double pingRtt, bool expected)
+    {
+        UpstreamTracerService.IsOffPath(traceRtt, laterRtt, pingRtt).Should().Be(expected);
+    }
+
+    [Fact]
+    public void LaterHopRtts_takes_the_lowest_rtt_after_each_hop_and_skips_silent_hops()
+    {
+        var hops = new[]
+        {
+            new TraceHop { HopNumber = 1, Address = "192.0.2.1", RttMinMs = 0.3, Responses = 2 },
+            new TraceHop { HopNumber = 2, Address = "198.51.100.1", RttMinMs = 11.0, Responses = 2 },
+            new TraceHop { HopNumber = 3, Address = null, Responses = 0 },
+            new TraceHop { HopNumber = 4, Address = "203.0.113.224", RttMinMs = 49.0, Responses = 2 },
+            new TraceHop { HopNumber = 5, Address = "203.0.113.9", RttMinMs = 16.0, Responses = 2 },
+        };
+
+        var later = UpstreamTracerService.LaterHopRtts(hops).ToDictionary(x => x.Address, x => x.LaterRttMs);
+
+        later.Should().BeEquivalentTo(new Dictionary<string, double>
+        {
+            ["192.0.2.1"] = 11.0,
+            ["198.51.100.1"] = 16.0,
+            ["203.0.113.224"] = 16.0,
+        });
     }
 }
 
