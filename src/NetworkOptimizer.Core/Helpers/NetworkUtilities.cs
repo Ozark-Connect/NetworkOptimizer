@@ -527,6 +527,18 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Check if two IP address strings name the same address, regardless of format
+    /// (IPv6 compressed vs expanded, hex case). False when either does not parse.
+    /// </summary>
+    public static bool IpAddressesAreEqual(string? ip1, string? ip2)
+    {
+        if (!IPAddress.TryParse(ip1, out var addr1) || !IPAddress.TryParse(ip2, out var addr2))
+            return false;
+
+        return addr1.Equals(addr2);
+    }
+
+    /// <summary>
     /// Classify how routable an IPv4 address actually is. The monitoring subsystem's
     /// upstream tracer (spec 5.5) uses this to honestly surface CGNAT, double-NAT, and
     /// non-globally-routed "public" space rather than silently mis-handling them.
