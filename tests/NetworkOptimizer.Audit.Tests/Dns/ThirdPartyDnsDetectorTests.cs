@@ -1873,6 +1873,175 @@ public class ThirdPartyDnsDetectorTests : IDisposable
 
     #endregion
 
+    #region DetectExternalDns IPv6 Tests
+
+    private static NetworkInfo DualStack(string id, string name, int vlan, List<string>? ipv6Dns,
+        List<string>? ipv4Dns = null, bool enabled = true, bool dhcp = true, string? ipv6Prefix = null) => new()
+    {
+        Id = id,
+        Name = name,
+        VlanId = vlan,
+        Enabled = enabled,
+        DhcpEnabled = dhcp,
+        Gateway = $"192.0.2.{vlan}",
+        Subnet = $"192.0.2.{vlan}/32",
+        DnsServers = ipv4Dns,
+        HasIpv6 = true,
+        Ipv6Subnets = [ipv6Prefix ?? $"2001:db8:{vlan}::/64"],
+        Ipv6DnsServers = ipv6Dns
+    };
+
+    [Fact]
+    public void DetectExternalDns_Ipv6PublicResolver_ReportedEvenWhenIpv4UsesGateway()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:4860:4860::8888"]) };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Should().ContainSingle();
+        result[0].DnsServerIp.Should().Be("2001:4860:4860::8888");
+        result[0].NetworkName.Should().Be("Home");
+        result[0].IsPublicDns.Should().BeTrue();
+        result[0].ProviderName.Should().Be("Google");
+    }
+
+    [Theory]
+    [InlineData("2606:4700:4700::1111", "Cloudflare")]
+    [InlineData("2620:fe::fe", "Quad9")]
+    [InlineData("2620:119:35::35", "OpenDNS")]
+    [InlineData("2a07:a8c0::ab:cd12", "NextDNS")]
+    [InlineData("2001:4860:4860:0:0:0:0:8888", "Google")] // Expanded form still identified
+    public void DetectExternalDns_Ipv6KnownProviders_ReturnsProviderName(string dnsIp, string expectedProvider)
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, [dnsIp]) };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Should().ContainSingle().Which.ProviderName.Should().Be(expectedProvider);
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6DnsInOwnPrefix_NotReported()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:db8:10::53"]) };
+
+        CreateDetector().DetectExternalDns(networks).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6DnsInAnotherNetworksPrefix_NotReported()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            DualStack("n1", "Home", 10, ["2001:db8:20::53"]),
+            DualStack("n2", "Servers", 20, null)
+        };
+
+        CreateDetector().DetectExternalDns(networks).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6LinkLocalDns_NotReported()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["fe80::1"]) };
+
+        CreateDetector().DetectExternalDns(networks).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6UlaOutsideKnownPrefixes_ReportedAsPrivate()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["fd00:99::53"]) };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Should().ContainSingle();
+        result[0].IsPublicDns.Should().BeFalse();
+        result[0].ProviderName.Should().BeNull();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6UnknownGlobal_AllPrefixesKnown_ReportedAsPublic()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:db8:ffff::53"]) };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Should().ContainSingle();
+        result[0].IsPublicDns.Should().BeTrue();
+        result[0].ProviderName.Should().BeNull();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6UnknownGlobal_WithUnknownDelegatedPrefix_NotReported()
+    {
+        // The unknown PD prefix may hold this server, so no claim is made either way
+        var pdWithoutPrefix = new NetworkInfo { Id = "pd", Name = "Gaming", VlanId = 69, DhcpEnabled = true, HasIpv6 = true };
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:db8:ffff::53"]), pdWithoutPrefix };
+
+        CreateDetector().DetectExternalDns(networks).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6KnownResolver_WithUnknownDelegatedPrefix_StillReported()
+    {
+        var pdWithoutPrefix = new NetworkInfo { Id = "pd", Name = "Gaming", VlanId = 69, DhcpEnabled = true, HasIpv6 = true };
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2620:fe::fe"]), pdWithoutPrefix };
+
+        CreateDetector().DetectExternalDns(networks).Should().ContainSingle().Which.ProviderName.Should().Be("Quad9");
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6DisabledNetwork_Skipped()
+    {
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:4860:4860::8888"], enabled: false) };
+
+        CreateDetector().DetectExternalDns(networks).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv6DnsOnNetworkWithoutIpv4Dhcp_StillReported()
+    {
+        // RA RDNSS hands the server out without DHCP, so the IPv4 DHCP flag does not gate IPv6
+        var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, ["2001:4860:4860::8888"], dhcp: false) };
+
+        CreateDetector().DetectExternalDns(networks).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void DetectExternalDns_DualStack_Ipv4ResultsUnchangedAndIpv6Appended()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            DualStack("n1", "Home", 10, ["2606:4700:4700::1111"], ipv4Dns: ["1.1.1.1"]),
+            DualStack("n2", "IoT", 20, null, ipv4Dns: ["8.8.8.8"])
+        };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Select(r => (r.NetworkName, r.DnsServerIp, r.ProviderName, r.IsPublicDns)).Should().Equal(
+            ("Home", "1.1.1.1", "Cloudflare", true),
+            ("IoT", "8.8.8.8", "Google", true),
+            ("Home", "2606:4700:4700::1111", "Cloudflare", true));
+    }
+
+    [Fact]
+    public void DetectExternalDns_Ipv4Only_NoIpv6Results()
+    {
+        // IPv4 regression guard: networks without IPv6 produce exactly the IPv4 results
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24", DnsServers = ["1.1.1.1", "192.168.1.1"] }
+        };
+
+        var result = CreateDetector().DetectExternalDns(networks);
+
+        result.Should().ContainSingle().Which.DnsServerIp.Should().Be("1.1.1.1");
+    }
+
+    #endregion
+
     #region Pi-hole Detection Edge Cases
 
     [Fact]

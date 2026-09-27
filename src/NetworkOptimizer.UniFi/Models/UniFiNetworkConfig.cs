@@ -298,6 +298,31 @@ public class UniFiNetworkConfig
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Ipv6RaPreferredLifetime { get; set; }
 
+    /// <summary>
+    /// UI "DHCPv6/RDNSS DNS Control": true (or absent) hands out the gateway, false hands out
+    /// <see cref="Dhcpdv6Dns1"/>-<see cref="Dhcpdv6Dns4"/> over both DHCPv6 and RA RDNSS.
+    /// </summary>
+    [JsonPropertyName("dhcpdv6_dns_auto")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Dhcpdv6DnsAuto { get; set; }
+
+    [JsonPropertyName("dhcpdv6_dns_1")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Dhcpdv6Dns1 { get; set; }
+
+    [JsonPropertyName("dhcpdv6_dns_2")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Dhcpdv6Dns2 { get; set; }
+
+    [JsonPropertyName("dhcpdv6_dns_3")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Dhcpdv6Dns3 { get; set; }
+
+    [JsonPropertyName("dhcpdv6_dns_4")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Dhcpdv6Dns4 { get; set; }
+
     // WAN configuration
     [JsonPropertyName("wan_networkgroup")]
     public string? WanNetworkgroup { get; set; }

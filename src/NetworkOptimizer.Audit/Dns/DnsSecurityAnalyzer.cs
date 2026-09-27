@@ -2757,6 +2757,10 @@ public class DnsSecurityAnalyzer
     /// for networks with a known IPv6 prefix; a network unprotected over IPv4 is already reported
     /// by the IPv4 findings, so it is never repeated here.
     /// </summary>
+    /// <remarks>
+    /// A network with IPv6 but no known prefix is skipped on purpose, with no finding either way:
+    /// a gap that cannot be proven is not reported. See <see cref="NetworkInfo.IsIpv6Evaluable"/>.
+    /// </remarks>
     private void AnalyzeIpv6Coverage(
         List<FirewallRule>? firewallRules,
         JsonElement? natRulesData,
