@@ -677,26 +677,20 @@ Three possible closers, cheapest first, none investigated beyond reading the cod
   `_binding?.Source`, a plain fetch egresses via the OS routing table, so multi-WAN would stamp
   WAN2's targets with WAN1's ASN. Needs a source-bound `HttpClient`.
 
-### Upstream discovery: adopted transit hops a direct ping does not reach on the traced path
+### Upstream discovery: off-path transit hops with a similar RTT (only if seen)
 
-Discovery adopts a responding hop from a trace to some destination as a monitored target, then
-pings it directly. A ping to the hop's own address can route differently from the trace that found
-it, so its latency and loss describe some other path. The target then misleads ISP Health, and its
-ancestor set claims a routing relationship the ping never exercises.
+A ping to a transit hop's own address can route differently from the trace that found it, so its
+latency and loss describe some other path (typical of IX peering-LAN addresses reached through a
+different carrier). The reachability gate now excludes a transit hop whose direct-ping minimum RTT
+sits well above its trace RTT (`IsOffPath`, shown as "Off path").
 
-Seen on a test site (2026-09-26): the trace to 9.9.9.9 crossed the access ISP and a regional transit
-carrier, then an IX-range address one hop before Quad9. A second address in the same /24 came up at
-the same hop number on that run. Discovery adopted both as Transit, and pings to them do not follow
-the discovery path. IX peering-LAN addresses are the likeliest class to do this: the peering prefix
-is often not announced, or is reached through a different upstream than the traffic that crosses
-the IX.
+That catches only a divergent path that is slower. One with a similar RTT (two carriers into the
+same metro) still passes, and its ancestor set claims a routing relationship the ping never
+exercises. No case of it has been observed.
 
-- [ ] **Validate before adopting.** Trace to the candidate hop itself and adopt it only if its own
-  path reproduces the ancestry of the trace that found it. Re-check on each rediscovery and retire it
-  on divergence.
-- [ ] **Consider excluding IX peering-LAN prefixes outright** (PeeringDB `ixlan` prefixes) if the
-  validation trace proves too costly or too noisy. Confirm the observed hops are IX LAN addresses
-  before building on that assumption.
+- [ ] **Trace to the candidate and compare ancestry**, only for candidates the RTT check leaves
+  borderline. Needs tolerance for star segments (the hop itself may not answer at the end of its own
+  trace) and ECMP churn, and costs one traceroute per candidate on metered WANs.
 
 ### Monitored device versions: fill in SoftwareVersion / HostVersion for the rest
 
