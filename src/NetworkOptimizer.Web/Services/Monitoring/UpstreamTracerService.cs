@@ -1927,7 +1927,8 @@ public class UpstreamTracerService
         foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
             allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt,
                 () => { transit.Enabled = false; transit.Unreachable = true; },
-                () => { transit.Enabled = false; transit.Unreachable = true; transit.OffPath = true; }));
+                () => { transit.Enabled = false; transit.Unreachable = true; transit.OffPath = true; }
+            ));
 
         if (allTargets.Count == 0) return;
 
@@ -1957,6 +1958,10 @@ public class UpstreamTracerService
             }
             else if (result.Received >= minSuccesses)
             {
+                if (t.MarkOffPath != null)
+                    _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping} direct vs {Trace} on the trace, on path",
+                        result.Received, result.Sent, t.Address, pingRtt is double p ? $"{p:F1} ms" : "no RTT",
+                        _minRttByIp.TryGetValue(t.Address, out var seen) ? $"{seen:F1} ms" : "no RTT");
                 // Burst MINIMUM, not average: this RTT feeds the POP clustering, and
                 // a single queued reply in the average drags a near hop into the far
                 // cluster (observed: a 11.3 ms hop measuring 14.7 avg bridged two
