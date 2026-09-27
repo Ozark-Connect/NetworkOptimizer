@@ -132,11 +132,11 @@ public interface IIperf3SpeedTestService
     /// grouped by AP MAC address.
     /// </summary>
     /// <param name="apIpToMac">Mapping of AP IP addresses to MAC addresses.</param>
-    /// <param name="countPerAp">Maximum results per AP (default 5).</param>
+    /// <param name="countPerAp">Maximum results per AP (default 3).</param>
     /// <returns>Dictionary keyed by AP MAC with recent test results.</returns>
     [RequireRole(Roles.Viewer)]
     Task<Dictionary<string, List<Iperf3Result>>> GetApDeviceTestsAsync(
-        Dictionary<string, string> apIpToMac, int countPerAp = 5);
+        Dictionary<string, string> apIpToMac, int countPerAp = 3);
 
     /// <summary>
     /// Deletes a single speed test result by ID.
