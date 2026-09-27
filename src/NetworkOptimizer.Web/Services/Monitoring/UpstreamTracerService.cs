@@ -1125,6 +1125,8 @@ public class UpstreamTracerService
     private List<AttributedHop> _mergedHops = new();
     /// <summary>Best (lowest) RTT seen for a hop address across every trace, in ms.</summary>
     private readonly Dictionary<string, double> _minRttByIp = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Lowest RTT of any hop after this one on the same trace, across every trace, in ms.</summary>
+    private readonly Dictionary<string, double> _minLaterHopRttByIp = new(StringComparer.OrdinalIgnoreCase);
     private List<AttributedHop> _accessHopsResolved = new();
 
     // The detected access ISP ASN from the last TraceAccessIspAsync. Kept as a field so
@@ -1212,9 +1214,14 @@ public class UpstreamTracerService
         // care which CDN trace surfaced the hop, only that we saw it; ASN attribution
         // is per-IP and dedupes naturally on its way out.
         _minRttByIp.Clear();
+        _minLaterHopRttByIp.Clear();
         var byIp = new Dictionary<string, AttributedHop>(StringComparer.OrdinalIgnoreCase);
         foreach (var (_, result) in results)
         {
+            foreach (var (address, laterRtt) in LaterHopRtts(result.Hops))
+                if (!_minLaterHopRttByIp.TryGetValue(address, out var best) || laterRtt < best)
+                    _minLaterHopRttByIp[address] = laterRtt;
+
             foreach (var hop in result.Hops)
             {
                 if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
@@ -1944,24 +1951,25 @@ public class UpstreamTracerService
         foreach (var (t, result) in results)
         {
             var pingRtt = result.RttMinMs ?? result.RttAvgMs;
+            double? traceRtt = _minRttByIp.TryGetValue(t.Address, out var own) ? own : null;
+            double? laterRtt = _minLaterHopRttByIp.TryGetValue(t.Address, out var later) ? later : null;
             if (result.Received >= minSuccesses
                 && t.MarkOffPath != null
                 && pingRtt is double ping
-                && _minRttByIp.TryGetValue(t.Address, out var traceRtt)
-                && IsOffPath(traceRtt, ping))
+                && traceRtt is double tr
+                && IsOffPath(tr, laterRtt, ping))
             {
                 t.ApplyRtt(ping);
                 t.MarkOffPath();
                 offPath++;
-                _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping:F1} ms direct vs {Trace:F1} ms on the trace, marked off path and excluded",
-                    result.Received, result.Sent, t.Address, ping, traceRtt);
+                _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping:F1} ms direct vs {Trace:F1} ms on the trace (later hop {Later}), marked off path and excluded",
+                    result.Received, result.Sent, t.Address, ping, tr, FormatRtt(laterRtt));
             }
             else if (result.Received >= minSuccesses)
             {
                 if (t.MarkOffPath != null)
-                    _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping} direct vs {Trace} on the trace, on path",
-                        result.Received, result.Sent, t.Address, pingRtt is double p ? $"{p:F1} ms" : "no RTT",
-                        _minRttByIp.TryGetValue(t.Address, out var seen) ? $"{seen:F1} ms" : "no RTT");
+                    _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping} direct vs {Trace} on the trace (later hop {Later}), on path",
+                        result.Received, result.Sent, t.Address, FormatRtt(pingRtt), FormatRtt(traceRtt), FormatRtt(laterRtt));
                 // Burst MINIMUM, not average: this RTT feeds the POP clustering, and
                 // a single queued reply in the average drags a near hop into the far
                 // cluster (observed: a 11.3 ms hop measuring 14.7 avg bridged two
@@ -2015,6 +2023,37 @@ public class UpstreamTracerService
     /// </summary>
     internal static bool IsOffPath(double traceRttMs, double pingRttMs) =>
         pingRttMs - traceRttMs > Math.Max(OffPathExcessFloorMs, traceRttMs * OffPathExcessFraction);
+
+    /// <summary>
+    /// <see cref="IsOffPath(double, double)"/>, plus a later-hop cap for a hop whose own trace reply
+    /// is slow. Probes to a later hop on the same trace pass through this one, so the later hop's RTT
+    /// bounds this hop's path RTT. The cap applies only when the hop's own trace RTT is itself well
+    /// above its ping (a slow-path time-exceeded reply): applied always, a later hop with a shorter
+    /// return route would flag a genuine hop whose replies come back the long way.
+    /// </summary>
+    internal static bool IsOffPath(double traceRttMs, double? laterHopRttMs, double pingRttMs) =>
+        IsOffPath(traceRttMs, pingRttMs)
+        || (laterHopRttMs is double later
+            && IsOffPath(pingRttMs, traceRttMs)
+            && IsOffPath(later, pingRttMs));
+
+    /// <summary>
+    /// For each responding hop on one trace, the lowest RTT of any responding hop after it. Hops with
+    /// no later responding hop are omitted.
+    /// </summary>
+    internal static IEnumerable<(string Address, double LaterRttMs)> LaterHopRtts(IEnumerable<TraceHop> hops)
+    {
+        double? laterMin = null;
+        foreach (var hop in hops.OrderByDescending(h => h.HopNumber))
+        {
+            if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
+            if (laterMin is double later) yield return (hop.Address, later);
+            if ((hop.RttMinMs ?? hop.RttAvgMs) is double rtt && (laterMin is null || rtt < laterMin))
+                laterMin = rtt;
+        }
+    }
+
+    private static string FormatRtt(double? rttMs) => rttMs is double v ? $"{v:F1} ms" : "no RTT";
 
     // Item A: anycast DNS witnesses for transit ASNs whose routers commonly ICMP-deprioritize or
     // hide behind L2-transparent infra. Attached whenever the ASN is genuinely near-transit - not
