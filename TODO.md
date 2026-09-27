@@ -455,6 +455,18 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
   rules" copy with no rule verification behind it.
 - **Status:** Awaiting user feedback on current third-party DNS feature before implementing
 
+### IPv6 follow-ups
+Shipped: per-family firewall and DNS evaluation (#1236), value comparison for DNAT redirect targets,
+and custom DHCPv6/RDNSS DNS servers feeding external DNS detection. Networks with IPv6 but no known
+prefix are skipped on purpose (no claim either way) - that is settled, not a gap. Still IPv4-only:
+- Management access checks (deliberate for now, #1231).
+- DNAT redirect-target validation: the DNAT pass keeps only rules matching IPv4, so an IPv6-only
+  redirect rule is counted for coverage but its target is never validated.
+- Third-party LAN DNS detection (Pi-hole and friends) and the DNS consistency check read only the
+  IPv4 DHCP DNS list; a ULA resolver handed out over DHCPv6/RDNSS is not probed.
+- WAN DNS: `wanN.dns[]` in the device API can carry IPv6 servers, which the WAN DNS / DoH match
+  check has never been exercised against.
+
 ## Performance Audit
 
 New audit section focused on network performance issues (distinct from security audit).
@@ -671,7 +683,7 @@ Three possible closers, cheapest first, none investigated beyond reading the cod
 - [ ] **Widen ASN resolution to IPv6.** `ResolveAsync` gates on `PublicAddressClass.PublicIPv4` and
   the enum has no v6 member, so v6 classifies as `Unknown` and is dropped before either backend -
   both of which handle v6 fine. Better signal anyway: a CGNAT'd v4 site usually has native global v6
-  mapping straight to the carrier ASN. Belongs with `feature/ipv6-support`.
+  mapping straight to the carrier ASN.
 - [ ] **External IP echo (icanhazip) as a last resort.** Strict parse, short timeout, failure means
   no-signal. The landmine is binding, not availability: the tracer is source-bound via
   `_binding?.Source`, a plain fetch egresses via the OS routing table, so multi-WAN would stamp
@@ -1261,24 +1273,25 @@ priority and unlikely to grow.
 - [ ] Add test coverage for the path and login detection, so the legacy branch cannot rot silently
   between releases that nobody exercises it in.
 
-## Retention: alerts and audit events are never pruned
+## Retention: alerts and Security Audit results are never pruned
 
 The Application Settings card carried an "Alert Retention (days)" field wired to a `SaveAppSettings`
 stub that did nothing, so the value never persisted. The field and its dead Save button were removed
 rather than made to persist a number nothing reads - storing it would have turned a visibly broken
 control into an invisibly broken one.
 
-Nothing in the solution consumes a retention value today:
+The identity audit log (`AuditEvents`) is pruned to design doc 05 by `AuditWriterService`: age plus
+a row cap, with the prune itself audited. What still grows without bound:
 - `IAlertRepository` has no delete/prune method at all - alert history grows without bound.
 - `AlertEngine.ClearOldAlerts(TimeSpan)` exists in Monitoring with **zero callers**.
-- `IAuditRepository.DeleteOldAuditsAsync` exists with **zero callers**, so the audit retention
-  design doc 05 specifies (365 days + a row cap, with `audit.pruned` itself audited) is unimplemented.
+- `IAuditRepository.DeleteOldAuditsAsync` (Security Audit runs, the `AuditResults` table) exists
+  with **zero callers**.
 
 The real fix, as one piece of work:
 - [ ] Add pruning to `IAlertRepository` and run it from a background service, mirroring how the
   monitoring collectors are hosted. Per-site DBs mean the job has to walk every site, not just main.
-- [ ] Implement audit pruning to doc 05: time-based default 365d plus a row-count cap, emitting an
-  `audit.pruned` event with count and range.
+- [ ] Decide whether Security Audit results need pruning at all (one row per run), and call
+  `DeleteOldAuditsAsync` from the same job if so.
 - [ ] Reinstate the settings UI once something consumes the values, saving through the gated
   `ISystemSettingsAdmin` so the change is Admin-only and audited like every other settings write.
 
