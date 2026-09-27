@@ -305,6 +305,25 @@ public class NetworkUtilitiesTests
 
     #endregion
 
+    #region IpAddressesAreEqual Tests
+
+    [Theory]
+    [InlineData("192.0.2.1", "192.0.2.1", true)]
+    [InlineData("192.0.2.1", "192.0.2.2", false)]
+    [InlineData("2001:db8::53", "2001:0db8:0000:0000:0000:0000:0000:0053", true)]  // Compressed vs expanded
+    [InlineData("2001:DB8::53", "2001:db8::53", true)]                              // Hex case
+    [InlineData("fd00::1", "fd00::2", false)]
+    [InlineData("192.0.2.1", "::ffff:192.0.2.1", false)]  // Different families stay distinct
+    [InlineData("invalid", "invalid", false)]
+    [InlineData(null, "192.0.2.1", false)]
+    [InlineData("", "", false)]
+    public void IpAddressesAreEqual_ReturnsExpected(string? ip1, string? ip2, bool expected)
+    {
+        NetworkUtilities.IpAddressesAreEqual(ip1, ip2).Should().Be(expected);
+    }
+
+    #endregion
+
     #region CidrCoversSubnet Tests
 
     [Theory]

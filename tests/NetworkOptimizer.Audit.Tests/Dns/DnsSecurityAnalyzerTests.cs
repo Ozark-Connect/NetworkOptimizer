@@ -6698,6 +6698,18 @@ public class DnsSecurityAnalyzerTests : IDisposable
         DnsSecurityAnalyzer.IsValidRedirectTarget("192.168.1.1", validDestinations).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("2001:db8::53", true)]                              // Same form
+    [InlineData("2001:0db8:0000:0000:0000:0000:0000:0053", true)]   // Expanded form of a valid target
+    [InlineData("2001:DB8:0:0::53", true)]                          // Partially compressed, upper case
+    [InlineData("2001:db8::54", false)]                             // Different address
+    public void IsValidRedirectTarget_Ipv6FormatVariations_ComparesByValue(string redirectIp, bool expected)
+    {
+        var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "192.168.1.1", "2001:db8::53" };
+
+        DnsSecurityAnalyzer.IsValidRedirectTarget(redirectIp, validDestinations).Should().Be(expected);
+    }
+
     #endregion
 
     #region DNAT Destination Filter Validation Tests
