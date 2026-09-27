@@ -126,6 +126,9 @@ public class TransitAsnCandidate
     public Core.Enums.ProbeMode? RespondedTo { get; set; }
     public bool Enabled { get; set; } = true;
     public bool Unreachable { get; set; }
+    /// <summary>With <see cref="Unreachable"/>: the hop answers ping, but by a different path than
+    /// the trace that found it (its ping RTT is well above its trace RTT), so it is excluded.</summary>
+    public bool OffPath { get; set; }
     public double? VerifiedRttMs { get; set; }
     /// <summary>For PathProxy tier: the CDN endpoint we monitor as a proxy for this ASN.</summary>
     public string? PathProxyTarget { get; set; }

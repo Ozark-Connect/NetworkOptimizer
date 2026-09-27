@@ -1389,6 +1389,19 @@ public class AccessIspFallbackTests
         UpstreamTracerService.SelectLowestRtt(Array.Empty<UpstreamTracerService.AccessFallbackProbe>())
             .Should().BeNull();
     }
+
+    [Theory]
+    [InlineData(17.3, 27.5, true)]    // IX peering-LAN hop pinged through another carrier: +10 ms
+    [InlineData(17.3, 21.0, false)]   // +3.7 ms, under the 5 ms floor
+    [InlineData(2.5, 8.0, true)]      // metro hop, +5.5 ms clears the floor
+    [InlineData(2.5, 7.0, false)]     // +4.5 ms at metro RTT is still under the floor
+    [InlineData(80.0, 98.0, false)]   // long-haul: +18 ms is under 25%
+    [InlineData(80.0, 102.0, true)]   // long-haul: +22 ms clears 25%
+    [InlineData(17.3, 15.0, false)]   // a faster ping is never off path
+    public void IsOffPath_flags_ping_rtt_well_above_trace_rtt(double traceRtt, double pingRtt, bool expected)
+    {
+        UpstreamTracerService.IsOffPath(traceRtt, pingRtt).Should().Be(expected);
+    }
 }
 
 public class CarveOutBlockedByTier1AccessTests
