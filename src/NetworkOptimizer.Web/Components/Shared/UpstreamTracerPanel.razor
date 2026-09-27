@@ -308,7 +308,14 @@
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
-                                            <td>@(asn.OffPath ? "Off path" : asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                            @if (asn.OffPath)
+                                            {
+                                                <td>Different route <span class="tooltip-icon tooltip-icon-sm" data-tooltip="This router answers ping, but by a different route than your traffic takes through it. Its latency would not reflect your connection's path, so it is not monitored.">?</span></td>
+                                            }
+                                            else
+                                            {
+                                                <td>@(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
