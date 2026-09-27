@@ -514,12 +514,19 @@ public static class NetworkUtilities
 
     /// <summary>
     /// Check if an IP address is a public/routable address.
+    /// IPv4: anything not private. IPv6: global unicast (2000::/3) only, so multicast,
+    /// unspecified, and other special ranges are neither public nor private.
     /// </summary>
     /// <param name="ip">Parsed IP address to check</param>
     /// <returns>True if the IP is public/routable, false if private</returns>
     public static bool IsPublicIpAddress(IPAddress ip)
     {
-        // Only handle IPv4
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+            return (ip.GetAddressBytes()[0] & 0xE0) == 0x20;
+
         if (ip.AddressFamily != AddressFamily.InterNetwork)
             return false;
 

@@ -243,6 +243,95 @@ public class FirewallIpFamilyTests
         copy.Purpose.Should().Be(NetworkPurpose.IoT);
     }
 
+    [Fact]
+    public void WithPurpose_KeepsIpv6DnsServers()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "n1", Name = "Home", VlanId = 10, HasIpv6 = true,
+            Ipv6Subnets = ["2001:db8:10::/64"], Ipv6DnsServers = ["2001:db8:10::53"]
+        };
+
+        network.WithPurpose(NetworkPurpose.IoT, hasPurposeOverride: true)
+            .Ipv6DnsServers.Should().Equal("2001:db8:10::53");
+    }
+
+    [Fact]
+    public void ExtractNetworks_ReadsCustomIpv6DnsOnlyWhenAutoIsOff()
+    {
+        var devices = JsonDocument.Parse(@"[{
+            ""type"": ""udm"",
+            ""network_table"": [
+                { ""_id"": ""custom"", ""name"": ""Home"", ""vlan"": 10, ""ip_subnet"": ""192.0.2.1/24"",
+                  ""dhcpd_dns_enabled"": true, ""dhcpd_dns_1"": ""192.0.2.53"",
+                  ""ipv6_interface_type"": ""static"", ""ipv6_subnet"": ""2001:db8:10::1/64"",
+                  ""dhcpdv6_dns_auto"": false, ""dhcpdv6_dns_1"": ""2001:4860:4860::8888"", ""dhcpdv6_dns_2"": """" },
+                { ""_id"": ""auto"", ""name"": ""IoT"", ""vlan"": 20, ""ip_subnet"": ""198.51.100.1/24"",
+                  ""ipv6_interface_type"": ""static"", ""ipv6_subnet"": ""2001:db8:20::1/64"",
+                  ""dhcpdv6_dns_auto"": true, ""dhcpdv6_dns_1"": ""2001:4860:4860::8888"" },
+                { ""_id"": ""absent"", ""name"": ""Guest"", ""vlan"": 30, ""ip_subnet"": ""203.0.113.1/24"",
+                  ""ipv6_interface_type"": ""static"", ""ipv6_subnet"": ""2001:db8:30::1/64"",
+                  ""dhcpdv6_dns_1"": ""2001:4860:4860::8888"" },
+                { ""_id"": ""v6off"", ""name"": ""Lab"", ""vlan"": 40, ""ip_subnet"": ""192.0.2.129/25"",
+                  ""ipv6_interface_type"": ""none"",
+                  ""dhcpdv6_dns_auto"": false, ""dhcpdv6_dns_1"": ""2001:4860:4860::8888"" }
+            ]
+        }]").RootElement;
+
+        var networks = _vlanAnalyzer.ExtractNetworks(devices).ToDictionary(n => n.Id);
+
+        networks["custom"].Ipv6DnsServers.Should().Equal("2001:4860:4860::8888");
+        networks["custom"].DnsServers.Should().Equal("192.0.2.53"); // IPv4 DNS unchanged
+        networks["auto"].Ipv6DnsServers.Should().BeNull();
+        networks["absent"].Ipv6DnsServers.Should().BeNull();
+        networks["v6off"].Ipv6DnsServers.Should().BeNull();
+    }
+
+    [Fact]
+    public void NetworkInfoFromConfig_ReadsCustomIpv6Dns()
+    {
+        var info = _vlanAnalyzer.NetworkInfoFromConfig(new UniFiNetworkConfig
+        {
+            Id = "n1", Name = "Home", Vlan = 10, IpSubnet = "192.0.2.1/24",
+            DhcpdDnsEnabled = true, DhcpdDns1 = "192.0.2.53",
+            Ipv6InterfaceType = "static", Ipv6Subnet = "2001:db8:10::1/64",
+            Dhcpdv6DnsAuto = false, Dhcpdv6Dns1 = "2001:db8:10::53", Dhcpdv6Dns2 = "2620:fe::fe"
+        });
+
+        info.Ipv6DnsServers.Should().Equal("2001:db8:10::53", "2620:fe::fe");
+        info.DnsServers.Should().Equal("192.0.2.53");
+    }
+
+    [Theory]
+    [InlineData(true, false, new[] { "2001:db8::53" }, new[] { "2001:db8::53" })]
+    [InlineData(true, false, new[] { " 2001:db8::53 ", "2001:db8::53" }, new[] { "2001:db8::53" })] // Trimmed, deduplicated
+    [InlineData(true, false, new[] { "192.0.2.53", "not-an-ip", "" }, null)]                           // IPv4 and junk never enter the IPv6 list
+    [InlineData(true, true, new[] { "2001:db8::53" }, null)]                                            // Auto hands out the gateway
+    [InlineData(false, false, new[] { "2001:db8::53" }, null)]                                          // IPv6 off
+    public void SelectIpv6DnsServers_ReturnsExpected(bool hasIpv6, bool dnsAuto, string[] servers, string[]? expected)
+    {
+        var result = VlanAnalyzer.SelectIpv6DnsServers(hasIpv6, dnsAuto, servers);
+
+        if (expected == null)
+            result.Should().BeNull();
+        else
+            result.Should().Equal(expected);
+    }
+
+    [Fact]
+    public void SelectIpv6DnsServers_AbsentAutoFlag_MeansAuto()
+    {
+        VlanAnalyzer.SelectIpv6DnsServers(true, null, ["2001:db8::53"]).Should().BeNull();
+    }
+
+    [Fact]
+    public void UniFiNetworkConfig_UnreadIpv6DnsFields_AreNotSerialized()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new UniFiNetworkConfig { Id = "n1", Name = "Home" });
+
+        json.Should().NotContain("dhcpdv6_dns");
+    }
+
     #endregion
 
     #region FirewallRuleEvaluator

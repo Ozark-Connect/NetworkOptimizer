@@ -208,9 +208,20 @@ public class NetworkInfo
     public List<string>? Ipv6Subnets { get; init; }
 
     /// <summary>
+    /// Custom IPv6 DNS servers handed out over DHCPv6 and RA RDNSS (dhcpdv6_dns_1..4 with
+    /// dhcpdv6_dns_auto false). Null when IPv6 is off or the network hands out the gateway.
+    /// </summary>
+    public List<string>? Ipv6DnsServers { get; init; }
+
+    /// <summary>
     /// Whether IPv6 traffic from or to this network can be evaluated. Requires a known prefix, since
     /// address-based rules cannot be matched to the network without one.
     /// </summary>
+    /// <remarks>
+    /// Deliberate: without a prefix the audit makes no IPv6 claim for the network, in either
+    /// direction. Do not report it as a gap. rest/networkconf never carries a delegated prefix
+    /// (only the gateway network_table does), so this is expected for PD networks read from there.
+    /// </remarks>
     public bool IsIpv6Evaluable => HasIpv6 && Ipv6Subnets is { Count: > 0 };
 
     /// <summary>
@@ -252,6 +263,7 @@ public class NetworkInfo
         Enabled = Enabled,
         HasPurposeOverride = hasPurposeOverride,
         HasIpv6 = HasIpv6,
-        Ipv6Subnets = Ipv6Subnets
+        Ipv6Subnets = Ipv6Subnets,
+        Ipv6DnsServers = Ipv6DnsServers
     };
 }
