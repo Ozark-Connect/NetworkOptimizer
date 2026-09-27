@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
@@ -249,11 +250,14 @@ public class FirewallIpFamilyTests
         var network = new NetworkInfo
         {
             Id = "n1", Name = "Home", VlanId = 10, HasIpv6 = true,
-            Ipv6Subnets = ["2001:db8:10::/64"], Ipv6DnsServers = ["2001:db8:10::53"]
+            Ipv6Subnets = ["2001:db8:10::/64"], Ipv6GatewayAddresses = ["2001:db8:10::1"],
+            Ipv6DnsServers = ["2001:db8:10::53"]
         };
 
-        network.WithPurpose(NetworkPurpose.IoT, hasPurposeOverride: true)
-            .Ipv6DnsServers.Should().Equal("2001:db8:10::53");
+        var copy = network.WithPurpose(NetworkPurpose.IoT, hasPurposeOverride: true);
+
+        copy.Ipv6DnsServers.Should().Equal("2001:db8:10::53");
+        copy.Ipv6GatewayAddresses.Should().Equal("2001:db8:10::1");
     }
 
     [Fact]
@@ -316,6 +320,86 @@ public class FirewallIpFamilyTests
             result.Should().BeNull();
         else
             result.Should().Equal(expected);
+    }
+
+    [Fact]
+    public void ExtractNetworks_AdvancedBackToAuto_IgnoresTheStoredServer()
+    {
+        // Live console shape: switching IPv6 Advanced back to Auto sets dhcpdv6_dns_auto true
+        // but leaves the old server stored in dhcpdv6_dns_1
+        var devices = JsonDocument.Parse(@"[{
+            ""type"": ""uxg"",
+            ""network_table"": [
+                { ""_id"": ""pd"", ""name"": ""Gaming"", ""vlan"": 69, ""ip_subnet"": ""198.51.100.1/24"",
+                  ""ipv6_interface_type"": ""pd"", ""ipv6_subnets"": [""2001:db8:69::1/64""],
+                  ""ipv6_setting_preference"": ""auto"", ""dhcpdv6_dns_auto"": true,
+                  ""dhcpdv6_dns_1"": ""2606:4700:4700::1111"", ""dhcpdv6_dns_2"": """" }
+            ]
+        }]").RootElement;
+
+        _vlanAnalyzer.ExtractNetworks(devices).Single().Ipv6DnsServers.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractNetworks_ReadsTheGatewaysIpv6Addresses()
+    {
+        var devices = JsonDocument.Parse(@"[{
+            ""type"": ""uxg"",
+            ""network_table"": [
+                { ""_id"": ""pd"", ""name"": ""Gaming"", ""vlan"": 69, ""ip_subnet"": ""198.51.100.1/24"",
+                  ""ipv6_interface_type"": ""pd"", ""ipv6_subnets"": [""2001:db8:69::1/64""],
+                  ""ipv6_link_local_address"": ""fe80::1e0b:8bff:fe00:1"" }
+            ]
+        }]").RootElement;
+
+        var network = _vlanAnalyzer.ExtractNetworks(devices).Single();
+
+        network.Ipv6GatewayAddresses.Should().Equal("fe80::1e0b:8bff:fe00:1", "2001:db8:69::1");
+        network.Ipv6Subnets.Should().Equal("2001:db8:69::/64");
+    }
+
+    [Theory]
+    [InlineData("2001:db8:1::1/64", "2001:db8:1::1")]
+    [InlineData("2001:db8:1:0:0:0:0:1/64", "2001:db8:1::1")] // Canonical form
+    [InlineData("2001:db8:1::/64", null)]                    // Network form names no gateway
+    [InlineData("192.0.2.1/24", null)]                       // IPv4 is not an IPv6 gateway
+    [InlineData("garbage", null)]
+    public void ExtractIpv6GatewayAddresses_ReturnsExpected(string prefix, string? expected)
+    {
+        var result = VlanAnalyzer.ExtractIpv6GatewayAddresses([prefix]);
+
+        if (expected == null)
+            result.Should().BeNull();
+        else
+            result.Should().Equal(expected);
+    }
+
+    [Fact]
+    public void ExtractIpv6GatewayAddresses_IgnoresANonLinkLocalLinkLocalField()
+    {
+        VlanAnalyzer.ExtractIpv6GatewayAddresses([], "2001:db8::1").Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(null, true)]                          // Auto DNS Server
+    [InlineData(new[] { "2001:db8:10::1" }, true)]    // The gateway's own address
+    [InlineData(new[] { "fd00:10::53" }, false)]      // A LAN resolver
+    public void HandsOutGatewayOverIpv6_ReturnsExpected(string[]? ipv6Dns, bool expected)
+    {
+        var network = new NetworkInfo
+        {
+            Id = "n1", Name = "Home", VlanId = 10, HasIpv6 = true,
+            Ipv6GatewayAddresses = ["2001:db8:10::1"], Ipv6DnsServers = ipv6Dns?.ToList()
+        };
+
+        ThirdPartyDnsDetector.HandsOutGatewayOverIpv6(network).Should().Be(expected);
+    }
+
+    [Fact]
+    public void HandsOutGatewayOverIpv6_NetworkWithoutIpv6_IsFalse()
+    {
+        ThirdPartyDnsDetector.HandsOutGatewayOverIpv6(new NetworkInfo { Id = "n1", Name = "Home", VlanId = 10 })
+            .Should().BeFalse();
     }
 
     [Fact]

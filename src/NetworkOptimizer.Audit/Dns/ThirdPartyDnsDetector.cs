@@ -67,7 +67,7 @@ public class ThirdPartyDnsDetector
     public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPort = null, string? customUrl = null)
     {
         var results = new List<ThirdPartyDnsInfo>();
-        var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
+        var probed = new Dictionary<string, ResolverProbe>(); // Avoid probing the same IP multiple times
 
         _logger.LogInformation("Checking {Count} networks for third-party DNS servers", networks.Count);
 
@@ -120,109 +120,137 @@ public class ThirdPartyDnsDetector
                     network.Name, dnsServer, gatewayIp);
 
                 // Only probe each IP once
-                bool isPihole = false;
-                string? piholeVersion = null;
-                bool isAdGuardHome = false;
-                string? adGuardHomeVersion = null;
-                bool isTechnitiumDns = false;
-                bool isNextDns = false;
-                string? nextDnsProfile = null;
-                bool isControlD = false;
-                string providerName = "Third-Party LAN DNS";
-
-                if (!probedIps.Contains(dnsServer))
+                if (!probed.TryGetValue(dnsServer, out var probe))
                 {
-                    probedIps.Add(dnsServer);
-
-                    // Try Pi-hole detection first
-                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPort, customUrl);
-                    if (isPihole)
-                    {
-                        providerName = "Pi-hole";
-                        _logger.LogInformation("Detected Pi-hole at {Ip} (version: {Version})", dnsServer, piholeVersion ?? "unknown");
-                    }
-                    else
-                    {
-                        // If not Pi-hole, try AdGuard Home detection
-                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customPort, customUrl);
-                        if (isAdGuardHome)
-                        {
-                            providerName = "AdGuard Home";
-                            _logger.LogInformation("Detected AdGuard Home at {Ip} (version: {Version})", dnsServer, adGuardHomeVersion ?? "unknown");
-                        }
-                        else
-                        {
-                            // If not AdGuard Home, try Technitium DNS detection before slower
-                            // DNS-based probes.
-                            isTechnitiumDns = await ProbeTechnitiumDnsAsync(dnsServer, customPort, customUrl);
-                            if (isTechnitiumDns)
-                            {
-                                providerName = "Technitium DNS";
-                                _logger.LogInformation("Detected Technitium DNS at {Ip}", dnsServer);
-                            }
-                            else
-                            {
-                                // If not Technitium, try NextDNS CLI detection. This is slower than
-                                // the local-HTTP probes (requires DNS query through the resolver plus
-                                // an HTTPS round-trip to NextDNS's test endpoint), so it goes last.
-                                (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(dnsServer);
-                                if (isNextDns)
-                                {
-                                    providerName = "NextDNS CLI";
-                                    _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
-                                }
-                                else
-                                {
-                                    isControlD = await ProbeControlDAsync(dnsServer);
-                                    if (isControlD)
-                                    {
-                                        providerName = "ControlD";
-                                        _logger.LogInformation("Detected ControlD at {Ip}", dnsServer);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // Reuse result from previous probe
-                    var existingResult = results.FirstOrDefault(r => r.DnsServerIp == dnsServer);
-                    if (existingResult != null)
-                    {
-                        isPihole = existingResult.IsPihole;
-                        piholeVersion = existingResult.PiholeVersion;
-                        isAdGuardHome = existingResult.IsAdGuardHome;
-                        adGuardHomeVersion = existingResult.AdGuardHomeVersion;
-                        isTechnitiumDns = existingResult.IsTechnitiumDns;
-                        isNextDns = existingResult.IsNextDns;
-                        nextDnsProfile = existingResult.NextDnsProfile;
-                        isControlD = existingResult.IsControlD;
-                        providerName = existingResult.DnsProviderName;
-                    }
+                    probe = await ProbeResolverAsync(dnsServer, customPort, customUrl);
+                    probed[dnsServer] = probe;
                 }
 
-                results.Add(new ThirdPartyDnsInfo
-                {
-                    DnsServerIp = dnsServer,
-                    NetworkName = network.Name,
-                    NetworkVlanId = network.VlanId,
-                    IsLanIp = true,
-                    IsPihole = isPihole,
-                    PiholeVersion = piholeVersion,
-                    IsAdGuardHome = isAdGuardHome,
-                    AdGuardHomeVersion = adGuardHomeVersion,
-                    IsTechnitiumDns = isTechnitiumDns,
-                    IsNextDns = isNextDns,
-                    NextDnsProfile = nextDnsProfile,
-                    IsControlD = isControlD,
-                    DnsProviderName = providerName
-                });
+                results.Add(ToThirdPartyDnsInfo(probe, dnsServer, network));
             }
         }
 
         return results;
     }
+
+    /// <summary>
+    /// The IPv6 half of <see cref="DetectThirdPartyDnsAsync"/>: custom IPv6 DNS servers handed out over
+    /// DHCPv6 and RA RDNSS that sit on the LAN (a ULA, a link-local address, or inside a known prefix)
+    /// and are not the gateway. Kept apart from the IPv4 results, which drive the IPv4 findings.
+    /// </summary>
+    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyIpv6DnsAsync(List<NetworkInfo> networks, int? customPort = null, string? customUrl = null)
+    {
+        var results = new List<ThirdPartyDnsInfo>();
+        var probed = new Dictionary<string, ResolverProbe>(StringComparer.OrdinalIgnoreCase);
+        var internalPrefixes = networks.SelectMany(n => n.Ipv6Subnets ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        foreach (var network in networks)
+        {
+            if (!network.Enabled || network.Ipv6DnsServers is not { Count: > 0 })
+                continue;
+
+            foreach (var dnsServer in network.Ipv6DnsServers)
+            {
+                if (IsIpv6GatewayAddress(dnsServer, network) || !IsLanIpv6Address(dnsServer, internalPrefixes))
+                    continue;
+
+                _logger.LogInformation("Network {Network} uses third-party LAN DNS over IPv6: {DnsServer}", network.Name, dnsServer);
+
+                if (!probed.TryGetValue(dnsServer, out var probe))
+                {
+                    probe = await ProbeResolverAsync(dnsServer, customPort, customUrl);
+                    probed[dnsServer] = probe;
+                }
+
+                results.Add(ToThirdPartyDnsInfo(probe, dnsServer, network));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Whether a network hands out only the gateway as its IPv6 resolver: DHCPv6/RDNSS DNS Control
+    /// on auto, or every custom server being one of the gateway's own addresses.
+    /// </summary>
+    public static bool HandsOutGatewayOverIpv6(NetworkInfo network) =>
+        network.HasIpv6 &&
+        (network.Ipv6DnsServers is not { Count: > 0 } || network.Ipv6DnsServers.All(s => IsIpv6GatewayAddress(s, network)));
+
+    private static bool IsIpv6GatewayAddress(string address, NetworkInfo network) =>
+        network.Ipv6GatewayAddresses?.Any(g => NetworkUtilities.IpAddressesAreEqual(g, address)) == true;
+
+    private static bool IsLanIpv6Address(string address, List<string> internalPrefixes) =>
+        IPAddress.TryParse(address, out var ip) &&
+        (ip.IsIPv6LinkLocal || NetworkUtilities.IsIPv6UniqueLocal(ip) || NetworkUtilities.IsIpInAnySubnet(address, internalPrefixes));
+
+    /// <summary>
+    /// What one resolver address was identified as. Probes run most specific first; the DNS-based
+    /// NextDNS and ControlD probes are slower (a query through the resolver plus an HTTPS round-trip),
+    /// so they go last.
+    /// </summary>
+    private sealed record ResolverProbe(
+        string ProviderName,
+        bool IsPihole = false, string? PiholeVersion = null,
+        bool IsAdGuardHome = false, string? AdGuardHomeVersion = null,
+        bool IsTechnitiumDns = false,
+        bool IsNextDns = false, string? NextDnsProfile = null,
+        bool IsControlD = false);
+
+    private async Task<ResolverProbe> ProbeResolverAsync(string dnsServer, int? customPort, string? customUrl)
+    {
+        var (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPort, customUrl);
+        if (isPihole)
+        {
+            _logger.LogInformation("Detected Pi-hole at {Ip} (version: {Version})", dnsServer, piholeVersion ?? "unknown");
+            return new ResolverProbe("Pi-hole", IsPihole: true, PiholeVersion: piholeVersion);
+        }
+
+        var (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customPort, customUrl);
+        if (isAdGuardHome)
+        {
+            _logger.LogInformation("Detected AdGuard Home at {Ip} (version: {Version})", dnsServer, adGuardHomeVersion ?? "unknown");
+            return new ResolverProbe("AdGuard Home", IsAdGuardHome: true, AdGuardHomeVersion: adGuardHomeVersion);
+        }
+
+        if (await ProbeTechnitiumDnsAsync(dnsServer, customPort, customUrl))
+        {
+            _logger.LogInformation("Detected Technitium DNS at {Ip}", dnsServer);
+            return new ResolverProbe("Technitium DNS", IsTechnitiumDns: true);
+        }
+
+        var (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(dnsServer);
+        if (isNextDns)
+        {
+            _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
+            return new ResolverProbe("NextDNS CLI", IsNextDns: true, NextDnsProfile: nextDnsProfile);
+        }
+
+        if (await ProbeControlDAsync(dnsServer))
+        {
+            _logger.LogInformation("Detected ControlD at {Ip}", dnsServer);
+            return new ResolverProbe("ControlD", IsControlD: true);
+        }
+
+        return new ResolverProbe("Third-Party LAN DNS");
+    }
+
+    private static ThirdPartyDnsInfo ToThirdPartyDnsInfo(ResolverProbe probe, string dnsServer, NetworkInfo network) => new()
+    {
+        DnsServerIp = dnsServer,
+        NetworkName = network.Name,
+        NetworkVlanId = network.VlanId,
+        IsLanIp = true,
+        IsPihole = probe.IsPihole,
+        PiholeVersion = probe.PiholeVersion,
+        IsAdGuardHome = probe.IsAdGuardHome,
+        AdGuardHomeVersion = probe.AdGuardHomeVersion,
+        IsTechnitiumDns = probe.IsTechnitiumDns,
+        IsNextDns = probe.IsNextDns,
+        NextDnsProfile = probe.NextDnsProfile,
+        IsControlD = probe.IsControlD,
+        DnsProviderName = probe.ProviderName
+    };
 
     /// <summary>
     /// Detect networks configured to use external public DNS servers (e.g., 1.1.1.1, 8.8.8.8).
@@ -807,7 +835,7 @@ public class ThirdPartyDnsDetector
         try
         {
             var scheme = useHttps ? "https" : "http";
-            var url = $"{scheme}://{ipAddress}:{port}/api/info/login";
+            var url = $"{scheme}://{NetworkUtilities.UrlHost(ipAddress)}:{port}/api/info/login";
 
             _logger.LogDebug("Probing Pi-hole at {Url}", url);
 
@@ -966,7 +994,7 @@ public class ThirdPartyDnsDetector
         try
         {
             var scheme = useHttps ? "https" : "http";
-            var loginUrl = $"{scheme}://{ipAddress}:{port}/login.html";
+            var loginUrl = $"{scheme}://{NetworkUtilities.UrlHost(ipAddress)}:{port}/login.html";
 
             _logger.LogDebug("Probing AdGuard Home at {Url}", loginUrl);
 
@@ -985,7 +1013,7 @@ public class ThirdPartyDnsDetector
                 return (false, null);
 
             var jsFileName = jsMatch.Groups[1].Value;
-            var jsUrl = $"{scheme}://{ipAddress}:{port}/{jsFileName}";
+            var jsUrl = $"{scheme}://{NetworkUtilities.UrlHost(ipAddress)}:{port}/{jsFileName}";
 
             _logger.LogDebug("Fetching AdGuard Home JS bundle at {Url}", jsUrl);
 
@@ -1155,7 +1183,7 @@ public class ThirdPartyDnsDetector
     private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string ipAddress, int port, bool useHttps = false)
     {
         var scheme = useHttps ? "https" : "http";
-        var baseUrl = $"{scheme}://{ipAddress}:{port}";
+        var baseUrl = $"{scheme}://{NetworkUtilities.UrlHost(ipAddress)}:{port}";
         // Per-IP-port probes use a short 1s timeout (matching Pi-hole/AdGuard); the
         // longer 3s default is reserved for the custom-URL/reverse-proxy path.
         return await TryProbeTechnitiumDnsEndpointAsync(baseUrl, timeoutSeconds: 1);
