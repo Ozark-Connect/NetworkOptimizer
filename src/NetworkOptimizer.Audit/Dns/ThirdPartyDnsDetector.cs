@@ -370,7 +370,11 @@ public class ThirdPartyDnsDetector
     private static string? GetPublicDnsProviderName(string ipAddress)
     {
         if (ipAddress.Contains(':'))
-            return DohProviderRegistry.IdentifyProviderFromIp(ipAddress)?.Name;
+        {
+            // Match the IPv4 names below, so one provider's addresses group into one finding
+            var name = DohProviderRegistry.IdentifyProviderFromIp(ipAddress)?.Name;
+            return name == "AdGuard" ? "AdGuard DNS" : name;
+        }
 
         return ipAddress switch
         {

@@ -47,6 +47,8 @@ public static class DohProviderRegistry
             StampPrefix = "adguard",
             Hostnames = new[] { "dns.adguard.com", "dns-family.adguard.com", "dns-unfiltered.adguard.com" },
             DnsIps = new[] { "94.140.14.14", "94.140.15.15", "94.140.14.15", "94.140.15.16" },
+            // Default, Family protection, and Non-filtering, per adguard-dns.io/kb/general/dns-providers
+            Ipv6Addresses = new[] { "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff", "2a10:50c0::bad1:ff", "2a10:50c0::bad2:ff", "2a10:50c0::1:ff", "2a10:50c0::2:ff" },
             SupportsFiltering = true,
             HasCustomConfig = true,
             Description = "AdGuard DNS with ad blocking"
@@ -101,6 +103,8 @@ public static class DohProviderRegistry
             StampPrefix = "cleanbrowsing",
             Hostnames = new[] { "doh.cleanbrowsing.org" },
             DnsIps = new[] { "185.228.168.168", "185.228.169.168", "185.228.168.10", "185.228.169.11" },
+            // Family, Adult, and Security filters, per cleanbrowsing.org/filters
+            Ipv6Addresses = new[] { "2a0d:2a00:1::", "2a0d:2a00:2::", "2a0d:2a00:1::1", "2a0d:2a00:2::1", "2a0d:2a00:1::2", "2a0d:2a00:2::2" },
             SupportsFiltering = true,
             HasCustomConfig = false,
             Description = "CleanBrowsing Family-safe DNS"
@@ -111,6 +115,7 @@ public static class DohProviderRegistry
             StampPrefix = "libredns",
             Hostnames = new[] { "doh.libredns.gr" },
             DnsIps = new[] { "116.202.176.26" },
+            Ipv6Addresses = new[] { "2a01:4f8:1c0c:8274::1" }, // Per libredns.gr
             SupportsFiltering = false,
             HasCustomConfig = false,
             Description = "LibreDNS - Privacy-focused"
@@ -121,6 +126,8 @@ public static class DohProviderRegistry
             StampPrefix = "controld",
             Hostnames = new[] { "controld.com", "dns.controld.com" },
             DnsIps = new[] { "76.76." }, // Prefix match fallback for ControlD anycast
+            // ControlD's resolvers sit across 2606:1a40::/32 (::11, ::22, f000::11 in the ctrld client source)
+            Ipv6Prefixes = new[] { "2606:1a40:" },
             SupportsFiltering = true,
             HasCustomConfig = true,
             Description = "ControlD - Privacy-focused DNS with filtering"
