@@ -873,7 +873,7 @@
         if (hop.Type == HopType.AccessPoint && hop.MloEnabled.HasValue)
         {
             var mloStatus = hop.MloEnabled.Value ? "Enabled" : "Disabled";
-            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>MLO:</span> {mloStatus}</div>");
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Client MLO:</span> {mloStatus}</div>");
         }
 
         // Show device settings

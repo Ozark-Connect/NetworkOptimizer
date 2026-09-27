@@ -622,7 +622,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     /// grouped by AP MAC address.
     /// </summary>
     public async Task<Dictionary<string, List<Iperf3Result>>> GetApDeviceTestsAsync(
-        Dictionary<string, string> apIpToMac, int countPerAp = 5)
+        Dictionary<string, string> apIpToMac, int countPerAp = 3)
     {
         if (apIpToMac.Count == 0) return new();
 
