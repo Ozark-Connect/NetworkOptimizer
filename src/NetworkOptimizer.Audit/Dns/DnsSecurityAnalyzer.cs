@@ -3130,7 +3130,8 @@ public class DnsSecurityAnalyzer
 
     /// <summary>
     /// Check if a redirect IP (which may be a range) is valid against the set of expected destinations.
-    /// For ranges, ALL IPs in the range must be valid destinations.
+    /// For ranges, ALL IPs in the range must be valid destinations. Addresses compare by value,
+    /// so an IPv6 target written expanded matches the same address written compressed.
     /// </summary>
     public static bool IsValidRedirectTarget(string? redirectIp, HashSet<string> validDestinations)
     {
@@ -3142,7 +3143,8 @@ public class DnsSecurityAnalyzer
             return true;
 
         // All IPs in the range must be valid destinations
-        return ips.All(ip => validDestinations.Contains(ip));
+        return ips.All(ip => validDestinations.Contains(ip)
+            || validDestinations.Any(dest => NetworkUtilities.IpAddressesAreEqual(ip, dest)));
     }
 }
 
