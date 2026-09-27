@@ -37,6 +37,7 @@ public class TopologySnapshotService : ITopologySnapshotService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<TopologySnapshotService> _logger;
+    private readonly GatewaySshRegistry? _gatewaySsh;
 
     private readonly ConcurrentDictionary<string, SnapshotEntry> _snapshots = new();
 
@@ -52,8 +53,10 @@ public class TopologySnapshotService : ITopologySnapshotService
         MonitoringLiveStatsRegistry liveStats,
         INetworkPathAnalyzer pathAnalyzer,
         ILoggerFactory loggerFactory,
-        ILogger<TopologySnapshotService> logger)
+        ILogger<TopologySnapshotService> logger,
+        GatewaySshRegistry? gatewaySsh = null)
     {
+        _gatewaySsh = gatewaySsh;
         _clientProvider = clientProvider;
         _liveStats = liveStats;
         _pathAnalyzer = pathAnalyzer;
@@ -164,14 +167,26 @@ public class TopologySnapshotService : ITopologySnapshotService
 
             // Also poll WiFiman for the target client's realtime rates
             var targetClient = topology.Clients.FirstOrDefault(c => c.IpAddress == clientIp);
-            await EnrichWithWiFiManAsync(snapshot, clientIp, targetClient);
+
+            // An IPv6 source is listed under the device's IPv4 address: find the device by MAC and
+            // key WiFiman by that IPv4, which is what path analysis looks the data up by.
+            var wifiManIp = clientIp;
+            if (targetClient == null && _gatewaySsh != null && Ssh.GatewayNeighborTable.IsResolvable(clientIp))
+            {
+                var mac = await _gatewaySsh.GetNeighborTableFor(siteSlug).ResolveMacAsync(clientIp);
+                targetClient = mac == null ? null
+                    : topology.Clients.FirstOrDefault(c => string.Equals(c.Mac, mac, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(targetClient?.IpAddress))
+                    wifiManIp = targetClient.IpAddress;
+            }
+            await EnrichWithWiFiManAsync(snapshot, wifiManIp, targetClient);
 
             // Store snapshot (overwrite any existing for this IP)
             _snapshots[Key(siteSlug, clientIp)] = new SnapshotEntry(snapshot, DateTime.UtcNow);
 
             if (targetClient != null && !targetClient.IsWired && snapshot.ClientRates.TryGetValue(targetClient.Mac, out var targetRates))
             {
-                var wifimanNote = snapshot.WiFiManData.ContainsKey(clientIp) ? " (WiFiman enriched)" : "";
+                var wifimanNote = snapshot.WiFiManData.ContainsKey(wifiManIp) ? " (WiFiman enriched)" : "";
                 _logger.LogDebug(
                     "Captured snapshot for {ClientIp} ({Name}): Tx={Tx}Kbps, Rx={Rx}Kbps ({Total} clients, {Mesh} mesh){WiFiMan}",
                     clientIp, targetClient.Name ?? "Unknown", targetRates.TxKbps, targetRates.RxKbps,

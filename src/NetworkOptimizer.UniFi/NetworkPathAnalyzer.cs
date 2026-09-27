@@ -2721,9 +2721,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// This includes VPN ranges (Tailscale, Teleport), VPN network clients, and public internet IPs.
     /// VPN network IPs are considered external because VPN clients don't appear as devices/clients in UniFi.
     /// </summary>
-    private static bool IsExternalIp(string ip, NetworkTopology topology)
+    internal static bool IsExternalIp(string ip, NetworkTopology topology)
     {
-        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out var parsed))
+            return false;
+
+        // Networks carry IPv4 subnets only, so an IPv6 unique-local or link-local address matches
+        // none of them. It is still never an internet address.
+        if (parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            && !parsed.IsIPv4MappedToIPv6 && NetworkUtilities.IsPrivateIpAddress(parsed))
             return false;
 
         // Check if in any known network

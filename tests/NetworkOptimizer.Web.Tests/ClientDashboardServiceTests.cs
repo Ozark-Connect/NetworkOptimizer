@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Ssh;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests;
@@ -103,7 +104,7 @@ public class ClientDashboardServiceTests
             fd00::5678 dev br2 lladdr 44:a7:f4:32:28:e0 STALE
             """;
 
-        ClientDashboardService.TryGetMacFromNeighborOutput(output, "fd00::1234")
+        GatewayNeighborTable.TryGetMacFromNeighborOutput(output, "fd00::1234")
             .Should().Be("f4:4d:ad:05:58:36");
     }
 
@@ -113,7 +114,7 @@ public class ClientDashboardServiceTests
     [InlineData("fd00::5678 dev br2 lladdr f4:4d:ad:05:58:36 REACHABLE")]
     public void TryGetMacFromNeighborOutput_RejectsMissingOrDifferentEntries(string output)
     {
-        ClientDashboardService.TryGetMacFromNeighborOutput(output, "fd00::1234")
+        GatewayNeighborTable.TryGetMacFromNeighborOutput(output, "fd00::1234")
             .Should().BeNull();
     }
 
@@ -156,7 +157,7 @@ public class ClientDashboardServiceTests
     [Fact]
     public void TryGetMacFromNeighborOutput_NormalizesIpv6AndWhitespace()
     {
-        ClientDashboardService.TryGetMacFromNeighborOutput(
+        GatewayNeighborTable.TryGetMacFromNeighborOutput(
             "2001:db8::1\tdev br0 lladdr 02:AA:00:00:00:01 STALE", "2001:0DB8:0:0:0:0:0:1")
             .Should().Be("02:aa:00:00:00:01");
     }
@@ -170,7 +171,7 @@ public class ClientDashboardServiceTests
     [InlineData("::ffff:10.0.0.1 dev br0 lladdr 02:00:00:00:00:01 REACHABLE", "::ffff:10.0.0.1")]
     public void TryGetMacFromNeighborOutput_RejectsUnusableNeighbors(string output, string requested)
     {
-        ClientDashboardService.TryGetMacFromNeighborOutput(output, requested).Should().BeNull();
+        GatewayNeighborTable.TryGetMacFromNeighborOutput(output, requested).Should().BeNull();
     }
 
     [Fact]
@@ -178,7 +179,7 @@ public class ClientDashboardServiceTests
     {
         var output = "fd00::1 dev br0 lladdr 02:00:00:00:00:01 REACHABLE\n"
             + "fd00:0:0:0:0:0:0:1 dev br1 lladdr 02:00:00:00:00:02 STALE";
-        ClientDashboardService.TryGetMacFromNeighborOutput(output, "fd00::1").Should().BeNull();
+        GatewayNeighborTable.TryGetMacFromNeighborOutput(output, "fd00::1").Should().BeNull();
     }
 
 }

@@ -31,6 +31,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly Licensing.LicenseStateService? _licenseState;
     private readonly Monitoring.SiteVantageDnsResolver? _dnsResolver;
     private readonly SiteSpeedTestHostSelector? _hostSelector;
+    private readonly Ssh.GatewayNeighborTable? _neighborTable;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
@@ -59,6 +60,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         IAlertEventBus? alertEventBus = null,
         Monitoring.SiteVantageDnsResolver? dnsResolver = null,
         SiteSpeedTestHostSelector? hostSelector = null,
+        GatewaySshRegistry? gatewaySshRegistry = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
@@ -77,6 +79,48 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _siteDbFactory = siteDbFactory;
         _influx = influxRegistry?.GetFor(_siteSlug);
         _apAgents = apAgents;
+        _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
+    }
+
+    /// <summary>
+    /// Ties a result from an IPv6 source to its device. UniFi Network usually lists a client by
+    /// its IPv4 address only, so an IPv6 source matched nothing: the result showed the raw
+    /// address and traced out through the WAN. The gateway's neighbor table gives the MAC, which
+    /// enrichment and path analysis then use. IPv4 results are left alone.
+    /// </summary>
+    private async Task ResolveIpv6ClientMacAsync(Iperf3Result result)
+    {
+        if (_neighborTable == null || !string.IsNullOrEmpty(result.ClientMac)
+            || !Ssh.GatewayNeighborTable.IsResolvable(result.DeviceHost))
+            return;
+
+        var mac = await _neighborTable.ResolveMacAsync(result.DeviceHost);
+        if (mac != null)
+        {
+            result.ClientMac = mac;
+            _logger.LogDebug("Resolved IPv6 speed test client {Ip} to {Mac} from the gateway neighbor table",
+                result.DeviceHost, mac);
+        }
+    }
+
+    /// <summary>
+    /// What path analysis traces to. For an IPv6 source, the IPv4 address UniFi Network lists the
+    /// device under, so the topology match and the snapshot's WiFiman data (both keyed by that
+    /// IPv4) line up; the MAC when it lists none. Otherwise the address the test came from.
+    /// </summary>
+    private async Task<string> PathTargetAsync(Iperf3Result result)
+    {
+        if (_neighborTable == null || !Ssh.GatewayNeighborTable.IsResolvable(result.DeviceHost))
+            return result.DeviceHost;
+
+        var resolved = await _neighborTable.ResolveClientAsync(result.DeviceHost, _connectionService.Client);
+        if (resolved is { } client)
+        {
+            if (string.IsNullOrEmpty(result.ClientMac))
+                result.ClientMac = client.Mac;
+            return client.Ipv4 ?? client.Mac;
+        }
+        return !string.IsNullOrEmpty(result.ClientMac) ? result.ClientMac : result.DeviceHost;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -553,18 +597,19 @@ public class ClientSpeedTestService : IClientSpeedTestService
             }
 
             NetworkPath path;
+            var target = await PathTargetAsync(result);
             if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
             {
                 // WAN speed test: path is WAN → Gateway → ... → Client
                 // Pass snapshot for stable WiFi rates (same as LAN tests)
                 path = await _pathAnalyzer.CalculateWanClientPathAsync(
-                    result.DeviceHost, result.LocalIp, priorSnapshot);
+                    target, result.LocalIp, priorSnapshot);
             }
             else
             {
                 // LAN speed test: path from server to client
                 path = await _pathAnalyzer.CalculatePathAsync(
-                    result.DeviceHost,
+                    target,
                     result.LocalIp,
                     retryOnFailure: true,
                     priorSnapshot,
@@ -585,7 +630,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                         _logger.LogDebug("Server position not found from {LocalIp}; retrying with site endpoint {FallbackIp}",
                             result.LocalIp ?? "auto", fallbackIp);
                         path = await _pathAnalyzer.CalculatePathAsync(
-                            result.DeviceHost, fallbackIp, retryOnFailure: false, priorSnapshot,
+                            target, fallbackIp, retryOnFailure: false, priorSnapshot,
                             forceApMac: forceApMac);
                         if (path.IsValid)
                         {
@@ -980,6 +1025,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _logger.LogWarning("Result {Id} not found for background enrichment", resultId);
                 return;
             }
+
+            // An IPv6 source is matched to its device first, so the lookup below can go by MAC
+            await ResolveIpv6ClientMacAsync(result);
 
             // Try to look up client info from UniFi
             await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
