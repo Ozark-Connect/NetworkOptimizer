@@ -261,32 +261,89 @@ public class ThirdPartyDnsDetector
                 if (NetworkUtilities.IsIpInAnySubnet(dnsServer, internalSubnets))
                     continue;
 
-                // This is a DNS server not within any internal subnet
-                var isPublic = NetworkUtilities.IsPublicIpAddress(dnsServer);
-                var providerName = isPublic ? GetPublicDnsProviderName(dnsServer) : null;
-                var dnsType = isPublic ? "public" : "private (outside configured subnets)";
-                _logger.LogInformation("Network {Network} uses external DNS: {DnsServer} ({DnsType}, {Provider})",
-                    network.Name, dnsServer, dnsType, providerName ?? "unknown provider");
+                results.Add(CreateExternalDnsInfo(network, dnsServer));
+            }
+        }
 
-                results.Add(new ExternalDnsInfo
+        results.AddRange(DetectExternalIpv6Dns(networks));
+        return results;
+    }
+
+    /// <summary>
+    /// The IPv6 half of <see cref="DetectExternalDns"/>: custom DNS servers handed out over DHCPv6 and
+    /// RA RDNSS that fall outside every known IPv6 prefix. Dual-stack clients prefer these over the
+    /// IPv4 DNS, so a network can point at the gateway over IPv4 and bypass it over IPv6.
+    /// </summary>
+    private List<ExternalDnsInfo> DetectExternalIpv6Dns(List<NetworkInfo> networks)
+    {
+        var results = new List<ExternalDnsInfo>();
+
+        var internalPrefixes = networks
+            .SelectMany(n => n.Ipv6Subnets ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // A delegated prefix the audit never learned may hold a global server, so a global address
+        // outside the known prefixes is only reported when it is a known public resolver.
+        var hasUnknownPrefix = networks.Any(n => n.Enabled && n.HasIpv6 && !n.IsIpv6Evaluable);
+
+        foreach (var network in networks)
+        {
+            // IPv6 DNS reaches clients over RA as well as DHCPv6, so the IPv4 DHCP flag does not gate it
+            if (!network.Enabled || network.Ipv6DnsServers is not { Count: > 0 })
+                continue;
+
+            foreach (var dnsServer in network.Ipv6DnsServers)
+            {
+                // Link-local is on-link by definition (typically the gateway's own fe80:: address)
+                if (IPAddress.TryParse(dnsServer, out var address) && address.IsIPv6LinkLocal)
+                    continue;
+
+                if (NetworkUtilities.IsIpInAnySubnet(dnsServer, internalPrefixes))
+                    continue;
+
+                if (hasUnknownPrefix && NetworkUtilities.IsPublicIpAddress(dnsServer) &&
+                    GetPublicDnsProviderName(dnsServer) == null)
                 {
-                    DnsServerIp = dnsServer,
-                    NetworkName = network.Name,
-                    NetworkVlanId = network.VlanId,
-                    ProviderName = providerName,
-                    IsPublicDns = isPublic
-                });
+                    _logger.LogDebug("Network {Network}: IPv6 DNS {DnsServer} not judged, a delegated prefix is unknown",
+                        network.Name, dnsServer);
+                    continue;
+                }
+
+                results.Add(CreateExternalDnsInfo(network, dnsServer));
             }
         }
 
         return results;
     }
 
+    private ExternalDnsInfo CreateExternalDnsInfo(NetworkInfo network, string dnsServer)
+    {
+        var isPublic = NetworkUtilities.IsPublicIpAddress(dnsServer);
+        var providerName = isPublic ? GetPublicDnsProviderName(dnsServer) : null;
+        var dnsType = isPublic ? "public" : "private (outside configured subnets)";
+        _logger.LogInformation("Network {Network} uses external DNS: {DnsServer} ({DnsType}, {Provider})",
+            network.Name, dnsServer, dnsType, providerName ?? "unknown provider");
+
+        return new ExternalDnsInfo
+        {
+            DnsServerIp = dnsServer,
+            NetworkName = network.Name,
+            NetworkVlanId = network.VlanId,
+            ProviderName = providerName,
+            IsPublicDns = isPublic
+        };
+    }
+
     /// <summary>
-    /// Get the provider name for well-known public DNS servers
+    /// Get the provider name for well-known public DNS servers. IPv6 addresses resolve through
+    /// <see cref="DohProviderRegistry"/>, whose resolver addresses are verified against each provider's docs.
     /// </summary>
     private static string? GetPublicDnsProviderName(string ipAddress)
     {
+        if (ipAddress.Contains(':'))
+            return DohProviderRegistry.IdentifyProviderFromIp(ipAddress)?.Name;
+
         return ipAddress switch
         {
             "1.1.1.1" or "1.0.0.1"

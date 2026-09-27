@@ -152,6 +152,8 @@ public class VlanAnalyzer
             if (dnsServers.Count == 0) dnsServers = null;
         }
 
+        var hasIpv6 = IsIpv6InterfaceEnabled(nc.Ipv6InterfaceType);
+
         return new NetworkInfo
         {
             Id = nc.Id,
@@ -169,9 +171,30 @@ public class VlanAnalyzer
             NetworkGroup = nc.Networkgroup,
             UpnpLanEnabled = nc.UpnpLanEnabled,
             Enabled = nc.Enabled,
-            HasIpv6 = IsIpv6InterfaceEnabled(nc.Ipv6InterfaceType),
-            Ipv6Subnets = NormalizeIpv6Prefixes([nc.Ipv6Subnet])
+            HasIpv6 = hasIpv6,
+            Ipv6Subnets = NormalizeIpv6Prefixes([nc.Ipv6Subnet]),
+            Ipv6DnsServers = SelectIpv6DnsServers(hasIpv6, nc.Dhcpdv6DnsAuto,
+                [nc.Dhcpdv6Dns1, nc.Dhcpdv6Dns2, nc.Dhcpdv6Dns3, nc.Dhcpdv6Dns4])
         };
+    }
+
+    /// <summary>
+    /// The custom IPv6 DNS servers a network hands out, or null when it hands out the gateway.
+    /// An absent dhcpdv6_dns_auto means auto, and IPv6 off means no IPv6 DNS is handed out at all.
+    /// Only IPv6 literals are kept, so nothing here reaches an IPv4 consumer.
+    /// </summary>
+    internal static List<string>? SelectIpv6DnsServers(bool hasIpv6, bool? dnsAuto, IEnumerable<string?> servers)
+    {
+        if (!hasIpv6 || dnsAuto != false)
+            return null;
+
+        var result = servers
+            .Where(s => System.Net.IPAddress.TryParse(s?.Trim(), out var ip) &&
+                ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            .Select(s => s!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return result.Count > 0 ? result : null;
     }
 
     /// <summary>
@@ -309,7 +332,10 @@ public class VlanAnalyzer
             UpnpLanEnabled = upnpLanEnabled,
             Enabled = networkEnabled,
             HasIpv6 = hasIpv6,
-            Ipv6Subnets = NormalizeIpv6Prefixes(rawIpv6Prefixes)
+            Ipv6Subnets = NormalizeIpv6Prefixes(rawIpv6Prefixes),
+            Ipv6DnsServers = SelectIpv6DnsServers(hasIpv6,
+                network.GetBoolOrDefault("dhcpdv6_dns_auto", true),
+                Enumerable.Range(1, 4).Select(i => network.GetStringOrNull($"dhcpdv6_dns_{i}")))
         };
     }
 

@@ -292,6 +292,19 @@ public class NetworkUtilitiesTests
     [InlineData("192.168.1.1", false)]    // Private
     [InlineData("10.0.0.1", false)]       // Private
     [InlineData("127.0.0.1", false)]      // Loopback
+    [InlineData("100.64.0.1", false)]     // CGNAT
+    [InlineData("169.254.1.1", false)]    // Link-local
+    [InlineData("::ffff:8.8.8.8", true)]  // IPv4-mapped public
+    [InlineData("::ffff:192.168.1.1", false)] // IPv4-mapped private
+    [InlineData("2001:4860:4860::8888", true)] // IPv6 global unicast
+    [InlineData("2606:4700:4700::1111", true)]
+    [InlineData("3fff::1", true)]         // Top of 2000::/3
+    [InlineData("fd00::1", false)]        // ULA
+    [InlineData("fe80::1", false)]        // Link-local
+    [InlineData("::1", false)]            // Loopback
+    [InlineData("::", false)]             // Unspecified
+    [InlineData("ff02::1", false)]        // Multicast
+    [InlineData("4000::1", false)]        // Outside 2000::/3
     public void IsPublicIpAddress_ValidCases(string ip, bool expected)
     {
         NetworkUtilities.IsPublicIpAddress(ip).Should().Be(expected);
