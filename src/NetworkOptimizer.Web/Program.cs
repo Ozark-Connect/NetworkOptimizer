@@ -338,6 +338,8 @@ builder.Services.AddSiteScopedRegistry<SiteAgentCoverage>();
 builder.Services.AddSiteScopedRegistry<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+builder.Services.AddScoped(sp => sp.GetRequiredService<GatewaySshRegistry>()
+    .GetNeighborTableFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 // Register udm-boot installer (scoped - shared gateway boot-script infrastructure
 // used by Adaptive SQM, Monitoring Interfaces, etc.; follows the current site's

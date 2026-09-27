@@ -245,7 +245,8 @@ public class ClientDashboardIdentificationTests
             instances[site.Slug] = new(null!, null!, null!, null!, null!, null!);
             Service = new ClientDashboardService(NullLogger<ClientDashboardService>.Instance,
                 null!, connection, registry, new ConfigurationBuilder().Build(), null!, site,
-                new MonitoringLiveStatsRegistry(null!), Ssh.Object, portPresence: Ports.Object);
+                new MonitoringLiveStatsRegistry(null!),
+                new GatewayNeighborTable(Ssh.Object, NullLogger<GatewayNeighborTable>.Instance), portPresence: Ports.Object);
         }
 
         public void Dispose() => _client.Dispose();

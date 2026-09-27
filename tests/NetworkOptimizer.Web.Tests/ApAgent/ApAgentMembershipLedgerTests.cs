@@ -367,4 +367,21 @@ public class ApAgentMembershipLedgerTests
         ledger.FindByIp("192.0.2.10", Now + ApAgentMembershipLedger.AnswerTtl + TimeSpan.FromSeconds(1))
             .Should().BeNull();
     }
+
+    [Fact]
+    public void FindByMac_ReturnsTheFreshMember()
+    {
+        // An IPv6 source is tied to its device by the gateway's neighbor table, which gives a MAC
+        var ledger = new ApAgentMembershipLedger();
+        ledger.Record(Ap1, new[] { Client(hostname: "TestUser-Phone", ip: "192.0.2.10") }, Now);
+
+        var known = ledger.FindByMac(StationMac.ToUpperInvariant(), Now);
+        known.Should().NotBeNull();
+        known!.ApMac.Should().Be(Ap1);
+        known.Ip.Should().Be("192.0.2.10");
+
+        ledger.FindByMac("00:11:22:33:44:99", Now).Should().BeNull();
+        ledger.FindByMac(StationMac, Now + ApAgentMembershipLedger.AnswerTtl + TimeSpan.FromSeconds(1))
+            .Should().BeNull();
+    }
 }
