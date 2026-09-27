@@ -455,19 +455,6 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
   rules" copy with no rule verification behind it.
 - **Status:** Awaiting user feedback on current third-party DNS feature before implementing
 
-### IPv6 follow-ups
-Shipped: per-family firewall and DNS evaluation (#1236), value comparison for DNAT redirect targets,
-and custom DHCPv6/RDNSS DNS servers feeding external DNS detection. Networks with IPv6 but no known
-prefix are skipped on purpose (no claim either way) - that is settled, not a gap. Management access
-checks stay IPv4-only by design: UniFi Network devices cannot be given a static IPv6 address, so
-their management traffic is IPv4 (#1231). Still IPv4-only and open:
-- DNAT redirect-target validation: the DNAT pass keeps only rules matching IPv4, so an IPv6-only
-  redirect rule is counted for coverage but its target is never validated.
-- Third-party LAN DNS detection (Pi-hole and friends) and the DNS consistency check read only the
-  IPv4 DHCP DNS list; a ULA resolver handed out over DHCPv6/RDNSS is not probed.
-- WAN DNS: `wanN.dns[]` in the device API can carry IPv6 servers, which the WAN DNS / DoH match
-  check has never been exercised against.
-
 ## Performance Audit
 
 New audit section focused on network performance issues (distinct from security audit).

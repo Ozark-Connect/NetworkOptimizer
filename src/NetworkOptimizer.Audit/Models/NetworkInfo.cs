@@ -208,6 +208,12 @@ public class NetworkInfo
     public List<string>? Ipv6Subnets { get; init; }
 
     /// <summary>
+    /// The gateway's own IPv6 addresses on this network: the host part of ipv6_subnet / ipv6_subnets
+    /// ("2001:db8:1::1/64" gives "2001:db8:1::1"). <see cref="Ipv6Subnets"/> drops it by normalizing.
+    /// </summary>
+    public List<string>? Ipv6GatewayAddresses { get; init; }
+
+    /// <summary>
     /// Custom IPv6 DNS servers handed out over DHCPv6 and RA RDNSS (dhcpdv6_dns_1..4 with
     /// dhcpdv6_dns_auto false). Null when IPv6 is off or the network hands out the gateway.
     /// </summary>
@@ -264,6 +270,7 @@ public class NetworkInfo
         HasPurposeOverride = hasPurposeOverride,
         HasIpv6 = HasIpv6,
         Ipv6Subnets = Ipv6Subnets,
+        Ipv6GatewayAddresses = Ipv6GatewayAddresses,
         Ipv6DnsServers = Ipv6DnsServers
     };
 }

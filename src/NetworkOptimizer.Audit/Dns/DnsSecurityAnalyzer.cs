@@ -103,6 +103,7 @@ public class DnsSecurityAnalyzer
         if (networkConfigs != null)
         {
             EnrichWanDnsFromNetworkConfigs(networkConfigs, result);
+            EnrichWanIpv6DnsFromNetworkConfigs(networkConfigs, result);
         }
 
         // Analyze firewall rules
@@ -157,7 +158,7 @@ public class DnsSecurityAnalyzer
         // protection that holds over IPv4 but not over IPv6.
         if (networks?.Any(n => n.HasIpv6) == true)
         {
-            AnalyzeIpv6Coverage(firewallRules, natRulesData, networks, result, externalZoneId, dnatExcludedVlanIds, firewallGroups);
+            AnalyzeIpv6Coverage(firewallRules, natRulesData, networks, result, externalZoneId, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -489,6 +490,40 @@ public class DnsSecurityAnalyzer
             {
                 result.UsingIspDns = false;
             }
+        }
+    }
+
+    /// <summary>
+    /// Record each WAN's IPv6 state and static IPv6 DNS from network configs (wan_type_v6,
+    /// wan_ipv6_dns_preference, wan_ipv6_dns1/2). The device port_table carries no IPv6 DNS, so
+    /// networkconf is the only source. Writes only the IPv6 fields, so the IPv4 checks are unaffected.
+    /// </summary>
+    private void EnrichWanIpv6DnsFromNetworkConfigs(List<UniFiNetworkConfig> networkConfigs, DnsSecurityResult result)
+    {
+        foreach (var wanInterface in result.WanInterfaces)
+        {
+            var config = networkConfigs.FirstOrDefault(c =>
+                string.Equals(c.Purpose, "wan", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(c.WanNetworkgroup, wanInterface.InterfaceName, StringComparison.OrdinalIgnoreCase));
+            if (config == null)
+                continue;
+
+            wanInterface.HasIpv6 = !string.IsNullOrEmpty(config.WanTypeV6) &&
+                !string.Equals(config.WanTypeV6, "disabled", StringComparison.OrdinalIgnoreCase);
+            if (!wanInterface.HasIpv6 ||
+                !string.Equals(config.WanIpv6DnsPreference, "manual", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            foreach (var dns in new[] { config.WanIpv6Dns1, config.WanIpv6Dns2 })
+            {
+                if (System.Net.IPAddress.TryParse(dns?.Trim(), out var ip) &&
+                    ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+                    wanInterface.Ipv6DnsServers.Add(dns!.Trim());
+            }
+
+            if (wanInterface.Ipv6DnsServers.Count > 0)
+                _logger.LogInformation("{Interface} static IPv6 DNS from network config: {Servers}",
+                    wanInterface.InterfaceName, string.Join(", ", wanInterface.Ipv6DnsServers));
         }
     }
 
@@ -1015,6 +1050,7 @@ public class DnsSecurityAnalyzer
 
         // Validate WAN DNS against DoH provider (uses PTR lookup)
         await ValidateWanDnsConfigurationAsync(result);
+        await ValidateWanIpv6DnsAsync(result);
 
         // Issue: Networks using DNS servers outside configured subnets (bypasses local DNS filtering)
         if (result.HasExternalDns)
@@ -1680,6 +1716,56 @@ public class DnsSecurityAnalyzer
         AddNoStaticDnsIssues(result, validationResults.NoStaticDnsInterfaces);
     }
 
+    /// <summary>
+    /// The IPv6 counterpart of <see cref="ValidateWanDnsConfigurationAsync"/>, for WANs that run IPv6.
+    /// Same rules: static IPv6 DNS must be the third-party LAN resolvers or the DoH provider's servers,
+    /// and with DoH on, a WAN taking its IPv6 DNS from the ISP leaks there if DoH fails.
+    /// </summary>
+    private async Task ValidateWanIpv6DnsAsync(DnsSecurityResult result)
+    {
+        var ipv6Wans = result.WanInterfaces.Where(w => w.HasIpv6 && !w.IsCellular).ToList();
+        if (ipv6Wans.Count == 0 || (!result.DohConfigured && !result.HasThirdPartyDns))
+            return;
+
+        var thirdPartyIpv6 = result.Ipv6ThirdPartyDnsServers.Select(t => t.DnsServerIp).ToList();
+        var expectedProvider = result.DohConfigured ? await IdentifyExpectedDnsProviderAsync(result) : null;
+        result.Ipv6ExpectedDnsProvider = expectedProvider?.Name;
+
+        foreach (var wan in ipv6Wans)
+        {
+            if (wan.Ipv6DnsServers.Count == 0)
+            {
+                if (result.DohConfigured)
+                    result.Ipv6WanNoStaticDns.Add(wan.InterfaceName);
+                continue;
+            }
+
+            if (thirdPartyIpv6.Count > 0 &&
+                wan.Ipv6DnsServers.All(s => thirdPartyIpv6.Any(t => NetworkUtilities.IpAddressesAreEqual(t, s))))
+                continue;
+
+            if (expectedProvider == null)
+                continue;
+
+            var mismatched = new List<string>();
+            var ptrResults = new List<string?>();
+            foreach (var server in wan.Ipv6DnsServers)
+            {
+                var (provider, reverseDns) = await DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(server);
+                ptrResults.Add(reverseDns);
+                if (provider?.Name != expectedProvider.Name)
+                    mismatched.Add($"{server} ({provider?.Name ?? (string.IsNullOrEmpty(reverseDns) ? "Unknown" : reverseDns)})");
+            }
+
+            if (mismatched.Count > 0)
+                result.Ipv6WanDnsMismatches.Add(new Ipv6WanDnsMismatch(wan.InterfaceName, wan.PortName, mismatched, expectedProvider));
+            else if (expectedProvider.Name == "NextDNS" && ptrResults.Count >= 2 &&
+                     (ptrResults[0]?.Contains("dns2.", StringComparison.OrdinalIgnoreCase) ?? false) &&
+                     (ptrResults[1]?.Contains("dns1.", StringComparison.OrdinalIgnoreCase) ?? false))
+                result.Ipv6WanDnsWrongOrder.Add((wan, ptrResults));
+        }
+    }
+
     private async Task<DohProviderInfo?> IdentifyExpectedDnsProviderAsync(DnsSecurityResult result)
     {
         var primaryServer = result.ConfiguredServers.FirstOrDefault(s => s.Enabled);
@@ -2300,6 +2386,20 @@ public class DnsSecurityAnalyzer
             }
         }
 
+        // IPv6: LAN resolvers handed out over DHCPv6/RDNSS, and networks that hand out a third-party
+        // resolver over IPv4 but the gateway over IPv6 - dual-stack clients prefer IPv6, so they bypass it.
+        // Kept in their own fields so the IPv4 findings above are unaffected.
+        if (networks.Any(n => n.HasIpv6))
+        {
+            result.Ipv6ThirdPartyDnsServers.AddRange(
+                await _thirdPartyDetector.DetectThirdPartyIpv6DnsAsync(networks, customPort, customDnsManagementUrl));
+
+            var ipv4ThirdPartyNetworks = thirdPartyResults.Select(r => r.NetworkName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            result.Ipv6ThirdPartyBypassNetworks.AddRange(networks
+                .Where(n => n.Enabled && ipv4ThirdPartyNetworks.Contains(n.Name) && ThirdPartyDnsDetector.HandsOutGatewayOverIpv6(n))
+                .Select(n => n.Name));
+        }
+
         // Probe for user-installed DNS tunnels on the gateway (NextDNS CLI, ControlD ctrld).
         // These are manually installed via SSH, distinct from UniFi's built-in CyberSecure
         // DoH. Only probe when DoH is not configured, since these services handle encryption
@@ -2768,7 +2868,8 @@ public class DnsSecurityAnalyzer
         DnsSecurityResult result,
         string? externalZoneId,
         List<int>? excludedVlanIds,
-        Dictionary<string, UniFiFirewallGroup>? firewallGroups)
+        Dictionary<string, UniFiFirewallGroup>? firewallGroups,
+        List<string>? trustedDnsRedirectTargets)
     {
         var excludedVlans = excludedVlanIds?.ToHashSet() ?? [];
         var ipv6Networks = networks.Where(n => n.IsIpv6Evaluable && !excludedVlans.Contains(n.VlanId)).ToList();
@@ -2782,6 +2883,7 @@ public class DnsSecurityAnalyzer
         {
             var dnat = new DnatDnsAnalyzer().Analyze(natRulesData, ipv6Networks, excludedVlanIds, firewallGroups, IpFamily.IPv6);
             ipv6DnatCoveredIds.UnionWith(dnat.CoveredNetworkIds);
+            ValidateIpv6DnatRedirectTargets(dnat, result, networks, trustedDnsRedirectTargets);
         }
 
         var ipv4DnatCoveredNames = new HashSet<string>(result.DnatCoveredNetworks, StringComparer.OrdinalIgnoreCase);
@@ -2811,11 +2913,186 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// The IPv6 counterpart of <see cref="ValidateDnatRedirectTargets"/>, for NAT rules matching IPv6.
+    /// A rule's valid targets are its network's custom IPv6 DNS servers; else, with site-wide
+    /// third-party DNS, the third-party LAN resolvers handed out over IPv6; else, with DoH, the gateway's IPv6
+    /// addresses on the rule's network and the native network. Trusted targets always count. A rule
+    /// with no known valid target is not judged, since its target cannot be proven wrong.
+    /// </summary>
+    private static void ValidateIpv6DnatRedirectTargets(
+        DnatCoverageResult coverageResult,
+        DnsSecurityResult result,
+        List<NetworkInfo> networks,
+        List<string>? trustedDnsRedirectTargets)
+    {
+        var byId = networks.ToDictionary(n => n.Id, StringComparer.OrdinalIgnoreCase);
+        var nativeNetwork = networks.FirstOrDefault(n => n.IsNative || n.VlanId == 1);
+        var siteWideIpv6Dns = result.Ipv6ThirdPartyDnsServers.Select(t => t.DnsServerIp).ToList();
+        var trustedIpv6 = (trustedDnsRedirectTargets ?? [])
+            .Select(t => t.Trim())
+            .Where(t => System.Net.IPAddress.TryParse(t, out var ip) &&
+                ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            .ToList();
+
+        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in coverageResult.Rules)
+        {
+            if (string.IsNullOrEmpty(rule.RedirectIp))
+                continue;
+
+            var valid = new HashSet<string>(trustedIpv6, StringComparer.OrdinalIgnoreCase);
+            var ruleNetworkId = rule.InInterface ?? rule.NetworkId;
+            if (!string.IsNullOrEmpty(ruleNetworkId) && byId.TryGetValue(ruleNetworkId, out var network))
+            {
+                if (network.Ipv6DnsServers is { Count: > 0 })
+                    valid.UnionWith(network.Ipv6DnsServers);
+                else if (result.IsSiteWideThirdPartyDns)
+                    valid.UnionWith(siteWideIpv6Dns);
+                else if (result.DohConfigured)
+                {
+                    valid.UnionWith(network.Ipv6GatewayAddresses ?? []);
+                    valid.UnionWith(nativeNetwork?.Ipv6GatewayAddresses ?? []);
+                }
+            }
+
+            if (valid.Count == 0)
+                continue;
+
+            expected.UnionWith(valid);
+            if (!IsValidRedirectTarget(rule.RedirectIp, valid))
+            {
+                result.Ipv6InvalidDnatRules.Add(
+                    $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp} (expected {string.Join(" or ", valid)})");
+            }
+        }
+
+        result.Ipv6ExpectedDnatDestinations.AddRange(expected);
+    }
+
+    /// <summary>
     /// Findings for DNS protection that holds over IPv4 but not over IPv6. Each mirrors its IPv4
     /// finding type with "over IPv6" in the message and an ip_family tag.
     /// </summary>
     private void AddIpv6CoverageIssues(DnsSecurityResult result, List<NetworkInfo>? networks, Services.FirewallZoneLookup? zoneLookup)
     {
+        if (result.Ipv6ThirdPartyBypassNetworks.Count > 0)
+        {
+            var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsInconsistentConfig,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"{providerName} is bypassed{IpFamilyText.OverIpv6} on: {string.Join(", ", result.Ipv6ThirdPartyBypassNetworks)}. These networks give devices {providerName} as their DNS server over IPv4, but the gateway over IPv6. Devices with IPv6 usually ask the IPv6 server first, so their lookups skip {providerName}.",
+                RecommendedAction = $"In each network's IPv6 settings, set Advanced to Manual, uncheck Auto DNS Server, and add {providerName}'s IPv6 address. Or add an IPv6 DNAT rule that redirects port 53 to {providerName}.",
+                RuleId = "DNS-CONSISTENCY-001",
+                ScoreImpact = 5,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "bypass_networks", result.Ipv6ThirdPartyBypassNetworks.ToList() },
+                    { "provider_name", providerName }
+                }, ipv6Only: true)
+            });
+        }
+
+        foreach (var mismatch in result.Ipv6WanDnsMismatches)
+        {
+            var displayName = NetworkFormatHelpers.FormatWanInterfaceName(mismatch.InterfaceName, mismatch.PortName);
+            var expectedIps = mismatch.ExpectedProvider.Ipv6Addresses?.Take(2).ToList() ?? [];
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsWanMismatch,
+                Severity = AuditSeverity.Recommended,
+                Message = $"{displayName} uses {string.Join(", ", mismatch.Servers)} instead of {mismatch.ExpectedProvider.Name}{IpFamilyText.OverIpv6}",
+                RecommendedAction = expectedIps.Count > 0
+                    ? $"Set IPv6 DNS to {mismatch.ExpectedProvider.Name} servers: {string.Join(", ", expectedIps)}"
+                    : $"Set IPv6 DNS to {mismatch.ExpectedProvider.Name} servers",
+                DeviceName = result.GatewayName,
+                Port = NetworkFormatHelpers.FormatWanInterfaceName(mismatch.InterfaceName, null),
+                PortName = mismatch.PortName,
+                RuleId = "DNS-WAN-001",
+                ScoreImpact = 4,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "interface", mismatch.InterfaceName },
+                    { "port_name", mismatch.PortName ?? "" },
+                    { "expected_provider", mismatch.ExpectedProvider.Name },
+                    { "actual_servers", mismatch.Servers }
+                }, ipv6Only: true)
+            });
+        }
+
+        foreach (var (wan, reverseDns) in result.Ipv6WanDnsWrongOrder)
+        {
+            var displayName = NetworkFormatHelpers.FormatWanInterfaceName(wan.InterfaceName, wan.PortName);
+            var ips = string.Join(", ", wan.Ipv6DnsServers);
+            var correctOrder = GetCorrectDnsOrder(wan.Ipv6DnsServers, reverseDns);
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsWanOrder,
+                Severity = AuditSeverity.Recommended,
+                Message = $"{displayName} DNS in wrong order{IpFamilyText.OverIpv6}: {ips}. Should be {correctOrder}",
+                RecommendedAction = $"Swap IPv6 DNS order to {correctOrder}",
+                DeviceName = result.GatewayName,
+                Port = NetworkFormatHelpers.FormatWanInterfaceName(wan.InterfaceName, null),
+                PortName = wan.PortName,
+                RuleId = "DNS-WAN-002",
+                ScoreImpact = 2,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "interface", wan.InterfaceName },
+                    { "port_name", wan.PortName ?? "" },
+                    { "dns_servers", wan.Ipv6DnsServers.ToList() }
+                }, ipv6Only: true)
+            });
+        }
+
+        foreach (var interfaceName in result.Ipv6WanNoStaticDns)
+        {
+            var wanInterface = result.WanInterfaces.FirstOrDefault(w => w.InterfaceName == interfaceName);
+            var displayName = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, wanInterface?.PortName);
+            var providerName = result.Ipv6ExpectedDnsProvider ?? "your DoH provider";
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsWanNoStatic,
+                Severity = AuditSeverity.Recommended,
+                Message = $"WAN interface '{displayName}' has no static DNS configured{IpFamilyText.OverIpv6}. If DoH fails, DNS queries will leak to your ISP's DNS servers.",
+                RecommendedAction = $"Configure static IPv6 DNS on {displayName} to use {providerName} servers",
+                DeviceName = result.GatewayName,
+                Port = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, null),
+                PortName = wanInterface?.PortName,
+                RuleId = "DNS-WAN-002",
+                ScoreImpact = 3,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "interface", interfaceName },
+                    { "port_name", wanInterface?.PortName ?? "" }
+                }, ipv6Only: true)
+            });
+        }
+
+        if (result.Ipv6InvalidDnatRules.Count > 0)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsDnatWrongDestination,
+                Severity = AuditSeverity.Critical,
+                DeviceName = result.GatewayName,
+                Message = $"DNAT DNS rules have incorrect translated IP address{IpFamilyText.OverIpv6}. {string.Join("; ", result.Ipv6InvalidDnatRules)}.",
+                RecommendedAction = result.IsSiteWideThirdPartyDns
+                    ? "Update the translated IP address in the IPv6 DNAT rules to your Pi-hole/DNS server's IPv6 address"
+                    : "Update the translated IP address in the IPv6 DNAT rules to a gateway IPv6 address",
+                RuleId = "DNS-DNAT-003",
+                ScoreImpact = 10,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "invalid_rules", result.Ipv6InvalidDnatRules.ToList() },
+                    { "expected_destinations", result.Ipv6ExpectedDnatDestinations.ToList() },
+                    { "is_site_wide_third_party_dns", result.IsSiteWideThirdPartyDns }
+                }, ipv6Only: true)
+            });
+        }
+
         if (result.Ipv6Dns53UncoveredNetworks.Count > 0)
         {
             // DMZ and guest-on-third-party-DNS networks are carved out, as in the IPv4 findings
@@ -3245,9 +3522,27 @@ public class DnsSecurityResult
     public List<string> Ipv6DoqUncoveredNetworks { get; } = new();
     /// <summary>DoH providers are blocked over IPv4 but not over IPv6 while IPv6 is enabled on a network</summary>
     public bool Ipv6DohUnblocked { get; set; }
+    /// <summary>Third-party LAN resolvers handed out over DHCPv6/RDNSS (IPv4 ones are in <see cref="ThirdPartyDnsServers"/>)</summary>
+    public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> Ipv6ThirdPartyDnsServers { get; } = new();
+    /// <summary>Network names that hand out a third-party resolver over IPv4 but the gateway over IPv6</summary>
+    public List<string> Ipv6ThirdPartyBypassNetworks { get; } = new();
+    /// <summary>The DoH provider the IPv6 WAN DNS was checked against (set even when no WAN has IPv4 DNS)</summary>
+    public string? Ipv6ExpectedDnsProvider { get; set; }
+    /// <summary>WANs whose static IPv6 DNS is not the expected provider</summary>
+    public List<Ipv6WanDnsMismatch> Ipv6WanDnsMismatches { get; } = new();
+    /// <summary>WANs whose static NextDNS IPv6 servers are entered dns2 before dns1, with their PTR names</summary>
+    public List<(WanInterfaceDns Wan, List<string?> ReverseDns)> Ipv6WanDnsWrongOrder { get; } = new();
+    /// <summary>WANs that run IPv6 and take their IPv6 DNS from the ISP while DoH is on</summary>
+    public List<string> Ipv6WanNoStaticDns { get; } = new();
+    /// <summary>IPv6 DNAT DNS rules whose translated address is not a valid IPv6 DNS target</summary>
+    public List<string> Ipv6InvalidDnatRules { get; } = new();
+    /// <summary>The IPv6 addresses an IPv6 DNAT DNS rule was expected to redirect to</summary>
+    public List<string> Ipv6ExpectedDnatDestinations { get; } = new();
     /// <summary>Whether any IPv6-only DNS protection gap was found</summary>
     public bool HasIpv6DnsGaps => Ipv6Dns53UncoveredNetworks.Count > 0 || Ipv6DotUncoveredNetworks.Count > 0 ||
-                                  Ipv6DoqUncoveredNetworks.Count > 0 || Ipv6DohUnblocked;
+                                  Ipv6DoqUncoveredNetworks.Count > 0 || Ipv6DohUnblocked || Ipv6InvalidDnatRules.Count > 0 ||
+                                  Ipv6ThirdPartyBypassNetworks.Count > 0 || Ipv6WanDnsMismatches.Count > 0 ||
+                                  Ipv6WanNoStaticDns.Count > 0;
 
     // Device DNS Configuration
     public bool DeviceDnsPointsToGateway { get; set; } = true;
@@ -3326,6 +3621,11 @@ public class DeviceDnsInfo
 }
 
 /// <summary>
+/// A WAN whose static IPv6 DNS servers are not the expected DoH provider's.
+/// </summary>
+public record Ipv6WanDnsMismatch(string InterfaceName, string? PortName, List<string> Servers, DohProviderInfo ExpectedProvider);
+
+/// <summary>
 /// WAN interface DNS configuration details
 /// </summary>
 public class WanInterfaceDns
@@ -3344,6 +3644,17 @@ public class WanInterfaceDns
     /// PTR lookup results for each DNS server IP, in order
     /// </summary>
     public List<string?> ReverseDnsResults { get; set; } = new();
+
+    /// <summary>
+    /// Whether the WAN runs IPv6 (networkconf wan_type_v6 set and not "disabled").
+    /// </summary>
+    public bool HasIpv6 { get; set; }
+
+    /// <summary>
+    /// Static IPv6 DNS servers (wan_ipv6_dns_preference "manual"). Kept apart from <see cref="DnsServers"/>,
+    /// which every IPv4 check reads. Empty when the WAN takes its IPv6 DNS from the ISP.
+    /// </summary>
+    public List<string> Ipv6DnsServers { get; } = new();
 }
 
 /// <summary>

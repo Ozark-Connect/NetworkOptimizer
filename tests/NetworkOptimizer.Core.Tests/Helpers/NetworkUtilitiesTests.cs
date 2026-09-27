@@ -318,6 +318,20 @@ public class NetworkUtilitiesTests
 
     #endregion
 
+    #region UrlHost Tests
+
+    [Theory]
+    [InlineData("192.0.2.1", "192.0.2.1")]
+    [InlineData("2001:db8::53", "[2001:db8::53]")]
+    [InlineData("[2001:db8::53]", "[2001:db8::53]")]  // Already bracketed
+    [InlineData("pihole.example.com", "pihole.example.com")]
+    public void UrlHost_ReturnsExpected(string host, string expected)
+    {
+        NetworkUtilities.UrlHost(host).Should().Be(expected);
+    }
+
+    #endregion
+
     #region IpAddressesAreEqual Tests
 
     [Theory]

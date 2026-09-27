@@ -379,6 +379,28 @@ public class UniFiNetworkConfig
     [JsonPropertyName("wan_dns2")]
     public string? WanDns2 { get; set; }
 
+    /// <summary>
+    /// The WAN's IPv6 connection type ("dhcpv6", "static", ...); "disabled" when the WAN has no IPv6.
+    /// </summary>
+    [JsonPropertyName("wan_type_v6")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WanTypeV6 { get; set; }
+
+    /// <summary>
+    /// "auto" takes the ISP's IPv6 DNS; "manual" uses <see cref="WanIpv6Dns1"/> / <see cref="WanIpv6Dns2"/>.
+    /// </summary>
+    [JsonPropertyName("wan_ipv6_dns_preference")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WanIpv6DnsPreference { get; set; }
+
+    [JsonPropertyName("wan_ipv6_dns1")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WanIpv6Dns1 { get; set; }
+
+    [JsonPropertyName("wan_ipv6_dns2")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WanIpv6Dns2 { get; set; }
+
     [JsonPropertyName("wan_username")]
     public string? WanUsername { get; set; }
 

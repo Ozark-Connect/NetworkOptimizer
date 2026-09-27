@@ -869,6 +869,15 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// A host as it goes into a URL: an IPv6 literal gets brackets ("2001:db8::1" gives
+    /// "[2001:db8::1]"); an IPv4 literal, a hostname, or an already-bracketed literal is returned as is.
+    /// </summary>
+    public static string UrlHost(string host) =>
+        !host.StartsWith('[') && IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6
+            ? $"[{host}]"
+            : host;
+
+    /// <summary>
     /// The host part of a URL authority, dropping any ":port". Null/empty in, null out.
     /// </summary>
     public static string? AuthorityHost(string? authority)
