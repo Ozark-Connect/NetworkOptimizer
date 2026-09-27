@@ -308,7 +308,7 @@
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
-                                            <td>@(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                            <td>@(asn.OffPath ? "Off path" : asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
                                         </tr>
                                     }
                                 </tbody>

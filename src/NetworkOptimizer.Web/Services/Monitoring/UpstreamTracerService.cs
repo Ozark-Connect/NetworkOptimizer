@@ -1921,11 +1921,13 @@ public class UpstreamTracerService
     {
         State.Step = TracerStep.VerifyingReachability;
 
-        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action MarkUnreachable)>();
+        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action MarkUnreachable, Action? MarkOffPath)>();
         foreach (var hop in State.AccessHops)
-            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => { hop.Enabled = false; hop.Unreachable = true; }));
+            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => { hop.Enabled = false; hop.Unreachable = true; }, null));
         foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
-            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt, () => { transit.Enabled = false; transit.Unreachable = true; }));
+            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt,
+                () => { transit.Enabled = false; transit.Unreachable = true; },
+                () => { transit.Enabled = false; transit.Unreachable = true; transit.OffPath = true; }));
 
         if (allTargets.Count == 0) return;
 
@@ -1937,15 +1939,29 @@ public class UpstreamTracerService
         var results = await Task.WhenAll(allTargets.Select(async t =>
             (t, Result: await ProbeReachabilityAsync(t.Address, t.Mode, ct))));
         var unreachable = 0;
+        var offPath = 0;
         foreach (var (t, result) in results)
         {
-            if (result.Received >= minSuccesses)
+            var pingRtt = result.RttMinMs ?? result.RttAvgMs;
+            if (result.Received >= minSuccesses
+                && t.MarkOffPath != null
+                && pingRtt is double ping
+                && _minRttByIp.TryGetValue(t.Address, out var traceRtt)
+                && IsOffPath(traceRtt, ping))
+            {
+                t.ApplyRtt(ping);
+                t.MarkOffPath();
+                offPath++;
+                _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - {Ping:F1} ms direct vs {Trace:F1} ms on the trace, marked off path and excluded",
+                    result.Received, result.Sent, t.Address, ping, traceRtt);
+            }
+            else if (result.Received >= minSuccesses)
             {
                 // Burst MINIMUM, not average: this RTT feeds the POP clustering, and
                 // a single queued reply in the average drags a near hop into the far
                 // cluster (observed: a 11.3 ms hop measuring 14.7 avg bridged two
                 // POPs). The minimum is the standard path-distance estimator.
-                t.ApplyRtt(result.RttMinMs ?? result.RttAvgMs);
+                t.ApplyRtt(pingRtt);
             }
             else
             {
@@ -1971,10 +1987,29 @@ public class UpstreamTracerService
         // hops cleared the gate, adopt the lowest-RTT reachable curated endpoint as the access target.
         await InjectAccessIspFallbackAsync(minSuccesses, ct);
 
-        State.CurrentActivity = unreachable > 0
-            ? $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded."
-            : $"All {allTargets.Count} target(s) responded to ping.";
+        State.CurrentActivity = (unreachable, offPath) switch
+        {
+            (0, 0) => $"All {allTargets.Count} target(s) responded to ping.",
+            (_, 0) => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded.",
+            (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answered by another path and were excluded.",
+            _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answered by another path; all were excluded."
+        };
     }
+
+    /// <summary>Minimum excess (ms) of a hop's direct-ping RTT over its trace RTT that marks it off path.</summary>
+    internal const double OffPathExcessFloorMs = 5.0;
+
+    /// <summary>Fractional excess that marks a hop off path, for high-RTT hops where 5 ms is noise.</summary>
+    internal const double OffPathExcessFraction = 0.25;
+
+    /// <summary>
+    /// True when a hop's direct-ping minimum RTT is too far above its minimum RTT on the discovery
+    /// trace for the ping to be crossing the traced path. A minimum RTT cannot rise that much on the
+    /// same path, so the ping is routed another way (typical of IX peering-LAN addresses reached
+    /// through a different carrier) and would measure a path the hop does not sit on.
+    /// </summary>
+    internal static bool IsOffPath(double traceRttMs, double pingRttMs) =>
+        pingRttMs - traceRttMs > Math.Max(OffPathExcessFloorMs, traceRttMs * OffPathExcessFraction);
 
     // Item A: anycast DNS witnesses for transit ASNs whose routers commonly ICMP-deprioritize or
     // hide behind L2-transparent infra. Attached whenever the ASN is genuinely near-transit - not
