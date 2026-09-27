@@ -1454,6 +1454,10 @@ public class FirewallRuleAnalyzer
     /// When a management network has isolation enabled but internet disabled,
     /// it needs specific firewall rules to allow UniFi cloud, AFC, and device registration traffic.
     /// </summary>
+    /// <remarks>
+    /// IPv4 only, by design: UniFi Network devices cannot be given a static IPv6 address, so their
+    /// management traffic is IPv4. Do not add an IPv6 pass here.
+    /// </remarks>
     /// <param name="rules">Firewall rules to analyze</param>
     /// <param name="networks">Network configurations</param>
     /// <param name="has5GDevice">Whether a 5G/LTE device is present on the network</param>
