@@ -204,6 +204,28 @@ public class DnsIpv6ResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task Ipv6Wan_AdGuardDohWithAdGuardIpv6Dns_ReportsNothing()
+    {
+        // No PTR answer: the provider is recognized from its published IPv6 addresses alone
+        var result = await Analyze([DualStack()],
+            wans: [Wan("WAN2", "dhcpv6", "manual", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff")], dohServer: "adguard");
+
+        result.Ipv6WanDnsMismatches.Should().BeEmpty();
+        result.Ipv6WanNoStaticDns.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Ipv6Wan_AdGuardDohWithOtherIpv6Dns_RecommendsAdGuardIpv6Servers()
+    {
+        var result = await Analyze([DualStack()],
+            wans: [Wan("WAN2", "dhcpv6", "manual", "2606:4700:4700::1111")], dohServer: "adguard");
+
+        result.Issues.Where(i => i.Type == IssueTypes.DnsWanMismatch && IpFamilyText.IsIpv6Only(i.Metadata))
+            .Should().ContainSingle().Which.RecommendedAction
+            .Should().Be("Set IPv6 DNS to AdGuard servers: 2a10:50c0::ad1:ff, 2a10:50c0::ad2:ff");
+    }
+
+    [Fact]
     public async Task Ipv6Wan_StaticDnsIsTheIpv6ThirdPartyResolver_ReportsNothing()
     {
         var network = DualStack(ipv4Dns: ["192.168.10.53"], ipv6Dns: ["fd00:10::53"]);

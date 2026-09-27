@@ -1894,6 +1894,37 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeDnsConfiguration_SharedIpv6Dns_ReturnsIssueOverIpv6()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "1", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate, HasIpv6 = true, Ipv6DnsServers = ["fd00:10::53"] },
+            new() { Id = "2", Name = "IoT", VlanId = 20, Purpose = NetworkPurpose.IoT, HasIpv6 = true, Ipv6DnsServers = ["fd00:10:0:0::53"] }
+        };
+
+        var issue = _analyzer.AnalyzeDnsConfiguration(networks).Should().ContainSingle().Subject;
+
+        issue.Type.Should().Be("DNS_SHARED_SERVERS");
+        issue.Message.Should().Be("Network 'IoT' shares DNS servers with corporate network over IPv6");
+        IpFamilyText.IsIpv6Only(issue.Metadata).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzeDnsConfiguration_SharedIpv4DnsOnly_ReturnsOnlyTheIpv4Issue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "1", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate, DnsServers = ["192.168.1.1"], HasIpv6 = true, Ipv6DnsServers = ["fd00:10::53"] },
+            new() { Id = "2", Name = "IoT", VlanId = 20, Purpose = NetworkPurpose.IoT, DnsServers = ["192.168.1.1"], HasIpv6 = true, Ipv6DnsServers = ["fd00:20::53"] }
+        };
+
+        var issue = _analyzer.AnalyzeDnsConfiguration(networks).Should().ContainSingle().Subject;
+
+        issue.Message.Should().Be("Network 'IoT' shares DNS servers with corporate network");
+        IpFamilyText.IsIpv6Only(issue.Metadata).Should().BeFalse();
+    }
+
+    [Fact]
     public void AnalyzeDnsConfiguration_DifferentDns_ReturnsNoIssues()
     {
         var networks = new List<NetworkInfo>

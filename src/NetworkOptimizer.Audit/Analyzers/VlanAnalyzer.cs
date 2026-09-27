@@ -781,6 +781,34 @@ public class VlanAnalyzer
             }
         }
 
+        // The same check for custom IPv6 DNS, compared by value so any written form matches
+        foreach (var isolated in isolatedNetworks.Where(n => n.Ipv6DnsServers is { Count: > 0 }))
+        {
+            foreach (var corporate in corporateNetworks.Where(n => n.Ipv6DnsServers is { Count: > 0 }))
+            {
+                var sharedDns = isolated.Ipv6DnsServers!
+                    .Where(s => corporate.Ipv6DnsServers!.Any(c => NetworkUtilities.IpAddressesAreEqual(s, c)))
+                    .ToList();
+                if (sharedDns.Count == 0)
+                    continue;
+
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsSharedServers,
+                    Severity = AuditSeverity.Informational,
+                    Message = $"Network '{isolated.Name}' shares DNS servers with corporate network{IpFamilyText.OverIpv6}",
+                    Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                    {
+                        { "isolated_network", isolated.Name },
+                        { "corporate_network", corporate.Name },
+                        { "shared_dns", sharedDns }
+                    }, ipv6Only: true),
+                    RuleId = "DNS-001",
+                    ScoreImpact = 3
+                });
+            }
+        }
+
         return issues;
     }
 

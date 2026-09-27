@@ -1911,6 +1911,11 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     [InlineData("2620:119:35::35", "OpenDNS")]
     [InlineData("2a07:a8c0::ab:cd12", "NextDNS")]
     [InlineData("2001:4860:4860:0:0:0:0:8888", "Google")] // Expanded form still identified
+    [InlineData("2a10:50c0::ad1:ff", "AdGuard DNS")]       // Same name as the IPv4 AdGuard servers
+    [InlineData("2a0d:2a00:1::", "CleanBrowsing")]
+    [InlineData("2a01:4f8:1c0c:8274::1", "LibreDNS")]
+    [InlineData("2606:1a40::2", "ControlD")]
+    [InlineData("2606:1a40:f000::11", "ControlD")]
     public void DetectExternalDns_Ipv6KnownProviders_ReturnsProviderName(string dnsIp, string expectedProvider)
     {
         var networks = new List<NetworkInfo> { DualStack("n1", "Home", 10, [dnsIp]) };
