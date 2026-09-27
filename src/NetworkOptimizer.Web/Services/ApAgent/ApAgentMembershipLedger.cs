@@ -351,6 +351,22 @@ public sealed class ApAgentMembershipLedger
         return null;
     }
 
+    /// <summary>The client a fresh answer reports with this MAC, or null when none does.</summary>
+    public ApAgentKnownClient? FindByMac(string mac, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(mac)) return null;
+
+        foreach (var answer in _answers.Values)
+        {
+            if (now - answer.At > AnswerTtl) continue;
+            foreach (var member in answer.Members)
+            {
+                if (string.Equals(member.ClientMac, mac, StringComparison.OrdinalIgnoreCase)) return member;
+            }
+        }
+        return null;
+    }
+
     /// <summary>Drops per-claim state for clients this access point no longer lists at all.</summary>
     private void PruneUnlistedClaims(string ap, Dictionary<string, long?> claims)
     {

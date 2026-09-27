@@ -37,11 +37,11 @@ public class ClientDashboardService
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
-    private readonly IGatewaySshService _gatewaySshService;
-    private readonly SemaphoreSlim _neighborLookupGate = new(1, 1);
-    private DateTime _neighborLookupExpiresUtc;
-    private string _neighborOutput = string.Empty;
-    private UniFiApiClient? _neighborConnection;
+    private readonly GatewayNeighborTable _neighborTable;
+
+    // For an IPv6 source, the IPv4 address UniFi Network lists the device under. WiFiman is
+    // looked up by that address, including on the 1-second poll, which has no identity to read.
+    private readonly ConcurrentDictionary<string, string> _consoleIpFor = new();
 
     // Track last trace hash per client MAC to detect changes
     private readonly ConcurrentDictionary<string, string> _lastTraceHashes = new();
@@ -88,7 +88,7 @@ public class ClientDashboardService
         IServiceScopeFactory scopeFactory,
         SiteContextService siteContext,
         MonitoringLiveStatsRegistry liveStats,
-        IGatewaySshService gatewaySshService,
+        GatewayNeighborTable neighborTable,
         ApAgentClientLiveService? apAgentLive = null,
         ApAgentTelemetryRegistry? apAgentTelemetry = null,
         Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null,
@@ -110,7 +110,7 @@ public class ClientDashboardService
         _scopeFactory = scopeFactory;
         _apAgentLive = apAgentLive;
         _apAgentTelemetry = apAgentTelemetry;
-        _gatewaySshService = gatewaySshService;
+        _neighborTable = neighborTable;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -360,7 +360,7 @@ public class ClientDashboardService
 
             if (activeDetail == null && activeDetails.Count > 0)
             {
-                var clientMac = await ResolveMacFromGatewayNeighborAsync(clientIp);
+                var clientMac = await _neighborTable.ResolveMacAsync(clientIp);
                 if (clientMac != null)
                     activeDetail = activeDetails.FirstOrDefault(c => MacEquals(c.Mac, clientMac));
             }
@@ -371,7 +371,7 @@ public class ClientDashboardService
                 client = clients.FirstOrDefault(c => MacEquals(c.Mac, activeDetail.Mac));
                 if (client != null)
                     return await IdentifyLegacyClientAsync(client, clientIp, activeDetail.DisplayName);
-                return await EnrichIdentifiedClientAsync(MapClientDetailToIdentity(activeDetail, clientIp), clientIp);
+                return await EnrichIdentifiedClientAsync(MapClientDetailToIdentity(activeDetail, clientIp), clientIp, activeDetail.Ip);
             }
 
             // Do not resurrect an old identity when either live source places that MAC elsewhere.
@@ -455,14 +455,20 @@ public class ClientDashboardService
                 _logger.LogDebug(ex, "Client display name unavailable for {Mac}", client.Mac);
             }
         }
-        return await EnrichIdentifiedClientAsync(MapClientToIdentity(client, displayName), requestedIp);
+        return await EnrichIdentifiedClientAsync(MapClientToIdentity(client, displayName), requestedIp, client.Ip);
     }
 
-    private async Task<ClientIdentity> EnrichIdentifiedClientAsync(ClientIdentity identity, string clientIp)
+    /// <param name="consoleIp">The address UniFi Network lists the client under. Used for WiFiman
+    /// when <paramref name="clientIp"/> is IPv6, since WiFiman knows the client by that address.</param>
+    private async Task<ClientIdentity> EnrichIdentifiedClientAsync(ClientIdentity identity, string clientIp, string? consoleIp = null)
     {
         identity.Ip = clientIp;
         _offlineIdentityCache.TryRemove(clientIp, out _);
         _ipToMacCache[clientIp] = identity.Mac;
+
+        var wifiManIp = WiFiManIpFor(clientIp, consoleIp);
+        if (wifiManIp != clientIp)
+            _consoleIpFor[clientIp] = wifiManIp;
 
         // The console keeps a wired client listed for minutes after its link drops. The
         // switch's own sample says the port is down, and a down port has nobody on it.
@@ -474,7 +480,7 @@ public class ClientDashboardService
         }
 
         // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
-        await OverlayWiFiManDataAsync(identity, clientIp);
+        await OverlayWiFiManDataAsync(identity, wifiManIp);
 
         // Then the access point's own agent, where there is one. Last overlay wins because
         // it is the only source that measured the client rather than reporting on it.
@@ -502,13 +508,32 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// The address to ask WiFiman about: the client's own address, or for an IPv6 source the IPv4
+    /// address UniFi Network lists it under. IPv4 sources are returned unchanged.
+    /// </summary>
+    internal static string WiFiManIpFor(string clientIp, string? consoleIp) =>
+        GatewayNeighborTable.IsResolvable(clientIp)
+        && IPAddress.TryParse(consoleIp, out var listed) && listed.AddressFamily == AddressFamily.InterNetwork
+            ? consoleIp!
+            : clientIp;
+
+    /// <summary>
     /// Builds an online identity for a client an agent-covered access point currently holds but
     /// the console does not yet list as active. Null everywhere the agent path cannot vouch, which
     /// leaves the offline-history and VPN fallbacks exactly as they were.
     /// </summary>
     private async Task<ClientIdentity?> IdentifyFromApAgentAsync(string clientIp)
     {
-        var known = _apAgentTelemetry?.GetFor(_siteContext.Slug).FindClientByIp(clientIp);
+        var telemetry = _apAgentTelemetry?.GetFor(_siteContext.Slug);
+        if (telemetry == null) return null;
+
+        // Agents report stations by IPv4, so an IPv6 source is matched by its MAC instead
+        var known = telemetry.FindClientByIp(clientIp);
+        if (known == null && GatewayNeighborTable.IsResolvable(clientIp))
+        {
+            var mac = await _neighborTable.ResolveMacAsync(clientIp);
+            if (mac != null) known = telemetry.FindClientByMac(mac);
+        }
         if (known == null) return null;
 
         var identity = new ClientIdentity
@@ -573,42 +598,6 @@ public class ClientDashboardService
         }
     }
 
-    private async Task<string?> ResolveMacFromGatewayNeighborAsync(string clientIp)
-    {
-        if (!TryParseClientIp(clientIp, out var address)
-            || address!.AddressFamily != AddressFamily.InterNetworkV6
-            || address.IsIPv6LinkLocal || address.ScopeId != 0)
-            return null;
-
-        // A page polls repeatedly. Share one short-lived table (including failed reads) per
-        // scoped dashboard instance; never carry it across a controller connection change.
-        await _neighborLookupGate.WaitAsync();
-        try
-        {
-            var connection = _connectionService.Client;
-            if (!ReferenceEquals(connection, _neighborConnection) || DateTime.UtcNow >= _neighborLookupExpiresUtc)
-            {
-                _neighborOutput = string.Empty;
-                _neighborConnection = connection;
-                try
-                {
-                    var (success, output) = await _gatewaySshService.RunCommandAsync(
-                        "ip -6 neigh show", TimeSpan.FromSeconds(5));
-                    if (success) _neighborOutput = output;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Gateway IPv6 neighbor lookup failed while identifying {Ip}", clientIp);
-                }
-                _neighborLookupExpiresUtc = DateTime.UtcNow.AddSeconds(10);
-            }
-            return TryGetMacFromNeighborOutput(_neighborOutput, clientIp);
-        }
-        finally
-        {
-            _neighborLookupGate.Release();
-        }
-    }
 
     /// <summary>
     /// Poll current signal quality for a client, run a trace, store the result, and return live data.
@@ -1415,7 +1404,8 @@ public class ClientDashboardService
         // Fetch WiFiman data only
         try
         {
-            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(clientIp);
+            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(
+                _consoleIpFor.TryGetValue(clientIp, out var consoleIp) ? consoleIp : clientIp);
             if (wifiman?.Signal == null)
                 return null;
 
@@ -1557,33 +1547,6 @@ public class ClientDashboardService
     internal static bool MacEquals(string? left, string? right) =>
         !string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right)
         && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
-
-    internal static string? TryGetMacFromNeighborOutput(string output, string clientIp)
-    {
-        if (string.IsNullOrWhiteSpace(output) || !TryParseClientIp(clientIp, out var requested)
-            || requested!.AddressFamily != AddressFamily.InterNetworkV6
-            || requested.IsIPv6LinkLocal || requested.ScopeId != 0)
-            return null;
-
-        string? match = null;
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 5 || !IpEquals(parts[0], clientIp)) continue;
-            // A stale neighbor is usable; a failed/incomplete entry no longer vouches for its MAC.
-            if (parts.Any(p => p.Equals("FAILED", StringComparison.OrdinalIgnoreCase)
-                || p.Equals("INCOMPLETE", StringComparison.OrdinalIgnoreCase))) continue;
-            var index = Array.FindIndex(parts, p => p.Equals("lladdr", StringComparison.OrdinalIgnoreCase));
-            if (index < 0 || index + 1 >= parts.Length) continue;
-            var mac = parts[index + 1];
-            var octets = mac.Split(':');
-            if (octets.Length != 6 || octets.Any(o => o.Length != 2 || !o.All(Uri.IsHexDigit))) continue;
-            // An address present on different interfaces with different MACs is ambiguous.
-            if (match != null && !MacEquals(match, mac)) return null;
-            match = mac.ToLowerInvariant();
-        }
-        return match;
-    }
 
     internal static ClientIdentity MapClientDetailToIdentity(
         UniFiClientDetailResponse client,

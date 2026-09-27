@@ -16,6 +16,7 @@ public class GatewaySshRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, GatewaySshService> _instances = new();
+    private readonly ConcurrentDictionary<string, GatewayNeighborTable> _neighborTables = new();
 
     public GatewaySshRegistry(IServiceProvider serviceProvider)
     {
@@ -30,10 +31,16 @@ public class GatewaySshRegistry : ISiteScopedRegistry
     /// <summary>The default site's gateway SSH service.</summary>
     public GatewaySshService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
+    /// <summary>The site's gateway IPv6 neighbor table, created on first use.</summary>
+    public GatewayNeighborTable GetNeighborTableFor(string slug) =>
+        _neighborTables.GetOrAdd(slug, s =>
+            ActivatorUtilities.CreateInstance<GatewayNeighborTable>(_serviceProvider, (IGatewaySshService)GetFor(s)));
+
     /// <inheritdoc />
     public Func<ValueTask>? EvictSite(string slug)
     {
         _instances.TryRemove(slug, out _);
+        _neighborTables.TryRemove(slug, out _);
         return null;
     }
 }

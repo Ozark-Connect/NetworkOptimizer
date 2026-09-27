@@ -227,6 +227,16 @@ public sealed class ApAgentTelemetryCollector
         return known != null && _coverage.Covers(known.ApMac, DateTime.UtcNow) ? known : null;
     }
 
+    /// <summary>
+    /// The covered client with this MAC right now, or null. For an IPv6 source, whose MAC comes
+    /// from the gateway's neighbor table, where <see cref="FindClientByIp"/> (IPv4) cannot match.
+    /// </summary>
+    public ApAgentKnownClient? FindClientByMac(string mac)
+    {
+        var known = _membership.FindByMac(mac, DateTime.UtcNow);
+        return known != null && _coverage.Covers(known.ApMac, DateTime.UtcNow) ? known : null;
+    }
+
     /// <summary>Roster-refresh hints for consumers caching the Console's client list.</summary>
     public ConsoleRosterNudge RosterNudge { get; } = new();
 
