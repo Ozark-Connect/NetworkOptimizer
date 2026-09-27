@@ -361,10 +361,19 @@ if command -v go &> /dev/null; then
     APAGENT_SRC="$REPO_ROOT/src/apagent"
     if [ -d "$APAGENT_SRC" ]; then
         cd "$APAGENT_SRC"
-        # AP Agent, pushed over SSH into tmpfs on each access point. Every U7-class access
-        # point measured is armv7l, so there is deliberately no arm64 target.
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm" .
+        # AP Agent, pushed over SSH into tmpfs on each access point. MIPS is built in both
+        # byte orders with soft-float for older access-point SoCs.
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -trimpath \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
+            -o "$INSTALL_DIR/tools/apagent-linux-arm" .
+        CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -a -trimpath \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
+            -o "$INSTALL_DIR/tools/apagent-linux-mips" .
+        CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -a -trimpath \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
+            -o "$INSTALL_DIR/tools/apagent-linux-mipsle" .
         echo "Built apagent for linux/arm/v7 (access point)"
+        echo "Built apagent for linux/mips and linux/mipsle softfloat (access point)"
     else
         echo "Warning: apagent source not found at $APAGENT_SRC"
     fi

@@ -12,9 +12,6 @@ public static class ApAgentPaths
     /// <summary>tmpfs install directory. Must match <c>defaultInstallDir</c> in src/apagent/config.go.</summary>
     public const string RemoteDir = "/tmp/netopt-apagent";
 
-    /// <summary>The armv7 binary as the wrapper expects to find it (src/apagent/apagent.sh).</summary>
-    public const string RemoteBinaryPath = RemoteDir + "/apagent-linux-arm";
-
     /// <summary>Architecture-gating wrapper, so a wrong-arch AP says why instead of "Exec format error".</summary>
     public const string RemoteWrapperPath = RemoteDir + "/apagent.sh";
 
@@ -26,7 +23,10 @@ public static class ApAgentPaths
     /// <summary>procd service definition. /etc is tmpfs on an AP, so this is as ephemeral as the binary.</summary>
     public const string RemoteInitScriptPath = "/etc/init.d/netopt-apagent";
 
-    /// <summary>Presence of this file is how the server knows procd is available to supervise with.</summary>
+    /// <summary>
+    /// procd helper include. Its presence alone is insufficient: legacy UniFi firmware can ship it
+    /// without the ubus service object that rc.common needs, so the status probe checks both.
+    /// </summary>
     public const string ProcdIncludePath = "/lib/functions/procd.sh";
 
     /// <summary>
@@ -48,8 +48,18 @@ public static class ApAgentPaths
     /// <summary>Listener port. Must match <c>defaultPort</c> in src/apagent/config.go.</summary>
     public const int AgentPort = 8899;
 
-    /// <summary>Name of the binary staged in the server's own tools directory.</summary>
-    public const string LocalBinaryName = "apagent-linux-arm";
+    /// <summary>Returns the packaged binary that matches an AP's <c>uname -m</c> value.</summary>
+    public static string? BinaryNameForMachine(string? machine)
+        => machine?.Trim().ToLowerInvariant() switch
+        {
+            "armv6l" or "armv7l" or "armv8l" => "apagent-linux-arm",
+            "mips" or "mips32" => "apagent-linux-mips",
+            "mipsel" or "mips32el" => "apagent-linux-mipsle",
+            _ => null,
+        };
+
+    public static string? RemoteBinaryPathForMachine(string? machine)
+        => BinaryNameForMachine(machine) is { } name ? $"{RemoteDir}/{name}" : null;
 
     /// <summary>
     /// Pattern that matches the running agent and nothing else. Two traps make the obvious forms
@@ -59,5 +69,5 @@ public static class ApAgentPaths
     /// The bracketed first character matches the process while the literal text here does not
     /// match itself.
     /// </summary>
-    public const string ProcessPattern = "[a]pagent-linux-arm";
+    public const string ProcessPattern = "[a]pagent-linux-";
 }

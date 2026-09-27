@@ -148,8 +148,8 @@ if ($GoCmd) {
     Write-Warning "Go not installed - wansteer binary will not be available in this installer"
 }
 
-# AP Agent, pushed into tmpfs on each access point. Every measured U7-class AP is armv7l and an
-# arm64 build will not exec on them, so there is deliberately no arm64 target.
+# AP Agent, pushed into tmpfs on each access point. MIPS is built in both byte orders with
+# soft-float for older access-point SoCs.
 $ApAgentSrc = Join-Path $RepoRoot "src\apagent"
 
 if ($GoCmd) {
@@ -157,20 +157,29 @@ if ($GoCmd) {
 
     $env:CGO_ENABLED = "0"
     $env:GOOS = "linux"
-    $env:GOARCH = "arm"
-    $env:GOARM = "7"
-    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\apagent-linux-arm" .
+    $targets = @(
+        @{ GOARCH = "arm";   GOARM = "7";   GOMIPS = $null;        Output = "apagent-linux-arm";    Label = "linux/arm/v7" },
+        @{ GOARCH = "mips";  GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mips";   Label = "linux/mips softfloat" },
+        @{ GOARCH = "mipsle"; GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mipsle"; Label = "linux/mipsle softfloat" }
+    )
+    foreach ($target in $targets) {
+        $env:GOARCH = $target.GOARCH
+        $env:GOARM = $target.GOARM
+        $env:GOMIPS = $target.GOMIPS
+        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o (Join-Path $ToolsDir $target.Output) .
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "apagent build failed for linux/arm/v7"
-    } else {
-        Write-Host "Built apagent for linux/arm/v7 (access point)" -ForegroundColor Green
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "apagent build failed for $($target.Label)"
+        } else {
+            Write-Host "Built apagent for $($target.Label) (access point)" -ForegroundColor Green
+        }
     }
 
     $env:CGO_ENABLED = $null
     $env:GOOS = $null
     $env:GOARCH = $null
     $env:GOARM = $null
+    $env:GOMIPS = $null
     Pop-Location
 } else {
     Write-Warning "Go not installed - apagent binary will not be available in this installer"

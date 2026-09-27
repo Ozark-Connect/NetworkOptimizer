@@ -541,13 +541,6 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var ap = await FindAccessPointAsync(mac, ct);
         if (ap == null) return ApAgentOperationResult.Fail("No access point with that MAC on this site.");
 
-        var localPath = Path.Combine(AppContext.BaseDirectory, "tools", ApAgentPaths.LocalBinaryName);
-        if (!File.Exists(localPath))
-        {
-            _logger.LogWarning("AP Agent binary not found at {Path}", localPath);
-            return ApAgentOperationResult.Fail("The AP Agent binary is not included in this build.");
-        }
-
         progress?.Report("Checking the access point...");
         var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
         if (!status.Reachable)
@@ -568,6 +561,15 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.Unsupported, ApAgentAction.None, reason);
             await RecordFailureAsync(mac, reason, ct, backOff: false);
             return ApAgentOperationResult.Fail(reason, ApAgentState.Unsupported);
+        }
+
+        var binaryName = ApAgentPaths.BinaryNameForMachine(status.Machine)!;
+        var localPath = Path.Combine(AppContext.BaseDirectory, "tools", binaryName);
+        var remotePath = ApAgentPaths.RemoteBinaryPathForMachine(status.Machine)!;
+        if (!File.Exists(localPath))
+        {
+            _logger.LogWarning("AP Agent binary for {Architecture} not found at {Path}", status.Machine, localPath);
+            return ApAgentOperationResult.Fail($"The AP Agent binary for {status.Machine} is not included in this build.");
         }
 
         await GetOrCreateRecordAsync(mac, ap.Name, ct);
@@ -592,7 +594,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!binaryIsCurrent)
         {
             progress?.Report("Transferring the agent...");
-            var transferred = await TransferBinaryAsync(mac, ap.DisplayIpAddress, localPath, localMd5, status, ct);
+            var transferred = await TransferBinaryAsync(mac, ap.DisplayIpAddress, localPath, remotePath, localMd5, status, ct);
             if (!transferred.Success)
             {
                 if (transferred.State == ApAgentState.TransferFailed)
@@ -647,7 +649,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// before the next pass's md5 catches it.
     /// </summary>
     private async Task<ApAgentOperationResult> TransferBinaryAsync(
-        string mac, string host, string localPath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
+        string mac, string host, string localPath, string remotePath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
     {
         var connection = await BuildConnectionAsync(host);
         if (connection == null)
@@ -663,10 +665,10 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             string? error = null;
             try
             {
-                await transfer.UploadAsync(connection, localPath, ApAgentPaths.RemoteBinaryPath, ct);
+                await transfer.UploadAsync(connection, localPath, remotePath, ct);
 
                 var check = await _siteSsh.RunCommandAsync(host,
-                    $"md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
+                    $"md5sum {remotePath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
                 if (!check.success || !string.Equals(check.output.Trim(), localMd5, StringComparison.OrdinalIgnoreCase))
                     error = "The copied file did not match the original (md5 mismatch).";
             }
@@ -686,7 +688,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 continue;
             }
 
-            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {ApAgentPaths.RemoteBinaryPath}", null, SshTimeout, ct);
+            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {remotePath}", null, SshTimeout, ct);
             if (!chmod.success)
                 return ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
 

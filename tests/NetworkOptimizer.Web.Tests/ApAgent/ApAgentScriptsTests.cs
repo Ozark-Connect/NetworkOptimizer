@@ -42,11 +42,15 @@ public class ApAgentScriptsTests
     [InlineData("armv6l", true)]
     [InlineData("armv8l", true)]
     [InlineData("aarch64", false)]
-    [InlineData("mips", false)]
+    [InlineData("mips", true)]
+    [InlineData("mips32", true)]
+    [InlineData("mipsel", true)]
+    [InlineData("mips32el", true)]
+    [InlineData("mips64", false)]
     [InlineData("x86_64", false)]
     [InlineData("", false)]
     [InlineData(null, false)]
-    public void OnlyThirtyTwoBitArm_has_a_build(string? machine, bool supported)
+    public void SupportedApArchitectures_have_a_build(string? machine, bool supported)
     {
         ApAgentScripts.SupportsArchitecture(machine).Should().Be(supported);
     }
@@ -54,7 +58,7 @@ public class ApAgentScriptsTests
     [Fact]
     public void AnUnsupportedArchitecture_says_what_it_is_rather_than_failing_cryptically()
     {
-        ApAgentScripts.UnsupportedReason("aarch64").Should().Contain("aarch64").And.Contain("armv7l");
+        ApAgentScripts.UnsupportedReason("aarch64").Should().Contain("aarch64").And.Contain("MIPS");
     }
 
     [Fact]
@@ -76,6 +80,14 @@ public class ApAgentScriptsTests
         status.BinaryMd5.Should().Be("3366043c8f699cf4aabbccddeeff0011");
         status.SftpAvailable.Should().BeTrue();
         status.ScpAvailable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void TheStatusProbe_requires_a_working_ubus_service_object_before_using_procd()
+    {
+        var command = ApAgentScripts.StatusProbeCommand();
+
+        command.Should().Contain("test -f /lib/functions/procd.sh && ubus -t 2 list service >/dev/null 2>&1 && echo present || echo absent");
     }
 
     [Fact]
@@ -145,6 +157,16 @@ public class ApAgentScriptsTests
     }
 
     [Fact]
+    public void TheProbeCommand_selects_the_binary_for_the_reported_byte_order()
+    {
+        var command = ApAgentScripts.StatusProbeCommand();
+
+        command.Should().Contain("mips|mips32) AP_BIN=apagent-linux-mips");
+        command.Should().Contain("mipsel|mips32el) AP_BIN=apagent-linux-mipsle");
+        command.Should().Contain("md5sum /tmp/netopt-apagent/\"$AP_BIN\"");
+    }
+
+    [Fact]
     public void TheCapabilityProbes_pin_the_braceless_shell_form_measured_on_busybox_ash()
     {
         // At equal precedence "a || b && c || d" parses as ((a || b) && c) || d, which is what we
@@ -182,6 +204,17 @@ public class ApAgentScriptsTests
     }
 
     [Fact]
+    public void StartVerification_polls_slow_access_points_and_returns_a_real_failure()
+    {
+        var command = ApAgentScripts.VerifyRunningCommand();
+
+        command.Should().Contain("for i in 1 2 3 4 5 6 7 8 9 10");
+        command.Should().Contain("echo started; exit 0");
+        command.Should().Contain("tail -10 /tmp/netopt-apagent/apagent.log");
+        command.Should().EndWith("exit 1");
+    }
+
+    [Fact]
     public void RemovingTheAgent_clears_the_install_directory_and_the_service_definition()
     {
         var command = ApAgentScripts.RemoveCommand(procdAvailable: true);
@@ -196,8 +229,20 @@ public class ApAgentScriptsTests
         // The config partition behind /etc/persistent is 1 MB, so a Go binary provably cannot live
         // there. Nothing may be written to it.
         ApAgentPaths.RemoteDir.Should().StartWith("/tmp/");
-        ApAgentPaths.RemoteBinaryPath.Should().NotContain("/etc/persistent");
+        ApAgentPaths.RemoteBinaryPathForMachine("armv7l").Should().NotContain("/etc/persistent");
         ApAgentPaths.RemoteInitScriptPath.Should().NotContain("/etc/persistent");
+    }
+
+    [Theory]
+    [InlineData("armv7l", "apagent-linux-arm")]
+    [InlineData("mips", "apagent-linux-mips")]
+    [InlineData("mips32", "apagent-linux-mips")]
+    [InlineData("mipsel", "apagent-linux-mipsle")]
+    [InlineData("mips32el", "apagent-linux-mipsle")]
+    public void Architecture_selects_the_matching_packaged_binary(string machine, string binary)
+    {
+        ApAgentPaths.BinaryNameForMachine(machine).Should().Be(binary);
+        ApAgentPaths.RemoteBinaryPathForMachine(machine).Should().Be($"{ApAgentPaths.RemoteDir}/{binary}");
     }
 
     [Fact]

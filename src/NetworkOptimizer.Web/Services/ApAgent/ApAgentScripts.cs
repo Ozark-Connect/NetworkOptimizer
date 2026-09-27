@@ -11,25 +11,15 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// </summary>
 public static class ApAgentScripts
 {
-    /// <summary>
-    /// Machine architectures with an AP Agent build. Every measured U7-class AP is armv7l; the
-    /// Makefile deliberately builds no arm64 target, so aarch64 hardware is unsupported rather than
-    /// broken, and says so.
-    /// </summary>
-    private static readonly HashSet<string> SupportedMachines = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "armv6l", "armv7l", "armv8l",
-    };
-
     /// <summary>Whether an AP Agent build exists for a machine architecture.</summary>
     public static bool SupportsArchitecture(string? machine)
-        => !string.IsNullOrWhiteSpace(machine) && SupportedMachines.Contains(machine.Trim());
+        => ApAgentPaths.BinaryNameForMachine(machine) != null;
 
     /// <summary>Why an architecture is unsupported, in words an operator can act on.</summary>
     public static string UnsupportedReason(string? machine)
         => string.IsNullOrWhiteSpace(machine)
             ? "Could not read this access point's architecture over SSH."
-            : $"This access point reports {machine.Trim()}. The AP Agent is built for 32-bit ARM (armv7l) only today.";
+            : $"This access point reports {machine.Trim()}. AP Agent builds are available for 32-bit ARM, MIPS big-endian, and MIPS little-endian.";
 
     /// <summary>
     /// Everything the server needs about an AP in one command. An AP is a slow SSH target and each
@@ -38,16 +28,20 @@ public static class ApAgentScripts
     public static string StatusProbeCommand()
     {
         return
-            "echo '---ARCH---'; uname -m 2>/dev/null; " +
+            "AP_MACHINE=$(uname -m 2>/dev/null); " +
+            "case \"$AP_MACHINE\" in armv6l|armv7l|armv8l) AP_BIN=apagent-linux-arm;; mips|mips32) AP_BIN=apagent-linux-mips;; mipsel|mips32el) AP_BIN=apagent-linux-mipsle;; *) AP_BIN=;; esac; " +
+            "echo '---ARCH---'; echo \"$AP_MACHINE\"; " +
             "echo '---MODEL---'; sed -n 's/^board\\.name=//p' /etc/board.info 2>/dev/null | head -1; " +
             "echo '---FIRMWARE---'; head -1 /usr/lib/version 2>/dev/null; " +
-            $"echo '---PROCD---'; test -f {ApAgentPaths.ProcdIncludePath} && echo present || echo absent; " +
-            $"echo '---BINARY---'; test -x {ApAgentPaths.RemoteBinaryPath} && echo exists || echo missing; " +
+            // Some legacy UniFi firmware ships procd.sh but does not expose the ubus "service"
+            // object used by /etc/rc.common. Select supervision only when that object is usable.
+            $"echo '---PROCD---'; test -f {ApAgentPaths.ProcdIncludePath} && ubus -t 2 list service >/dev/null 2>&1 && echo present || echo absent; " +
+            $"echo '---BINARY---'; test -n \"$AP_BIN\" && test -x {ApAgentPaths.RemoteDir}/\"$AP_BIN\" && echo exists || echo missing; " +
             $"echo '---WRAPPER---'; test -x {ApAgentPaths.RemoteWrapperPath} && echo exists || echo missing; " +
             $"echo '---PROCESS---'; pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1 && echo running || echo stopped; " +
             $"echo '---VERSION---'; {ApAgentPaths.RemoteWrapperPath} -version 2>/dev/null; " +
             $"echo '---BINARY_VERSION---'; {ApAgentPaths.RemoteWrapperPath} -binary-version 2>/dev/null; " +
-            $"echo '---MD5---'; md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1; " +
+            $"echo '---MD5---'; test -n \"$AP_BIN\" && md5sum {ApAgentPaths.RemoteDir}/\"$AP_BIN\" 2>/dev/null | cut -d' ' -f1; " +
             // Braceless on purpose: at equal precedence "a || b && c || d" parses as ((a || b) && c) || d
             // on busybox ash, which is what we want. POSIX marks -o obsolescent, and braces would have
             // to be written {{ }} inside this interpolated string.
@@ -135,10 +129,14 @@ public static class ApAgentScripts
         => StopCommand(procdAvailable)
            + $"; rm -rf {ApAgentPaths.RemoteDir}; rm -f {ApAgentPaths.RemoteInitScriptPath}; true";
 
-    /// <summary>Reports whether the agent came up, with the tail of its log when it did not.</summary>
+    /// <summary>
+    /// Reports whether the agent came up, allowing slower legacy MIPS APs enough time. A real
+    /// failure returns non-zero and includes the tail of the agent log.
+    /// </summary>
     public static string VerifyRunningCommand()
-        => $"sleep 2; if pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1; then echo started; "
-           + $"else echo failed; tail -5 {ApAgentPaths.RemoteLogPath} 2>/dev/null; fi";
+        => $"for i in 1 2 3 4 5 6 7 8 9 10; do "
+           + $"if pgrep -f {ApAgentPaths.ProcessPattern} > /dev/null 2>&1; then echo started; exit 0; fi; sleep 1; done; "
+           + $"echo failed; tail -10 {ApAgentPaths.RemoteLogPath} 2>/dev/null; exit 1";
 
     /// <summary>Writes a text file on the AP by piping base64 through the shell.</summary>
     /// <param name="content">File content.</param>

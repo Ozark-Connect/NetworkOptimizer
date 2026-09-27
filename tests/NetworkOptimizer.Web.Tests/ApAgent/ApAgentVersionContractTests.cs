@@ -30,6 +30,8 @@ public class ApAgentVersionContractTests
 
         embedded.Should().Be(onDisk);
         embedded.Should().StartWith("#!/bin/sh");
+        embedded.Should().Contain("mips|mips32)          BIN=apagent-linux-mips");
+        embedded.Should().Contain("mipsel|mips32el)      BIN=apagent-linux-mipsle");
     }
 
     [Fact]

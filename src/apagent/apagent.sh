@@ -10,8 +10,10 @@ DIR=$(dirname "$0")
 
 case "$(uname -m)" in
   armv6l|armv7l|armv8l) BIN=apagent-linux-arm ;;
+  mips|mips32)          BIN=apagent-linux-mips ;;
+  mipsel|mips32el)      BIN=apagent-linux-mipsle ;;
   aarch64|arm64)        BIN=apagent-linux-arm64 ;;
-  *) echo "apagent: unsupported arch: $(uname -m) (need armv7l or aarch64)" >&2; exit 78 ;;
+  *) echo "apagent: unsupported arch: $(uname -m) (need armv7l, mips, mipsel, or aarch64)" >&2; exit 78 ;;
 esac
 
 if [ ! -x "$DIR/$BIN" ]; then

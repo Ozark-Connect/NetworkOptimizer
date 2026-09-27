@@ -16,6 +16,10 @@ func machineToGOARCH(machine string) string {
 		return "arm"
 	case "aarch64", "arm64", "aarch64_be":
 		return "arm64"
+	case "mips", "mips32":
+		return "mips"
+	case "mipsel", "mips32el":
+		return "mipsle"
 	case "x86_64", "amd64":
 		return "amd64"
 	case "i386", "i486", "i586", "i686", "x86":

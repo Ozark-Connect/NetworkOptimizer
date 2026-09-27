@@ -13,6 +13,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Non-container releases are published directly from this project. Keep the AP Agent
+         payload beside the web app just like the Docker runtime stage does. The condition keeps
+         ordinary source-only builds valid before build-apagent has produced the binaries. -->
+    <Content Include="..\apagent\bin\apagent-linux-*"
+             Condition="Exists('..\apagent\bin')">
+      <Link>tools\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Storage\NetworkOptimizer.Storage.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.UniFi\NetworkOptimizer.UniFi.csproj" />
