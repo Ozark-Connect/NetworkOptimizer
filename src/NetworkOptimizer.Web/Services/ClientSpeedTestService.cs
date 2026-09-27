@@ -820,6 +820,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 if (best.TxIsPlausible && best.Candidate.TxRateKbps is > 0) hop.IngressSpeedMbps = (int)(best.Candidate.TxRateKbps.Value / 1000);
                 if (best.RxIsPlausible && best.Candidate.RxRateKbps is > 0) hop.EgressSpeedMbps = (int)(best.Candidate.RxRateKbps.Value / 1000);
+                // Band and channel too, or the hop's tooltip keeps the realtime source's while the result shows the series'
+                if (best.Candidate.Channel is > 0) hop.WirelessChannel = best.Candidate.Channel;
+                if (RadioTokenFor(best.Candidate.Band) is { } hopRadio)
+                {
+                    hop.WirelessIngressBand = hopRadio;
+                    hop.WirelessEgressBand = hopRadio;
+                }
                 NetworkPathAnalyzer.RecalculateBottleneck(analysis!.Path);
                 analysis.CalculateEfficiency();
                 analysis.GenerateInsights();
