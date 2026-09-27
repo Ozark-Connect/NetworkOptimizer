@@ -173,6 +173,7 @@ public class VlanAnalyzer
             Enabled = nc.Enabled,
             HasIpv6 = hasIpv6,
             Ipv6Subnets = NormalizeIpv6Prefixes([nc.Ipv6Subnet]),
+            Ipv6GatewayAddresses = ExtractIpv6GatewayAddresses([nc.Ipv6Subnet]),
             Ipv6DnsServers = SelectIpv6DnsServers(hasIpv6, nc.Dhcpdv6DnsAuto,
                 [nc.Dhcpdv6Dns1, nc.Dhcpdv6Dns2, nc.Dhcpdv6Dns3, nc.Dhcpdv6Dns4])
         };
@@ -229,6 +230,38 @@ public class VlanAnalyzer
             var normalized = $"{new System.Net.IPAddress(bytes)}/{length}";
             if (!result.Contains(normalized, StringComparer.OrdinalIgnoreCase))
                 result.Add(normalized);
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    /// <summary>
+    /// The gateway addresses in gateway-form IPv6 prefixes ("2001:db8:1::1/64" gives "2001:db8:1::1"),
+    /// plus its link-local address when the gateway's network_table reports one. A prefix written in
+    /// network form names no gateway and is skipped. Returns null when none remain.
+    /// </summary>
+    internal static List<string>? ExtractIpv6GatewayAddresses(IEnumerable<string?> prefixes, string? linkLocal = null)
+    {
+        var result = new List<string>();
+        if (System.Net.IPAddress.TryParse(linkLocal?.Trim(), out var ll) && ll.IsIPv6LinkLocal)
+            result.Add(ll.ToString());
+
+        foreach (var prefix in prefixes)
+        {
+            var parts = prefix?.Trim().Split('/');
+            if (parts is not { Length: 2 } || !int.TryParse(parts[1], out var length) || length is < 0 or > 128 ||
+                !System.Net.IPAddress.TryParse(parts[0], out var address) ||
+                address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
+                continue;
+
+            var bytes = address.GetAddressBytes();
+            var hasHostBits = false;
+            for (var bit = length; bit < 128 && !hasHostBits; bit++)
+                hasHostBits = (bytes[bit / 8] & (0x80 >> (bit % 8))) != 0;
+
+            var gateway = address.ToString();
+            if (hasHostBits && !result.Contains(gateway, StringComparer.OrdinalIgnoreCase))
+                result.Add(gateway);
         }
 
         return result.Count > 0 ? result : null;
@@ -333,6 +366,8 @@ public class VlanAnalyzer
             Enabled = networkEnabled,
             HasIpv6 = hasIpv6,
             Ipv6Subnets = NormalizeIpv6Prefixes(rawIpv6Prefixes),
+            Ipv6GatewayAddresses = ExtractIpv6GatewayAddresses(rawIpv6Prefixes,
+                network.GetStringOrNull("ipv6_link_local_address")),
             Ipv6DnsServers = SelectIpv6DnsServers(hasIpv6,
                 network.GetBoolOrDefault("dhcpdv6_dns_auto", true),
                 Enumerable.Range(1, 4).Select(i => network.GetStringOrNull($"dhcpdv6_dns_{i}")))
