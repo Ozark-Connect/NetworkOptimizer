@@ -1758,12 +1758,30 @@ public class DnsSecurityAnalyzer
             }
 
             if (mismatched.Count > 0)
+            {
                 result.Ipv6WanDnsMismatches.Add(new Ipv6WanDnsMismatch(wan.InterfaceName, wan.PortName, mismatched, expectedProvider));
-            else if (expectedProvider.Name == "NextDNS" && ptrResults.Count >= 2 &&
-                     (ptrResults[0]?.Contains("dns2.", StringComparison.OrdinalIgnoreCase) ?? false) &&
-                     (ptrResults[1]?.Contains("dns1.", StringComparison.OrdinalIgnoreCase) ?? false))
-                result.Ipv6WanDnsWrongOrder.Add((wan, ptrResults));
+            }
+            else if (expectedProvider.Name == "NextDNS" && ptrResults.Count >= 2)
+            {
+                var roles = wan.Ipv6DnsServers.Select((s, i) => NextDnsIpv6Role(s, ptrResults[i])).ToList();
+                if (roles[0]?.StartsWith("dns2") == true && roles[1]?.StartsWith("dns1") == true)
+                    result.Ipv6WanDnsWrongOrder.Add((wan, roles));
+            }
         }
+    }
+
+    /// <summary>
+    /// Which NextDNS server ("dns1." / "dns2.") an IPv6 address is: from its PTR name, else from the
+    /// anycast prefix. NextDNS publishes no PTR for its dns1 IPv6 range (2a07:a8c0::/32, while
+    /// 2a07:a8c1:: answers dns2.nextdns.io), so over IPv6 the prefix is the only reliable signal.
+    /// </summary>
+    internal static string? NextDnsIpv6Role(string server, string? reverseDns)
+    {
+        if (reverseDns?.Contains("dns1.", StringComparison.OrdinalIgnoreCase) == true) return "dns1.";
+        if (reverseDns?.Contains("dns2.", StringComparison.OrdinalIgnoreCase) == true) return "dns2.";
+        if (server.StartsWith("2a07:a8c0:", StringComparison.OrdinalIgnoreCase)) return "dns1.";
+        if (server.StartsWith("2a07:a8c1:", StringComparison.OrdinalIgnoreCase)) return "dns2.";
+        return null;
     }
 
     private async Task<DohProviderInfo?> IdentifyExpectedDnsProviderAsync(DnsSecurityResult result)
