@@ -2004,8 +2004,8 @@ public class UpstreamTracerService
         {
             (0, 0) => $"All {allTargets.Count} target(s) responded to ping.",
             (_, 0) => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded.",
-            (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answered by another path and were excluded.",
-            _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answered by another path; all were excluded."
+            (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answer by a different route and were excluded.",
+            _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answer by a different route; all were excluded."
         };
     }
 

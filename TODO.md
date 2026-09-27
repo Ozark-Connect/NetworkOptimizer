@@ -682,7 +682,7 @@ Three possible closers, cheapest first, none investigated beyond reading the cod
 A ping to a transit hop's own address can route differently from the trace that found it, so its
 latency and loss describe some other path (typical of IX peering-LAN addresses reached through a
 different carrier). The reachability gate now excludes a transit hop whose direct-ping minimum RTT
-sits well above its trace RTT (`IsOffPath`, shown as "Off path").
+sits well above its trace RTT (`IsOffPath`, shown as "Different route").
 
 That catches only a divergent path that is slower. One with a similar RTT (two carriers into the
 same metro) still passes, and its ancestor set claims a routing relationship the ping never
