@@ -81,6 +81,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Xfinity / Cox / Comcast Business** - XB8, XB10 (Sercomm), CGM4981, CGA4332 (Technicolor)
 - **Technicolor CGA series** - CGA437A, CGA4233VOO, CGA4322DE, CGA6444VF (shipped by VOO and Vodafone)
 - **Vodafone Station** - ARRIS TG3442DE
+- **Sagemcom** - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)
 
 ![Cable Modem Stats card with downstream SNR gauge, channel counts, power levels and FEC error counts](docs/images/cable-modem-stats.png)
 
@@ -103,6 +104,8 @@ SFP-based ONT monitoring (modules plugged into your gateway that expose DDM opti
 - **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup
 - **Netgear Nighthawk** - modems and hotspots
 - **GL-iNet / Quectel** - modems and routers
+- **Inseego** - FX4100 5G gateway
+- **Zyxel** - NR7101, NR7102, NR7301, NR7302, NR7303, NR5103E, NR5103 v2, NR5307, FWA505, FWA510, FWA710, LTE3202, LTE5398, LTE7490
 
 Dual-connectivity mode tracks LTE and NR5G bands separately for NSA setups.
 
