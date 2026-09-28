@@ -1445,14 +1445,14 @@
                                 @if (editingModem.Provider == "zyxel-cpe")
                                 {
                                     <div class="form-group" style="flex: 1;">
-                                        <label class="form-label">Admin Username</label>
+                                        <label class="form-label">Username</label>
                                         <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="admin" />
                                     </div>
                                     <div class="form-group" style="flex: 1;">
-                                        <label class="form-label">Admin Password</label>
+                                        <label class="form-label">Password</label>
                                         <input type="password" class="form-control" @bind="editingModem.Password" @bind:event="oninput" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                         <small class="form-help">
-                                            The sign-in for the router's web interface. Signal data is only available when signed in.
+                                            Use a dedicated account (Maintenance - User Account - Add New Account, Group: User) with an Idle Timeout above the poll interval. The router allows one session per account, so polling as admin signs you out of its web interface.
                                         </small>
                                     </div>
                                 }
@@ -6983,7 +6983,7 @@
 
         if (isZyxelProvider && string.IsNullOrWhiteSpace(editingModem.Password))
         {
-            modemMessage = "The admin password is required for Zyxel routers";
+            modemMessage = "The password is required for Zyxel routers";
             modemMessageClass = "danger";
             return;
         }
