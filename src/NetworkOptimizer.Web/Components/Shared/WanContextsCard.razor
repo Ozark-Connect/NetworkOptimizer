@@ -580,7 +580,7 @@
         int.TryParse(_newAgentId, out var outdatedAgentId)
         && _agents.FirstOrDefault(a => a.Id == outdatedAgentId) is SiteAgent selected
         && NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(
-            selected.LastVersion, NetworkOptimizer.Web.Services.AppVersionInfo.LatestAgentVersion);
+            selected.LastVersion, NetworkOptimizer.Web.Services.AppVersionInfo.RequiredAgentVersion);
 
     // WAN contexts are per-site data: route through the current site's database.
     private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);

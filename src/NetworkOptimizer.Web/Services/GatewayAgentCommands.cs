@@ -22,9 +22,22 @@ public static class GatewayAgentCommands
     /// router must not host a speed-test server) and no sudo (UniFi gateways SSH in as root).
     /// </summary>
     public static string Install(string? serverUrl, string token) =>
-        $"curl -fsSL {ScriptUrl} | bash -s -- \\\n  --server \"{ServerValue(serverUrl)}\" \\\n  --token \"{token}\"";
+        Install(serverUrl, token, AppVersionInfo.AgentReleaseTag);
+
+    internal static string Install(string? serverUrl, string token, string? releaseTag) =>
+        $"curl -fsSL {ScriptUrl} | bash -s -- \\\n  --server \"{ServerValue(serverUrl)}\" \\\n  --token \"{token}\""
+        + (releaseTag == null ? "" : $" \\\n  --release \"{releaseTag}\"");
 
     /// <summary>Upgrade one-liner: same script, no token - an enrolled agent.json is kept.</summary>
-    public static string Upgrade(string? serverUrl) =>
-        $"curl -fsSL {ScriptUrl} | bash -s -- --server \"{ServerValue(serverUrl)}\"";
+    public static string Upgrade(string? serverUrl) => Upgrade(serverUrl, AppVersionInfo.AgentReleaseTag);
+
+    internal static string Upgrade(string? serverUrl, string? releaseTag) =>
+        $"curl -fsSL {ScriptUrl} | bash -s -- --server \"{ServerValue(serverUrl)}\"" + ReleaseArgument(releaseTag);
+
+    /// <summary>
+    /// " --release \"TAG\"" when the server is a prerelease (see <see cref="AppVersionInfo.AgentReleaseTag"/>),
+    /// otherwise empty, so a stable server's commands are unchanged.
+    /// </summary>
+    public static string ReleaseArgument(string? releaseTag) =>
+        releaseTag == null ? "" : $" --release \"{releaseTag}\"";
 }
