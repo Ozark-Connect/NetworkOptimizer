@@ -18,6 +18,7 @@
 #   --speed-test-port N  Serve the LAN speed test page on N instead of 24443. The agent tells the
 #                    server which port it uses, so in-app links follow automatically.
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
+#   --release TAG    Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
 #                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
 #   --dir PATH       Install directory (default: /opt/netopt-agent)
@@ -41,6 +42,7 @@ INSTALL_DIR="/opt/netopt-agent"
 SERVICE_NAME="netopt-agent"
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
+RELEASE_TAG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,9 +55,23 @@ while [ $# -gt 0 ]; do
         --force-native) FORCE_NATIVE=true; shift ;;
         --configure-apparmor) CONFIGURE_APPARMOR=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
+        --release) RELEASE_TAG="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+# --release pins the binaries to one release (the one the server runs) instead of GitHub's
+# "latest", which skips prereleases: a preview server would otherwise install a stable agent.
+if [ -n "$RELEASE_TAG" ]; then
+    case "$RELEASE_TAG" in
+        v*) ;;
+        *) RELEASE_TAG="v${RELEASE_TAG}" ;;
+    esac
+    case "$RELEASE_TAG" in
+        *[!A-Za-z0-9.-]*) echo "Invalid --release tag: $RELEASE_TAG" >&2; exit 1 ;;
+    esac
+    RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${RELEASE_TAG}"
+fi
 
 # An install that already serves the LAN speed test keeps serving it, whether or not the flag was
 # repeated on this run. Without this, re-running to update the binary quietly stopped refreshing the

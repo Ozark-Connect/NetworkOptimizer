@@ -15,6 +15,7 @@
 #   --token  TOKEN   One-time enrollment token (required on first install)
 #   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
+#   --release TAG    Run this release's image (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --dir PATH       Install directory (default: /opt/network-optimizer-agent)
 #   --uninstall      Stop and remove the agent container and install dir, then exit
 
@@ -28,6 +29,7 @@ UNINSTALL=false
 INSTALL_DIR="/opt/network-optimizer-agent"
 CONTAINER_NAME="network-optimizer-agent"
 COMPOSE_URL="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/agent/docker-compose.yml"
+RELEASE_TAG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --dir) INSTALL_DIR="$2"; shift 2 ;;
+        --release) RELEASE_TAG="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -118,6 +121,17 @@ $SUDO mkdir -p "${INSTALL_DIR}/data"
 step "Fetching the compose template"
 $SUDO curl -fsSL "$COMPOSE_URL" -o "${INSTALL_DIR}/docker-compose.yml"
 ok "docker-compose.yml"
+# --release pins the image to one release (the one the server runs) instead of :latest, which
+# only moves on stable releases: a preview server would otherwise run a stable agent.
+if [ -n "$RELEASE_TAG" ]; then
+    case "$RELEASE_TAG" in
+        *[!A-Za-z0-9.-]*) err "Invalid --release tag: $RELEASE_TAG" ;;
+    esac
+    IMAGE_TAG="${RELEASE_TAG#v}"
+    $SUDO sed -i "s#\(image: ghcr.io/ozark-connect/agent\):latest#\1:${IMAGE_TAG}#" "${INSTALL_DIR}/docker-compose.yml"
+    $SUDO grep -q "agent:${IMAGE_TAG}" "${INSTALL_DIR}/docker-compose.yml" || err "Could not pin the image to ${IMAGE_TAG}"
+    ok "Image pinned to agent:${IMAGE_TAG}"
+fi
 
 CONFIG="${INSTALL_DIR}/data/agent.json"
 
