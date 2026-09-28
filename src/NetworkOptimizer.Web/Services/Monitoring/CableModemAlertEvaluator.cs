@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Monitoring.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -8,7 +9,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// Evaluates cable modem DOCSIS metrics against thresholds and publishes alert
 /// events on state transitions. Covers downstream SNR, downstream/upstream power
 /// levels, uncorrectable FEC errors, and locked channel count drops. Thresholds
-/// are based on DOCSIS 3.0/3.1 operating specifications.
+/// are based on DOCSIS 3.0/3.1 operating specifications. For modems that report
+/// them, also raises the modem's own logged T3/T4/ranging events and reinits.
 /// </summary>
 public class CableModemAlertEvaluator
 {
@@ -236,6 +238,85 @@ public class CableModemAlertEvaluator
         }
     }
 
+    /// <summary>
+    /// Publishes one recognised entry from the modem's own DOCSIS event log (T3/T4 timeout,
+    /// ranging failure). The caller decides which entries are new; this only raises them.
+    /// </summary>
+    public async ValueTask PublishDocsisEventAsync(int cmId, string cmName, CmEvent entry, CancellationToken ct = default)
+    {
+        if (entry.Kind == null) return;
+
+        var (title, what) = entry.Kind switch
+        {
+            CmEventKinds.T3Timeout => ("T3 timeout", "a T3 timeout (no ranging response from the CMTS)"),
+            CmEventKinds.T4Timeout => ("T4 timeout", "a T4 timeout (no station maintenance from the CMTS; the modem reinitializes its MAC)"),
+            CmEventKinds.RangingFailure => ("ranging failure", "a ranging failure"),
+            _ => (entry.Kind, entry.Kind),
+        };
+
+        _logger.LogDebug("Cable modem DOCSIS event: {CmName} {Kind} at {Time}", cmName, entry.Kind, entry.Time);
+
+        await _eventBus.PublishAsync(new AlertEvent
+        {
+            EventType = $"cable_modem.{entry.Kind}",
+            Source = "cable_modem",
+            Severity = AlertSeverity.Warning,
+            Title = $"{cmName} {title}{_siteSuffix}",
+            Message = $"Cable modem {cmName} logged {what}: {entry.Text}",
+            SourceUrl = MonitoringLinks.HardwareStats("cm", entry.Time ?? DateTime.UtcNow),
+            Tags = ["cable_modem", "docsis_event"],
+            Context = new Dictionary<string, string>
+            {
+                ["cm_id"] = cmId.ToString(),
+                ["level"] = entry.Level,
+                ["event"] = entry.Text,
+            }
+        }, ct);
+    }
+
+    /// <summary>
+    /// Raises <c>cable_modem.reinit</c> when the modem reinitialized since the last poll: its
+    /// reported reinit reason changed, or its uptime went backwards. The first poll after startup
+    /// only records the baseline. A repeat of the same reason without a restart is not visible.
+    /// </summary>
+    public async ValueTask EvaluateReinitAsync(int cmId, string cmName, string? reinitReason, long? uptimeSeconds, CancellationToken ct = default)
+    {
+        var state = _states.GetOrAdd(cmId.ToString(), _ => new CmAlertState());
+        var hadBaseline = state.ReinitBaselined;
+        var reasonChanged = hadBaseline && !string.IsNullOrEmpty(reinitReason)
+            && !string.Equals(reinitReason, state.LastReinitReason, StringComparison.Ordinal);
+        var restarted = hadBaseline && uptimeSeconds.HasValue && state.LastUptimeSeconds.HasValue
+            && uptimeSeconds.Value < state.LastUptimeSeconds.Value;
+
+        state.ReinitBaselined = true;
+        if (!string.IsNullOrEmpty(reinitReason)) state.LastReinitReason = reinitReason;
+        if (uptimeSeconds.HasValue) state.LastUptimeSeconds = uptimeSeconds;
+
+        if (!reasonChanged && !restarted) return;
+
+        var reason = string.IsNullOrEmpty(reinitReason) ? "unknown" : reinitReason;
+        _logger.LogDebug("Cable modem reinitialized: {CmName} reason={Reason} restarted={Restarted}", cmName, reason, restarted);
+
+        await _eventBus.PublishAsync(new AlertEvent
+        {
+            EventType = "cable_modem.reinit",
+            Source = "cable_modem",
+            Severity = AlertSeverity.Warning,
+            Title = $"{cmName} reinitialized{_siteSuffix}",
+            Message = $"Cable modem {cmName} reinitialized (reason: {reason}).",
+            SourceUrl = MonitoringLinks.HardwareStats("cm", DateTime.UtcNow),
+            Tags = ["cable_modem", "reinit"],
+            Context = new Dictionary<string, string>
+            {
+                ["cm_id"] = cmId.ToString(),
+                ["reinit_reason"] = reason,
+            }
+        }, ct);
+    }
+
+    /// <summary>Drops a modem's alert state (its config was deleted).</summary>
+    public void Forget(int cmId) => _states.TryRemove(cmId.ToString(), out _);
+
     private class CmAlertState
     {
         public bool DsSnrBreached;
@@ -243,5 +324,8 @@ public class CableModemAlertEvaluator
         public bool UsPowerBreached;
         public bool ChannelLossBreached;
         public int MaxLockedDsChannels;
+        public bool ReinitBaselined;
+        public string? LastReinitReason;
+        public long? LastUptimeSeconds;
     }
 }

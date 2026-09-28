@@ -54,6 +54,7 @@
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject ICableModemService CmMonitorService
+@inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @inject IOntMonitorService OntMonitorService
 @inject IStarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
@@ -1658,19 +1659,56 @@
                         </div>
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
-                            <select class="form-control" @bind="_editingCm.Provider">
+                            <select class="form-control" @bind="_editingCm.Provider" @bind:after="OnCmProviderChanged">
+                                <option value="" disabled>Select a provider...</option>
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
                                 <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
                                 <option value="sagemcom-f3896lg">Sagemcom F3896LG: Virgin Media Hub 5, Ziggo SmartWifi (HTTP)</option>
                                 <option value="technicolor-cga">Technicolor CGA Series (HTTP)</option>
+                                <option value="unifi-uci">UniFi Cable Internet (UCI)</option>
                                 <option value="vodafone-station">Vodafone Station (ARRIS TG3442DE)</option>
                                 <option value="xfinity-gateway">Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)</option>
                             </select>
                         </div>
                     </div>
 
+                    @if (IsCmUciProvider(_editingCm.Provider))
+                    {
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">UniFi Cable Internet</label>
+                                @if (_cmUciDevices.Count == 0)
+                                {
+                                    <div class="alert alert-info" style="padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;">No UniFi Cable Internet is adopted in this site's UniFi Console.</div>
+                                }
+                                else
+                                {
+                                    <select class="form-control" @bind="_editingCm.Host">
+                                        <option value="">Select a UCI...</option>
+                                        @foreach (var (mac, name) in _cmUciDevices)
+                                        {
+                                            <option value="@mac">@name (@mac)</option>
+                                        }
+                                    </select>
+                                }
+                                <small class="form-help">
+                                    Stats come from the On-Site Agent on the Gateway, which reads the updates the UCI sends through it.
+                                    @if (!_cmUciAgentReady)
+                                    {
+                                        <a href="/settings?tab=multisite">Install or update the On-Site Agent on the Gateway</a><text> to start them.</text>
+                                    }
+                                </small>
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label class="form-label">Polling Interval (sec)</label>
+                                <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" @bind:event="oninput" min="60" max="3600" />
+                            </div>
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_editingCm.Provider))
+                    {
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
@@ -1686,18 +1724,30 @@
                         </div>
                     </div>
 
+                    @if (CmCredentialsFor(_editingCm.Provider) != NetworkOptimizer.Monitoring.Providers.CmCredentialRequirement.None)
+                    {
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput" placeholder="admin" />
+                            <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput"
+                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsernameMeansAdmin == true ? "admin" : "")" />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
                             <input type="password" class="form-control" @bind="_editingCm.Password" @bind:event="oninput"
                                    placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")"
                                    autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                            @if (CmCredentialsFor(_editingCm.Provider) == NetworkOptimizer.Monitoring.Providers.CmCredentialRequirement.Required)
+                            {
+                                <small class="form-help">Required for this modem.</small>
+                            }
+                            else
+                            {
+                                <small class="form-help">Only some models need a login. Leave both blank if yours has none.</small>
+                            }
                         </div>
                     </div>
+                    }
 
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
@@ -1711,6 +1761,7 @@
                             <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" @bind:event="oninput" min="60" max="3600" />
                         </div>
                     </div>
+                    }
 
                     <div class="form-group">
                         <label class="checkbox-label">
@@ -3665,8 +3716,18 @@
                                                                             <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion))}" : "")</text>
                                                                             @if (AgentVersionOutdated(agent))
                                                                             {
-                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">
+                                                                                <span class="status-warning" data-tooltip="A newer agent release (v@(AppVersionInfo.AgentVersionForDisplay(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">
                                                                                     Agent needs update
+                                                                                </span>
+                                                                                <button class="btn btn-sm btn-secondary"
+                                                                                        @onclick="() => ToggleUpgradeCommand(agent.Id)">
+                                                                                    @(_upgradeCommandAgentId == agent.Id ? "Hide" : "Upgrade")
+                                                                                </button>
+                                                                            }
+                                                                            else if (AgentUpdateAvailable(agent))
+                                                                            {
+                                                                                <span class="text-muted" data-tooltip="Agent v@(AppVersionInfo.AgentVersionForDisplay(AppVersionInfo.LatestAgentVersion)) is available. Updating is optional unless you want what it adds.">
+                                                                                    Update available
                                                                                 </span>
                                                                                 <button class="btn btn-sm btn-secondary"
                                                                                         @onclick="() => ToggleUpgradeCommand(agent.Id)">
@@ -3700,7 +3761,7 @@
                                                                             <p class="form-help">Bare metal (systemd) - enrollment is preserved, only the binaries update:</p>
                                                                             <CopyableCommand Text="@NativeUpgradeCommand()" Tooltip="Copy the upgrade command" />
                                                                             <p class="form-help">Docker agents instead:</p>
-                                                                            <CopyableCommand Text="cd /opt/network-optimizer-agent &amp;&amp; docker compose pull &amp;&amp; docker compose up -d"
+                                                                            <CopyableCommand Text="@DockerUpgradeCommand()"
                                                                                              Tooltip="Copy the Docker upgrade command" />
                                                                             <p class="form-help">Proxmox LXC agents - run on the host, with the container's ID:</p>
                                                                             <CopyableCommand Text="@ProxmoxUpgradeCommand()"
@@ -4751,12 +4812,14 @@
         timers.Clear();
     }
 
-    // An online agent reporting an older version than the manually-tracked
-    // latest agent release gets an "Update agent" callout. Tracked manually
-    // (AppVersionInfo.LatestAgentVersion) rather than compared to the server
-    // build: server releases without agent changes leave agents intentionally
-    // lagging, and that must not nag.
+    // An online agent older than the required release gets the "Agent needs update" warning; one
+    // only older than the latest release is offered the upgrade quietly. Both tracked manually in
+    // AppVersionInfo rather than compared to the server build: server releases without agent
+    // changes leave agents intentionally lagging, and that must not nag.
     private static bool AgentVersionOutdated(SiteAgent agent) =>
+        NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(agent.LastVersion, AppVersionInfo.RequiredAgentVersion);
+
+    private static bool AgentUpdateAvailable(SiteAgent agent) =>
         NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(agent.LastVersion, AppVersionInfo.LatestAgentVersion);
 
     // Which agent row is showing its upgrade one-liner. The install script
@@ -4773,7 +4836,10 @@
 
     private string NativeUpgradeCommand() =>
         "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh"
-        + $" | sudo bash -s -- --server \"{AgentServerBase()}\"";
+        + $" | sudo bash -s -- --server \"{AgentServerBase()}\""
+        + GatewayAgentCommands.ReleaseArgument(AppVersionInfo.AgentReleaseTag);
+
+    private static string DockerUpgradeCommand() => GatewayAgentCommands.DockerUpgrade(AppVersionInfo.AgentReleaseTag);
 
     // An agent in an LXC is the bare-metal agent with a container around it, so it
     // upgrades with the same script - run from the host, since that is where the
@@ -4979,7 +5045,7 @@
 
     // Cable Modem Monitoring
     private List<CmConfiguration> _cmConfigs = new();
-    private CmConfiguration _editingCm = new() { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+    private CmConfiguration _editingCm = new() { Provider = "", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
     private bool _cmFormVisible;
     private bool _savingCm;
     private string? _cmTestResult;
@@ -7137,12 +7203,40 @@
 
     private async Task SaveCm()
     {
-        // People paste the modem's management page URL here - strip it down to the host.
-        _editingCm.Host = NetworkUtilities.ExtractHostFromUrl(_editingCm.Host);
+        if (string.IsNullOrEmpty(_editingCm.Provider))
+        {
+            _cmTestResult = CmSelectProviderMessage;
+            _cmTestResultClass = "danger";
+            return;
+        }
+
+        var isUci = IsCmUciProvider(_editingCm.Provider);
+        if (isUci)
+        {
+            // A UCI is identified by its MAC and reads no address or credentials.
+            _editingCm.Host = NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.NormalizeMac(_editingCm.Host) ?? "";
+            _editingCm.Port = 0;
+            _editingCm.Username = "";
+            _editingCm.Password = null;
+            _editingCm.StatusPagePath = null;
+        }
+        else
+        {
+            // People paste the modem's management page URL here - strip it down to the host.
+            _editingCm.Host = NetworkUtilities.ExtractHostFromUrl(_editingCm.Host);
+        }
 
         if (string.IsNullOrWhiteSpace(_editingCm.Name) || string.IsNullOrWhiteSpace(_editingCm.Host))
         {
-            _cmTestResult = "Name and Host are required.";
+            _cmTestResult = isUci ? "Name and a UCI are required." : "Name and Host are required.";
+            _cmTestResultClass = "danger";
+            return;
+        }
+
+        if (isUci && _cmConfigs.Any(c => c.Id != _editingCm.Id && IsCmUciProvider(c.Provider)
+                && NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.NormalizeMac(c.Host) == _editingCm.Host))
+        {
+            _cmTestResult = "This UCI is already monitored.";
             _cmTestResultClass = "danger";
             return;
         }
@@ -7150,6 +7244,22 @@
         _savingCm = true;
         _cmTestResult = null;
         StateHasChanged();
+
+        // A provider that needs a password saves without one only if the modem really answers
+        // without it: a stored password counts, and so does a test that succeeds.
+        if (CmCredentialsFor(_editingCm.Provider) == NetworkOptimizer.Monitoring.Providers.CmCredentialRequirement.Required
+            && string.IsNullOrEmpty(_editingCm.Password))
+        {
+            var (probeOk, probeMessage) = await CmMonitorService.ProbeAsync(_editingCm);
+            if (!probeOk)
+            {
+                _cmTestResult = $"This modem needs a password. {probeMessage}";
+                _cmTestResultClass = "danger";
+                _savingCm = false;
+                StateHasChanged();
+                return;
+            }
+        }
 
         try
         {
@@ -7246,7 +7356,7 @@
         }
     }
 
-    private void EditCm(CmConfiguration config)
+    private async Task EditCm(CmConfiguration config)
     {
         _editingCm = new CmConfiguration
         {
@@ -7265,11 +7375,62 @@
             CreatedAt = config.CreatedAt,
         };
         _cmFormVisible = true;
+        if (IsCmUciProvider(config.Provider))
+            await LoadCmUciDevicesAsync();
+    }
+
+    private List<(string Mac, string Name)> _cmUciDevices = new();
+    private bool _cmUciAgentReady;
+
+    private NetworkOptimizer.Monitoring.Providers.ICableModemProvider? CmProviderFor(string provider) =>
+        CmProviders.FirstOrDefault(p => string.Equals(p.ProviderKey, provider, StringComparison.OrdinalIgnoreCase));
+
+    // An unknown provider key shows the fields unrequired rather than hiding them.
+    private NetworkOptimizer.Monitoring.Providers.CmCredentialRequirement CmCredentialsFor(string provider) =>
+        CmProviderFor(provider)?.Credentials ?? NetworkOptimizer.Monitoring.Providers.CmCredentialRequirement.Optional;
+
+    private static bool IsCmUciProvider(string provider) =>
+        provider == NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.ProviderKey;
+
+    private const string CmSelectProviderMessage = "Select a provider.";
+
+    private async Task OnCmProviderChanged()
+    {
+        // Picking a provider answers the save's "Select a provider." error, so it goes.
+        if (_cmTestResult == CmSelectProviderMessage) _cmTestResult = null;
+        if (!IsCmUciProvider(_editingCm.Provider)) return;
+        if (_editingCm.Id == 0)
+        {
+            _editingCm.Host = "";
+            _editingCm.PollingIntervalSeconds = 60;
+        }
+        await LoadCmUciDevicesAsync();
+    }
+
+    /// <summary>The site's adopted UCIs for the picker, plus the one being edited if it is no longer adopted.</summary>
+    private async Task LoadCmUciDevicesAsync()
+    {
+        var found = new List<(string Mac, string Name)>();
+        try
+        {
+            var choices = await CmMonitorService.GetUciChoicesAsync();
+            _cmUciAgentReady = choices.AgentReady;
+            found.AddRange(choices.Devices);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not list UniFi Cable Internet devices for the cable modem form");
+        }
+
+        var current = NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.NormalizeMac(_editingCm.Host);
+        if (current != null && found.All(d => d.Mac != current))
+            found.Add((current, string.IsNullOrWhiteSpace(_editingCm.Name) ? "UniFi Cable Internet" : _editingCm.Name));
+        _cmUciDevices = found;
     }
 
     private void CancelEditCm()
     {
-        _editingCm = new CmConfiguration { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+        _editingCm = new CmConfiguration { Provider = "", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
         _cmFormVisible = false;
     }
 
@@ -7283,6 +7444,7 @@
         "technicolor-cga" => "Technicolor CGA Series (HTTP)",
         "vodafone-station" => "Vodafone Station (ARRIS TG3442DE)",
         "sagemcom-f3896lg" => "Sagemcom F3896LG: Virgin Media Hub 5, Ziggo SmartWifi (HTTP)",
+        "unifi-uci" => "UniFi Cable Internet (UCI)",
         _ => provider,
     };
 

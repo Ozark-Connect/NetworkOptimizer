@@ -52,4 +52,16 @@ public interface ICableModemService
     /// <summary>Verifies a configuration can reach its modem, without saving it.</summary>
     [RequireRole(Roles.Admin)]
     Task<(bool Success, string Message)> ProbeAsync(CmConfiguration config);
+
+    /// <summary>
+    /// The site's adopted UniFi Cable Internet devices for the Settings picker, and whether an
+    /// On-Site Agent on the gateway can capture their informs.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    Task<UciChoices> GetUciChoicesAsync();
 }
+
+/// <summary>The UCIs a cable modem config can monitor, for the Settings picker.</summary>
+/// <param name="Devices">Adopted UCIs as (MAC, UniFi name).</param>
+/// <param name="AgentReady">Whether a connected On-Site Agent on the gateway can capture UCI informs.</param>
+public sealed record UciChoices(IReadOnlyList<(string Mac, string Name)> Devices, bool AgentReady);

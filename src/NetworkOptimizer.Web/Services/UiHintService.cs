@@ -166,4 +166,11 @@ public static class UiHintKeys
     /// message in two placements, so one dismissal retires both.
     /// </summary>
     public const string ApTelemetryOffer = "ap-telemetry-offer";
+
+    /// <summary>
+    /// App-wide banner telling a site with a UniFi Cable Internet that its DOCSIS stats need the
+    /// On-Site Agent on the gateway. Site admins only (they are the ones who can act on it), and
+    /// only while no gateway agent can capture. Dismissed rather than counted down.
+    /// </summary>
+    public const string UciAgentOffer = "uci-agent-offer";
 }

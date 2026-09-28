@@ -9,7 +9,8 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=3';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
-import { detailsTableHtml } from './detail-table.js?v=1';
+import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
+import { createMarkLayer } from './chart-event-marks.js?v=6';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cm';
@@ -38,11 +39,37 @@ let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
 let lastData = null;
+let lastEvents = [];
+let markResizeTimer = null;
 
 const axisDate = createAxisDateCaption({ charts: () => [dsPowerChart, dsSnrChart, usPowerChart, errorsChart], window: effectiveWindow });
 
 // Every chart this tab stacks shares one group - see chart-sync.js.
 const SYNC_GROUP = 'cm';
+
+// The modem's own logged events (T3/T4 timeouts and the like) as marks on every chart, for modems
+// that report an event log.
+const markLayer = createMarkLayer({
+    charts: () => {
+        const container = document.getElementById(containerId);
+        return [
+            [dsPowerChart, container?.querySelector('.cm-ds-power-chart')],
+            [dsSnrChart, container?.querySelector('.cm-ds-snr-chart')],
+            [usPowerChart, container?.querySelector('.cm-us-power-chart')],
+            [errorsChart, container?.querySelector('.cm-errors-chart')],
+        ].filter(([chart]) => chart);
+    },
+});
+
+function applyAnnotations() {
+    markLayer.apply(lastEvents, visibility);
+}
+
+// A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
+function onMarkResize() {
+    clearTimeout(markResizeTimer);
+    markResizeTimer = setTimeout(applyAnnotations, 200);
+}
 
 function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
     const base = {
@@ -154,11 +181,12 @@ function renderBadges(container) {
             updateVisibility();
             renderBadges(container);
             renderStatsTable(container, false);
+            renderEventLog(container);
         });
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); });
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); renderEventLog(container); });
 }
 
 // Downstream, upstream and the two error counts each get their own color per modem, so the four
@@ -195,6 +223,7 @@ function updateVisibility() {
     if (dsSnrChart) dsSnrChart.updateSeries(dsSnrSeries, false);
     if (usPowerChart) usPowerChart.updateSeries(usPowerSeries, false);
     if (errorsChart) errorsChart.updateSeries(errorsSeries, false);
+    applyAnnotations();
 }
 
 async function loadAndUpdate() {
@@ -204,8 +233,9 @@ async function loadAndUpdate() {
         id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
     }));
 
-    // Before updateVisibility, which draws from it.
+    // Before updateVisibility, which draws from both.
     lastData = data;
+    lastEvents = data.events || [];
     // Ahead of the redraw below - see apply().
     axisDate.apply();
     updateVisibility();
@@ -214,6 +244,7 @@ async function loadAndUpdate() {
         renderBadges(container);
         renderDetails(container);
         renderStatsTable(container);
+        renderEventLog(container);
     }
 }
 
@@ -252,7 +283,7 @@ function renderStatsTable(container, showAll) {
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
-            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); renderEventLog(c); } },
     });
 }
 
@@ -540,6 +571,8 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
+    window.addEventListener('resize', onMarkResize);
+
     await loadAndUpdate();
     startPoll();
 }
@@ -549,11 +582,14 @@ export function soloDevice(deviceId) {
     deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) { renderBadges(container); renderStatsTable(container, false); }
+    if (container) { renderBadges(container); renderStatsTable(container, false); renderEventLog(container); }
 }
 
 export function unmount() {
     stopPoll();
+    window.removeEventListener('resize', onMarkResize);
+    clearTimeout(markResizeTimer);
+    markResizeTimer = null;
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (dsPowerChart) { dsPowerChart.destroy(); dsPowerChart = null; }
@@ -564,6 +600,8 @@ export function unmount() {
     deviceMeta = [];
     visibility = {};
     lastData = null;
+    lastEvents = [];
+    markLayer.reset();
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;
@@ -587,5 +625,37 @@ function renderDetails(container) {
                 return ds == null && us == null ? null : `${ds ?? '-'} / ${us ?? '-'}`;
             },
         },
+        {
+            header: 'DOCSIS State',
+            cell: d => {
+                const parts = [d.current?.docsisMode, d.current?.docsisState].filter(Boolean);
+                return parts.length ? escapeHtml(parts.join(' · ')) : null;
+            },
+        },
+        { header: 'Last Reinit', cell: d => d.current?.reinitReason ? escapeHtml(d.current.reinitReason) : null },
+        { header: 'Firmware', cell: d => d.current?.firmware ? escapeHtml(d.current.firmware) : null },
+        { header: 'Uptime', cell: d => fmtUptime(d.current?.uptimeSeconds) },
     ]);
+}
+
+// The modem's own DOCSIS event log, for modems that report one: the latest entries as the modem
+// holds them, newest first. Follows the device filter, like the charts.
+function renderEventLog(container) {
+    const el = container.querySelector('.cm-event-log');
+    if (!el) return;
+    const devices = (lastData?.devices || []).filter(d => d.log?.length && visibility[d.id] !== false);
+    if (!devices.length) { el.innerHTML = ''; return; }
+
+    const fmtTime = t => t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Time not established';
+    el.innerHTML = devices.map(d => {
+        const rows = d.log.map(e => `<tr>
+            <td style="white-space: nowrap;">${escapeHtml(fmtTime(e.time))}</td>
+            <td>${escapeHtml(e.level || '-')}</td>
+            <td>${escapeHtml(e.text)}</td></tr>`).join('');
+        return `<div class="chart-card">
+            <div class="chart-header"><h3 class="chart-title">Event Log${devices.length > 1 || (lastData?.devices?.length ?? 0) > 1 ? ' - ' + escapeHtml(d.label) : ''}</h3></div>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th>Time</th><th>Level</th><th>Event</th></tr></thead>
+                <tbody>${rows}</tbody></table></div></div>`;
+    }).join('');
 }

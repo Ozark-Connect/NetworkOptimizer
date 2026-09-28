@@ -45,6 +45,12 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// <inheritdoc/>
     public string DisplayName => "Netgear / Nighthawk CM (HTTP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Optional;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => false;
+
     private const string DefaultStatusPath = "/DocsisStatus.asp";
     private const string LoginPath = "/goform/Login";
     private const int TimeoutSeconds = 15;

@@ -1920,6 +1920,10 @@
                         <div @onclick='() => SelectEventType("cable_modem.ds_power_out_of_range")'><code>cable_modem.ds_power_out_of_range</code> <span>DS power outside DOCSIS spec range</span></div>
                         <div @onclick='() => SelectEventType("cable_modem.us_power_high")'><code>cable_modem.us_power_high</code> <span>US transmit power too high</span></div>
                         <div @onclick='() => SelectEventType("cable_modem.channel_loss")'><code>cable_modem.channel_loss</code> <span>Locked channel count dropped</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.t3_timeout")'><code>cable_modem.t3_timeout</code> <span>Modem logged a T3 timeout</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.t4_timeout")'><code>cable_modem.t4_timeout</code> <span>Modem logged a T4 timeout</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.ranging_failure")'><code>cable_modem.ranging_failure</code> <span>Modem logged a ranging failure</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.reinit")'><code>cable_modem.reinit</code> <span>Modem reinitialized</span></div>
                         <div @onclick='() => SelectEventType("cable_modem.*")'><code>cable_modem.*</code> <span>All cable modem events</span></div>
                     </div>
                 </div>

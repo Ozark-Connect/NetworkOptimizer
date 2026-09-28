@@ -119,8 +119,10 @@ public class AgentProbeResultSink
         AgentTunnelRegistry tunnelRegistry,
         Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
         ClientUsageRollupRegistry usageRollupRegistry,
+        CableModemProviders.Uci.UciInformService uciInforms,
         ILogger<AgentProbeResultSink> logger)
     {
+        _uciInforms = uciInforms;
         _usageRollupRegistry = usageRollupRegistry;
         _ispHealthRegistry = ispHealthRegistry;
         _tunnelRegistry = tunnelRegistry;
@@ -144,6 +146,7 @@ public class AgentProbeResultSink
     private readonly AgentOnGatewayDetector _onGatewayDetector;
     private readonly IAgentEnrollmentService _enrollment;
     private readonly AgentTunnelRegistry _tunnelRegistry;
+    private readonly CableModemProviders.Uci.UciInformService _uciInforms;
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
@@ -159,6 +162,7 @@ public class AgentProbeResultSink
         await PushSnmpConfigAsync(connection, ct);
         await PushWanSpeedTestConfigAsync(connection, ct);
         await PushConntrackConfigAsync(connection, ct);
+        await _uciInforms.PushCaptureConfigAsync(connection, ct);
 
         // This site's console reaches the UniFi console THROUGH this agent tunnel.
         // On startup / after an agent restart the console auto-connect can run

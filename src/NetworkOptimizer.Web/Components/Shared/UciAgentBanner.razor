@@ -1,0 +1,63 @@
+@using NetworkOptimizer.Web.Services
+@inject UiHintService UiHints
+@inject ICableModemService CmService
+
+@if (_visible)
+{
+    <div class="connection-banner pwa-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong style="color: var(--info-color);">New: UniFi Cable Internet stats</strong>
+                <span style="color: var(--text-secondary);">
+                    Network Optimizer can now show your UCI's DOCSIS signal levels and event log. Install or update the On-Site Agent on your Gateway to turn it on.
+                </span>
+            </div>
+            <div class="banner-actions">
+                <a href="/settings?tab=multisite" class="btn-pwa-action">Set It Up</a>
+                <button class="btn-pwa-dismiss" @onclick="DismissAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _visible;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            // Only a site with a UCI and no gateway agent that can capture its informs has
+            // anything to do here.
+            var choices = await CmService.GetUciChoicesAsync();
+            if (choices.Devices.Count == 0 || choices.AgentReady) return;
+            if (!await UiHints.ShouldShowAsync(UiHintKeys.UciAgentOffer)) return;
+
+            _visible = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Non-critical: an offer nobody sees is better than a page that failed to load.
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        _visible = false;
+        try
+        {
+            await UiHints.DismissAsync(UiHintKeys.UciAgentOffer);
+        }
+        catch
+        {
+            // Still hide it for this visit.
+        }
+    }
+}
