@@ -161,7 +161,7 @@ public class ZyxelCpeProviderTests
 
         var result = await provider.PollAsync(Context());
 
-        result.FailureReason.Should().Contain("rejected the admin username or password");
+        result.FailureReason.Should().Contain("rejected the username or password");
     }
 
     // ----- Session renewal -----
@@ -230,8 +230,8 @@ public class ZyxelCpeProviderTests
         var requestsAfterFirst = router.Requests.Count;
         var second = await provider.PollAsync(Context(password: "wrong"));
 
-        first.FailureReason.Should().Contain("rejected the admin username or password");
-        second.FailureReason.Should().Contain("rejected the admin username or password");
+        first.FailureReason.Should().Contain("rejected the username or password");
+        second.FailureReason.Should().Contain("rejected the username or password");
         router.Requests.Count.Should().Be(requestsAfterFirst);
     }
 
@@ -292,7 +292,7 @@ public class ZyxelCpeProviderTests
     }
 
     [Theory]
-    [InlineData("Locked User", "temporarily locked the admin account")]
+    [InlineData("Locked User", "temporarily locked the account")]
     [InlineData("Duplicated login", "signed in elsewhere")]
     [InlineData("Maxium number of login account has reached", "limit of signed-in sessions")]
     [InlineData("Something new", "refused the sign-in (Something new)")]
@@ -316,7 +316,7 @@ public class ZyxelCpeProviderTests
 
         var result = await provider.PollAsync(Context(password: ""));
 
-        result.FailureReason.Should().Contain("admin password is required");
+        result.FailureReason.Should().Contain("password is required");
         router.Requests.Should().BeEmpty();
     }
 
