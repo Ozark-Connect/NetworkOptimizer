@@ -66,6 +66,18 @@ public static class AppVersionInfo
     }
 
     /// <summary>
+    /// An agent version as the UI names it: in full on a preview install ("2.9.0-preview8"), where
+    /// that is the build the upgrade installs, and as X.Y.Z on a stable one ("2.9.0"), where the
+    /// preview it last changed in is not a release the reader would recognise.
+    /// </summary>
+    public static string AgentVersionForDisplay(string version) => AgentVersionForDisplay(version, AgentReleaseTag != null);
+
+    internal static string AgentVersionForDisplay(string version, bool previewInstall) =>
+        (previewInstall
+            ? NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(version))
+            : NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(version)) ?? version;
+
+    /// <summary>
     /// "v" + the version when it is exactly a prerelease tag ("2.9.1-preview1", build metadata
     /// allowed); null for a stable version, a 0.0.0 source build, or a build commits past a tag,
     /// whose prerelease carries a dotted height ("2.9.1-preview1.3") and has no release of its own.

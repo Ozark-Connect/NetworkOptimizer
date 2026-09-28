@@ -25,6 +25,16 @@ public class AgentReleasePinTests
         AppVersionInfo.PrereleaseTagOf(informational).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("2.9.0-preview8", true, "2.9.0-preview8")]
+    [InlineData("2.9.0-preview8", false, "2.9.0")]
+    [InlineData("2.9.0", true, "2.9.0")]
+    [InlineData("2.9.0", false, "2.9.0")]
+    public void AgentVersion_IsShownInFullOnlyOnAPreviewInstall(string version, bool previewInstall, string expected)
+    {
+        AppVersionInfo.AgentVersionForDisplay(version, previewInstall).Should().Be(expected);
+    }
+
     [Fact]
     public void GatewayCommands_CarryTheTagOnAPreviewServer()
     {
