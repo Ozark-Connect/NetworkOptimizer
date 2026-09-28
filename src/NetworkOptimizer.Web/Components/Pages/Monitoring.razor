@@ -42,6 +42,7 @@
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
 @inject ICableModemService CmMonitorService
+@inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @inject IOntMonitorService OntMonitorService
 @inject ICellularModemService CellularModemService
 @inject IStarlinkMonitorService StarlinkMonitor
@@ -1094,6 +1095,10 @@
         }
         else
         {
+        @foreach (var (name, issue) in _cmIssues)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;"><strong>@name:</strong> @issue</div>
+        }
         <div class="card" id="cm-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
@@ -1157,6 +1162,7 @@
                 </div>
                 <div class="cm-details"></div>
                 <div class="cm-stats-table"></div>
+                <div class="cm-event-log"></div>
             </div>
         </div>
         }
@@ -2779,6 +2785,9 @@
         }
     }
     private bool _cmHasDevices;
+
+    /// <summary>Cable modems whose setup needs attention, with what to do (see CmConfigIssues).</summary>
+    private List<(string Name, string Issue)> _cmIssues = new();
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
     private bool _starlinkHasDevices;
@@ -3186,6 +3195,13 @@
 
         var cmConfigs = await CmMonitorService.GetConfigsAsync();
         _cmHasDevices = cmConfigs.Count > 0;
+        var cmProviders = CmProviders.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
+        _cmIssues = cmConfigs
+            .Select(c => (c.Name, Issue: NetworkOptimizer.Web.Services.CableModemProviders.CmConfigIssues.Describe(
+                c, cmProviders.GetValueOrDefault(c.Provider))))
+            .Where(x => x.Issue != null)
+            .Select(x => (x.Name, x.Issue!))
+            .ToList();
         var ontConfigs = await OntMonitorService.GetStandaloneConfigsAsync();
         _ontHasDevices = ontConfigs.Count > 0;
         var cellConfigs = await CellularModemService.GetModemsAsync();

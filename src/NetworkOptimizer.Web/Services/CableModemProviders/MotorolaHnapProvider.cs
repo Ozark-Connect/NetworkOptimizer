@@ -26,6 +26,12 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// <inheritdoc/>
     public string DisplayName => "Motorola (HNAP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => false;
+
     private const string HnapPath = "/HNAP1/";
     private const string SoapActionPrefix = "http://purenetworks.com/HNAP1/";
     private const string RowDelimiter = "|+|";

@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @inject ICableModemService CmService
+@inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 
@@ -55,9 +56,9 @@
             </div>
         </div>
 
-        @if (!string.IsNullOrEmpty(_pollError))
+        @if (!string.IsNullOrEmpty(_pollError ?? CurrentIssue))
         {
-            <div class="poll-error">@_pollError</div>
+            <div class="poll-error">@(_pollError ?? CurrentIssue)</div>
         }
 
         <div class="sqm-actions">
@@ -250,6 +251,18 @@
     /// <summary>Whether polling is enabled for the currently shown modem (disabled configs
     /// keep their card but lose the manual Refresh - polling would be rejected anyway).</summary>
     private bool CurrentEnabled => _configs.Count == 0 || _currentIndex >= _configs.Count || _configs[_currentIndex].Enabled;
+
+    /// <summary>A setup problem with the shown modem the card states without a manual refresh (see CmConfigIssues).</summary>
+    private string? CurrentIssue
+    {
+        get
+        {
+            if (_configs.Count == 0 || _currentIndex >= _configs.Count) return null;
+            var config = _configs[_currentIndex];
+            var provider = CmProviders.FirstOrDefault(p => string.Equals(p.ProviderKey, config.Provider, StringComparison.OrdinalIgnoreCase));
+            return NetworkOptimizer.Web.Services.CableModemProviders.CmConfigIssues.Describe(config, provider);
+        }
+    }
 
     private async Task Refresh()
     {

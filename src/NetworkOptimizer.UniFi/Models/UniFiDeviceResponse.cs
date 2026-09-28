@@ -125,6 +125,21 @@ public class UniFiDeviceResponse
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? SuricataUpgradePendingTarget { get; set; }
 
+    private string? _informKey;
+
+    /// <summary>
+    /// The device's inform key (hex AES-128), which decrypts the inform frames it sends. Write-only
+    /// to the serializer on purpose: it is a device secret, so the private getter keeps it out of
+    /// every re-serialized payload (exports, support files, caches). Read it with
+    /// <see cref="GetInformKey"/>.
+    /// </summary>
+    [JsonPropertyName("x_authkey")]
+    [VendorSpecific("UniFi", "Per-device inform key; used to decrypt UCI inform frames")]
+    public string? XAuthKey { private get => _informKey; set => _informKey = value; }
+
+    /// <summary>The device's inform key, or null when the console did not return one.</summary>
+    public string? GetInformKey() => _informKey;
+
     [JsonPropertyName("adopted")]
     public bool Adopted { get; set; }
 

@@ -27,6 +27,7 @@ message AgentMessage {
     ProbeResponse probe_response = 10;
     SnmpOidResult snmp_oid_result = 11;
     ConntrackSampleBatch conntrack_samples = 13;
+    UciInformFrame uci_inform_frame = 14;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples frames only
@@ -54,6 +55,7 @@ message ServerMessage {
     WanSpeedTestConfig wan_speedtest_config = 11;
     ResultAck result_ack = 12;
     ConntrackConfig conntrack_config = 13;
+    UciCaptureConfig uci_capture_config = 14;
   }
 }
 
@@ -467,4 +469,23 @@ message ProbeResponse {
   string error = 3;
   // Serialized PingProbeResult (ping) or TracerouteResult (traceroute) on success.
   string result_json = 4;
+}
+
+// ---- UniFi Cable Internet (UCI) inform capture ----
+// The UCI's DOCSIS tables exist only in the encrypted inform frames it sends through the
+// gateway; the Network app drops them. An on-gateway agent with the "uci-inform" capability
+// taps those frames passively (never on the management path) and relays each complete body.
+// The agent holds no key and parses nothing: the server decrypts with the device's inform key.
+
+message UciCaptureConfig {
+  // Management MACs (stat/device "mac") of the site's UCIs to capture. Empty = capture off.
+  repeated string macs = 1;
+}
+
+message UciInformFrame {
+  // The UCI MAC the frame was captured from (ethernet source), lowercase colon form.
+  string source_mac = 1;
+  // The raw inform body: TNBU header + encrypted payload, exactly as POSTed.
+  bytes frame = 2;
+  int64 captured_at_unix_ms = 3;
 }

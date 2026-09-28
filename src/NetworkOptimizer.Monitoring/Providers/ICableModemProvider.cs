@@ -22,6 +22,19 @@ public interface ICableModemProvider
     string DisplayName { get; }
 
     /// <summary>
+    /// Whether this provider needs a password to read the modem. Must match what the provider
+    /// actually does with <see cref="CmPollContext.Password"/>.
+    /// </summary>
+    CmCredentialRequirement Credentials { get; }
+
+    /// <summary>
+    /// True when this provider logs in as "admin" if the username is blank (whitespace included).
+    /// Settings shows the "admin" placeholder only then; elsewhere a blank username is sent, or
+    /// skipped, exactly as saved.
+    /// </summary>
+    bool BlankUsernameMeansAdmin { get; }
+
+    /// <summary>
     /// Poll the cable modem and return its current stats.
     /// Implementations should log internally and report transport or parsing failure
     /// through <see cref="PollResult{TStats}.Failed"/>; throwing is reserved for

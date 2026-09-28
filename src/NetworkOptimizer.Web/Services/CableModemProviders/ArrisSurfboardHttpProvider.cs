@@ -23,6 +23,12 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     /// <inheritdoc/>
     public string DisplayName => "ARRIS Surfboard (HTTP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Optional;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => false;
+
     private const string Sb8200StatusPath = "/cmconnectionstatus.html";
     private const string Sb6183StatusPath = "/RgConnect.asp";
     private const int TimeoutSeconds = 15;

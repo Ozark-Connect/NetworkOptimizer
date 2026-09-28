@@ -44,6 +44,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentUwnService _uwn;
     private readonly AgentProbeService _probe;
     private readonly AgentSnmpQueryService _snmpQuery;
+    private readonly CableModemProviders.Uci.UciInformService _uciInforms;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -56,6 +57,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         AgentUwnService uwn,
         AgentProbeService probe,
         AgentSnmpQueryService snmpQuery,
+        CableModemProviders.Uci.UciInformService uciInforms,
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger)
     {
@@ -67,6 +69,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         _uwn = uwn;
         _probe = probe;
         _snmpQuery = snmpQuery;
+        _uciInforms = uciInforms;
         _licenseState = licenseState;
         _logger = logger;
     }
@@ -230,6 +233,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
+                        break;
+                    case AgentMessage.PayloadOneofCase.UciInformFrame:
+                        // Live only (sequence 0, never acked): a lost frame is superseded by the next
+                        // inform. Handled off this loop - see UciInformService.Accept.
+                        _uciInforms.Accept(connection, message.UciInformFrame);
                         break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);

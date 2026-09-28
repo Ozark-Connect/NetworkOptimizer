@@ -179,6 +179,9 @@ public sealed class AgentTunnelConnection
     /// <summary>The conntrack accounting capability string, shared by agent and server.</summary>
     public const string ConntrackCapability = "conntrack-accounting";
 
+    /// <summary>The UCI inform capture capability string, shared by agent and server.</summary>
+    public const string UciInformCapability = "uci-inform";
+
     public bool HasCapability(string capability) =>
         Capabilities.Contains(capability, StringComparer.OrdinalIgnoreCase);
 

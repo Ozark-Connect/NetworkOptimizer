@@ -26,6 +26,12 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
     /// <inheritdoc/>
     public string DisplayName => "Vodafone Station (ARRIS TG3442DE)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => true;
+
     private const string DefaultDocsisPath = "/php/status_docsis_data.php";
     private const string LoginPath = "/php/ajaxSet_Password.php";
     private const string SessionPath = "/php/ajaxSet_Session.php";
