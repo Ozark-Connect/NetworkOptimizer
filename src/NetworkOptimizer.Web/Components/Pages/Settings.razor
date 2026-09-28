@@ -7211,7 +7211,7 @@
     {
         if (string.IsNullOrEmpty(_editingCm.Provider))
         {
-            _cmTestResult = "Select a provider.";
+            _cmTestResult = CmSelectProviderMessage;
             _cmTestResultClass = "danger";
             return;
         }
@@ -7398,8 +7398,12 @@
     private static bool IsCmUciProvider(string provider) =>
         provider == NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.ProviderKey;
 
+    private const string CmSelectProviderMessage = "Select a provider.";
+
     private async Task OnCmProviderChanged()
     {
+        // Picking a provider answers the save's "Select a provider." error, so it goes.
+        if (_cmTestResult == CmSelectProviderMessage) _cmTestResult = null;
         if (!IsCmUciProvider(_editingCm.Provider)) return;
         if (_editingCm.Id == 0)
         {
