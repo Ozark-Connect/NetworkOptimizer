@@ -1660,6 +1660,7 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
                             <select class="form-control" @bind="_editingCm.Provider" @bind:after="OnCmProviderChanged">
+                                <option value="" disabled>Select a provider...</option>
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
@@ -1693,7 +1694,11 @@
                                     </select>
                                 }
                                 <small class="form-help">
-                                    Stats come from the On-Site Agent on the Gateway, which reads the updates the UCI sends through it.@(_cmUciAgentReady ? "" : " Install or update the On-Site Agent on the Gateway to start them.")
+                                    Stats come from the On-Site Agent on the Gateway, which reads the updates the UCI sends through it.
+                                    @if (!_cmUciAgentReady)
+                                    {
+                                        <a href="/settings?tab=multisite">Install or update the On-Site Agent on the Gateway</a><text> to start them.</text>
+                                    }
                                 </small>
                             </div>
                             <div class="form-group" style="flex: 1;">
@@ -1702,7 +1707,7 @@
                             </div>
                         </div>
                     }
-                    else
+                    else if (!string.IsNullOrEmpty(_editingCm.Provider))
                     {
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
@@ -5025,7 +5030,7 @@
 
     // Cable Modem Monitoring
     private List<CmConfiguration> _cmConfigs = new();
-    private CmConfiguration _editingCm = new() { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+    private CmConfiguration _editingCm = new() { Provider = "", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
     private bool _cmFormVisible;
     private bool _savingCm;
     private string? _cmTestResult;
@@ -7183,6 +7188,13 @@
 
     private async Task SaveCm()
     {
+        if (string.IsNullOrEmpty(_editingCm.Provider))
+        {
+            _cmTestResult = "Select a provider.";
+            _cmTestResultClass = "danger";
+            return;
+        }
+
         var isUci = IsCmUciProvider(_editingCm.Provider);
         if (isUci)
         {
@@ -7399,7 +7411,7 @@
 
     private void CancelEditCm()
     {
-        _editingCm = new CmConfiguration { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+        _editingCm = new CmConfiguration { Provider = "", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
         _cmFormVisible = false;
     }
 
