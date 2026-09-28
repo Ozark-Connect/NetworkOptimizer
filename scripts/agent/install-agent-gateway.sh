@@ -25,6 +25,7 @@
 #   --server URL   Central server HTTPS address (required; the same URL as the app)
 #   --token  TOK   One-time enrollment token (required on first install)
 #   --insecure     Accept a self-signed cert on the server's reverse proxy
+#   --release TAG  Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --uninstall    Stop + remove the service and install dir, then exit
 #
 # The install directory is fixed at /data/netopt-agent and is intentionally NOT
@@ -53,6 +54,7 @@ SERVICE_NAME="netopt-agent"
 INSECURE=false
 UNINSTALL=false
 RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
+RELEASE_TAG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -60,9 +62,23 @@ while [ $# -gt 0 ]; do
         --token) TOKEN="$2"; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
+        --release) RELEASE_TAG="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+# --release pins the binaries to one release (the one the server runs) instead of GitHub's
+# "latest", which skips prereleases: a preview server would otherwise install a stable agent.
+if [ -n "$RELEASE_TAG" ]; then
+    case "$RELEASE_TAG" in
+        v*) ;;
+        *) RELEASE_TAG="v${RELEASE_TAG}" ;;
+    esac
+    case "$RELEASE_TAG" in
+        *[!A-Za-z0-9.-]*) echo "Invalid --release tag: $RELEASE_TAG" >&2; exit 1 ;;
+    esac
+    RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${RELEASE_TAG}"
+fi
 
 # --- Output helpers -----------------------------------------------------------
 # Colorized, structured output; colors collapse to empty when stdout isn't a

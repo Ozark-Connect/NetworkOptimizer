@@ -35,6 +35,7 @@
 #   --lan-speed-test       Host the LAN speed test page and iperf3 in this container
 #   --speed-test-port N    Serve the speed test page on N instead of 24443
 #   --insecure             Accept a self-signed cert on the server's reverse proxy
+#   --release TAG          Install this agent release instead of the latest stable one
 #   --unattended           Never prompt; take defaults for anything not supplied
 #
 # Requirements:
@@ -188,7 +189,7 @@ CT_RAM=""; CT_SWAP=""; CT_CPU=""; CT_DISK=""
 CT_STORAGE=""; TEMPLATE_STORAGE=""; CT_BRIDGE=""; CT_VLAN_TAG=""
 CT_IP=""; CT_GW=""; CT_DNS=""
 AGENT_SERVER=""; AGENT_TOKEN=""
-AGENT_LAN_SPEED_TEST=""; AGENT_SPEED_TEST_PORT=""; AGENT_INSECURE=false
+AGENT_LAN_SPEED_TEST=""; AGENT_SPEED_TEST_PORT=""; AGENT_INSECURE=false; AGENT_RELEASE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -211,8 +212,12 @@ while [[ $# -gt 0 ]]; do
         --lan-speed-test)   AGENT_LAN_SPEED_TEST=true; shift ;;
         --speed-test-port)  AGENT_SPEED_TEST_PORT="$2"; AGENT_LAN_SPEED_TEST=true; shift 2 ;;
         --insecure)         AGENT_INSECURE=true; shift ;;
+        --release)
+            # Checked here: the value is spliced into a shell command run inside the container.
+            [[ "$2" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Invalid --release tag: $2" >&2; exit 1; }
+            AGENT_RELEASE="$2"; shift 2 ;;
         --unattended)       UNATTENDED=true; shift ;;
-        -h|--help)          sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)          sed -n '3,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) msg_error "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -448,6 +453,7 @@ install_agent() {
     [[ "$AGENT_LAN_SPEED_TEST" == "true" ]] && args="$args --lan-speed-test"
     [[ -n "$AGENT_SPEED_TEST_PORT" ]] && args="$args --speed-test-port '${AGENT_SPEED_TEST_PORT}'"
     [[ "$AGENT_INSECURE" == "true" ]] && args="$args --insecure"
+    [[ -n "$AGENT_RELEASE" ]] && args="$args --release '${AGENT_RELEASE}'"
 
     msg_info "Running the agent installer inside the container..."
     if ! pct exec "$CT_ID" -- bash -c \
