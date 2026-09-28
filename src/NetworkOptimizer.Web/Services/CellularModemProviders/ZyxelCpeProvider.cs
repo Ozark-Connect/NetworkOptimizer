@@ -103,7 +103,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
 
         var host = context.ConfiguredHost ?? context.Host;
         if (string.IsNullOrEmpty(context.Password))
-            return (null, "An admin password is required. The router serves signal data only to a signed-in session.");
+            return (null, "A password is required. The router serves signal data only to a signed-in session.");
 
         var username = string.IsNullOrWhiteSpace(context.Username) ? DefaultUsername : context.Username!;
         var credentials = $"{username}\n{context.Password}";
@@ -138,7 +138,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
                         if (login.Rejected)
                         {
                             _rejectedCredentials[context.CacheKey] = credentials;
-                            _logger.LogWarning("Zyxel router {Host} rejected the admin credentials", host);
+                            _logger.LogWarning("Zyxel router {Host} rejected the credentials", host);
                         }
                         return (null, login.Failure);
                     }
@@ -245,7 +245,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
         {
             "Invalid Username or Password" => new LoginResult(null, RejectedMessage(host), Rejected: true),
             "Locked User" => new LoginResult(null,
-                $"{host} has temporarily locked the admin account after failed sign-ins.", false),
+                $"{host} has temporarily locked the account after failed sign-ins.", false),
             "Duplicated login" => new LoginResult(null,
                 $"{host} refused the sign-in because the account is signed in elsewhere. Sign out of its web interface, then try again.", false),
             "Maxium number of login account has reached" or "Maximum number of login account has reached" =>
@@ -375,7 +375,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     }
 
     private static string RejectedMessage(string host) =>
-        $"{host} rejected the admin username or password. Polling pauses until the credentials change or Probe & Detect runs, so the router does not lock the account.";
+        $"{host} rejected the username or password. Polling pauses until the credentials change or Probe & Detect runs, so the router does not lock the account.";
 
     public void Dispose() => _client.Dispose();
 
