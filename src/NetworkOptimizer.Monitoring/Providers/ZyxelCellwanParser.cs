@@ -19,8 +19,9 @@ namespace NetworkOptimizer.Monitoring.Providers;
 ///   <item><c>INTF_*</c> is the primary serving cell: the LTE anchor on LTE and NSA, the NR cell on SA.</item>
 ///   <item><c>NSA_*</c> is the NR leg of an EN-DC session. Older builds name its PCI <c>NSA_PCI</c>, newer <c>NSA_PhyCellID</c>.</item>
 ///   <item>Unmeasured values read RSRP -140, RSRQ -240, RSSI -120, SINR -20, and -1 for cell ID and PCI.</item>
-///   <item>Bandwidth is a 3GPP index (0-5 = 1.4, 3, 5, 10, 15, 20 MHz) on older builds and <c>"60M"</c> on newer.</item>
-///   <item>Bands read <c>LTE_BC7</c> or <c>B7</c> for LTE and <c>N78</c> for NR, with an optional carrier-added suffix.</item>
+///   <item>Bandwidth is a 3GPP index (0-5 = 1.4, 3, 5, 10, 15, 20 MHz) on older builds, and <c>"60M"</c> or <c>"20"</c> (MHz) on newer.</item>
+///   <item>Bands read <c>LTE_BC7</c> or <c>B7</c> for LTE and <c>N78</c> or <c>NR5G_N78</c> for NR, with an optional carrier-added suffix.</item>
+///   <item><c>NBR_Info</c> can list the serving cell itself, which is not counted as a neighbor.</item>
 /// </list>
 /// </remarks>
 [VendorSpecific("Zyxel", "DAL cellwan_status field names, sentinels, and band/bandwidth encodings")]
@@ -141,7 +142,7 @@ public static class ZyxelCellwanParser
             };
         }
 
-        stats.NeighborCells = ParseNeighbors(cellwan);
+        stats.NeighborCells = ParseNeighbors(cellwan, pci, primaryRfcn);
         return stats;
     }
 
@@ -194,7 +195,7 @@ public static class ZyxelCellwanParser
         if (m.Success)
             return ("lte", $"eutran-{int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)}");
 
-        m = Regex.Match(band, @"^\s*(?:NR5G[_ ]?(?:BAND)?[_ ]?|N)(\d+)\b", RegexOptions.IgnoreCase);
+        m = Regex.Match(band, @"^\s*(?:NR5G[_ ]?(?:BAND|N)?[_ ]?|N)(\d+)\b", RegexOptions.IgnoreCase);
         if (m.Success)
             return ("nr5g", $"n{int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)}");
 
@@ -202,8 +203,8 @@ public static class ZyxelCellwanParser
     }
 
     /// <summary>
-    /// Read a bandwidth field as MHz: a 3GPP index 1-5, or a string such as <c>"60M"</c>.
-    /// Index 0 (1.4 MHz) and unknown values are null.
+    /// Read a bandwidth field as MHz: a 3GPP index 1-5 as a number, or MHz as a string with or
+    /// without a unit (<c>"60M"</c>, <c>"20"</c>). Index 0 (1.4 MHz) and unknown values are null.
     /// </summary>
     public static int? ParseBandwidthMhz(JsonElement source, string key)
     {
@@ -215,7 +216,7 @@ public static class ZyxelCellwanParser
 
         if (prop.ValueKind == JsonValueKind.String)
         {
-            var m = Regex.Match(prop.GetString() ?? "", @"^\s*(\d+)\s*M", RegexOptions.IgnoreCase);
+            var m = Regex.Match(prop.GetString() ?? "", @"^\s*(\d+)\s*(?:M|$)", RegexOptions.IgnoreCase);
             if (m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mhz) && mhz > 0)
                 return mhz;
         }
@@ -262,7 +263,7 @@ public static class ZyxelCellwanParser
         };
     }
 
-    private static List<CellInfo> ParseNeighbors(JsonElement cellwan)
+    private static List<CellInfo> ParseNeighbors(JsonElement cellwan, int? servingPci, int? servingRfcn)
     {
         var cells = new List<CellInfo>();
         if (!cellwan.TryGetProperty("NBR_Info", out var arr) || arr.ValueKind != JsonValueKind.Array)
@@ -278,6 +279,9 @@ public static class ZyxelCellwanParser
                 continue;
 
             var rfcn = TryGetInt(nbr, "RFCN");
+            if (pci == servingPci && rfcn == servingRfcn)
+                continue;
+
             cells.Add(new CellInfo
             {
                 PhysicalCellId = pci.Value,

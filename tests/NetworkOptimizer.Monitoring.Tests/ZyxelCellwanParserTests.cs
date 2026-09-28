@@ -55,6 +55,53 @@ public class ZyxelCellwanParserTests
         }
         """;
 
+    // The shape an NR7302 on 1.00(ACHA.6)F2 sends: bandwidths as bare MHz strings, the NR band as
+    // NR5G_N78, NSA_DownlinkBandwidth null beside NSA_DL_BW, and the serving cell listed in NBR_Info.
+    private const string Nr7302Cellwan = """
+        {
+          "CELL_Roaming_Enable": false,
+          "CELL_Roaming_Status": "None",
+          "INTF_Status": "Up",
+          "INTF_Current_Access_Technology": "NR5G-NSA",
+          "INTF_Network_In_Use": "Current_Test Carrier_NR5G-NSA_00101",
+          "INTF_RSSI": -63,
+          "INTF_Current_Band": "LTE_BC7",
+          "INTF_Cell_ID": 0,
+          "INTF_PhyCell_ID": 100,
+          "INTF_Uplink_Bandwidth": "20",
+          "INTF_Downlink_Bandwidth": "20",
+          "INTF_RFCN": "3300",
+          "INTF_RSRP": -101,
+          "INTF_RSRQ": -17,
+          "INTF_RSCP": -120,
+          "INTF_EcNo": -240,
+          "INTF_TAC": 0,
+          "INTF_SINR": 12,
+          "INTF_CQI": 9,
+          "INTF_CA_COMBINATION": "BC7,BC3,BC32,N78",
+          "NSA_Enable": true,
+          "NSA_MCC": "001",
+          "NSA_MNC": "01",
+          "NSA_PhyCellID": 100,
+          "NSA_RFCN": 637440,
+          "NSA_Band": "NR5G_N78",
+          "NSA_UplinkBandwidth": null,
+          "NSA_DownlinkBandwidth": null,
+          "NSA_RSRP": -96,
+          "NSA_RSRQ": -13,
+          "NSA_SINR": 21,
+          "NSA_DL_BW": "100",
+          "SCC_Info": [
+            { "Enable": true, "PhysicalCellID": 100, "RFCN": 1800, "Band": "LTE_BC3", "RSSI": -62, "RSRP": -89, "RSRQ": -18, "SINR": 7, "DownlinkBandwidth": "20" }
+          ],
+          "NBR_Info": [
+            { "Enable": true, "NeighbourType": "intra", "ConnectionMode": "LTE", "PhyCellID": 100, "RFCN": 3300, "RSSI": -65, "RSRP": -101, "RSRQ": -17, "SINR": 0 },
+            { "Enable": true, "NeighbourType": "intra", "ConnectionMode": "LTE", "PhyCellID": 200, "RFCN": 3300, "RSSI": -75, "RSRP": -105, "RSRQ": -20, "SINR": 0 },
+            { "Enable": true, "NeighbourType": "inter", "ConnectionMode": "LTE", "PhyCellID": 100, "RFCN": 1800, "RSSI": -57, "RSRP": -82, "RSRQ": -16, "SINR": 0 }
+          ]
+        }
+        """;
+
     private const string DeviceInfo = """
         { "Manufacturer": "Zyxel", "ModelName": "Carrier 5G Router", "ProductClass": "NR7302", "SoftwareVersion": "V1.00(ABCD.1)C0" }
         """;
@@ -204,6 +251,53 @@ public class ZyxelCellwanParserTests
 
         stats.Lte!.Rsrp.Should().Be(-88);
         stats.ServingCell!.Earfcn.Should().Be(9410);
+    }
+
+    [Fact]
+    public void Parse_Nr7302_ActiveBandIsTheNrLegWithItsBandwidth()
+    {
+        var stats = Parse(Nr7302Cellwan);
+
+        stats.NetworkMode.Should().Be(CellularNetworkMode.Nr5gNsa);
+        stats.ActiveBand!.RadioInterface.Should().Be("nr5g");
+        stats.ActiveBand.BandClass.Should().Be("n78");
+        stats.ActiveBand.Channel.Should().Be(637440);
+        stats.ActiveBand.BandwidthMhz.Should().Be(100);
+    }
+
+    [Fact]
+    public void Parse_Nr7302_ReadsTheLteAnchor()
+    {
+        var stats = Parse(Nr7302Cellwan);
+
+        stats.Lte!.Rsrp.Should().Be(-101);
+        stats.Nr5g!.Rsrp.Should().Be(-96);
+        stats.Nr5g.Snr.Should().Be(21);
+        stats.ServingCell!.PhysicalCellId.Should().Be(100);
+        stats.ServingCell.Earfcn.Should().Be(3300);
+        stats.ServingCell.GlobalCellId.Should().BeNull();
+        stats.ServingCell.Tac.Should().BeNull();
+        stats.Carrier.Should().Be("Test Carrier");
+    }
+
+    [Fact]
+    public void Parse_Nr7302LteOnly_ReadsTheBareMegahertzBandwidth()
+    {
+        var cellwan = With(Nr7302Cellwan, "\"NSA_Enable\": true", "\"NSA_Enable\": false");
+
+        var band = Parse(cellwan).ActiveBand!;
+
+        band.BandClass.Should().Be("eutran-7");
+        band.BandwidthMhz.Should().Be(20);
+    }
+
+    [Fact]
+    public void Parse_Nr7302_ServingCellInNeighborListIsNotANeighbor()
+    {
+        var neighbors = Parse(Nr7302Cellwan).NeighborCells;
+
+        // The same PCI on another channel (a carrier-aggregation cell) is still listed.
+        neighbors.Select(n => (n.PhysicalCellId, n.Earfcn)).Should().Equal((200, 3300), (100, 1800));
     }
 
     // ----- Parse: serving cell -----
@@ -380,6 +474,7 @@ public class ZyxelCellwanParserTests
     [InlineData("N78", "nr5g", "n78")]
     [InlineData("n41", "nr5g", "n41")]
     [InlineData("NR5G_BAND77", "nr5g", "n77")]
+    [InlineData("NR5G_N78", "nr5g", "n78")]
     public void ParseBand_ReadsLteAndNrForms(string input, string rat, string bandClass)
     {
         var band = ZyxelCellwanParser.ParseBand(input);
@@ -412,6 +507,9 @@ public class ZyxelCellwanParserTests
     [InlineData("-1", null)]
     [InlineData("\"60M\"", 60)]
     [InlineData("\"100 MHz\"", 100)]
+    [InlineData("\"20\"", 20)]
+    [InlineData("\"100\"", 100)]
+    [InlineData("\"20 kbps\"", null)]
     [InlineData("\"\"", null)]
     [InlineData("\"N/A\"", null)]
     public void ParseBandwidthMhz_ReadsIndexOrMegahertz(string raw, int? expected)
