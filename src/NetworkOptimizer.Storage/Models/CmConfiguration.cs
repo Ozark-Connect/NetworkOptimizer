@@ -32,8 +32,10 @@ public class CmConfiguration
     /// <summary>HTTP port (default 80)</summary>
     public int Port { get; set; } = 80;
 
-    /// <summary>Username for HTTP auth (default "admin" for most cable modems)</summary>
-    [Required]
+    /// <summary>
+    /// Username for HTTP auth, saved exactly as typed. Blank is valid: some providers need no
+    /// login at all, and each provider decides what a blank one means.
+    /// </summary>
     [MaxLength(100)]
     public string Username { get; set; } = "admin";
 

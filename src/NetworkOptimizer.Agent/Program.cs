@@ -211,6 +211,8 @@ ResultBuffer? resultBuffer = null;
 ProbeRunner? probeRunner = null;
 SnmpRunner? snmpRunner = null;
 ConntrackRunner? conntrackRunner = null;
+UciInformCapture? uciCapture = null;
+Task? uciCaptureTask = null;
 Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
@@ -220,11 +222,21 @@ Task? watchdogTask = null;
 // gateway AND the conntrack source proved readable right now - a permissions or module
 // surprise downgrades to "not capable", never to a lie.
 var conntrackCapable = config.OnGateway == true && ConntrackRunner.SourceReadable();
-var capabilities = conntrackCapable ? new[] { "conntrack-accounting" } : Array.Empty<string>();
+// UCI informs cross the gateway's WAN port, so only an on-gateway agent can see them.
+var uciCaptureCapable = config.OnGateway == true && UciInformCapture.Available();
+var capabilityList = new List<string>();
+if (conntrackCapable) capabilityList.Add("conntrack-accounting");
+if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
+var capabilities = capabilityList.ToArray();
 if (config.OnGateway == true)
+{
     Console.WriteLine(conntrackCapable
         ? "Conntrack accounting available (on-gateway, byte counters readable)"
         : "On-gateway install, but conntrack byte counters are not readable - conntrack accounting unavailable");
+    Console.WriteLine(uciCaptureCapable
+        ? "UCI inform capture available (packet socket opens)"
+        : "On-gateway install, but a packet socket cannot be opened - UCI inform capture unavailable");
+}
 var spoolPath = Path.Combine(
     Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
 
@@ -282,6 +294,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         conntrackRunner = new ConntrackRunner(resultBuffer.Enqueue);
         conntrackTask = conntrackRunner.RunAsync(cts.Token);
     }
+    if (uciCaptureCapable)
+    {
+        uciCapture = new UciInformCapture();
+        uciCaptureTask = uciCapture.RunAsync(cts.Token);
+    }
 }
 
 // Restart-based self-heal for a wedged async socket engine (every install
@@ -312,6 +329,11 @@ while (!cts.IsCancellationRequested)
             // Live batches ride this tunnel directly (superseded by the next window, so a lost
             // one costs nothing); the ~6s aggregates ride the result buffer like everything else.
             conntrackRunner.LiveSend = tunnel.TrySend;
+        }
+        if (uciCapture != null)
+        {
+            tunnel.OnUciCaptureConfig = uciCapture.UpdateConfig;
+            uciCapture.LiveSend = tunnel.TrySend;
         }
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
@@ -361,6 +383,7 @@ while (!cts.IsCancellationRequested)
         finally
         {
             if (conntrackRunner != null) conntrackRunner.LiveSend = null;
+            if (uciCapture != null) uciCapture.LiveSend = null;
             connectionCts.Cancel();
             // Nothing to salvage: the drain only peeks, so every unacked frame is
             // still in the buffer and replays on the next connection.
@@ -412,6 +435,10 @@ if (snmpTask != null)
 if (conntrackTask != null)
 {
     try { await conntrackTask; } catch (OperationCanceledException) { }
+}
+if (uciCaptureTask != null)
+{
+    try { await uciCaptureTask; } catch (OperationCanceledException) { }
 }
 if (watchdogTask != null)
 {

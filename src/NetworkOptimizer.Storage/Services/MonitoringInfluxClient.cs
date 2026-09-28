@@ -1741,6 +1741,82 @@ from(bucket: ""{_longtermBucket}"")
     /// <summary>Event type tag for health check remedy records on the <c>events</c> measurement.</summary>
     public const string HealthCheckEventType = "health_check";
 
+    /// <summary>Event type tag for cable modem DOCSIS event log entries on the <c>events</c> measurement.</summary>
+    public const string CableModemLogEventType = "cable_modem_log";
+
+    /// <summary>
+    /// Records one entry from a cable modem's own DOCSIS event log, at the time the modem logged it.
+    /// Long-term, like reboots: the marks on Cable Modem Signal History have to reach a 30d view.
+    /// Tagged with <c>cm_id</c> so the marks join the <c>cable_modem</c> series they annotate.
+    /// </summary>
+    /// <param name="cmId">Cable modem config id, matching the <c>cable_modem</c> cm_id tag.</param>
+    /// <param name="cmName">Cable modem name, for tooltips.</param>
+    /// <param name="level">Log level as the modem wrote it (Critical, Notice, ...).</param>
+    /// <param name="kind">Recognised event kind (t3_timeout, ...), or null.</param>
+    /// <param name="text">Event text without time and level.</param>
+    /// <param name="raw">The full log line; the identity that tells entries apart.</param>
+    /// <param name="at">When the modem logged it.</param>
+    public Task WriteCableModemLogEventAsync(
+        string cmId, string cmName, string level, string? kind, string text, string raw, DateTime at)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+
+        var point = PointData.Measurement("events")
+            .Tag("cm_id", cmId)
+            .Tag("event_type", CableModemLogEventType)
+            .Tag("severity", string.IsNullOrWhiteSpace(level) ? "info" : level.Trim().ToLowerInvariant())
+            .Timestamp(at.ToUniversalTime(), WritePrecision.Ns)
+            .Field("detail", text)
+            .Field("raw", raw)
+            .Field("cm_name", cmName);
+        if (!string.IsNullOrEmpty(kind))
+            point = point.Field("kind", kind);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A stored cable modem DOCSIS event log entry.</summary>
+    public class CableModemLogEventPoint
+    {
+        public string Level { get; init; } = "";
+        public string? Kind { get; init; }
+        public string Text { get; init; } = "";
+        public string Raw { get; init; } = "";
+        public DateTime At { get; init; }
+    }
+
+    /// <summary>One cable modem's DOCSIS event log entries in the window, oldest first.</summary>
+    public async Task<IReadOnlyList<CableModemLogEventPoint>> QueryCableModemLogEventsAsync(
+        string cmId, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
+            return Array.Empty<CableModemLogEventPoint>();
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => r.event_type == ""{CableModemLogEventType}"")
+  |> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<CableModemLogEventPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new CableModemLogEventPoint
+            {
+                Level = record.GetValueByKey("severity") as string ?? "",
+                Kind = record.GetValueByKey("kind") as string,
+                Text = record.GetValueByKey("detail") as string ?? "",
+                Raw = record.GetValueByKey("raw") as string ?? "",
+                At = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        results.Sort((a, b) => a.At.CompareTo(b.At));
+        return results;
+    }
+
     /// <summary>
     /// Event type tag used for device reboot records on the <c>events</c> measurement.
     /// </summary>

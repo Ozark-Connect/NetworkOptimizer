@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
+using NetworkOptimizer.Web.Services.CableModemProviders.Uci;
 using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -27,6 +28,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     private readonly MonitoringInfluxClient _influx;
     private readonly NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator _alertEvaluator;
     private readonly ILogger<CableModemMonitorService> _logger;
+    private readonly UciInformService _uciInforms;
     private readonly Dictionary<string, ICableModemProvider> _providers;
     private readonly Timer _pollingTimer;
     private readonly string _siteSlug;
@@ -35,6 +37,20 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     private volatile bool _hasPrimedOnce;
     private readonly ConcurrentDictionary<int, long> _previousTotalCorrectables = new();
     private readonly ConcurrentDictionary<int, long> _previousTotalUncorrectables = new();
+
+    // Raw lines of each modem's event log as last seen: an entry not in here is new. Seeded from
+    // InfluxDB on the first poll after startup so a restart does not re-write the whole log.
+    private readonly ConcurrentDictionary<int, HashSet<string>> _knownEventLines = new();
+
+    /// <summary>Only entries logged this recently alert; older ones are history (first sight, or catch-up after a gap).</summary>
+    private static readonly TimeSpan EventAlertWindow = TimeSpan.FromMinutes(15);
+
+    /// <summary>How far back the startup seed reads; well past any modem's log ring.</summary>
+    private static readonly TimeSpan EventSeedLookback = TimeSpan.FromDays(30);
+
+    /// <summary>How often the poll loop looks for newly adopted UCIs to configure automatically.</summary>
+    private static readonly TimeSpan UciDiscoveryInterval = TimeSpan.FromMinutes(5);
+    private DateTime _lastUciDiscovery = DateTime.MinValue;
 
     private bool _isPolling;
 
@@ -52,9 +68,11 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         SiteTunnelRouting tunnelRouting,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringAlertRegistry alertRegistry,
+        UciInformService uciInforms,
         ILogger<CableModemMonitorService> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
+        _uciInforms = uciInforms;
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
         _tunnelRouting = tunnelRouting;
@@ -140,6 +158,9 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
 
         if (isNew)
             await AlertRuleAutoEnable.EnableBySourceAsync(scope, "cable_modem", _logger);
+
+        // A UCI config (or one that just stopped being one) changes what the gateway agent captures.
+        await _uciInforms.PushCaptureConfigToSiteAsync(_siteSlug);
     }
 
     /// <summary>
@@ -159,11 +180,22 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     {
         using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
+        var existing = await repo.GetCmConfigurationAsync(id);
         await repo.DeleteCmConfigurationAsync(id);
 
         _statsCache.TryRemove(id, out _);
         _previousTotalCorrectables.TryRemove(id, out _);
         _previousTotalUncorrectables.TryRemove(id, out _);
+        _knownEventLines.TryRemove(id, out _);
+        _alertEvaluator.Forget(id);
+
+        if (existing?.Provider == UciInformService.ProviderKey)
+        {
+            // Deleting a UCI config is the user saying "not this one": automatic creation must not
+            // bring it back.
+            await _uciInforms.DismissAutoCreateAsync(_siteSlug, existing.Host);
+            await _uciInforms.PushCaptureConfigToSiteAsync(_siteSlug);
+        }
     }
 
     /// <summary>
@@ -176,6 +208,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.SetCmEnabledAsync(id, enabled);
+        await _uciInforms.PushCaptureConfigToSiteAsync(_siteSlug);
 
         if (!enabled)
         {
@@ -201,6 +234,10 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         return await provider.TestConnectionAsync(context);
     }
 
+    /// <summary>The site's adopted UCIs for the Settings picker, and whether a gateway agent can capture them.</summary>
+    public async Task<UciChoices> GetUciChoicesAsync() =>
+        new(await _uciInforms.ListUcisAsync(_siteSlug), _uciInforms.HasCapableAgent(_siteSlug));
+
     private async Task PollAllAsync()
     {
         if (!Active) return;
@@ -224,6 +261,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
 
             using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
+            await DiscoverUcisAsync(repo);
             var configs = await repo.GetEnabledCmConfigurationsAsync();
             _logger.LogDebug("CM PollAllAsync found {Count} enabled configs", configs.Count);
 
@@ -273,6 +311,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
                 {
                     _statsCache[config.Id] = stats;
                     WriteToInflux(config, stats);
+                    await ProcessModemEventsAsync(config, stats);
                 }
             }
             else
@@ -285,6 +324,41 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         {
             _logger.LogWarning(ex, "Error polling cable modem {Name} ({Id})", config.Name, config.Id);
             await UpdateConfigErrorAsync(config.Id, HttpFailureSummary.Describe(ex, config.Host));
+        }
+    }
+
+    /// <summary>
+    /// Creates a cable modem config for every adopted UCI that has none, so a UCI shows up on CM
+    /// Stats without setup. A config the user deleted is never recreated (see
+    /// <see cref="UciInformService.DismissAutoCreateAsync"/>), a disabled one stays disabled, and the
+    /// name is set only here: a later rename wins.
+    /// </summary>
+    private async Task DiscoverUcisAsync(ICmRepository repo)
+    {
+        if (DateTime.UtcNow - _lastUciDiscovery < UciDiscoveryInterval) return;
+        _lastUciDiscovery = DateTime.UtcNow;
+        try
+        {
+            var existing = await repo.GetCmConfigurationsAsync();
+            var hosts = existing.Where(c => c.Provider == UciInformService.ProviderKey).Select(c => c.Host);
+            foreach (var (mac, name) in await _uciInforms.FindUnconfiguredUcisAsync(_siteSlug, hosts))
+            {
+                await SaveCmAsync(new CmConfiguration
+                {
+                    Name = name,
+                    Provider = UciInformService.ProviderKey,
+                    Host = mac,
+                    Port = 0,
+                    Username = "",
+                    Enabled = true,
+                    PollingIntervalSeconds = 60,
+                });
+                _logger.LogInformation("Added cable modem monitoring for UniFi Cable Internet {Name} ({Mac})", name, mac);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "UniFi Cable Internet discovery failed");
         }
     }
 
@@ -314,8 +388,11 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
 
         // Status page scrapes reach agent sites through the tunnel proxy: the
         // provider's HTTP client dials a loopback endpoint that the agent
-        // forwards to the modem inside the site's network.
-        var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
+        // forwards to the modem inside the site's network. A UCI config's Host is
+        // its MAC, not an address, and its data arrives from the agent unasked.
+        var (host, port) = config.Provider == UciInformService.ProviderKey
+            ? (config.Host, config.Port)
+            : await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
 
         return new CmPollContext
         {
@@ -433,6 +510,61 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Error computing InfluxDB write for cable modem {Name}", config.Name);
+        }
+    }
+
+    /// <summary>
+    /// Handles what a modem reports about itself beyond signal levels: new DOCSIS event log entries
+    /// go to InfluxDB (marks on Cable Modem Signal History) and, when recent and recognised, raise
+    /// alerts; a changed reinit reason or a restart raises the reinit alert. Providers that report
+    /// none of it pass straight through.
+    /// </summary>
+    private async Task ProcessModemEventsAsync(CmConfiguration config, CableModemStats stats)
+    {
+        try
+        {
+            if (stats.DocsisState != null || stats.UptimeSeconds.HasValue)
+                await _alertEvaluator.EvaluateReinitAsync(config.Id, config.Name, stats.DocsisState?.ReinitReason, stats.UptimeSeconds);
+
+            if (stats.Events.Count == 0)
+                return;
+
+            var cmId = config.Id.ToString();
+            var now = DateTime.UtcNow;
+            if (!_knownEventLines.TryGetValue(config.Id, out var known))
+            {
+                known = new HashSet<string>(StringComparer.Ordinal);
+                try
+                {
+                    var stored = await _influx.QueryCableModemLogEventsAsync(cmId, now - EventSeedLookback, now);
+                    known.UnionWith(stored.Select(e => e.Raw));
+                }
+                catch (Exception ex)
+                {
+                    // Without the seed every entry reads as new; the alert window still keeps old
+                    // ones from alerting, and InfluxDB overwrites a re-written point in place.
+                    _logger.LogDebug(ex, "Could not seed known DOCSIS events for {Name}", config.Name);
+                }
+            }
+
+            foreach (var entry in stats.Events)
+            {
+                // No trustworthy time (logged before the modem synced its clock): table only.
+                if (entry.Time is not { } at || known.Contains(entry.Raw))
+                    continue;
+
+                await _influx.WriteCableModemLogEventAsync(cmId, config.Name, entry.Level, entry.Kind, entry.Text, entry.Raw, at);
+                if (entry.Kind != null && now - at <= EventAlertWindow && at <= now.AddMinutes(5))
+                    await _alertEvaluator.PublishDocsisEventAsync(config.Id, config.Name, entry);
+            }
+
+            // Once an entry scrolls out of the modem's log it never comes back, so the current log is
+            // the whole of what needs remembering.
+            _knownEventLines[config.Id] = stats.Events.Select(e => e.Raw).ToHashSet(StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error processing DOCSIS events for cable modem {Name}", config.Name);
         }
     }
 

@@ -25,6 +25,12 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     /// <inheritdoc/>
     public string DisplayName => "Technicolor CGA Series (HTTP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => true;
+
     private const string DefaultDocsisPath = "/api/v1/sta_docsis_status";
     private const string ModemDocsisPath = "/api/v1/modem/exUSTbl,exDSTbl,USTbl,DSTbl,ErrTbl";
     private const string LoginPath = "/api/v1/session/login";

@@ -28,6 +28,12 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
     /// <inheritdoc/>
     public string DisplayName => "ARRIS Surfboard S33/S34 (HNAP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => true;
+
     private const string StatusPath = "/Cmconnectionstatus.html";
     private const string HnapPath = "/HNAP1/";
     private const string SoapActionPrefix = "http://purenetworks.com/HNAP1/";

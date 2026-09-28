@@ -457,6 +457,43 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600 // 1 hour
         },
+        // From the modem's own DOCSIS event log / reinit state (modems that report them).
+        new AlertRule
+        {
+            Name = "Cable Modem: T3 Timeout",
+            IsEnabled = false,
+            EventTypePattern = "cable_modem.t3_timeout",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes: T3s arrive in bursts
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: T4 Timeout",
+            IsEnabled = false,
+            EventTypePattern = "cable_modem.t4_timeout",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: Ranging Failure",
+            IsEnabled = false,
+            EventTypePattern = "cable_modem.ranging_failure",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: Reinitialized",
+            IsEnabled = false,
+            EventTypePattern = "cable_modem.reinit",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
 
         // --- External ONT (disabled until user configures an ONT) ---
         new AlertRule

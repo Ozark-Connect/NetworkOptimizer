@@ -22,6 +22,12 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
     /// <inheritdoc/>
     public string DisplayName => "Sagemcom F3896LG: Virgin Media Hub 5, Ziggo SmartWifi (HTTP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.None;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => false;
+
     internal const string DefaultBasePath = "/rest/v1/cablemodem";
     private const string LocalizationPath = "/rest/v1/system/localization";
     private const string FallbackModel = "Sagemcom";

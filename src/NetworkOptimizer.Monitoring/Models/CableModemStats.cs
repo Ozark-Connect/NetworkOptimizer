@@ -18,6 +18,21 @@ public class CableModemStats
     /// <summary>Per-channel upstream data (kept in cache, not written to InfluxDB)</summary>
     public List<UsChannel> UpstreamChannels { get; set; } = new();
 
+    /// <summary>
+    /// The modem's own DOCSIS event log, newest last, as it reported it on this poll. Empty for
+    /// providers that do not read one. New entries are also written to InfluxDB as events.
+    /// </summary>
+    public List<CmEvent> Events { get; set; } = new();
+
+    /// <summary>DOCSIS registration state, for providers that report it; null otherwise.</summary>
+    public CmDocsisState? DocsisState { get; set; }
+
+    /// <summary>Modem firmware version, for providers that report it.</summary>
+    public string? FirmwareVersion { get; set; }
+
+    /// <summary>Modem uptime in seconds, for providers that report it.</summary>
+    public long? UptimeSeconds { get; set; }
+
     // Computed aggregates - these get written to InfluxDB
 
     public int LockedDsChannels => DownstreamChannels.Count(c =>
@@ -79,6 +94,9 @@ public class DsChannel
     public double? Snr { get; set; }
     public long Correctables { get; set; }
     public long Uncorrectables { get; set; }
+
+    /// <summary>Channel capacity the modem reports, in Mbps, for providers that report it.</summary>
+    public double? ReportedSpeedMbps { get; set; }
 }
 
 /// <summary>
@@ -92,4 +110,51 @@ public class UsChannel
     public long Frequency { get; set; }
     public double? Power { get; set; }
     public long SymbolRate { get; set; }
+
+    /// <summary>Upstream modulation (e.g. "QAM64"), for providers that report it.</summary>
+    public string? Modulation { get; set; }
+
+    /// <summary>Channel capacity the modem reports, in Mbps, for providers that report it.</summary>
+    public double? ReportedSpeedMbps { get; set; }
 }
+
+/// <summary>
+/// One entry from a modem's DOCSIS event log.
+/// </summary>
+public class CmEvent
+{
+    /// <summary>
+    /// When the modem logged it, in UTC. Null when the modem had not synced its clock yet
+    /// ("Time Not Established"), or logged a time from before it synced: such entries are shown
+    /// but never written to InfluxDB or alerted on.
+    /// </summary>
+    public DateTime? Time { get; set; }
+
+    /// <summary>Log level as the modem wrote it (Critical, Error, Warning, Notice, ...).</summary>
+    public string Level { get; set; } = "";
+
+    /// <summary>The event text, without the time and level.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>The full line as the modem reported it; the identity used to tell entries apart.</summary>
+    public string Raw { get; set; } = "";
+
+    /// <summary>What kind of event this is, when recognised (see <see cref="CmEventKinds"/>); null otherwise.</summary>
+    public string? Kind { get; set; }
+}
+
+/// <summary>Recognised DOCSIS event kinds, also the suffix of their alert event types.</summary>
+public static class CmEventKinds
+{
+    public const string T3Timeout = "t3_timeout";
+    public const string T4Timeout = "t4_timeout";
+    public const string RangingFailure = "ranging_failure";
+}
+
+/// <summary>
+/// DOCSIS registration state reported by the modem.
+/// </summary>
+/// <param name="Mode">DOCSIS mode, e.g. "D3.1".</param>
+/// <param name="State">Registration state, e.g. "Operational".</param>
+/// <param name="ReinitReason">Why the modem last reinitialized, e.g. "POWER_ON".</param>
+public sealed record CmDocsisState(string? Mode, string? State, string? ReinitReason);

@@ -203,6 +203,7 @@
         sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
+        AppendRelease(sb);
         return sb.ToString();
     }
 
@@ -214,6 +215,7 @@
         sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
+        AppendRelease(sb);
         return sb.ToString();
     }
 
@@ -225,7 +227,15 @@
         sb.Append($"  --token \"{_token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
+        AppendRelease(sb);
         return sb.ToString();
+    }
+
+    // A preview server pins agents to its own release; a stable one leaves the installers on latest.
+    private static void AppendRelease(StringBuilder sb)
+    {
+        if (AppVersionInfo.AgentReleaseTag is { } tag)
+            sb.Append($" \\\n  --release \"{tag}\"");
     }
 
     // The shared builder also feeds the "Run It for Me" SSH run, so the displayed
