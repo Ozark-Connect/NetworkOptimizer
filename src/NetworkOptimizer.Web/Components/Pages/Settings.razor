@@ -4839,13 +4839,7 @@
         + $" | sudo bash -s -- --server \"{AgentServerBase()}\""
         + GatewayAgentCommands.ReleaseArgument(AppVersionInfo.AgentReleaseTag);
 
-    // Docker agents pull agent:latest, which only moves on stable releases. A preview server re-runs
-    // the installer instead, which pins the image to its release and keeps the enrolled config.
-    private string DockerUpgradeCommand() =>
-        AppVersionInfo.AgentReleaseTag is { } tag
-            ? "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh"
-              + $" | bash -s -- --server \"{AgentServerBase()}\"" + GatewayAgentCommands.ReleaseArgument(tag)
-            : "cd /opt/network-optimizer-agent && docker compose pull && docker compose up -d";
+    private static string DockerUpgradeCommand() => GatewayAgentCommands.DockerUpgrade(AppVersionInfo.AgentReleaseTag);
 
     // An agent in an LXC is the bare-metal agent with a container around it, so it
     // upgrades with the same script - run from the host, since that is where the

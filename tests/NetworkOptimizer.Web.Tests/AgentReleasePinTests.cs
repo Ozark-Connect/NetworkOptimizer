@@ -44,6 +44,17 @@ public class AgentReleasePinTests
             .Should().EndWith(" --release \"v2.9.1-preview1\"");
     }
 
+    [Theory]
+    [InlineData("v2.9.0-preview8", "2.9.0-preview8")]
+    [InlineData(null, "latest")]
+    public void DockerUpgrade_PointsTheImageAtTheRelease_OrBackAtLatest(string? releaseTag, string imageTag)
+    {
+        GatewayAgentCommands.DockerUpgrade(releaseTag).Should().Be(
+            "cd /opt/network-optimizer-agent"
+            + $" && sed -i 's#\\(image: ghcr.io/ozark-connect/agent\\):.*#\\1:{imageTag}#' docker-compose.yml"
+            + " && docker compose pull && docker compose up -d");
+    }
+
     [Fact]
     public void GatewayCommands_AreUnchangedWithoutATag()
     {
