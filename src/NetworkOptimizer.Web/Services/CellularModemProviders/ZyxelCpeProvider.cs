@@ -247,7 +247,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
             "Locked User" => new LoginResult(null,
                 $"{host} has temporarily locked the account after failed sign-ins.", false),
             "Duplicated login" => new LoginResult(null,
-                $"{host} refused the sign-in because the account is signed in elsewhere. Sign out of its web interface, then try again.", false),
+                $"{host} refused the sign-in because the account is signed in elsewhere. Give Network Optimizer its own account on the router, or sign out of its web interface and try again.", false),
             "Maxium number of login account has reached" or "Maximum number of login account has reached" =>
                 new LoginResult(null,
                     $"{host} has reached its limit of signed-in sessions. Sign out of its web interface or wait for idle sessions to time out.", false),
