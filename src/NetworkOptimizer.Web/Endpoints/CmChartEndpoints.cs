@@ -52,8 +52,15 @@ public static class CmChartEndpoints
             // Marks come from the modem's logged events in the window. Notice/Information lines
             // (profile changes and the like arrive every few minutes) are left to the log table so
             // the marks stay the things worth looking at: recognised events and warnings or worse.
+            // Only modems that keep an event log are asked for marks: the rest have none, and the
+            // chart polls every few seconds.
+            var logging = configs
+                .Where(c => c.Provider == NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.ProviderKey
+                            || (cached.TryGetValue(c.Id, out var s) && s.Events.Count > 0))
+                .Select(c => c.Id.ToString())
+                .ToHashSet();
             var events = new List<object>();
-            foreach (var id in data.Keys.Where(nameMap.ContainsKey))
+            foreach (var id in data.Keys.Where(k => nameMap.ContainsKey(k) && logging.Contains(k)))
             {
                 var logged = await influx.QueryCableModemLogEventsAsync(id, queryFrom, queryTo, ct);
                 foreach (var e in logged.Where(e => e.Kind != null || MarkSeverity(e.Level) != "info"))

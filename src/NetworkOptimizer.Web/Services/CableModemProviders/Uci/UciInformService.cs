@@ -325,16 +325,6 @@ public sealed partial class UciInformService
             .Select(NormalizeMac).Where(m => m != null).Select(m => m!)
             .ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>Forgets a site's cached state (site removed or its configs reset).</summary>
-    public void ForgetSite(string siteSlug)
-    {
-        _captureTargets.TryRemove(siteSlug, out _);
-        _lastKeyRefresh.TryRemove(siteSlug, out _);
-        foreach (var key in _snapshots.Keys.Where(k => k.Site == siteSlug).ToList()) _snapshots.TryRemove(key, out _);
-        foreach (var key in _keys.Keys.Where(k => k.Site == siteSlug).ToList()) _keys.TryRemove(key, out _);
-        foreach (var key in _lastFailure.Keys.Where(k => k.Site == siteSlug).ToList()) _lastFailure.TryRemove(key, out _);
-    }
-
     private void RecordFailure(string site, string mac, string reason)
     {
         var previous = _lastFailure.TryGetValue((site, mac), out var last) ? last.Reason : null;

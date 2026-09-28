@@ -114,8 +114,7 @@ public sealed class UciInformReassembler
             // earlier (the tail of a request we joined mid-way) waits in pending until it is
             // either the start of one or ages out with the flow.
             flow.Pending[seq] = payload;
-            if (flow.Pending.Count > MaxPendingSegments)
-                flow.Pending.Remove(flow.Pending.Keys.First());
+            TrimPending(flow, dropHighest: false);
             TrySync(flow);
             return;
         }
@@ -135,10 +134,23 @@ public sealed class UciInformReassembler
         else
         {
             flow.Pending[seq] = payload;
-            if (flow.Pending.Count > MaxPendingSegments)
-                flow.Pending.Remove(flow.Pending.Keys.Max());
+            TrimPending(flow, dropHighest: true);
         }
         DrainPending(flow);
+    }
+
+    /// <summary>
+    /// Holds pending segments to <see cref="MaxPendingSegments"/> and <see cref="MaxFlowBytes"/>:
+    /// a GRO-coalesced segment can be 64 KB, so a count alone would let a flow that never syncs
+    /// hold megabytes on the gateway.
+    /// </summary>
+    private static void TrimPending(Flow flow, bool dropHighest)
+    {
+        while (flow.Pending.Count > 0
+               && (flow.Pending.Count > MaxPendingSegments || flow.Pending.Values.Sum(s => (long)s.Length) > MaxFlowBytes))
+        {
+            flow.Pending.Remove(dropHighest ? flow.Pending.Keys.Max() : flow.Pending.Keys.First());
+        }
     }
 
     private static void TrySync(Flow flow)
