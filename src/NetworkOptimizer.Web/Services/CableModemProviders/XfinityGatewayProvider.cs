@@ -32,6 +32,12 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     /// <inheritdoc/>
     public string DisplayName => "Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)";
 
+    /// <inheritdoc/>
+    public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
+
+    /// <inheritdoc/>
+    public bool BlankUsernameMeansAdmin => false;
+
     /// <summary>
     /// Status page candidates in discovery order. Residential firmware first:
     /// it is the larger population, so most sites settle on one request.

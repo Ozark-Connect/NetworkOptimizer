@@ -123,4 +123,8 @@ public static class SystemSettingKeys
 
     // Channel outcome memory: end of the window the collector last aggregated (UTC, round-trip format)
     public const string ChannelMemoryCollectionWatermark = "wifi.channel_memory_watermark";
+
+    // Per-site: UCI MACs (comma-joined, lowercase) whose automatically created cable modem
+    // config the user deleted. Automatic creation never recreates these.
+    public const string UciAutoCreateDismissed = "cable_modem.uci_dismissed";
 }

@@ -439,13 +439,15 @@ public static class UniFiProductDatabase
         { "ULTE", "U-LTE" },
         { "ULTEPUS", "U-LTE-Backup-Pro" },
         { "ULTEPEU", "U-LTE-Backup-Pro" },
-        { "UCI", "UCI" },
         { "UMBBE630", "U5G-Max" },
         { "UMBBE631", "U5G-Max-Outdoor" },
         // Unified display name - real SKUs are U5G-US / U5G-EU but we use a
         // single non-regional name for cleaner UX and one device icon.
         { "UMBBE633", "U5G-Backup" },
         { "UMBBE634", "U5G-Backup" },
+
+        // ----- Official: Cable Internet (DOCSIS) -----
+        { "UCI", "UCI" },
 
         // ----- Official: UPS -----
         { "USWDA23", "UPS-Tower" },
