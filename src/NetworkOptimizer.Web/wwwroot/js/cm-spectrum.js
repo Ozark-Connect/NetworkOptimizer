@@ -385,7 +385,7 @@ export function renderSpectrum(el, devices, { live, showDeviceName }) {
     destroyTooltips(el);
     if (!withChannels.length) { el.innerHTML = ''; return; }
 
-    el.innerHTML = withChannels.map((d, i) => `<div class="chart-card cm-spectrum-card">
+    el.innerHTML = withChannels.map((d, i) => `<div class="chart-card cm-spectrum-card" data-tour="cm-spectrum">
         <div class="chart-header cm-spectrum-header">
             <h3 class="chart-title">Channel Spectrum${showDeviceName ? ' - ' + esc(d.label) : ''}</h3>
             ${asOf(d.spectrum.polledAt, live)}
