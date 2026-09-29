@@ -25,6 +25,8 @@ public sealed class UciInformCapture
     private const int SolSocket = 1;
     private const int SoRcvtimeo = 20;
     private const int SoAttachFilter = 26;
+    private const int SolPacket = 263;
+    private const int PacketIgnoreOutgoing = 23;
     private const int PacketOutgoing = 4;
     private const int EAgain = 11;  // also EWOULDBLOCK on Linux
     private const int EIntr = 4;
@@ -50,7 +52,8 @@ public sealed class UciInformCapture
         if (!OperatingSystem.IsLinux() || IntPtr.Size != 8) return false;
         try
         {
-            var fd = socket(AfPacket, SockRaw, EthPAllNetworkOrder);
+            // Protocol 0 proves the permission without registering a tap, so the probe sees no traffic.
+            var fd = socket(AfPacket, SockRaw, 0);
             if (fd < 0) return false;
             close(fd);
             return true;
@@ -181,7 +184,8 @@ public sealed class UciInformCapture
 
     private static int OpenFiltered(IReadOnlyList<string> macs)
     {
-        var fd = socket(AfPacket, SockRaw, EthPAllNetworkOrder);
+        // Protocol 0 receives nothing until the bind below, so no unfiltered frame is ever queued.
+        var fd = socket(AfPacket, SockRaw, 0);
         if (fd < 0)
         {
             Console.Error.WriteLine($"UCI inform capture: cannot open a packet socket (errno {Marshal.GetLastPInvokeError()})");
@@ -211,6 +215,23 @@ public sealed class UciInformCapture
             Marshal.FreeHGlobal(filterPtr);
         }
 
+        // Without this the kernel clones every packet the gateway sends before the filter runs.
+        // Kernel 4.20+; older kernels fall back to the sll_pkttype check in Run.
+        var one = BitConverter.GetBytes(1);
+        if (setsockopt(fd, SolPacket, PacketIgnoreOutgoing, one, one.Length) != 0)
+            Console.Error.WriteLine($"UCI inform capture: PACKET_IGNORE_OUTGOING unavailable (errno {Marshal.GetLastPInvokeError()}); continuing without it");
+
+        // struct sockaddr_ll: family, protocol (network order), ifindex 0 = every interface.
+        var sll = new byte[20];
+        BitConverter.TryWriteBytes(sll.AsSpan(0, 2), (ushort)AfPacket);
+        BitConverter.TryWriteBytes(sll.AsSpan(2, 2), (ushort)EthPAllNetworkOrder);
+        if (bind(fd, sll, sll.Length) != 0)
+        {
+            Console.Error.WriteLine($"UCI inform capture: cannot bind the packet socket (errno {Marshal.GetLastPInvokeError()})");
+            close(fd);
+            return -1;
+        }
+
         // struct timeval { long tv_sec; long tv_usec; } - 1 s, so the loop wakes to check for
         // cancellation and config changes.
         var timeout = new byte[16];
@@ -224,6 +245,9 @@ public sealed class UciInformCapture
 
     [DllImport("libc", SetLastError = true)]
     private static extern int setsockopt(int fd, int level, int optname, byte[] optval, int optlen);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int bind(int fd, byte[] addr, int addrLen);
 
     [DllImport("libc", SetLastError = true)]
     private static extern nint recvfrom(int fd, byte[] buf, nint len, int flags, byte[] srcAddr, ref int addrLen);
