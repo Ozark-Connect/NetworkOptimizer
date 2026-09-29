@@ -2018,6 +2018,260 @@ a.stat-card-link:active {
     overflow-wrap: anywhere;
 }
 
+/* Channel Spectrum (CM Stats): the latest poll's channels by frequency. Axis and grid colors
+   match the ApexCharts charts above it. Grade classes are cmsp-* because .grade-* is global. */
+.cm-spectrum-header {
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+}
+
+.cm-spectrum-asof {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.cm-spectrum-asof.not-window {
+    color: var(--text-secondary);
+}
+
+.cm-spectrum-asof.stale {
+    color: var(--warning-color);
+}
+
+.cm-spectrum-panels {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 0.75rem 1rem 1rem;
+}
+
+.cm-spectrum-panel {
+    min-width: 0;
+}
+
+.cm-spectrum-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+    margin-bottom: 0.5rem;
+}
+
+.cm-spectrum-panel-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cm-spectrum-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.cm-spectrum-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.9rem;
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.cm-spectrum-fact-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.cm-spectrum-plot {
+    width: 100%;
+    min-height: 150px;
+}
+
+.cm-spectrum-svg {
+    display: block;
+    overflow: visible;
+}
+
+.cm-spectrum-grid {
+    stroke: #374151;
+    stroke-dasharray: 3;
+}
+
+.cm-spectrum-grid.zero {
+    stroke: #4b5563;
+    stroke-dasharray: none;
+}
+
+.cm-spectrum-axis {
+    stroke: #374151;
+}
+
+.cm-spectrum-divider {
+    stroke: #374151;
+    stroke-dasharray: 2 3;
+}
+
+.cm-spectrum-tick,
+.cm-spectrum-lane-label,
+.cm-spectrum-limit-label {
+    fill: #9ca3af;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cm-spectrum-lane-label {
+    fill: var(--text-muted);
+    font-size: 9px;
+    letter-spacing: 0.04em;
+}
+
+.cm-spectrum-limit-label {
+    fill: var(--danger-color);
+    font-size: 10px;
+}
+
+.cm-spectrum-limit {
+    stroke: var(--danger-color);
+    stroke-dasharray: 4 3;
+    opacity: 0.8;
+}
+
+.cm-spectrum-range {
+    fill: color-mix(in srgb, var(--success-color) 7%, transparent);
+}
+
+.cm-spectrum-empty {
+    fill: var(--text-muted);
+    font-size: 12px;
+}
+
+.cm-spectrum-bar {
+    opacity: 0.88;
+    stroke-width: 0;
+    transition: opacity 0.12s;
+}
+
+.cm-spectrum-bar.cmsp-excellent { fill: var(--signal-excellent); stroke: var(--signal-excellent); }
+.cm-spectrum-bar.cmsp-good { fill: var(--signal-good); stroke: var(--signal-good); }
+.cm-spectrum-bar.cmsp-fair { fill: var(--signal-fair); stroke: var(--signal-fair); }
+.cm-spectrum-bar.cmsp-poor { fill: var(--signal-poor); stroke: var(--signal-poor); }
+.cm-spectrum-bar.cmsp-none { fill: var(--text-muted); stroke: var(--text-muted); }
+
+/* OFDM spans many subcarriers, so it reads as a lighter block rather than one more bar. */
+.cm-spectrum-bar.ofdm {
+    fill-opacity: 0.45;
+    stroke-width: 1.5;
+}
+
+.cm-spectrum-bar.unlocked {
+    fill: none;
+    stroke: var(--text-muted);
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+}
+
+.cm-spectrum-fec {
+    fill: var(--danger-color);
+}
+
+.cm-spectrum-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.cm-spectrum-channel:hover .cm-spectrum-hit {
+    fill: rgba(255, 255, 255, 0.04);
+}
+
+.cm-spectrum-channel:hover .cm-spectrum-bar {
+    opacity: 1;
+}
+
+.cm-spectrum-channel:hover .cm-spectrum-bar:not(.unlocked):not(.ofdm) {
+    stroke: var(--text-primary);
+    stroke-width: 1;
+}
+
+.cm-spectrum-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.8rem;
+    margin-top: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.cm-spectrum-key-label {
+    color: var(--text-muted);
+}
+
+.cm-spectrum-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.cm-spectrum-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.cm-spectrum-swatch.cmsp-excellent { background: var(--signal-excellent); }
+.cm-spectrum-swatch.cmsp-good { background: var(--signal-good); }
+.cm-spectrum-swatch.cmsp-fair { background: var(--signal-fair); }
+.cm-spectrum-swatch.cmsp-poor { background: var(--signal-poor); }
+
+.cm-spectrum-swatch.range {
+    background: color-mix(in srgb, var(--success-color) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success-color) 35%, transparent);
+}
+
+.cm-spectrum-swatch.fec {
+    height: 6px;
+    background: var(--danger-color);
+}
+
+.cm-spectrum-swatch.unlocked {
+    border: 1px dashed var(--text-muted);
+}
+
+.cm-spectrum-panel-empty {
+    padding: 2.5rem 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.tippy-box .cm-spectrum-tip-title {
+    margin-bottom: 0.3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+    .cm-spectrum-panels {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.25rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .cm-spectrum-panels {
+        padding: 0.75rem 0.75rem 0.9rem;
+    }
+
+    .cm-spectrum-facts {
+        width: 100%;
+        margin-left: 0;
+    }
+}
+
 .signal-centered {
     position: relative;
     justify-content: center;
