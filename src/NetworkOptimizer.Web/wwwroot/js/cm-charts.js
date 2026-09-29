@@ -11,7 +11,7 @@ import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
 import { createMarkLayer } from './chart-event-marks.js?v=6';
-import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=1';
+import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cm';
