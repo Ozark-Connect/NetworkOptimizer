@@ -11,6 +11,7 @@ import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
 import { createMarkLayer } from './chart-event-marks.js?v=6';
+import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cm';
@@ -180,13 +181,14 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderSpectrumCards(container);
             renderStatsTable(container, false);
             renderEventLog(container);
         });
     }
 
     // Last: the chip rebuild above wipes the row, so the reset is re-added after it.
-    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); renderEventLog(container); });
+    renderFilterReset(el, isFiltered(visibility), () => { visibility = {}; updateVisibility(); renderBadges(container); renderSpectrumCards(container); renderEventLog(container); });
 }
 
 // Downstream, upstream and the two error counts each get their own color per modem, so the four
@@ -242,10 +244,19 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
+        renderSpectrumCards(container);
         renderDetails(container);
         renderStatsTable(container);
         renderEventLog(container);
     }
+}
+
+// The latest poll's channels, one card per visible modem. It follows the device filter like the
+// charts, but not the time window: per-channel values are not stored.
+function renderSpectrumCards(container) {
+    renderSpectrum(container.querySelector('.cm-spectrum'),
+        (lastData?.devices || []).filter(d => visibility[d.id] !== false),
+        { live: !isCustomRange && windowOffset === 0, showDeviceName: (lastData?.devices?.length ?? 0) > 1 });
 }
 
 const fmtDbmv = v => v != null ? v.toFixed(2) : '-';
@@ -283,7 +294,7 @@ function renderStatsTable(container, showAll) {
         ],
         filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
-            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); renderEventLog(c); } },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderSpectrumCards(c); renderStatsTable(c, true); renderEventLog(c); } },
     });
 }
 
@@ -582,7 +593,7 @@ export function soloDevice(deviceId) {
     deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) { renderBadges(container); renderStatsTable(container, false); renderEventLog(container); }
+    if (container) { renderBadges(container); renderSpectrumCards(container); renderStatsTable(container, false); renderEventLog(container); }
 }
 
 export function unmount() {
@@ -596,6 +607,7 @@ export function unmount() {
     if (dsSnrChart) { dsSnrChart.destroy(); dsSnrChart = null; }
     if (usPowerChart) { usPowerChart.destroy(); usPowerChart = null; }
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
+    disposeSpectrum(document.getElementById(containerId)?.querySelector('.cm-spectrum'));
     containerId = null;
     deviceMeta = [];
     visibility = {};
