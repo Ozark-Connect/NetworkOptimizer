@@ -511,6 +511,17 @@ New audit section focused on network performance issues (distinct from security 
 
 ## Monitoring
 
+### Channel Spectrum: per-channel history (CM Stats)
+The Channel Spectrum shows the latest poll only: per-channel values live in the in-memory stats
+cache, and InfluxDB holds only the per-poll aggregates. Storing each channel per poll would let the
+spectrum follow the charts' time window, with each bar drawn as its range over the window and the
+latest value marked, and would give per-channel history for tracking a channel that degrades.
+
+Costs to weigh first: about 40 points per modem per poll instead of 1, in the longterm bucket where
+`cable_modem` lives. A `channel` tag on `cable_modem` would mix per-channel points into every
+existing query of that measurement, so each would need a filter; a new measurement is ruled out by
+the additive-only schema rule. History starts at the upgrade.
+
 ### Device reboot records: one boot writes several points
 One restart can leave up to nine stored records instead of the one the design intends. Measured on
 the NAS site 2026-08-05: **77 records over 90 days describe 11 real boots**, a 7x inflation. Every
