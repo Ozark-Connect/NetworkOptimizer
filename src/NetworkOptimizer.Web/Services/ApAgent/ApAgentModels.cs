@@ -149,7 +149,13 @@ public sealed class ApAgentSshStatus
     /// <summary>Firmware string from /usr/lib/version.</summary>
     public string? Firmware { get; set; }
 
-    /// <summary>Whether an AP Agent build exists for <see cref="Machine"/>.</summary>
+    /// <summary>"little" or "big" from the ELF header, read on MIPS only, where <c>uname -m</c> cannot tell.</summary>
+    public string? ByteOrder { get; set; }
+
+    /// <summary>The build this AP runs (<see cref="ApAgentPaths.BinaryNameFor"/>), or null when there is none.</summary>
+    public string? BinaryName { get; set; }
+
+    /// <summary>Whether an AP Agent build exists for <see cref="Machine"/> and <see cref="ByteOrder"/>.</summary>
     public bool SupportedArchitecture { get; set; }
 
     /// <summary>Whether the agent binary is present and executable on the AP.</summary>
