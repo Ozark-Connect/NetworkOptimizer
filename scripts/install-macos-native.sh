@@ -308,6 +308,9 @@ if command -v go &> /dev/null; then
     GO_VERSION="${GO_VERSION#v}" # strip leading v
     echo "Go binary version: $GO_VERSION"
 
+    # Reuse Go's build cache across helpers and upgrades. Go invalidates cached
+    # packages when source, toolchain, architecture, or build flags change.
+
     # Detect Go architecture for local binary
     GO_ARCH="amd64"
     if [ "$ARCH" = "arm64" ]; then
@@ -321,7 +324,7 @@ if command -v go &> /dev/null; then
     # CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
     # if [ -d "$CFSPEEDTEST_SRC" ]; then
     #     cd "$CFSPEEDTEST_SRC"
-    #     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
+    #     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     #         -ldflags "-s -w -X main.version=$GO_VERSION" \
     #         -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
     #     echo "Built cfspeedtest for linux/arm64"
@@ -333,12 +336,12 @@ if command -v go &> /dev/null; then
     if [ -d "$UWNSPEEDTEST_SRC" ]; then
         cd "$UWNSPEEDTEST_SRC"
         # Build local binary for server-side WAN speed tests
-        CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -a -trimpath \
+        CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -trimpath \
             -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-darwin-$GO_ARCH" .
         echo "Built uwnspeedtest for darwin/$GO_ARCH (local)"
         # Build gateway binary for deployment via SSH to UniFi gateways
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
             -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-linux-arm64" .
         echo "Built uwnspeedtest for linux/arm64 (gateway)"
@@ -350,7 +353,7 @@ if command -v go &> /dev/null; then
     if [ -d "$WANSTEER_SRC" ]; then
         cd "$WANSTEER_SRC"
         # Build gateway binary for WAN steering (deployed via SSH to UniFi gateways)
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
             -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/wansteer-linux-arm64" .
         echo "Built wansteer for linux/arm64 (gateway)"
@@ -363,7 +366,7 @@ if command -v go &> /dev/null; then
         cd "$APAGENT_SRC"
         # AP Agent, pushed over SSH into tmpfs on each access point. Every U7-class access
         # point measured is armv7l, so there is deliberately no arm64 target.
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm" .
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm" .
         echo "Built apagent for linux/arm/v7 (access point)"
     else
         echo "Warning: apagent source not found at $APAGENT_SRC"
