@@ -28,10 +28,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // with changed code, qca-nss-dp (an EDMA loopback ring), is outside it
     // (unifi-perf-tweaks docs/compat-6.0.10.md).
     private static readonly Version MaxSupportedFirmware = new(6, 0, 10);
-    // 6.0.5 live-verified on UXG-Fiber: the trixie toolchain recompiled qca-ssdk.ko, ending the
-    // byte-identical streak, but vermagic, all 10 SGMII+ symbols and the 0x690/0x6d0 speed and
-    // duplex offsets are unchanged (unifi-perf-tweaks docs/compat-6.0.5.md).
-    private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 5);
+    // 6.0.10 live-verified on a production UXG-Fiber: SGMII+ loaded at 2500Mb/s, journald and fan
+    // tweaks in effect, and its qca-ssdk.ko and qca-nss-dp.ko are byte-identical to the UCG-Fiber
+    // 6.0.10 image, so the static check above applies (unifi-perf-tweaks docs/compat-6.0.10.md).
+    private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 10);
 
     /// <summary>
     /// The verified firmware ceiling for a gateway, read off the same lowercased shortname the
