@@ -252,11 +252,16 @@ async function loadAndUpdate() {
 }
 
 // The latest poll's channels, one card per visible modem. It follows the device filter like the
-// charts, but not the time window: per-channel values are not stored.
+// charts, but not the time window: per-channel values are not stored. Guarded: it renders ahead of
+// the details, stats, and event log, so a bad channel row must cost only this card.
 function renderSpectrumCards(container) {
-    renderSpectrum(container.querySelector('.cm-spectrum'),
-        (lastData?.devices || []).filter(d => visibility[d.id] !== false),
-        { live: !isCustomRange && windowOffset === 0, showDeviceName: (lastData?.devices?.length ?? 0) > 1 });
+    try {
+        renderSpectrum(container.querySelector('.cm-spectrum'),
+            (lastData?.devices || []).filter(d => visibility[d.id] !== false),
+            { live: !isCustomRange && windowOffset === 0, showDeviceName: (lastData?.devices?.length ?? 0) > 1 });
+    } catch (e) {
+        console.error('Channel Spectrum failed to render', e);
+    }
 }
 
 const fmtDbmv = v => v != null ? v.toFixed(2) : '-';
