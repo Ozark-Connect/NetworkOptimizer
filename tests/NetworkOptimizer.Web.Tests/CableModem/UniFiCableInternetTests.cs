@@ -174,6 +174,35 @@ public class UniFiCableInternetTests
     }
 
     [Fact]
+    public void Map_DropsPlaceholderSlots_KeepsChannelsWithAnyReading()
+    {
+        var json = """
+        {
+          "ds_table": [
+            { "ch_id": 7, "freq": "567", "modulation": "QAM256", "state": "Locked", "pwr": "5.0", "snr": "-36.0" },
+            { "ch_id": 32, "freq": "0.0", "modulation": "QAM16", "state": "Locked", "pwr": "0.0", "snr": "0.0" },
+            { "ch_id": 9, "freq": "579", "modulation": "QAM256", "state": "Locked", "pwr": "0.0", "snr": "-37.0" },
+            { "ch_id": 10, "freq": "n/a", "modulation": "QAM256", "state": "Locked", "pwr": "1.5", "snr": "-36.5" },
+            { "ch_id": 11, "state": "Not Locked" }
+          ],
+          "us_table": [
+            { "ch_id": 1, "freq": "36.2", "state": "Locked", "pwr": "44.5" },
+            { "ch_id": 4, "freq": "0", "state": "Locked", "pwr": "0" }
+          ],
+          "ofdma_table": [ { "ch_id": 5, "freq": "60", "state": "Locked", "pwr": "0.0" } ]
+        }
+        """;
+        var payload = UciInformPayload.Parse(Encoding.UTF8.GetBytes(json))!;
+        var stats = UciStatsMapper.Map(payload, "Cable", Mac, DateTime.UtcNow);
+
+        stats.DownstreamChannels.Select(c => c.ChannelId).Should().Equal(7, 9, 10);
+        stats.LockedDsChannels.Should().Be(3);
+        stats.DownstreamSnrAvgDb.Should().BeApproximately(36.5, 0.001, "the 0 dB placeholder stays out of the average");
+        stats.DownstreamPowerAvgDbmv.Should().BeApproximately(6.5 / 3, 0.001, "a real 0.0 dBmV channel still counts");
+        stats.UpstreamChannels.Select(c => c.ChannelId).Should().Equal(1, 5);
+    }
+
+    [Fact]
     public void Parse_NotJsonObject_IsNull()
     {
         UciInformPayload.Parse("[1,2,3]"u8.ToArray()).Should().BeNull();
