@@ -16,6 +16,18 @@
       "optional": true
     },
     {
+      "id": "cm-channel-spectrum",
+      "level": "minor",
+      "url": "/monitoring?tab=cm",
+      "selector": "[data-tour=\"cm-spectrum\"]",
+      "requires": ["cable-modem"],
+      "title": "Channel Spectrum",
+      "listLabel": "See every cable modem channel by frequency",
+      "body": "Every channel from your modem's latest poll, placed by frequency. Downstream bars are colored by SNR, with the channels carrying uncorrectables marked above them, and upstream bars sit against the **51 dBmV** ceiling.\n\nTilt, a notch, or ingress in one part of the band shows up at a glance. Hover or tap a channel for its readings.",
+      "placement": "top",
+      "optional": true
+    },
+    {
       "id": "dashboard-active-alerts",
       "level": "minor",
       "url": "/",

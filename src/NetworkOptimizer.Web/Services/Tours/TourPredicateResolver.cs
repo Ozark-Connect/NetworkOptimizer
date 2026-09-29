@@ -69,6 +69,13 @@ public class TourPredicateResolver
     /// </summary>
     public const string Cellular = "cellular";
 
+    /// <summary>
+    /// The site has a cable modem configured. Without one CM Stats is a setup prompt, so a step
+    /// pointing at its cards has nothing to spotlight and must be filtered out BEFORE the driver
+    /// navigates.
+    /// </summary>
+    public const string CableModem = "cable-modem";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -163,6 +170,7 @@ public class TourPredicateResolver
         var multiWanSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var starlinkSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var cellularSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cableModemSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
             try
@@ -244,6 +252,16 @@ public class TourPredicateResolver
             {
                 _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Cellular, site.Slug);
             }
+
+            try
+            {
+                if (await HasCableModemAsync(site.Slug, site.IsDefault))
+                    cableModemSites.Add(site.Slug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", CableModem, site.Slug);
+            }
         }
         if (gatewaySshSites.Count > 0)
             qualifying[GatewaySsh] = gatewaySshSites;
@@ -261,6 +279,8 @@ public class TourPredicateResolver
             qualifying[Starlink] = starlinkSites;
         if (cellularSites.Count > 0)
             qualifying[Cellular] = cellularSites;
+        if (cableModemSites.Count > 0)
+            qualifying[CableModem] = cableModemSites;
 
         return new PredicateContext
         {
@@ -350,6 +370,16 @@ public class TourPredicateResolver
     {
         using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         return await db.ModemConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
+    }
+
+    /// <summary>
+    /// Whether the site has an enabled cable modem. A disabled one is not polled, so CM Stats has
+    /// no channel data for it to point at.
+    /// </summary>
+    private async Task<bool> HasCableModemAsync(string slug, bool isDefault)
+    {
+        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
+        return await db.CmConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
     }
 
     /// <summary>
