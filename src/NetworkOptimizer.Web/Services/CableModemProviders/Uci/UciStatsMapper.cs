@@ -29,7 +29,7 @@ public static partial class UciStatsMapper
             UptimeSeconds = payload.Uptime > 0 ? payload.Uptime : null,
         };
 
-        foreach (var row in payload.DsTable ?? [])
+        foreach (var row in Channels(payload.DsTable))
         {
             stats.DownstreamChannels.Add(new DsChannel
             {
@@ -45,7 +45,7 @@ public static partial class UciStatsMapper
             });
         }
 
-        foreach (var row in payload.OfdmTable ?? [])
+        foreach (var row in Channels(payload.OfdmTable))
         {
             stats.DownstreamChannels.Add(new DsChannel
             {
@@ -59,7 +59,7 @@ public static partial class UciStatsMapper
             });
         }
 
-        foreach (var row in payload.UsTable ?? [])
+        foreach (var row in Channels(payload.UsTable))
         {
             stats.UpstreamChannels.Add(new UsChannel
             {
@@ -73,7 +73,7 @@ public static partial class UciStatsMapper
             });
         }
 
-        foreach (var row in payload.OfdmaTable ?? [])
+        foreach (var row in Channels(payload.OfdmaTable))
         {
             stats.UpstreamChannels.Add(new UsChannel
             {
@@ -93,6 +93,14 @@ public static partial class UciStatsMapper
         stats.Events = ParseEventLog(payload.EventLog);
         return stats;
     }
+
+    /// <summary>
+    /// A table's rows minus placeholder slots. The UCI reports an unused slot as Locked with zero
+    /// frequency, power, and SNR, which would drag the averages toward 0. A tuned channel always has
+    /// a frequency, so only a row with all three at zero is dropped.
+    /// </summary>
+    private static IEnumerable<UciChannelRow> Channels(List<UciChannelRow>? rows) =>
+        (rows ?? []).Where(r => ParseFrequencyHz(r.Frequency) != 0 || (r.Power ?? 0) != 0 || (r.Snr ?? 0) != 0);
 
     /// <summary>"Locked" stays "Locked" (the aggregates match on it); anything else passes through.</summary>
     private static string LockStatus(string? state) =>
