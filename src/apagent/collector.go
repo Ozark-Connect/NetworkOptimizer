@@ -43,6 +43,18 @@ func (s *tierState) setAvailable(available bool) {
 	s.available = available
 }
 
+func (s *tierState) setInterval(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interval = d
+}
+
+func (s *tierState) currentInterval() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.interval
+}
+
 func (s *tierState) info() TierInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,6 +79,34 @@ func (s *tierState) info() TierInfo {
 // work back to back and turning a struggling access point into a hammered one.
 const minTierRest = 250 * time.Millisecond
 
+// Without wlanconfig (U6-Lite), mca-dump is the only per-client RF source, so the bytes tier runs
+// as fast as a tenth of wall time allows. Wall time bounds mcad's CPU, and mcad also serves inform.
+const (
+	mcaDutyDivisor           = 10
+	minAdaptiveBytesInterval = time.Second
+)
+
+// adaptiveBytesInterval is cost times mcaDutyDivisor, clamped to [minAdaptiveBytesInterval, configured].
+func adaptiveBytesInterval(cost, configured time.Duration) time.Duration {
+	d := cost * mcaDutyDivisor
+	if d < minAdaptiveBytesInterval {
+		d = minAdaptiveBytesInterval
+	}
+	if d > configured {
+		d = configured
+	}
+	return d
+}
+
+// smoothMcaCost backs off at once on a slower dump and recovers gradually on faster ones, so one
+// quick answer from a busy mcad cannot pull the cadence in.
+func smoothMcaCost(prev, cost time.Duration) time.Duration {
+	if prev == 0 || cost >= prev {
+		return cost
+	}
+	return (prev*7 + cost*3) / 10
+}
+
 // Collector drives the three-tier model: pushed membership from the hostapd control socket, a fast
 // RF poll, and a slow identity poll. Every tier writes the in-memory table; nothing here is driven
 // by a request.
@@ -83,6 +123,11 @@ type Collector struct {
 
 	// fastPass counts fast tier passes and paces the sweep of empty VAPs. Only runFast touches it.
 	fastPass uint64
+
+	// mcaCost is the smoothed mca-dump wall time and centersReadAt the bytes tier's last iw re-read.
+	// Only runBytes touches them.
+	mcaCost       time.Duration
+	centersReadAt time.Time
 
 	fast  tierState
 	slow  tierState
@@ -163,7 +208,7 @@ func (c *Collector) loop(ctx context.Context, state *tierState, work func(contex
 		// A pass that overruns its interval must still yield. Clamping to zero meant a tier whose
 		// work outgrew its interval ran continuously, which turns a slow access point into a
 		// hammered one: the slower it answers, the harder we ask.
-		wait := state.interval - time.Since(start)
+		wait := state.currentInterval() - time.Since(start)
 		if wait < minTierRest {
 			wait = minTierRest
 		}
@@ -240,13 +285,24 @@ func (c *Collector) runBytes(ctx context.Context) {
 	if !c.bytes.info().Available {
 		return
 	}
-	now := time.Now().UTC()
+	started := time.Now()
+	now := started.UTC()
+	configured := time.Duration(c.cfg.BytesIntervalSeconds) * time.Second
 	snap, err := collectSlow(ctx, now)
+	cost := time.Since(started)
 	if err != nil {
+		// Back to the configured pace until a dump succeeds again.
+		c.bytes.setInterval(configured)
 		c.bytes.failed(err)
 		c.slow.failed(err)
 		slog.Warn("mca-dump collection failed", "error", err)
 		return
+	}
+	if c.fast.info().Available {
+		c.bytes.setInterval(configured)
+	} else {
+		c.mcaCost = smoothMcaCost(c.mcaCost, cost)
+		c.bytes.setInterval(adaptiveBytesInterval(c.mcaCost, configured))
 	}
 
 	readings := make(map[string]StaBytes, len(snap.Stations))
@@ -262,8 +318,11 @@ func (c *Collector) runBytes(ctx context.Context) {
 	c.table.ApplyBytes(readings, now)
 	// A channel change leaves the held iw answer a pass stale, and the slow tier's counter
 	// tools can push its next read minutes out during a reprovision. Re-read here, on this
-	// tier's cadence, whenever a serving radio has a channel but no center.
-	if c.table.CentersStale() {
+	// tier's cadence, whenever a serving radio has a channel but no center. At most every half
+	// configured interval: MediaTek's iw never reports a center, so on an adaptive cadence the
+	// radios stay "stale" forever and this would otherwise exec iw on every pass.
+	if c.table.CentersStale() && now.Sub(c.centersReadAt) >= configured/2 {
+		c.centersReadAt = now
 		c.table.SetRadioCenters(collectRadioCenters(ctx), now)
 	}
 	// After the center refresh, so a move's destination carries its block when iw answered.

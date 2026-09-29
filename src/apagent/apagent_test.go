@@ -32,6 +32,9 @@ func TestMachineToGOARCH(t *testing.T) {
 		"armv8l":   "arm",
 		"aarch64":  "arm64",
 		"arm64":    "arm64",
+		"mips":     "mips",
+		"mips32":   "mips",
+		"mipsel":   "mipsle",
 		"x86_64":   "amd64",
 		"i686":     "386",
 		"  ARMv7L": "arm",
@@ -58,6 +61,12 @@ func TestArchGate(t *testing.T) {
 		// An arm64 build on a measured U7 AP is the case the gate exists to catch.
 		{"armv7l", "arm64", false, false},
 		{"aarch64", "arm", false, false},
+		// "mips" is both byte orders: a little-endian U6-Lite reports it. A distro "mipsel" is not.
+		{"mips", "mips", true, true},
+		{"mips", "mipsle", true, true},
+		{"mipsel", "mipsle", true, true},
+		{"mipsel", "mips", false, false},
+		{"mips", "arm", false, false},
 		// Unknown machines and a missing uname pass with a reason: the wrapper is the primary gate
 		// and a new SKU must not be locked out here.
 		{"riscv64", "arm", true, false},

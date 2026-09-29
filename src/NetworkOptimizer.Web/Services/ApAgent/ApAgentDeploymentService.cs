@@ -541,13 +541,6 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var ap = await FindAccessPointAsync(mac, ct);
         if (ap == null) return ApAgentOperationResult.Fail("No access point with that MAC on this site.");
 
-        var localPath = Path.Combine(AppContext.BaseDirectory, "tools", ApAgentPaths.LocalBinaryName);
-        if (!File.Exists(localPath))
-        {
-            _logger.LogWarning("AP Agent binary not found at {Path}", localPath);
-            return ApAgentOperationResult.Fail("The AP Agent binary is not included in this build.");
-        }
-
         progress?.Report("Checking the access point...");
         var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
         if (!status.Reachable)
@@ -564,10 +557,18 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         if (!status.SupportedArchitecture)
         {
-            var reason = ApAgentScripts.UnsupportedReason(status.Machine);
+            var reason = ApAgentScripts.UnsupportedReason(status.Machine, status.ByteOrder);
             lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.Unsupported, ApAgentAction.None, reason);
             await RecordFailureAsync(mac, reason, ct, backOff: false);
             return ApAgentOperationResult.Fail(reason, ApAgentState.Unsupported);
+        }
+
+        // Past the architecture gate, so BinaryName is set: it is what made the AP supported.
+        var localPath = Path.Combine(AppContext.BaseDirectory, "tools", status.BinaryName!);
+        if (!File.Exists(localPath))
+        {
+            _logger.LogWarning("AP Agent binary not found at {Path}", localPath);
+            return ApAgentOperationResult.Fail($"The AP Agent binary for {status.Machine} is not included in this build.");
         }
 
         await GetOrCreateRecordAsync(mac, ap.Name, ct);
@@ -657,16 +658,17 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!mkdir.success)
             return ApAgentOperationResult.Fail($"Could not create the install directory: {mkdir.output}");
 
+        var remotePath = ApAgentPaths.RemoteBinaryPath(status.BinaryName!);
         var failures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var transfer in _transferSelector.Resolve(status))
         {
             string? error = null;
             try
             {
-                await transfer.UploadAsync(connection, localPath, ApAgentPaths.RemoteBinaryPath, ct);
+                await transfer.UploadAsync(connection, localPath, remotePath, ct);
 
                 var check = await _siteSsh.RunCommandAsync(host,
-                    $"md5sum {ApAgentPaths.RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
+                    $"md5sum {remotePath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
                 if (!check.success || !string.Equals(check.output.Trim(), localMd5, StringComparison.OrdinalIgnoreCase))
                     error = "The copied file did not match the original (md5 mismatch).";
             }
@@ -686,7 +688,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 continue;
             }
 
-            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {ApAgentPaths.RemoteBinaryPath}", null, SshTimeout, ct);
+            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {remotePath}", null, SshTimeout, ct);
             if (!chmod.success)
                 return ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
 
@@ -740,9 +742,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 : "Copied directly: SFTP and SCP were refused.";
         }
 
-        // Arch-gated ARM plus pre-8 firmware is a U6-class AP without needing a model list; the
-        // model is never a decision input here.
-        if (unsupported && FirmwareMajorBelow8(status.Firmware))
+        // ARM plus pre-8 firmware is a U6-class AP without needing a model list; the model is never
+        // a decision input here. The hint describes ARM U6 hardware; on a MIPS AP it would mislead.
+        if (unsupported && status.BinaryName == ApAgentPaths.BinaryPrefix + "arm" && FirmwareMajorBelow8(status.Firmware))
             note += " U6 gets SFTP on the 8.8.5+ shared U7 stack firmware.";
         return note;
     }

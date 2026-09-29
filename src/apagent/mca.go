@@ -384,6 +384,7 @@ func parseMcaFull(data []byte, now time.Time) (McaSnapshot, error) {
 				}
 				s.Vap = vap.Name
 				s.SnapshotAt = now
+				s.Signal = signalOrDerived(s.Signal, s.RSSI, s.Noise)
 				snap.Stations = append(snap.Stations, s)
 			}
 		}
@@ -401,6 +402,16 @@ func parseMcaFull(data []byte, now time.Time) (McaSnapshot, error) {
 		}
 	}
 	return snap, nil
+}
+
+// signalOrDerived fills a missing signal as rssi + noise (rssi is SNR; the sum held on all 26
+// stations checked across U7-Pro-XGS, U7PO, and E7). A reported signal always wins.
+func signalOrDerived(signal, rssi, noise *int) *int {
+	if signal != nil || rssi == nil || noise == nil || *rssi <= 0 || *noise >= 0 {
+		return signal
+	}
+	v := *rssi + *noise
+	return &v
 }
 
 // numericFields keeps only the numeric members of a raw JSON object. That is what lets the radio

@@ -85,6 +85,12 @@ func runProbes(ctx context.Context, cfg *Config) ProbeSet {
 	set.Results = append(set.Results, mcaResult)
 	set.Firmware = mca.Version
 
+	// Re-filter after mca-dump rather than probing it first: the hostapd probe is the fatal one and
+	// must not wait on mca-dump's timeout. Reconcile attaches listeners to set.Vaps, so a backhaul
+	// dropped here never produces a hostapd event. Control reads Table.ControlVapNames instead.
+	vaps = withoutVaps(vaps, mca.FabricVaps)
+	set.Vaps = vaps
+
 	set.Radios = mergeRadios(radiosFromVaps(vaps), mca.RadioNames)
 
 	ubusOK, ubusResult := probeUbus(ctx, now)
