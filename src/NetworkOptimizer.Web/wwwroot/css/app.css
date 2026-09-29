@@ -2020,6 +2020,10 @@ a.stat-card-link:active {
 
 /* Channel Spectrum (CM Stats): the latest poll's channels by frequency. Axis and grid colors
    match the ApexCharts charts above it. Grade classes are cmsp-* because .grade-* is global. */
+.cm-spectrum-card {
+    margin-bottom: 1rem;
+}
+
 .cm-spectrum-header {
     flex-wrap: wrap;
     gap: 0.25rem 1rem;
@@ -2262,6 +2266,10 @@ a.stat-card-link:active {
 }
 
 @media (max-width: 768px) {
+    .cm-spectrum-card {
+        margin-bottom: 0.5rem;
+    }
+
     .cm-spectrum-panels {
         padding: 0.75rem 0.75rem 0.9rem;
     }
