@@ -25,6 +25,9 @@ const STALE_MS = 15 * 60000;
 
 // Pixel geometry. The top margin holds the uncorrectables lane on downstream.
 const MARGIN = { l: 36, r: 6, t: 26, b: 22 };
+// Mobile (the app's 768px breakpoint): the gutter fits a three-character tick and no more.
+const MARGIN_MOBILE = { ...MARGIN, l: 28, r: 2 };
+const MOBILE = window.matchMedia('(max-width: 768px)');
 const LANE_Y = 3;
 const LANE_H = 8;
 const SLOT_W = 34;
@@ -131,7 +134,7 @@ function tipTitle(c) {
 function drawPlot(host, channels, dir) {
     const W = Math.max(200, Math.floor(host.clientWidth));
     const H = W < 420 ? 150 : 176;
-    const m = MARGIN;
+    const m = MOBILE.matches ? MARGIN_MOBILE : MARGIN;
     const placed = channels.filter(c => c.freq > 0).sort((a, b) => a.freq - b.freq);
     const unplaced = channels.filter(c => !(c.freq > 0));
     const slotsW = unplaced.length ? unplaced.length * SLOT_W + SLOT_GAP : 0;
