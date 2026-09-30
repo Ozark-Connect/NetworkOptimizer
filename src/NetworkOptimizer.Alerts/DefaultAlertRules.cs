@@ -342,7 +342,7 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
-            Name = "Wi-Fi: Radio Resetting",
+            Name = "Wi-Fi: 6 GHz TX Reset Counter Elevated",
             IsEnabled = true,
             EventTypePattern = "monitoring.radio_resets",
             Source = "monitoring",

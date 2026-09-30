@@ -184,6 +184,32 @@ public class ApAgentRadioHealthTests
         elevated[0].Radio.Should().Be("wifi0");
     }
 
+    [Theory]
+    [InlineData("5")]
+    [InlineData("2.4")]
+    public void A_counter_spike_outside_the_observed_6ghz_case_is_telemetry_not_a_wedge_warning(string band)
+    {
+        var tracker = new ApAgentRadioHealthTracker();
+        tracker.Observe([Reading(1_000_000_000, 20_000_000, 20_000_000, 100, 0, band: band)]);
+        var windows = tracker.Observe([Reading(1_030_000_000, 20_600_000, 20_600_000, 149, 30, band: band)]);
+
+        windows[0].Wedged.Should().BeFalse();
+        ApAgentRadioWedgeDetector.ElevatedResets(
+            windows, new Dictionary<string, double> { [Radio] = 0.0 }).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_5ghz_radio_can_still_raise_the_confirmed_wedge_alert()
+    {
+        var tracker = new ApAgentRadioHealthTracker();
+        tracker.Observe([Reading(1_000_000_000, 20_000_000, 20_000_000, 100, 0, band: "5")]);
+        var windows = tracker.Observe([Reading(1_030_000_000, 49_900_000, 20_000_000, 149, 30, band: "5")]);
+
+        windows[0].Wedged.Should().BeTrue();
+        ApAgentRadioWedgeDetector.ElevatedResets(
+            windows, new Dictionary<string, double> { [Radio] = 0.0 }).Should().BeEmpty();
+    }
+
     [Fact]
     public void A_radio_with_no_baseline_yet_cannot_alert()
     {
