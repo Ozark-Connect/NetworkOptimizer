@@ -238,7 +238,30 @@ type Table struct {
 	// to the fresh table on every pass rather than being lost between slow-tier reads.
 	centers map[string]iwChannel
 
+	// fabricVaps are uplink VAPs found by SSID on the last mca-dump pass (fabricVapsBySsid). Always
+	// empty on an AP that names its uplink vwire*, where isFabricVap already covers it.
+	fabricVaps map[string]bool
+
 	pendingJoin map[string]pendingJoin
+}
+
+// isFabricLocked is isFabricVap plus the SSID-derived set. Caller holds t.mu.
+func (t *Table) isFabricLocked(vap string) bool {
+	return isFabricVap(vap) || t.fabricVaps[vap]
+}
+
+// ControlVapNames lists the VAPs a steer, ban, or neighbor report may address: every VAP except an
+// uplink found by SSID.
+func (t *Table) ControlVapNames() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]string, 0, len(t.vaps))
+	for _, v := range t.vaps {
+		if !t.fabricVaps[v.Name] {
+			out = append(out, v.Name)
+		}
+	}
+	return out
 }
 
 func NewTable(maxSize int, ttl time.Duration) *Table {
@@ -275,15 +298,16 @@ func (t *Table) ApplyEvent(e Event) {
 	if e.MAC == "" || e.Vap == "" {
 		return
 	}
-	// A wireless uplink associates and roams exactly like a client does, so the events have to be
-	// filtered as well as the polls.
-	if isFabricVap(e.Vap) {
-		return
-	}
 	key := stationKey(e.Vap, e.MAC)
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	// A wireless uplink associates and roams exactly like a client does, so the events have to be
+	// filtered as well as the polls.
+	if t.isFabricLocked(e.Vap) {
+		return
+	}
 
 	switch e.Type {
 	case EventAssoc:
@@ -355,7 +379,7 @@ func (t *Table) ApplyFast(stations map[string]StaFast, covered map[string]bool, 
 	defer t.mu.Unlock()
 
 	for key, s := range stations {
-		if isFabricVap(s.Vap) {
+		if t.isFabricLocked(s.Vap) {
 			continue
 		}
 		t.fast[key] = s
@@ -379,6 +403,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 	defer t.mu.Unlock()
 
 	t.vaps = snap.Vaps
+	t.fabricVaps = fabricVapsBySsid(snap.Vaps)
 	t.radios = snap.Radios
 	t.scans, t.scansAt = snap.Scans, now
 	t.applyCentersLocked()
@@ -395,7 +420,7 @@ func (t *Table) ApplySlow(snap McaSnapshot, now time.Time) {
 	t.slowAt = now
 	t.slow = make(map[string]StaSlow, len(snap.Stations))
 	for _, s := range snap.Stations {
-		if isFabricVap(s.Vap) {
+		if t.isFabricLocked(s.Vap) {
 			continue
 		}
 		key := stationKey(s.Vap, s.MAC)
