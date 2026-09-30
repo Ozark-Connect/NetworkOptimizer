@@ -395,6 +395,8 @@ a:hover {
     bottom: 0;
     left: 0;
     width: 32px;
+    /* The title plus two lines of description; a longer description runs on past it */
+    max-height: 88px;
     display: flex;
     align-items: center;
     justify-content: center;
