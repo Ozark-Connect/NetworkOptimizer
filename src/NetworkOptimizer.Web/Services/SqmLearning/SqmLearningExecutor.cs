@@ -62,6 +62,8 @@ public class SqmLearningExecutor
     private readonly IGatewayWanSpeedTestService _gatewayTest;
     private readonly ISqmService _sqmService;
     private readonly WanIdleGate _idleGate;
+    private readonly SiteContextService _siteContext;
+    private readonly Auditing.IAuditLogger _audit;
     private readonly ILogger<SqmLearningExecutor> _logger;
 
     public SqmLearningExecutor(
@@ -72,6 +74,8 @@ public class SqmLearningExecutor
         IGatewayWanSpeedTestService gatewayTest,
         ISqmService sqmService,
         WanIdleGate idleGate,
+        SiteContextService siteContext,
+        Auditing.IAuditLogger audit,
         ILogger<SqmLearningExecutor> logger)
     {
         _repo = repo;
@@ -81,6 +85,8 @@ public class SqmLearningExecutor
         _gatewayTest = gatewayTest;
         _sqmService = sqmService;
         _idleGate = idleGate;
+        _siteContext = siteContext;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -286,6 +292,8 @@ public class SqmLearningExecutor
         {
             task.Enabled = false;
             await _schedules.UpdateAsync(task, ct);
+            ScheduleExecutorRegistration.LogScheduleDisabled(
+                _audit, _siteContext.Slug, task, $"Adaptive SQM learning finished for WAN {profile.WanNumber}");
         }
 
         var summary = profile.IsReliable

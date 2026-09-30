@@ -51,4 +51,24 @@ public static class AuditEventBuilder
             SiteSlug = siteSlug,
             DetailsJson = details is null ? null : JsonSerializer.Serialize(details),
         };
+
+    /// <summary>
+    /// Builds an event for a change the app made on its own (no caller), with Network Optimizer as the
+    /// actor, so an automatic change is told apart from a user's in the audit log.
+    /// </summary>
+    public static AuditEvent FromSystem(
+        string category,
+        string action,
+        string outcome = AuditOutcomes.Success,
+        string? targetType = null,
+        string? targetId = null,
+        string? targetName = null,
+        string? siteSlug = null,
+        object? details = null)
+    {
+        var auditEvent = From(null, category, action, outcome, targetType, targetId, targetName, siteSlug, details);
+        auditEvent.ActorName = "Network Optimizer";
+        auditEvent.ActorAuthMethod = "system";
+        return auditEvent;
+    }
 }

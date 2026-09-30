@@ -2,6 +2,7 @@ using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
@@ -419,11 +420,10 @@ public static class ScheduleExecutorRegistration
 
         if (!matched)
         {
-            await DisableScheduleAsync(services, siteKey, taskId, ct);
-            return new ReconcileResult(false,
-                $"WAN schedule disabled: could not reconcile interface {targetId} " +
-                $"(group={wanGroup}, name={wanName}) against live controller data",
-                null, null, null, null);
+            var reason = $"WAN schedule disabled: could not reconcile interface {targetId} " +
+                $"(group={wanGroup}, name={wanName}) against live controller data";
+            await DisableScheduleAsync(services, siteKey, taskId, reason, ct);
+            return new ReconcileResult(false, reason, null, null, null, null);
         }
 
         if (newIface != targetId || newGroup != wanGroup || newName != wanName)
@@ -472,11 +472,10 @@ public static class ScheduleExecutorRegistration
 
             if (!matched)
             {
-                await DisableScheduleAsync(services, siteKey, taskId, ct);
-                return new ReconcileResult(false,
-                    $"WAN schedule disabled: could not reconcile interface {iface} " +
-                    $"(group={grp}, name={nm}) against live controller data",
-                    null, null, null, null);
+                var reason = $"WAN schedule disabled: could not reconcile interface {iface} " +
+                    $"(group={grp}, name={nm}) against live controller data";
+                await DisableScheduleAsync(services, siteKey, taskId, reason, ct);
+                return new ReconcileResult(false, reason, null, null, null, null);
             }
 
             updatedInterfaces.Add(newIface);
@@ -509,7 +508,8 @@ public static class ScheduleExecutorRegistration
         return new ReconcileResult(true, null, newTargetId, newWanGroup, newWanName, newMultiInterfaces);
     }
 
-    private static async Task DisableScheduleAsync(IServiceProvider services, string siteKey, int taskId, CancellationToken ct)
+    private static async Task DisableScheduleAsync(
+        IServiceProvider services, string siteKey, int taskId, string reason, CancellationToken ct)
     {
         // Schedule rows live in each site's own database; task ids are per-site sequences.
         using var scope = CreatePinnedScope(services, siteKey);
@@ -519,8 +519,20 @@ public static class ScheduleExecutorRegistration
         {
             task.Enabled = false;
             await repo.UpdateAsync(task, ct);
+            LogScheduleDisabled(services.GetRequiredService<Auditing.IAuditLogger>(), siteKey, task, reason);
         }
     }
+
+    /// <summary>
+    /// Audits a schedule the app disabled on its own. A user's toggle is audited by the service gate;
+    /// writes straight to the repository are not, so these would otherwise leave no trace.
+    /// </summary>
+    internal static void LogScheduleDisabled(
+        Auditing.IAuditLogger audit, string siteSlug, NetworkOptimizer.Alerts.Models.ScheduledTask task, string reason) =>
+        audit.Log(Auditing.AuditEventBuilder.FromSystem(
+            AuditCategories.Action, AuditActions.ScheduleChanged,
+            targetType: "schedule", targetId: task.Id.ToString(), targetName: task.Name,
+            siteSlug: siteSlug, details: new { Enabled = false, Reason = reason }));
 
     private static async Task PersistScheduleUpdateAsync(
         IServiceProvider services, string siteKey, int taskId, string? newTargetId,
