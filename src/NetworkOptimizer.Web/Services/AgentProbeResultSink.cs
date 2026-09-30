@@ -905,7 +905,7 @@ public class AgentProbeResultSink
                         if (string.IsNullOrEmpty(device.Mac)) continue;
                         profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
                             device.Name,
-                            Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                            Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp),
                             device.Version,
                             device.DeviceType);
                     }
@@ -922,7 +922,7 @@ public class AgentProbeResultSink
                     config.Devices.Add(new SnmpDeviceSpec
                     {
                         Mac = device.Mac,
-                        Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                        Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp),
                         Name = device.Name ?? "",
                         // The agent echoes this string straight back into the device_health tag, so
                         // it has to be the same label the server's own writes use. ToString() is not:
