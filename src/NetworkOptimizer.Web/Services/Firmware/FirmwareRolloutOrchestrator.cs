@@ -144,6 +144,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly ApAgent.ApAgentRegistry? _apAgents;
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
+    private readonly Auditing.IAuditLogger? _audit;
     private readonly string _siteSlug;
     private readonly string _siteSuffix;
 
@@ -217,8 +218,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         SiteTunnelRouting? tunnelRouting = null,
         ApAgent.ApAgentRegistry? apAgents = null,
         IRolloutRebootWitness? rebootWitness = null,
-        IRolloutObserverLocator? observerLocator = null)
+        IRolloutObserverLocator? observerLocator = null,
+        Auditing.IAuditLogger? audit = null)
     {
+        _audit = audit;
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
         _rebootWitness = rebootWitness;
@@ -318,7 +321,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 }
 
                 if (plan.ScheduledStartAt is DateTime due && due <= Now)
-                    await BeginAsync(plan, overrideHealthGate: false, cancellationToken);
+                    await BeginAsync(plan, overrideHealthGate: false, cancellationToken, automatic: true);
                 else if (!await PruneIfDueAsync(plan, cancellationToken))
                     await RemindOfImminentStartAsync(plan, cancellationToken);
                 return;
@@ -384,7 +387,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (plan.ScheduledStartAt is not DateTime due || due > Now)
             return;
 
-        await BeginAsync(plan, overrideHealthGate: false, cancellationToken);
+        await BeginAsync(plan, overrideHealthGate: false, cancellationToken, automatic: true);
     }
 
     /// <summary>
@@ -650,7 +653,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> StartGates = new();
 
-    private async Task<bool> BeginAsync(FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken)
+    /// <param name="automatic">True when the executor starts a plan at its scheduled time rather than on
+    /// a user's Start Now; only then is the start audited here, since the gate audits the user's.</param>
+    private async Task<bool> BeginAsync(
+        FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken, bool automatic = false)
     {
         var gate = StartGates.GetOrAdd($"{_siteSlug}:{plan.Id}", _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -661,7 +667,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (current is null or { Status: not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced or FirmwareRolloutStatus.Draft) })
                 return current is { Status: FirmwareRolloutStatus.Running };
 
-            return await BeginCoreAsync(current, overrideHealthGate, cancellationToken);
+            var started = await BeginCoreAsync(current, overrideHealthGate, cancellationToken);
+            if (started && automatic)
+            {
+                RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutStarted, _siteSlug, current.Id,
+                    new { planId = current.Id, scheduledStartAt = current.ScheduledStartAt });
+            }
+            return started;
         }
         finally
         {
@@ -958,6 +970,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return false;
 
         await AbortCoreAsync(plan, "everything it covered is already up to date", cancellationToken);
+        RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutAborted, _siteSlug, plan.Id,
+            new { planId = plan.Id, reason = "everything it covered is already up to date" });
         await PublishAsync(
             RolloutAlerts.NothingLeft,
             AlertSeverity.Info,
@@ -972,6 +986,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
         plan.Status = FirmwareRolloutStatus.Scheduled;
         await PersistPlanAsync(plan, cancellationToken);
+        RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutPostponed, _siteSlug, plan.Id,
+            new { planId = plan.Id, reason, startAt = plan.ScheduledStartAt });
 
         await PublishAsync(
             RolloutAlerts.PostponedHealth,

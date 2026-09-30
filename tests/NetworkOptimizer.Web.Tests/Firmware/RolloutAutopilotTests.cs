@@ -89,6 +89,19 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_AuditsTheScheduledPlanAsTheSystem()
+    {
+        using var harness = await AutopilotSiteAsync();
+
+        var planId = await harness.Autopilot.CreatePlanIfDueAsync();
+
+        var audit = harness.AuditLog.Events.Should().ContainSingle().Subject;
+        audit.Action.Should().Be(NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutScheduled);
+        audit.ActorName.Should().Be("Network Optimizer");
+        audit.TargetId.Should().Be(planId!.Value.ToString());
+    }
+
+    [Fact]
     public async Task CreatePlanIfDue_AsksForAWindowAtLeastTheHeadsUpHoursAway()
     {
         using var harness = await AutopilotSiteAsync(s => s.NotifyHoursAhead = 18);
