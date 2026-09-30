@@ -12,8 +12,14 @@ public static class ApAgentPaths
     /// <summary>tmpfs install directory. Must match <c>defaultInstallDir</c> in src/apagent/config.go.</summary>
     public const string RemoteDir = "/tmp/netopt-apagent";
 
-    /// <summary>The armv7 binary as the wrapper expects to find it (src/apagent/apagent.sh).</summary>
-    public const string RemoteBinaryPath = RemoteDir + "/apagent-linux-arm";
+    /// <summary>File-name prefix every AP Agent build shares; the suffix is the Go architecture.</summary>
+    public const string BinaryPrefix = "apagent-linux-";
+
+    /// <summary>
+    /// Shell glob for every build. Never write the prefix literally in a command that also runs
+    /// pgrep/pkill with <see cref="ProcessPattern"/>: the command's own shell would match it.
+    /// </summary>
+    public const string BinaryGlob = "apagent-linu[x]-*";
 
     /// <summary>Architecture-gating wrapper, so a wrong-arch AP says why instead of "Exec format error".</summary>
     public const string RemoteWrapperPath = RemoteDir + "/apagent.sh";
@@ -26,7 +32,10 @@ public static class ApAgentPaths
     /// <summary>procd service definition. /etc is tmpfs on an AP, so this is as ephemeral as the binary.</summary>
     public const string RemoteInitScriptPath = "/etc/init.d/netopt-apagent";
 
-    /// <summary>Presence of this file is how the server knows procd is available to supervise with.</summary>
+    /// <summary>
+    /// procd's shell include. Not enough on its own: legacy UniFi firmware (UAP-AC) ships it without
+    /// the ubus "service" object rc.common needs, so the status probe checks both.
+    /// </summary>
     public const string ProcdIncludePath = "/lib/functions/procd.sh";
 
     /// <summary>
@@ -48,8 +57,28 @@ public static class ApAgentPaths
     /// <summary>Listener port. Must match <c>defaultPort</c> in src/apagent/config.go.</summary>
     public const int AgentPort = 8899;
 
-    /// <summary>Name of the binary staged in the server's own tools directory.</summary>
-    public const string LocalBinaryName = "apagent-linux-arm";
+    /// <summary>
+    /// The build for an AP, by the names src/apagent/apagent.sh expects, or null when there is none.
+    /// There is deliberately no arm64 build: every measured U7-class AP is armv7l.
+    /// </summary>
+    /// <param name="machine"><c>uname -m</c>.</param>
+    /// <param name="byteOrder">"little" or "big", read from the ELF header on MIPS. The kernel
+    /// reports "mips" for both byte orders (a little-endian U6-Lite says "mips").</param>
+    public static string? BinaryNameFor(string? machine, string? byteOrder)
+        => machine?.Trim().ToLowerInvariant() switch
+        {
+            "armv6l" or "armv7l" or "armv8l" => BinaryPrefix + "arm",
+            "mips" or "mips32" or "mipsel" or "mips32el" => byteOrder switch
+            {
+                "little" => BinaryPrefix + "mipsle",
+                "big" => BinaryPrefix + "mips",
+                _ => null,
+            },
+            _ => null,
+        };
+
+    /// <summary>Where a named build lives on the AP, beside the wrapper.</summary>
+    public static string RemoteBinaryPath(string binaryName) => $"{RemoteDir}/{binaryName}";
 
     /// <summary>
     /// Pattern that matches the running agent and nothing else. Two traps make the obvious forms
@@ -59,5 +88,5 @@ public static class ApAgentPaths
     /// The bracketed first character matches the process while the literal text here does not
     /// match itself.
     /// </summary>
-    public const string ProcessPattern = "[a]pagent-linux-arm";
+    public const string ProcessPattern = "[a]pagent-linux-";
 }

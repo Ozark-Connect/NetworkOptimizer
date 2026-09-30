@@ -4,8 +4,9 @@
 # it is transferred to the AP over SSH into tmpfs on every boot, so build-installer.ps1 and the
 # release pipeline are left untouched until the deployment service (W6) lands.
 #
-# Target is linux/arm/v7 only. Every measured U7-class AP is armv7l, and an arm64 build will not
-# exec on them, so there is no arm64 target here.
+# Targets are linux/arm/v7 and 32-bit MIPS in both byte orders (soft-float: no FPU on those SoCs).
+# Every measured U7-class AP is armv7l, and an arm64 build will not exec on them, so there is no
+# arm64 target here.
 
 param(
     [string]$OutputDir,
@@ -47,21 +48,31 @@ Push-Location $ApAgentSrc
 try {
     $env:CGO_ENABLED = "0"
     $env:GOOS = "linux"
-    $env:GOARCH = "arm"
-    $env:GOARM = "7"
+    $targets = @(
+        @{ GOARCH = "arm";    GOARM = "7";   GOMIPS = $null;       Output = "apagent-linux-arm" },
+        @{ GOARCH = "mipsle"; GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mipsle" },
+        @{ GOARCH = "mips";   GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mips" }
+    )
 
-    # -s -w keeps the binary small, which matters because it is transferred on every AP boot.
-    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$OutputDir\apagent-linux-arm" .
+    foreach ($target in $targets) {
+        $env:GOARCH = $target.GOARCH
+        $env:GOARM = $target.GOARM
+        $env:GOMIPS = $target.GOMIPS
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "apagent build failed for linux/arm/v7"
-        exit 1
+        # -s -w keeps the binary small, which matters because it is transferred on every AP boot.
+        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o (Join-Path $OutputDir $target.Output) .
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "apagent build failed for linux/$($target.GOARCH)"
+            exit 1
+        }
     }
 } finally {
     $env:CGO_ENABLED = $null
     $env:GOOS = $null
     $env:GOARCH = $null
     $env:GOARM = $null
+    $env:GOMIPS = $null
     Pop-Location
 }
 
@@ -69,6 +80,8 @@ try {
 # readable refusal with exit 78.
 Copy-Item (Join-Path $ApAgentSrc "apagent.sh") (Join-Path $OutputDir "apagent.sh") -Force
 
-$binary = Get-Item (Join-Path $OutputDir "apagent-linux-arm")
-Write-Host ("Built apagent for linux/arm/v7 ({0:N0} bytes)" -f $binary.Length) -ForegroundColor Green
+foreach ($target in $targets) {
+    $binary = Get-Item (Join-Path $OutputDir $target.Output)
+    Write-Host ("Built {0} ({1:N0} bytes)" -f $binary.Name, $binary.Length) -ForegroundColor Green
+}
 Write-Host "Wrapper: $(Join-Path $OutputDir 'apagent.sh')" -ForegroundColor Green

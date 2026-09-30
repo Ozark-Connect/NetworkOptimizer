@@ -16,6 +16,12 @@ func machineToGOARCH(machine string) string {
 		return "arm"
 	case "aarch64", "arm64", "aarch64_be":
 		return "arm64"
+	// The kernel reports "mips" for both byte orders (measured "mips" on a little-endian U6-Lite),
+	// so this names the family and archGate accepts either build. "mipsel" is a distro spelling.
+	case "mips", "mips32":
+		return "mips"
+	case "mipsel", "mips32el":
+		return "mipsle"
 	case "x86_64", "amd64":
 		return "amd64"
 	case "i386", "i486", "i586", "i686", "x86":
@@ -39,6 +45,11 @@ func archGate(machine, goarch string) (ok bool, reason string) {
 	}
 	// armv8l reports as 32-bit ARM userspace on a 64-bit core, so an arm binary is correct there.
 	if want == goarch {
+		return true, ""
+	}
+	// A running binary has already proven its byte order to the kernel's ELF loader, and "mips"
+	// cannot say which one the host is.
+	if want == "mips" && goarch == "mipsle" {
 		return true, ""
 	}
 	return false, fmt.Sprintf("this build is %s but the host reports %s (needs a %s build)", goarch, m, want)
