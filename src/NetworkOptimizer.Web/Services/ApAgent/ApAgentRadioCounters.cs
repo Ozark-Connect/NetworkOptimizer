@@ -10,8 +10,8 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="RxClearDelta">Movement in rx_clear_cnt, the cycles the channel was seen busy.</param>
 /// <param name="TxFrameDelta">Movement in tx_frame_cnt, the cycles this radio spent transmitting.</param>
 /// <param name="PhyErrDelta">Movement in phy_err_cnt.</param>
-/// <param name="PdevResets">Cumulative pdev_resets.</param>
-/// <param name="PdevResetDelta">Movement in pdev_resets.</param>
+/// <param name="PdevResets">Cumulative firmware TX PDEV reset counter.</param>
+/// <param name="PdevResetDelta">Movement in that counter; not complete radio restarts.</param>
 /// <param name="BusyRatio">RxClear over Cycle, or null when either is unusable.</param>
 /// <param name="Wedged">Whether the window matched the CCA wedge signature.</param>
 public sealed record ApRadioWindow(
@@ -60,7 +60,7 @@ public static class ApAgentRadioCounters
     /// <summary>PHY errors.</summary>
     public const string PhyErr = "phy_err_cnt";
 
-    /// <summary>Radio resets the driver performed without saying so anywhere else.</summary>
+    /// <summary>Firmware TX PDEV reset counter; not a count of client-visible radio restarts.</summary>
     public const string PdevResets = "pdev_resets";
 
     /// <summary>Reads one counter, treating absent, negative, and sentinel values alike as no reading.</summary>
