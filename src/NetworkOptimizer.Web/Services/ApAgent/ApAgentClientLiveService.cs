@@ -43,6 +43,8 @@ public sealed class ApAgentClientLiveService
     /// <param name="consoleApMac">Where the console last said the client was, used to seed the follow.</param>
     /// <param name="follower">This client's follow state, owned by the caller.</param>
     /// <param name="now">Current time, so the search window is testable.</param>
+    /// <param name="agentApMac">Where the site's AP Agent membership holds the client, tried before
+    /// <paramref name="consoleApMac"/> to seed the follow.</param>
     /// <param name="ct">Cancellation.</param>
     public async Task<ApAgentLiveClient?> PollAsync(
         string siteSlug,
@@ -50,6 +52,7 @@ public sealed class ApAgentClientLiveService
         string? consoleApMac,
         ApAgentRoamFollower follower,
         DateTime now,
+        string? agentApMac = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(clientMac)) return null;
@@ -61,7 +64,7 @@ public sealed class ApAgentClientLiveService
             return null;
         }
 
-        Seed(follower, consoleApMac, aps, now);
+        Seed(follower, agentApMac, consoleApMac, aps, now);
 
         if (follower.State == ApAgentFollowState.Attached && follower.CurrentAp is { } current)
         {
@@ -176,15 +179,23 @@ public sealed class ApAgentClientLiveService
     };
 
     /// <summary>
-    /// Points the follow at the console's access point when it has nowhere else to go. An access
+    /// Points the follow at an access point when it has nowhere else to go: the AP Agent
+    /// membership's first, then the console's. The console's view of a client that just joined can
+    /// lag the access point by tens of seconds, empty or naming another access point. An access
     /// point without an AP Agent is not adopted, so that client stays on the console path.
     /// </summary>
-    private static void Seed(ApAgentRoamFollower follower, string? consoleApMac, IReadOnlyList<string> aps, DateTime now)
+    private static void Seed(
+        ApAgentRoamFollower follower, string? agentApMac, string? consoleApMac, IReadOnlyList<string> aps, DateTime now)
     {
-        if (!follower.ShouldSeed(consoleApMac, now)) return;
+        foreach (var candidate in new[] { agentApMac, consoleApMac })
+        {
+            if (!follower.ShouldSeed(candidate, now)) continue;
 
-        var mac = ApAgentWifiFieldMapper.NormalizeMac(consoleApMac);
-        if (aps.Contains(mac, StringComparer.Ordinal)) follower.Seen(mac);
+            var mac = ApAgentWifiFieldMapper.NormalizeMac(candidate);
+            if (!aps.Contains(mac, StringComparer.Ordinal)) continue;
+            follower.Seen(mac);
+            return;
+        }
     }
 
     /// <summary>Idle past which a station is a leftover, not the association serving the client.</summary>
