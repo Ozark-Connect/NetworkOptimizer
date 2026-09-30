@@ -1393,3 +1393,12 @@ the reference doc's "no internet" path for APs/switches.
   `TriggerUpgradeAsync` both fail, or after a device cycles back on the old version.
 - [ ] Investigate per-device-type command selection for the syswrapper path: APs/switches use
   `syswrapper.sh upgrade2 &`, gateways may differ. The reference doc covers both cases.
+
+## Gateway-class AP classification when its uplink is offline
+
+`SnmpDeviceRules.IsSiteGateway` treats a gateway-class console (UX, UX7, UDR) as an AP only while
+its uplink device is in the monitorable (online) list. If that uplink drops while the console stays
+up, it reads as the gateway and its poll address and fabric target flip to the gateway LAN IP until
+the uplink returns (#1244). Accepted for now: the UniFi Console is usually down in that case too,
+except on UniFi OS Server. The fix is to check uplinks against the full device list, not the
+monitorable subset.
