@@ -105,6 +105,8 @@ type mcaSummary struct {
 	RadioCount int      `json:"-"`
 	VapCount   int      `json:"-"`
 	RadioNames []string `json:"-"`
+	// FabricVaps are uplink VAPs found by SSID (fabricVapsBySsid), which name-only discovery missed.
+	FabricVaps map[string]bool `json:"-"`
 }
 
 type mcaNamedRadio struct {
@@ -119,6 +121,8 @@ type mcaRaw struct {
 	// drops a real radio, which then never gets health counters collected for it.
 	ScanRadioTable *[]mcaNamedRadio `json:"scan_radio_table"`
 	VapTable       *[]struct {
+		Name      string `json:"name"`
+		Essid     string `json:"essid"`
 		RadioName string `json:"radio_name"`
 	} `json:"vap_table"`
 }
@@ -144,12 +148,15 @@ func parseMcaDump(data []byte) (mcaSummary, error) {
 	}
 	if raw.VapTable != nil {
 		s.VapCount = len(*raw.VapTable)
+		named := make([]VapState, 0, len(*raw.VapTable))
 		// A VAP names its parent radio, which catches a radio missing from both tables.
 		for _, v := range *raw.VapTable {
 			if v.RadioName != "" {
 				s.RadioNames = append(s.RadioNames, v.RadioName)
 			}
+			named = append(named, VapState{Name: v.Name, Essid: v.Essid})
 		}
+		s.FabricVaps = fabricVapsBySsid(named)
 	}
 	s.RadioNames = mergeRadios(s.RadioNames, nil)
 	return s, nil
