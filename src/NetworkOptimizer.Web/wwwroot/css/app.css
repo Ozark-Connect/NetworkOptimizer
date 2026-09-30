@@ -310,34 +310,6 @@ a:hover {
 .status-indicators {
     display: flex;
     gap: 2rem;
-    /* Keeps the indicators packed left beside the Back button instead of centered by space-between */
-    margin-right: auto;
-}
-
-.back-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    margin-right: 1.5rem;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.8125rem;
-    background: transparent;
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.back-btn:hover {
-    background: var(--bg-hover);
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-}
-
-.back-btn svg {
-    width: 14px;
-    height: 14px;
 }
 
 .status-item {
@@ -407,6 +379,57 @@ a:hover {
     margin-bottom: 4px;
     display: flex;
     align-items: center;
+}
+
+/* Back button (PageBackButton). A tall strip down the header's left edge, with the title and
+   description pushed over to make room; where the content column leaves a gutter, a square
+   beside the title instead. */
+:where(.page-header, .page-header > div):has(> .page-back-btn) {
+    position: relative;
+    padding-left: 44px;
+}
+
+.page-back-btn {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.page-back-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.page-back-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Sidebar + the 1400px column + a gutter wide enough to hold the button */
+@media (min-width: 1780px) {
+    :where(.page-header, .page-header > div):has(> .page-back-btn) {
+        padding-left: 0;
+    }
+
+    .page-back-btn {
+        left: auto;
+        right: calc(100% + 16px);
+        bottom: auto;
+        width: 36px;
+        height: 36px;
+    }
 }
 
 .page-header-suffix {
@@ -4275,22 +4298,6 @@ select.form-control {
     .header-actions {
         flex: 1;
         justify-content: flex-end;
-    }
-
-    /* Icon only: the bar is already full at phone width */
-    .back-btn {
-        margin-right: 0;
-        padding: 0.5rem;
-        flex-shrink: 0;
-    }
-
-    .back-btn span {
-        display: none;
-    }
-
-    .back-btn svg {
-        width: 18px;
-        height: 18px;
     }
 
     .timestamp {
