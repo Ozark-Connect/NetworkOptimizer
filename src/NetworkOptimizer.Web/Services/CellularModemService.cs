@@ -19,7 +19,7 @@ namespace NetworkOptimizer.Web.Services;
 /// the site's agent tunnel when its devices are reached that way). The
 /// registry flips <see cref="Active"/> as sites are enabled and disabled.
 /// </summary>
-public class CellularModemService : ICellularModemService
+public class CellularModemService : ICellularModemService, IDisposable
 {
     private readonly ILogger<CellularModemService> _logger;
     private readonly IServiceProvider _serviceProvider;
