@@ -50,10 +50,10 @@ public class ApRadioHealthSample
     /// <summary>Movement in phy_err_cnt.</summary>
     public long? PhyErrDelta { get; set; }
 
-    /// <summary>Cumulative pdev_resets, which climbs for hours before clients abandon the band.</summary>
+    /// <summary>Cumulative firmware TX PDEV reset counter; one measured 6 GHz wedge had a sustained rise.</summary>
     public long? PdevResets { get; set; }
 
-    /// <summary>Movement in pdev_resets over this window.</summary>
+    /// <summary>Movement in the TX PDEV counter over this window, not complete radio restarts.</summary>
     public long? PdevResetDelta { get; set; }
 
     /// <summary>RxClear over Cycle. Approaching 1 with no transmit is the wedge.</summary>

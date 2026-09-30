@@ -6,8 +6,8 @@ using NetworkOptimizer.Web.Services.ApAgent;
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
-/// Raises alerts for the AP Agent radio counters: the CCA wedge itself, and the isolated radio
-/// resets that precede one.
+/// Raises alerts for the AP Agent radio counters: the CCA wedge itself, and the elevated 6 GHz
+/// TX PDEV reset-counter rate observed before one measured wedge.
 ///
 /// This is the most defensible "you could not have known" case we have, because the UniFi Console
 /// shows nothing at all while a radio is wedged and nothing reaches dmesg or syslog either.
@@ -17,7 +17,7 @@ public class RadioHealthAlertEvaluator
     /// <summary>The radio is transmitting nothing while reporting the medium permanently busy.</summary>
     public const string WedgeEventType = "monitoring.radio_wedged";
 
-    /// <summary>One radio is resetting while its siblings are not, which precedes a wedge.</summary>
+    /// <summary>The 6 GHz TX PDEV reset-counter rate is elevated above its own baseline.</summary>
     public const string ResetEventType = "monitoring.radio_resets";
 
     private readonly IAlertEventBus _eventBus;
@@ -27,13 +27,13 @@ public class RadioHealthAlertEvaluator
     private readonly ConcurrentDictionary<string, DateTime> _resetAlertedAt = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Each radio's established resets-per-minute, keyed "apMac:radio". Held in memory: losing it on
-    /// a restart costs a few passes of quiet, where persisting a stale baseline would let a radio
-    /// that has degraded since alert on arrival.
+    /// Each radio's established TX PDEV counter increments per minute, keyed "apMac:radio".
+    /// Held in memory: losing it on a restart costs a few passes of quiet, whereas persisting a
+    /// stale baseline could make a changed radio alert immediately on arrival.
     /// </summary>
     private readonly ConcurrentDictionary<string, double> _resetBaseline = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>An isolated-reset alert repeats no more often than this while the pattern holds.</summary>
+    /// <summary>A counter-rate warning repeats no more often than this while the pattern holds.</summary>
     private static readonly TimeSpan ResetRepeat = TimeSpan.FromHours(6);
 
     /// <param name="eventBus">The site's alert bus.</param>
@@ -135,11 +135,12 @@ public class RadioHealthAlertEvaluator
             EventType = ResetEventType,
             Source = "monitoring",
             Severity = AlertSeverity.Warning,
-            Title = $"Radio resetting on {label}{_siteSuffix}",
+            Title = $"TX reset counter elevated on {label}{_siteSuffix}",
             Message =
-                $"The {label} radio reset {window.PdevResetDelta} time(s) while the other radios on this access "
-                + "point reset none. On the one case we have measured, that ran for about ten hours before the "
-                + "band stopped carrying clients, and nothing was logged anywhere while it did.",
+                $"The {label} firmware TX PDEV reset counter rose by {window.PdevResetDelta} over "
+                + $"{window.WindowSeconds:0} seconds, above this radio's recent baseline. This does not by "
+                + "itself mean the radio restarted or clients lost service. A sustained increase preceded "
+                + "one measured 6 GHz radio wedge; check client and transmit history before taking action.",
             DeviceId = apMac,
             DeviceName = apName,
             MetricValue = window.PdevResetDelta,
