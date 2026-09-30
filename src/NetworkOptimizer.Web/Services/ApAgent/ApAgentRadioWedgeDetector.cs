@@ -8,11 +8,10 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// delta of zero. Healthy idle looks nothing like it, because the only thing making the channel
 /// busy is our own beacons, so Rx Clear moves with Tx Frame and both stay far below Cycle.
 ///
-/// pdev_resets is the early warning rather than the fault: it climbed on one radio for about ten
-/// hours before clients abandoned the band, and nothing appears in dmesg or syslog while it does.
-/// The signal is the RATE against that radio's own baseline, never the presence of resets: on U7
-/// hardware 6 GHz resets continuously while 2.4 and 5 GHz sit at zero for their whole uptime, so
-/// comparing a radio to its siblings marks every healthy U7 access point as failing forever.
+/// The TX PDEV pdev_resets counter climbed on one 6 GHz radio for about ten hours before a
+/// measured wedge. It is not a count of complete radio restarts: other APs can accumulate many
+/// increments while serving clients. Only the observed 6 GHz precursor is eligible for a warning,
+/// and its RATE is compared with that radio's own baseline rather than its siblings.
 /// </summary>
 public sealed class ApAgentRadioWedgeDetector
 {
@@ -63,12 +62,9 @@ public sealed class ApAgentRadioWedgeDetector
     }
 
     /// <summary>
-    /// Radios that reset while every sibling on the same access point stayed still. A reset on all
-    /// of them at once is a firmware event rather than one radio going wrong, so it is not reported.
-    /// </summary>
-    /// <summary>
-    /// Resets per minute a radio must exceed before its rate is worth reporting. The measured wedge
-    /// ran at about 1.6/s (~96/min); the documented idle residual on a healthy 6 GHz radio is 4-9
+    /// TX PDEV counter increments per minute required before the measured 6 GHz precursor is
+    /// worth reporting. The counter does not establish that the radio stopped serving clients.
+    /// The measured wedge ran at about 1.6/s (~96/min); the documented idle residual is 4-9
     /// per 60-90s. This sits well above the residual and far below the fault.
     /// </summary>
     public const double ResetRateFloorPerMinute = 30.0;
@@ -77,9 +73,9 @@ public sealed class ApAgentRadioWedgeDetector
     public const double ResetRateMultiple = 5.0;
 
     /// <summary>
-    /// Radios whose reset rate has climbed well above their own recent baseline. Both conditions
-    /// must hold: a radio with a naturally busy baseline should not alert until it gets materially
-    /// worse, and a quiet radio should not alert on a handful of resets.
+    /// 6 GHz radios whose TX PDEV reset-counter rate has climbed well above their own recent
+    /// baseline. This is an unconfirmed precursor, not evidence of a client outage. The only
+    /// measured wedge case was on 6 GHz, so spikes on other bands are kept as telemetry only.
     /// </summary>
     /// <param name="windows">This pass's windows for one access point.</param>
     /// <param name="baselineRatePerMinute">
@@ -94,7 +90,7 @@ public sealed class ApAgentRadioWedgeDetector
 
         foreach (var w in windows)
         {
-            if (w.PdevResetDelta is not > 0 || w.WindowSeconds <= 0) continue;
+            if (w.Band != "6" || w.PdevResetDelta is not > 0 || w.WindowSeconds <= 0) continue;
             if (!baselineRatePerMinute.TryGetValue(w.Radio, out var baseline)) continue;
 
             var rate = w.PdevResetDelta.Value / (w.WindowSeconds / 60.0);
