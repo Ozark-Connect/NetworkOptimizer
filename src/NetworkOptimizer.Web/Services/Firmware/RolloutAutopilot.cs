@@ -57,6 +57,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     private readonly IAlertEventBus _eventBus;
     private readonly TimeProvider _time;
     private readonly ILogger<RolloutAutopilot> _logger;
+    private readonly Auditing.IAuditLogger? _audit;
     private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository _sharedCatalog;
     private readonly UbiquitiReleaseFeedClient _feed;
     private readonly string _siteSlug;
@@ -90,8 +91,10 @@ public class RolloutAutopilot : IRolloutAutopilot
         ILogger<RolloutAutopilot> logger,
         NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository sharedCatalog,
         UbiquitiReleaseFeedClient feed,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Auditing.IAuditLogger? audit = null)
     {
+        _audit = audit;
         _repositories = repositories;
         _planning = planning;
         _commands = commands;
@@ -291,6 +294,14 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         await AnnounceAsync(result, window, startAtUtc, cancellationToken);
         HoldReason = null;
+        RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutScheduled, _siteSlug, plan.Id, new
+        {
+            planId = plan.Id,
+            startAt = startAtUtc,
+            devices = RolloutPlanComposer.LiveStepCount(result),
+            waves = result.Document.Waves.Count,
+            autopilot = true,
+        });
 
         _logger.LogInformation(
             "Autopilot scheduled firmware rollout {Id} on site {Site} for {When} ({Devices} devices, {Waves} waves)",
