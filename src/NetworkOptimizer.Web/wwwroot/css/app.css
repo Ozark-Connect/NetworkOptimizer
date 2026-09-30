@@ -419,20 +419,39 @@ a:hover {
     height: 18px;
 }
 
-/* Sidebar + the 1400px column + a gutter wide enough to hold the button */
+.page-back-float {
+    display: none;
+}
+
+/* Sidebar + the 1400px column + a gutter wide enough to hold the button. Here MainLayout's copy
+   takes over: a zero-height sticky strip atop the column, so the button floats in the gutter
+   while the page scrolls. It shows only on pages that carry a PageBackButton. */
 @media (min-width: 1780px) {
     :where(.page-header, .page-header > div):has(> .page-back-btn) {
         padding-left: 0;
     }
 
+    .page-header .page-back-btn {
+        display: none;
+    }
+
+    .content:has(.page-header .page-back-btn) > .page-back-float {
+        display: block;
+        position: sticky;
+        top: 0;
+        height: 0;
+        z-index: 10;
+    }
+
     /* Centered on the title plus the description's first line (0 to 64.8px) */
-    .page-back-btn {
+    .page-back-float .page-back-btn {
         top: 14px;
         left: auto;
         right: calc(100% + 16px);
         bottom: auto;
         width: 36px;
         height: 36px;
+        max-height: none;
     }
 }
 
