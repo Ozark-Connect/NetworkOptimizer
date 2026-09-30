@@ -143,6 +143,24 @@ public class ArchitectureTests
     }
 
     /// <summary>
+    /// A2: a gated interface inherits no other interface. The proxy implements everything it inherits,
+    /// so an inherited IDisposable made the DI container call Dispose through the gate at every scope
+    /// end, which refused and audited it. Checked apart from the method scan above, because an
+    /// interface's GetMethods() does not return inherited members. Put lifecycle on the class.
+    /// </summary>
+    [Fact]
+    public void A2_NoMutatingServiceInheritsAnInterface()
+    {
+        var inheriting = MutatingInterfaces()
+            .SelectMany(i => i.GetInterfaces().Select(parent => $"{i.Name} : {parent.Name}"))
+            .ToList();
+
+        inheriting.Should().BeEmpty(
+            "an inherited member is proxied without a gate and refused at runtime. Offenders: {0}",
+            string.Join("; ", inheriting));
+    }
+
+    /// <summary>
     /// A2 (fourth part): every gated member must return <c>Task</c> or <c>Task&lt;T&gt;</c>.
     ///
     /// The interceptor derives from AsyncInterceptorBase, which only routes those two through its

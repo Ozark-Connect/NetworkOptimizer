@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Auto-discovers UniFi modems from the controller device list.
 /// </summary>
 [MutatingService(SiteScoped = true)]
-public interface ICellularModemService : IDisposable
+public interface ICellularModemService
 {
 
     /// <summary>
