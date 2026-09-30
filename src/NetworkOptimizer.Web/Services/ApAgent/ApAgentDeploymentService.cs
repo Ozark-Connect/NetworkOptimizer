@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Monitoring.RebootReason;
@@ -516,12 +517,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         {
             case ApAgentAction.Redeploy:
             case ApAgentAction.Upgrade:
-                await DeployAsync(mac, null, ct);
+                AuditSupervisorAction(ap, AuditActions.ApAgentDeployed, assessment, await DeployAsync(mac, null, ct));
                 break;
 
             case ApAgentAction.RepushConfig:
             case ApAgentAction.RestartInPlace:
-                await RestartAsync(mac, ct);
+                AuditSupervisorAction(ap, AuditActions.ApAgentRestarted, assessment, await RestartAsync(mac, ct));
                 break;
 
             case ApAgentAction.SurfacePathProblem:
@@ -534,6 +535,22 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             case ApAgentAction.None:
                 break;
         }
+    }
+
+    /// <summary>
+    /// Audits a deploy or restart the supervisor started on its own. It calls this instance directly,
+    /// not through the gated interface, so the user-action audit never sees it.
+    /// </summary>
+    private void AuditSupervisorAction(
+        DiscoveredDevice ap, string action, ApAgentAssessment assessment, ApAgentOperationResult result)
+    {
+        if (result.AlreadyInProgress) return;
+        _serviceProvider.GetService<Auditing.IAuditLogger>()?.Log(Auditing.AuditEventBuilder.FromSystem(
+            AuditCategories.Action, action,
+            outcome: result.Success ? AuditOutcomes.Success : AuditOutcomes.Failure,
+            targetType: "ap", targetId: NormalizeMac(ap.Mac), targetName: ap.Name,
+            siteSlug: _siteSlug,
+            details: new { reason = assessment.Action.ToString(), error = result.Error }));
     }
 
     private async Task<ApAgentOperationResult> DeployCoreAsync(string mac, IProgress<string>? progress, CancellationToken ct)

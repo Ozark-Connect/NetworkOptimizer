@@ -56,5 +56,6 @@ public interface IGatewayAgentInstallService
     /// install.
     /// </summary>
     [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.AgentGatewayInstallCanceled, TargetType = "gateway")]
     Task CancelRunAsync([SiteSlug] string siteSlug);
 }

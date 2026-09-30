@@ -185,6 +185,7 @@ public static class AuditActions
     public const string AgentEnrolled = "agent.enrolled";
     public const string AgentRemoved = "agent.removed";
     public const string AgentGatewayInstallRun = "agent.gateway_install.run";
+    public const string AgentGatewayInstallCanceled = "agent.gateway_install.canceled";
 
     // Meta
     public const string MigrationPerformed = "audit.migration";
