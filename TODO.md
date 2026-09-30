@@ -511,13 +511,6 @@ New audit section focused on network performance issues (distinct from security 
 
 ## Monitoring
 
-### Delete the standalone Set up InfluxDB page, if it is redundant
-`/monitoring/setup-influxdb` (`MonitoringInfluxSetup.razor`) is linked from nowhere in the app. It
-is a 37-line wrapper around the shared `InfluxSetupWizard`, which `Monitoring.razor` also hosts
-inline. Confirm the inline flow covers everything the page does (it navigates on `OnProvisioned`;
-the inline one also takes `OnDismissed`), and check docs and release notes for links to the URL,
-then delete the page.
-
 ### Channel Spectrum: per-channel history (CM Stats)
 The Channel Spectrum shows the latest poll only: per-channel values live in the in-memory stats
 cache, and InfluxDB holds only the per-poll aggregates. Storing each channel per poll would let the
