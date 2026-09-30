@@ -6,6 +6,7 @@
 @inject PullToRefreshState PullToRefreshState
 @inject SidebarState Sidebar
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -34,6 +35,15 @@
                 <span></span>
                 <span></span>
             </button>
+            @if (_canGoBack)
+            {
+                <button type="button" class="back-btn" @onclick="GoBack" aria-label="Back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7" />
+                    </svg>
+                    <span>Back</span>
+                </button>
+            }
             <a href="/" class="mobile-logo">
                 <img src="images/network-optimizer-logo.png" alt="Network Optimizer" />
             </a>
@@ -294,6 +304,10 @@
             }).observe(sidebar, { attributes: true, attributeFilter: ['class'] });
         }
         window.__setPtrRef = function(ref) { window.__ptrDotNetRef = ref; };
+        // Blazor numbers its own history entries in history.state._index (0 = the entry the app
+        // loaded on), so above 0 there is an in-app page to go back to. history.length counts
+        // pages from before the app too.
+        window.__canGoBack = function() { var s = history.state; return !!(s && s._index > 0); };
         // Custom pull-to-refresh (replaces native, blocked by overscroll-behavior)
         (function() {
             if (window.innerWidth > 1024) return;
@@ -393,6 +407,7 @@
 
 @code {
     private bool sidebarOpen = false;
+    private bool _canGoBack;
     private DotNetObjectReference<MainLayout>? _dotNetRef;
 
     protected override void OnInitialized()
@@ -403,7 +418,28 @@
         // "Console Disconnected" until the next navigation.
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         Sidebar.OpenRequested += OnSidebarRequested;
+        Navigation.LocationChanged += OnLocationChanged;
     }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        try
+        {
+            await InvokeAsync(RefreshCanGoBackAsync);
+        }
+        catch { /* component may be disposed */ }
+    }
+
+    private async Task RefreshCanGoBackAsync()
+    {
+        var canGoBack = await JS.InvokeAsync<bool>("__canGoBack");
+        if (canGoBack == _canGoBack)
+            return;
+        _canGoBack = canGoBack;
+        StateHasChanged();
+    }
+
+    private async Task GoBack() => await JS.InvokeVoidAsync("history.back");
 
     private void OnSidebarRequested(bool open)
     {
@@ -431,6 +467,7 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("__setPtrRef", _dotNetRef);
+            await RefreshCanGoBackAsync();
         }
     }
 
@@ -472,6 +509,7 @@
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         Sidebar.OpenRequested -= OnSidebarRequested;
+        Navigation.LocationChanged -= OnLocationChanged;
         _dotNetRef?.Dispose();
     }
 }
