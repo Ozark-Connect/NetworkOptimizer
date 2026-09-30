@@ -378,15 +378,12 @@ public sealed class HealthCheckRunner
             check.DeviceMac, MonitoringCollectionAgent.DescribeDeviceType(device.Type), check.Name, check.FieldName,
             check.Remedy.ToString(), ok ? "warning" : "critical", detail, value, now);
 
-        var audit = AuditEventBuilder.From(
-            null, AuditCategories.Action, AuditActions.HealthCheckRemedyRun,
+        _audit.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Action, AuditActions.HealthCheckRemedyRun,
             outcome: ok ? AuditOutcomes.Success : AuditOutcomes.Failure,
             targetType: "device", targetId: check.DeviceMac, targetName: device.Name,
             siteSlug: _isDefault ? null : _siteSlug,
-            details: new { check = check.Name, remedy = check.Remedy.ToString(), argument = check.RemedyArg, value, command });
-        audit.ActorName = "Network Optimizer";
-        audit.ActorAuthMethod = "system";
-        _audit.Log(audit);
+            details: new { check = check.Name, remedy = check.Remedy.ToString(), argument = check.RemedyArg, value, command }));
 
         await _eventBus.PublishAsync(new AlertEvent
         {
