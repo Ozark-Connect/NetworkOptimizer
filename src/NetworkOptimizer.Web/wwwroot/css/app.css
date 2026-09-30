@@ -423,7 +423,9 @@ a:hover {
         padding-left: 0;
     }
 
+    /* Centered on the title plus the description's first line (0 to 64.8px) */
     .page-back-btn {
+        top: 14px;
         left: auto;
         right: calc(100% + 16px);
         bottom: auto;
