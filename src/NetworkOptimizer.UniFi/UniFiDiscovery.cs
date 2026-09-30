@@ -907,7 +907,7 @@ public class UniFiDiscovery
 
         // Build set of all device MACs
         var allDeviceMacs = new HashSet<string>(
-            allDevices.Select(d => d.Mac.ToLowerInvariant()),
+            allDevices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac),
             StringComparer.OrdinalIgnoreCase);
 
         // Check if this device has an uplink to another UniFi device

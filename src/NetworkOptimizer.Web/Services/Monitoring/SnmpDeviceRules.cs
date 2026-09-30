@@ -23,11 +23,20 @@ public static class SnmpDeviceRules
         !string.IsNullOrEmpty(device.SnmpLocation) || !string.IsNullOrEmpty(device.SnmpContact);
 
     /// <summary>
-    /// Poll address for a device. For gateways, swap UniFi's WAN public IP for
+    /// Whether the device is the site's gateway. A gateway-class console that uplinks to another
+    /// UniFi device (an Express or Dream Router adopted as an AP) reports type "udm" but is not
+    /// the gateway - the same rule discovery uses (issue #1244).
+    /// </summary>
+    public static bool IsSiteGateway(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices) =>
+        UniFiDiscovery.GetEffectiveDeviceType(device, allDevices) == NetworkOptimizer.Core.Enums.DeviceType.Gateway;
+
+    /// <summary>
+    /// Poll address for a device. For the site's gateway, swap UniFi's WAN public IP for
     /// the LAN-side gateway IP so the poll actually reaches the device.
     /// </summary>
-    public static string ResolvePollAddress(UniFiDeviceResponse device, string? gatewayLanIp) =>
-        device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway && !string.IsNullOrEmpty(gatewayLanIp)
+    public static string ResolvePollAddress(
+        UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices, string? gatewayLanIp) =>
+        !string.IsNullOrEmpty(gatewayLanIp) && IsSiteGateway(device, allDevices)
             ? gatewayLanIp!
             : device.Ip;
 
