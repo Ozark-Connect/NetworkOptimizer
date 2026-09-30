@@ -539,7 +539,7 @@ public class ClientDashboardService
         var identity = new ClientIdentity
         {
             Mac = known.ClientMac,
-            Name = known.Hostname,
+            Name = await KnownNameAsync(known.ClientMac) ?? known.Hostname,
             Hostname = known.Hostname,
             Ip = clientIp,
             IsWired = false,
@@ -554,6 +554,34 @@ public class ClientDashboardService
         await OverlayApAgentDataAsync(identity);
         await EnrichWithApInfoAsync(identity, identity.ApMac);
         return identity;
+    }
+
+    /// <summary>
+    /// The name UniFi Network shows for a client the console does not list yet: its cached display
+    /// name, else the name last logged for it. Null when neither has one, leaving the hostname.
+    /// </summary>
+    private async Task<string?> KnownNameAsync(string mac)
+    {
+        try
+        {
+            if (_connectionService.Client != null)
+            {
+                var names = await ClientDisplayNameCache.GetAsync(_connectionService.Client);
+                if (names.TryGetValue(mac, out var name)) return name;
+            }
+
+            await using var db = CreateSiteDb();
+            return await db.ClientSignalLogs
+                .Where(l => l.ClientMac == mac && l.DeviceName != null && l.DeviceName != "")
+                .OrderByDescending(l => l.Timestamp)
+                .Select(l => l.DeviceName)
+                .FirstOrDefaultAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "No stored name for {Mac}; using its hostname", mac);
+            return null;
+        }
     }
 
     /// <summary>
@@ -1287,7 +1315,7 @@ public class ClientDashboardService
         {
             _lastApMacByClient.TryGetValue(mac, out var lastAp);
             var live = await _apAgentLive.PollAsync(
-                _siteContext.Slug, mac, lastAp, FollowerFor(mac), DateTime.UtcNow);
+                _siteContext.Slug, mac, lastAp, FollowerFor(mac), DateTime.UtcNow, AgentApFor(mac));
             if (live == null) return null;
 
             var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
@@ -1327,7 +1355,8 @@ public class ClientDashboardService
         {
             _lastApMacByClient.TryGetValue(identity.Mac, out var lastAp);
             var live = await _apAgentLive.PollAsync(
-                _siteContext.Slug, identity.Mac, lastAp ?? identity.ApMac, FollowerFor(identity.Mac), DateTime.UtcNow);
+                _siteContext.Slug, identity.Mac, lastAp ?? identity.ApMac, FollowerFor(identity.Mac), DateTime.UtcNow,
+                AgentApFor(identity.Mac));
             if (live == null) return;
 
             var update = ApAgentClientIdentityMapper.ToLiveIdentity(live.Client, live.ApMac);
@@ -1373,6 +1402,10 @@ public class ClientDashboardService
 
         target.HasApAgentData = true;
     }
+
+    /// <summary>The agent-covered access point the site's AP Agent membership holds this client on, or null.</summary>
+    private string? AgentApFor(string clientMac) =>
+        _apAgentTelemetry?.GetFor(_siteContext.Slug).FindClientByMac(clientMac)?.ApMac;
 
     /// <summary>This client's roam-follow state, capped so a long-lived circuit cannot grow it.</summary>
     private ApAgentRoamFollower FollowerFor(string clientMac)

@@ -30,6 +30,7 @@
 @inject NetworkOptimizer.Web.Services.ApAgent.IApAgentRoamService ApAgentRoam
 @inject MonitoringReadinessService Readiness
 @inject MonitoringLiveStatsRegistry LiveStatsRegistry
+@inject CircuitReconnectNotifier CircuitReconnect
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -1502,6 +1503,7 @@
         PtrState.RefreshCallback = () => LoadTabDataAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
         ConnectionService.OnConnectionChanged += OnConsoleConnectionChanged;
+        CircuitReconnect.Reconnected += OnCircuitReconnected;
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
@@ -1835,13 +1837,19 @@
         if (string.IsNullOrEmpty(_clientIp) || _clientIp == "unknown")
             return null;
 
-        var identity = await DashboardService.IdentifyClientAsync(_clientIp);
+        return await IdentifyAddressAsync(_clientIp);
+    }
+
+    /// <summary>The client at this address on the site, or null when nothing matches.</summary>
+    private async Task<ClientIdentity?> IdentifyAddressAsync(string ip)
+    {
+        var identity = await DashboardService.IdentifyClientAsync(ip);
 
         // A viewer reaching the dashboard over Tailscale/Teleport/remote-user VPN is never
         // in the UniFi client list, so identity is null. Fall back to the simplified VPN
         // view - default site only, so managed-site behavior (whoami/picker) is untouched.
         if (identity == null && SiteContext.IsDefault)
-            identity = await DashboardService.IdentifyVpnClientAsync(_clientIp);
+            identity = await DashboardService.IdentifyVpnClientAsync(ip);
 
         return identity;
     }
@@ -2136,6 +2144,48 @@
             return null;
         }
     }
+
+    /// <summary>
+    /// Own device only: a reconnect over another network (VPN off, back on the LAN) can make this
+    /// browser a different client. Reloads when the new address matches a client on the site;
+    /// a pinned ?ip= never moves.
+    /// </summary>
+    private void OnCircuitReconnected()
+    {
+        if (!_isOwnDevice || _disposed) return;
+        _ = InvokeAsync(async () =>
+        {
+            if (_reconnectCheckRunning) return;
+            _reconnectCheckRunning = true;
+            try
+            {
+                var previous = _ownIp;
+                _ownIp = null;
+                var address = await ResolveOwnIpAsync();
+                if (address == null)
+                {
+                    _ownIp = previous;
+                    return;
+                }
+                if (string.Equals(address, _clientIp, StringComparison.OrdinalIgnoreCase)) return;
+                if (await IdentifyAddressAsync(address) == null) return;
+
+                Logger.LogDebug("Client identity (site {Site}): reconnected as {Ip}, was {Previous}; reloading",
+                    SiteContext.Slug, address, _clientIp);
+                await ReloadPageAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Client identity: reconnect address check failed");
+            }
+            finally
+            {
+                _reconnectCheckRunning = false;
+            }
+        });
+    }
+
+    private bool _reconnectCheckRunning;
 
     /// <summary>
     /// Full-page retry. The reload target is stamped with this tab's site so a tab
@@ -4061,6 +4111,7 @@
     {
         _disposed = true;
         ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
+        CircuitReconnect.Reconnected -= OnCircuitReconnected;
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
         _pickerRefreshTimer?.Dispose();

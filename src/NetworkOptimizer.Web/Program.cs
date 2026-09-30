@@ -257,6 +257,9 @@ builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+// Registered twice so pages can subscribe to the same instance the circuit calls.
+builder.Services.AddScoped<CircuitReconnectNotifier>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(sp => sp.GetRequiredService<CircuitReconnectNotifier>());
 
 // In-app search. Not a mutating service: it holds no state and returns only navigation metadata
 // compiled into the app. Each provider filters its own entries against the caller, so adding an
