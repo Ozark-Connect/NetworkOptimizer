@@ -502,6 +502,13 @@ internal sealed class ScriptedRebootWitness : IRolloutRebootWitness
         Task.FromResult(_boots.TryGetValue(deviceMac, out var b) && b.BootedAt >= since ? b : null);
 }
 
+/// <summary>Keeps every audit event written, for asserting what the executor recorded on its own.</summary>
+internal sealed class CapturingAuditLogger : NetworkOptimizer.Web.Services.Auditing.IAuditLogger
+{
+    public List<NetworkOptimizer.Storage.Models.Identity.AuditEvent> Events { get; } = new();
+    public void Log(NetworkOptimizer.Storage.Models.Identity.AuditEvent auditEvent) => Events.Add(auditEvent);
+}
+
 internal sealed class RolloutHarness : IDisposable
 {
     public static readonly DateTime Start = new(2026, 8, 14, 3, 0, 0, DateTimeKind.Utc);
@@ -523,6 +530,7 @@ internal sealed class RolloutHarness : IDisposable
     public FakeReleaseMetadataSource Releases { get; } = new();
     public ScriptedRebootWitness Reboots { get; } = new();
     public AuditContext Audit { get; } = new();
+    public CapturingAuditLogger AuditLog { get; } = new();
     public CallerContext Caller { get; } = new();
     public RolloutAutopilot Autopilot { get; }
     public FirmwareRolloutOrchestrator Orchestrator { get; }
@@ -549,7 +557,8 @@ internal sealed class RolloutHarness : IDisposable
             Time,
             NullLogger<RolloutAutopilot>.Instance,
             SharedCatalog,
-            feed);
+            feed,
+            audit: AuditLog);
         Orchestrator = NewOrchestrator();
 
         Caller.SetUser(new CallerInfo { ActorName = Actor });
@@ -595,7 +604,8 @@ internal sealed class RolloutHarness : IDisposable
         Time,
         NullLogger<FirmwareRolloutOrchestrator>.Instance,
         rebootWitness: Reboots,
-        observerLocator: Locator);
+        observerLocator: Locator,
+        audit: AuditLog);
 
     public NetworkOptimizerDbContext NewContext()
     {
