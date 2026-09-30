@@ -1,0 +1,20 @@
+@inject IJSRuntime JS
+
+@if (CanGoBack)
+{
+    <button type="button" class="page-back-btn" @onclick="GoBack" aria-label="Back">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+    </button>
+}
+
+@code {
+    /// <summary>
+    /// Cascaded by MainLayout: true when this tab has an earlier in-app page to return to.
+    /// </summary>
+    [CascadingParameter(Name = "CanGoBack")]
+    public bool CanGoBack { get; set; }
+
+    private async Task GoBack() => await JS.InvokeVoidAsync("history.back");
+}
