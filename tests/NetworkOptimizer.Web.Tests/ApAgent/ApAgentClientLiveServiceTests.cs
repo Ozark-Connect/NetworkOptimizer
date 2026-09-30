@@ -236,6 +236,67 @@ public class ApAgentClientLiveServiceTests
         result!.ApMac.Should().Be(ApOne);
     }
 
+    [Fact]
+    public async Task A_client_the_console_places_nowhere_is_read_where_the_agents_hold_it()
+    {
+        var reader = new FakeReader();
+        reader.Aps.Add(ApOne);
+        reader.Place(ApTwo, Client(ClientMac, signal: -49));
+
+        var result = await Service(reader).PollAsync(Site, ClientMac, null, new ApAgentRoamFollower(), Now, agentApMac: ApTwo);
+
+        result.Should().NotBeNull("a client that just joined is on the agents before the console places it");
+        result!.ApMac.Should().Be(ApTwo);
+        reader.ClientReads.Should().ContainSingle().Which.Should().Be(ApTwo);
+    }
+
+    [Fact]
+    public async Task The_agent_membership_beats_a_console_access_point_that_lags()
+    {
+        var reader = new FakeReader();
+        reader.Aps.Add(ApOne);
+        reader.Place(ApTwo, Client(ClientMac));
+
+        var result = await Service(reader).PollAsync(Site, ClientMac, ApOne, new ApAgentRoamFollower(), Now, agentApMac: ApTwo);
+
+        result!.ApMac.Should().Be(ApTwo);
+        reader.ClientReads.Should().ContainSingle().Which.Should().Be(ApTwo, "no search through the stale access point");
+    }
+
+    [Fact]
+    public async Task An_agent_access_point_that_is_not_enrolled_falls_back_to_the_console()
+    {
+        var reader = new FakeReader();
+        reader.Place(ApOne, Client(ClientMac));
+
+        var result = await Service(reader).PollAsync(Site, ClientMac, ApOne, new ApAgentRoamFollower(), Now, agentApMac: ApThree);
+
+        result!.ApMac.Should().Be(ApOne);
+    }
+
+    [Fact]
+    public async Task A_refused_agent_access_point_still_lets_the_console_seed()
+    {
+        var reader = new FakeReader();
+        reader.Place(ApOne, Client(ClientMac));
+        reader.Aps.Add(ApTwo);
+        var service = Service(reader);
+        var follower = new ApAgentRoamFollower();
+
+        await service.PollAsync(Site, ClientMac, ApOne, follower, Now, agentApMac: ApOne);
+        reader.Clear(ApOne);
+        var afterWindow = Now + ApAgentRoamFollower.SearchWindow + TimeSpan.FromSeconds(2);
+        for (var t = Now.AddSeconds(1); t <= afterWindow; t = t.AddSeconds(1))
+            await service.PollAsync(Site, ClientMac, ApOne, follower, t, agentApMac: ApOne);
+        follower.State.Should().Be(ApAgentFollowState.Lost);
+
+        // Membership still names the access point the search ruled out; the console has moved on.
+        reader.Place(ApTwo, Client(ClientMac));
+        var result = await service.PollAsync(Site, ClientMac, ApTwo, follower, afterWindow.AddSeconds(1), agentApMac: ApOne);
+
+        result!.ApMac.Should().Be(ApTwo);
+    }
+
     /// <summary>
     /// A fleet of access points, each holding whichever clients the test put on it. Resolves a link
     /// MAC to its parent client the way the agent's own /client lookup does.
