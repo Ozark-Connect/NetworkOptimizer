@@ -70,9 +70,10 @@ public static class SpeedTestWifiFit
 {
     /// <summary>
     /// Highest share of the PHY a real link reaches. Wi-Fi does not run near its rate, so anything
-    /// above this says the sampled PHY is below what actually carried the traffic.
+    /// above this says the sampled PHY is below what actually carried the traffic. Loaded links in
+    /// the series top out near 0.77; the margin covers a whole-test average against a single reading.
     /// </summary>
-    public const double PlausibleCeiling = 0.9;
+    public const double PlausibleCeiling = 0.85;
 
     /// <summary>
     /// Scores every candidate. Order is by score descending, rejected ones last, so a caller can log

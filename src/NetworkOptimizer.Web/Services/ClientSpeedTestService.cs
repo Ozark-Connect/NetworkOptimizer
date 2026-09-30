@@ -845,10 +845,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// <summary>
     /// Whether the trace shows a wired endpoint. A wired client has nothing in wifi_client, so the
     /// query and the retries after it are waste. Positive evidence only: a wireless client missing
-    /// from the console list has no radio fields either and must not be skipped.
+    /// from the console list has no radio fields either and must not be skipped. A VPN client's
+    /// ClientMac resolves to the gateway, which is never in wifi_client either.
     /// </summary>
     private static bool IsWiredClient(Iperf3Result result)
-        => result.PathAnalysis?.Path?.Hops?.Any(h => h.Type == HopType.Client) == true;
+        => result.PathAnalysis?.Path?.Hops?.Any(h => h.Type == HopType.Client
+            || (h.Type == HopType.Gateway
+                && string.Equals(h.DeviceMac, result.ClientMac, StringComparison.OrdinalIgnoreCase))) == true;
 
     private static string Pct(double? efficiency) => efficiency.HasValue ? $"{efficiency.Value * 100:F1}%" : "n/a";
 

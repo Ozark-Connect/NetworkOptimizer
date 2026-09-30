@@ -198,6 +198,21 @@ public class SpeedTestWifiFitTests
         Assert.False(scored[0].IsPlausible, "so there is still something to wait for");
     }
 
+    /// <summary>
+    /// The measured case: 1520 Mbps To Device over a 1729 Mbps TX sample is 88%, which no loaded
+    /// link reaches. The TX sample is held; RX at 51% still applies.
+    /// </summary>
+    [Fact]
+    public void A_ratio_just_under_the_old_ceiling_is_held()
+    {
+        var scored = SpeedTestWifiFit.Score(
+            new[] { Ap("ap", txKbps: 1_729_000, rxKbps: 1_921_000) },
+            fromDeviceBps: 971.7e6, toDeviceBps: 1520.3e6);
+
+        Assert.False(scored[0].TxIsPlausible, "TX at 88% is a dip");
+        Assert.True(scored[0].RxIsPlausible, "RX at 51% is sound");
+    }
+
     [Fact]
     public void A_normal_link_is_plausible()
     {
