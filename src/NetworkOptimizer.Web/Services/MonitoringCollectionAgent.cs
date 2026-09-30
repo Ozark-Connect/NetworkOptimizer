@@ -522,7 +522,7 @@ public class MonitoringCollectionAgent : BackgroundService
                     return;
                 try
                 {
-                    var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                    var pollIp = ResolveSnmpAddress(device, devices, gatewayLanIp);
                     if (!IPAddress.TryParse(pollIp, out var ip)) return;
                     var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
                     var now = DateTime.UtcNow;
@@ -897,7 +897,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device))
                     return;
                 if (IsSnmpExcluded(NormalizeMac(device.Mac))) return;
-                var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                var pollIp = ResolveSnmpAddress(device, devices, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) return;
                 var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
                 if (!metrics.IsReachable)
@@ -1136,7 +1136,7 @@ public class MonitoringCollectionAgent : BackgroundService
             if (IsSnmpExcluded(NormalizeMac(device.Mac))) continue;
             try
             {
-                var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                var pollIp = ResolveSnmpAddress(device, devices, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) continue;
                 var interfaces = await poller!.GetInterfaceMetricsAsync(ip, device.Name);
                 if (interfaces.Count == 0)
@@ -1900,7 +1900,7 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
             var mac = NormalizeMac(d.Mac);
-            var address = ResolveSnmpAddress(d, gatewayLanIp);
+            var address = ResolveSnmpAddress(d, devices, gatewayLanIp);
             var siblings = liveByMac.TryGetValue(mac, out var rows) ? rows : new List<MonitoringTarget>();
             var current = siblings.FirstOrDefault(
                 t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
@@ -1937,8 +1937,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 // answered yet ResolveSnmpAddress hands back UniFi's WAN public IP instead.
                 // Acting on that would retire a working target in favour of an address nothing
                 // on the LAN answers, so a gateway waits for a resolved LAN IP.
-                if (d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                    && string.IsNullOrEmpty(gatewayLanIp))
+                if (string.IsNullOrEmpty(gatewayLanIp)
+                    && Monitoring.SnmpDeviceRules.IsSiteGateway(d, devices))
                     continue;
 
                 foreach (var stale in siblings.Where(t => t.AutoDiscovered))
@@ -2417,8 +2417,9 @@ public class MonitoringCollectionAgent : BackgroundService
     /// Poll address for a device (SNMP and fabric latency targets). Rule shared
     /// with the agent-tunnel SNMP config push via SnmpDeviceRules.
     /// </summary>
-    private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp) =>
-        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp);
+    private static string ResolveSnmpAddress(
+        UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> devices, string? gatewayLanIp) =>
+        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp);
 
     /// <summary>
     /// Feeds upgrade/provisioning state and offline/recovered alerting for every adopted device.
