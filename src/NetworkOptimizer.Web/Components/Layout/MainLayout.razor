@@ -89,6 +89,18 @@
 
         <main class="page-content">
             <article class="content">
+                @if (_canGoBack)
+                {
+                    @* The wide-desktop Back button, floating in the gutter; PageBackButton in each
+                       page header covers every narrower width. *@
+                    <div class="page-back-float">
+                        <button type="button" class="page-back-btn" @onclick="GoBack" aria-label="Back">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                    </div>
+                }
                 <GateRefusalBoundary>
                     <CascadingValue Name="CanGoBack" Value="_canGoBack">
                         @Body
@@ -431,6 +443,8 @@
         _canGoBack = canGoBack;
         StateHasChanged();
     }
+
+    private async Task GoBack() => await JS.InvokeVoidAsync("history.back");
 
     private void OnSidebarRequested(bool open)
     {
