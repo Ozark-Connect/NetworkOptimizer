@@ -2593,7 +2593,8 @@ a.stat-card-link:active {
 }
 
 .no-alerts-icon {
-    font-size: 3rem;
+    font-size: 2.5rem;
+    font-weight: bold;
     margin-bottom: 0.5rem;
     color: var(--success-color);
 }
