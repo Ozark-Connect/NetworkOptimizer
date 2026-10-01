@@ -2599,6 +2599,14 @@ a.stat-card-link:active {
     color: var(--success-color);
 }
 
+.no-alerts .no-alerts-icon {
+    margin-bottom: 0;
+}
+
+.no-alerts p {
+    font-size: 0.8125rem;
+}
+
 /* Agent Status Table */
 .agent-status-table {
     /* Styles for table */
