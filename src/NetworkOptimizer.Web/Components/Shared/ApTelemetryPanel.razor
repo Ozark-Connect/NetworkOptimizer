@@ -583,6 +583,14 @@
         {
             Logger.LogDebug(ex, "AP Agent fleet refresh failed");
         }
+
+        // A deploy failure stops being news once that AP is running, by any route.
+        if (_messageMac != null && _fleet.FirstOrDefault(f => f.DeviceMac == _messageMac) is { } failed && IsRunning(failed))
+        {
+            _message = null;
+            _messageMac = null;
+        }
+
         QueueFastRefresh();
     }
 
@@ -622,7 +630,11 @@
     {
         _message = text;
         _messageClass = cssClass;
+        _messageMac = null;
     }
+
+    /// <summary>The AP a deploy-failure message names, so it clears once that AP is running.</summary>
+    private string? _messageMac;
 
     // ---- Derived state ----
 
@@ -874,7 +886,10 @@
             // An in-flight refusal is benign - the server is already deploying to this AP, and the
             // refresh below renders that work's own Deploying row instead of an error.
             if (!result.Success && !result.AlreadyInProgress)
+            {
                 ShowMessage($"Deploying to {entry.DeviceName} failed: {result.Error}", "danger");
+                _messageMac = mac;
+            }
         }
         catch (Exception ex)
         {
