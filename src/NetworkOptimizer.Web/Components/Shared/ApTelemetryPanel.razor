@@ -442,7 +442,6 @@
 
     private readonly HashSet<string> _busyMacs = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _removingMacs = new(StringComparer.OrdinalIgnoreCase);
-    private bool _siteRemovalRunning;
     private readonly Dictionary<string, string> _rowProgress = new(StringComparer.OrdinalIgnoreCase);
     private bool _bulkRunning;
     private int _bulkTotal;
@@ -563,7 +562,7 @@
     /// </summary>
     private void QueueFastRefresh(bool force = false)
     {
-        if (_fastRefreshQueued || (!force && !_siteRemovalRunning && !_fleet.Any(e => e.DeployInProgress || e.RemoveInProgress))) return;
+        if (_fastRefreshQueued || (!force && !_fleet.Any(e => e.DeployInProgress || e.RemoveInProgress))) return;
         _fastRefreshQueued = true;
         _ = Task.Run(async () =>
         {
@@ -767,14 +766,15 @@
     {
         _siteEnabled = e.Value is true;
         _message = null;
+        List<string> siteRemoval = [];
         try
         {
-            // Disabling removes the agent from every AP before it returns; keep polling meanwhile so
-            // each row shows Removing as its turn comes.
+            // Disabling removes the agent from every deployed AP before it returns, often in less than
+            // a fast-refresh interval, so the rows are marked up front rather than polled for.
             if (!_siteEnabled)
             {
-                _siteRemovalRunning = true;
-                QueueFastRefresh(force: true);
+                siteRemoval = _fleet.Where(f => f.DeployedVersion != null).Select(f => f.DeviceMac).ToList();
+                foreach (var mac in siteRemoval) _removingMacs.Add(mac);
             }
             await ApAgents.SetSiteEnabledAsync(_siteEnabled);
             // Enabling kicks a server-side deploy pass; force one fast poll so its Deploying rows
@@ -793,9 +793,9 @@
         }
         finally
         {
-            if (_siteRemovalRunning)
+            if (siteRemoval.Count > 0)
             {
-                _siteRemovalRunning = false;
+                foreach (var mac in siteRemoval) _removingMacs.Remove(mac);
                 await RefreshFleetAsync();
             }
         }

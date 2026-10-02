@@ -336,9 +336,22 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var started = await StartAgentAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
 
         if (!started.Success)
+        {
             await RecordFailureAsync(mac, started.Error ?? "The agent did not start.", ct);
+            return started;
+        }
 
-        return started;
+        // Same reason as after a deploy: the row otherwise keeps the verdict that caused the
+        // restart until the next supervision pass, even once the agent is healthy.
+        var verified = await VerifyStartedAsync(ap, mac, ct);
+        if (!await RecordVerificationAsync(mac, verified, ct))
+        {
+            _logger.LogWarning("AP Agent restarted on {Host} on site {Site} but failed verification: {State} - {Detail}",
+                ap.DisplayIpAddress, _siteSlug, verified.State, verified.Detail);
+            return ApAgentOperationResult.Fail(verified.Detail, verified.State);
+        }
+
+        return ApAgentOperationResult.Ok(verified.State);
     }
 
     /// <inheritdoc />
@@ -536,9 +549,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// One signed health probe against a freshly started agent, so the deploy reports what a real
     /// caller will get. A refusal inside the bind window is the agent still probing, not a failure.
     /// </summary>
-    private async Task<ApAgentAssessment> VerifyDeployedAsync(DiscoveredDevice ap, string mac, CancellationToken ct)
+    private async Task<ApAgentAssessment> VerifyStartedAsync(DiscoveredDevice ap, string mac, CancellationToken ct)
     {
-        // Read fresh: the record holds the token this deploy just rotated.
+        // Read fresh: after a deploy, the record holds the token it just rotated.
         var record = await GetOrCreateRecordAsync(mac, ap.Name, ct);
         var deadline = DateTime.UtcNow + VerifyBindWindow;
         while (true)
@@ -548,6 +561,23 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 return assessment;
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
         }
+    }
+
+    /// <summary>
+    /// Records a post-start verification against the retry policy. True when the agent answers, or
+    /// when no probe was sent (ApOffline: the console's device list says offline), so there is no
+    /// verdict to fail on. A clock problem is not backed off: nothing on our side fixes it.
+    /// </summary>
+    private async Task<bool> RecordVerificationAsync(string mac, ApAgentAssessment verified, CancellationToken ct)
+    {
+        if (verified.State is ApAgentState.Healthy or ApAgentState.OutOfDate or ApAgentState.ApOffline or ApAgentState.Unknown)
+        {
+            _retry.RecordSuccess(mac);
+            return true;
+        }
+
+        await RecordFailureAsync(mac, verified.Detail, ct, backOff: verified.State != ApAgentState.ClockSkewed);
+        return false;
     }
 
     /// <summary>Carries out the one action an assessment warrants, and nothing else.</summary>
@@ -697,20 +727,15 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         // A running process proves nothing about auth: only a signed request does. Without this, a
         // deploy onto an AP that rejects every signature showed green until the first real call.
         progress?.Report("Verifying the agent...");
-        var verified = await VerifyDeployedAsync(ap, mac, ct);
+        var verified = await VerifyStartedAsync(ap, mac, ct);
         _directory.Invalidate(_siteSlug);
 
-        // ApOffline and Unknown mean no probe was sent (the console's device list says offline), so
-        // there is no verdict to fail the deploy on.
-        if (verified.State is not (ApAgentState.Healthy or ApAgentState.OutOfDate or ApAgentState.ApOffline or ApAgentState.Unknown))
+        if (!await RecordVerificationAsync(mac, verified, ct))
         {
-            await RecordFailureAsync(mac, verified.Detail, ct, backOff: verified.State != ApAgentState.ClockSkewed);
             _logger.LogWarning("AP Agent deployed to {Host} on site {Site} but failed verification: {State} - {Detail}",
                 ap.DisplayIpAddress, _siteSlug, verified.State, verified.Detail);
             return ApAgentOperationResult.Fail(verified.Detail, verified.State);
         }
-
-        _retry.RecordSuccess(mac);
 
         _logger.LogInformation("AP Agent deployed to {Host} on site {Site} (version {Version})",
             ap.DisplayIpAddress, _siteSlug, after.Version ?? "unknown");
