@@ -96,7 +96,8 @@ public static class ApAgentHealthClassifier
         var health = observation.Health;
 
         // Staleness is measured entirely inside the agent's own response - its probe clock against
-        // its response clock - so a wrong clock on the AP cannot fake a wedge.
+        // its response clock - so a steadily wrong AP clock cannot fake a wedge. A clock step (NTP
+        // correcting it) can, until the next probe; the restart in place clears it.
         if (health.LastProbeRun != default && health.CollectedAt - health.LastProbeRun > probeStaleAfter)
         {
             var behind = health.CollectedAt - health.LastProbeRun;
