@@ -67,74 +67,7 @@
     <p class="page-description">Real-time network monitoring with SNMP polling, latency tracking, and SFP diagnostics</p>
 </div>
 
-@if (!ConnectionService.IsConnected)
-{
-    @if (ConnectionService.IsAwaitingAgent)
-    {
-        <div class="connection-banner">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    <strong>Waiting for the site's agent</strong>
-                    <span>@ConnectionService.LastError</span>
-                </div>
-                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
-            </div>
-        </div>
-    }
-    else if (ConnectionService.IsConsoleUnresponsive)
-    {
-        <div class="connection-banner">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    <strong>Console isn't responding</strong>
-                    <span>@ConnectionService.LastError</span>
-                </div>
-                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
-            </div>
-        </div>
-    }
-    else
-    {
-        <div class="connection-banner">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    @if (!string.IsNullOrEmpty(ConnectionService.LastError))
-                    {
-                        <strong>Connection Error</strong>
-                        <span>@ConnectionService.LastError</span>
-                    }
-                    else
-                    {
-                        <strong>Not Connected</strong>
-                        <span>Configure your UniFi Console connection in Settings to get started.</span>
-                    }
-                </div>
-                <a href="/settings?tab=connection#console-connection" class="btn btn-primary btn-sm">Settings</a>
-            </div>
-        </div>
-    }
-}
+<NetworkOptimizer.Web.Components.Shared.ConsoleConnectionBanner />
 
 @* The console being down does not take the history with it: the targets, SFP list and every chart
    come from this site's own database and InfluxDB. So the banner above now sits over the page
@@ -3580,24 +3513,6 @@
         {
             _checkingInflux = false;
             StateHasChanged();
-        }
-    }
-
-    private bool _refreshingConnection;
-
-    // "Refresh" on the agent-wait banner: re-attempt the console connection now (the
-    // agent may have just come online). On success, ReconnectAsync fires
-    // OnConnectionChanged, which refreshes this page; otherwise the banner stays.
-    private async Task RefreshConnectionAsync()
-    {
-        _refreshingConnection = true;
-        try
-        {
-            await ConnectionService.ReconnectAsync();
-        }
-        finally
-        {
-            _refreshingConnection = false;
         }
     }
 
