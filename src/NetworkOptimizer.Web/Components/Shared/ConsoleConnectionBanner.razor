@@ -1,0 +1,110 @@
+@* The site's UniFi Console connection state, for a panel that needs the Console: waiting for the
+   site's On-Site Agent, the Console not responding, or not connected. Renders nothing while
+   connected, and re-renders itself when the connection changes. *@
+
+@implements IDisposable
+@inject UniFiConnectionService ConnectionService
+
+@if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
+{
+    @if (ConnectionService.IsAwaitingAgent)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Waiting for the site's agent</strong>
+                    <span>@ConnectionService.LastError</span>
+                </div>
+                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
+                    @if (_refreshingConnection)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
+    else if (ConnectionService.IsConsoleUnresponsive)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Console isn't responding</strong>
+                    <span>@ConnectionService.LastError</span>
+                </div>
+                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
+                    @if (_refreshingConnection)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    @if (!string.IsNullOrEmpty(ConnectionService.LastError))
+                    {
+                        <strong>Connection Error</strong>
+                        <span>@ConnectionService.LastError</span>
+                    }
+                    else
+                    {
+                        <strong>Not Connected</strong>
+                        <span>Configure your UniFi Console connection in Settings to get started.</span>
+                    }
+                </div>
+                <a href="/settings?tab=connection#console-connection" class="btn btn-primary btn-sm">Settings</a>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _refreshingConnection;
+
+    protected override void OnInitialized()
+    {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    // Re-attempts the console connection now (the agent may have just come online). A success
+    // fires OnConnectionChanged, which clears the banner; otherwise it stays.
+    private async Task RefreshConnectionAsync()
+    {
+        _refreshingConnection = true;
+        try
+        {
+            await ConnectionService.ReconnectAsync();
+        }
+        finally
+        {
+            _refreshingConnection = false;
+        }
+    }
+
+    private void OnConnectionChanged()
+    {
+        // Fires from a background thread (console reconnect).
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+    }
+}
