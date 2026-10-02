@@ -201,7 +201,7 @@
                                                         {
                                                             <button type="button" class="btn btn-primary btn-sm" @onclick="() => DeployOneAsync(entry)" @onclick:stopPropagation="true">Deploy</button>
                                                         }
-                                                        else if (entry.State is ApAgentState.Filtered or ApAgentState.Unhealthy)
+                                                        else if (entry.State is ApAgentState.Filtered or ApAgentState.Unhealthy or ApAgentState.ClockSkewed)
                                                         {
                                                             <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true">Retry</button>
                                                         }
@@ -678,6 +678,7 @@
             ApAgentState.ApOffline => ("offline", "AP offline", "Deployment waits for the access point to come back."),
             ApAgentState.Wedged => ("error", "Stalled", "Answering, but its probes stopped; it is restarted in place automatically."),
             ApAgentState.Unauthorized => ("error", "Token mismatch", "The AP Agent rejected this server's token; the token is re-pushed automatically."),
+            ApAgentState.ClockSkewed => ("error", "Clock out of sync", e.Detail),
             ApAgentState.NotListening when e.LastDeployedAt != null =>
                 ("error", "Stopped", e.LastHealthyAt is { } h
                     ? $"Removed by a reboot or firmware update; last healthy {Ago(h)}"

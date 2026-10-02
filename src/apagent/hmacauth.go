@@ -21,6 +21,7 @@ import (
 const (
 	// hmacSkew is how far a request's timestamp may sit from ours. Wide enough for an access point
 	// whose clock drifts between NTP syncs, narrow enough that a captured request expires quickly.
+	// The server's ApAgentHttpTransport.SignatureClockTolerance mirrors it; keep the two equal.
 	hmacSkew = 5 * time.Minute
 
 	// nonceRetention outlives the skew window on both sides, so a replay cannot arrive after its

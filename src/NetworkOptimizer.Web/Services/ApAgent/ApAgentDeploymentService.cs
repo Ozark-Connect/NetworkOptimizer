@@ -508,6 +508,27 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         return assessment;
     }
 
+    /// <summary>How long a fresh agent gets to bind its port: it runs its capability probes first.</summary>
+    private static readonly TimeSpan VerifyBindWindow = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// One signed health probe against a freshly started agent, so the deploy reports what a real
+    /// caller will get. A refusal inside the bind window is the agent still probing, not a failure.
+    /// </summary>
+    private async Task<ApAgentAssessment> VerifyDeployedAsync(DiscoveredDevice ap, string mac, CancellationToken ct)
+    {
+        // Read fresh: the record holds the token this deploy just rotated.
+        var record = await GetOrCreateRecordAsync(mac, ap.Name, ct);
+        var deadline = DateTime.UtcNow + VerifyBindWindow;
+        while (true)
+        {
+            var assessment = await AssessAsync(ap, record, ct);
+            if (assessment.State != ApAgentState.NotListening || DateTime.UtcNow >= deadline)
+                return assessment;
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        }
+    }
+
     /// <summary>Carries out the one action an assessment warrants, and nothing else.</summary>
     private async Task ActOnAsync(DiscoveredDevice ap, ApAgentAssessment assessment, CancellationToken ct)
     {
@@ -529,6 +550,10 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 // Nothing to deploy into a blocked path: SSH is filtered the same way, so the only
                 // useful output is the named cause on the AP's row.
                 await RecordFailureAsync(mac, assessment.Detail, ct);
+                break;
+
+            case ApAgentAction.SurfaceClockProblem:
+                await RecordFailureAsync(mac, assessment.Detail, ct, backOff: false);
                 break;
 
             case ApAgentAction.Wait:
@@ -648,9 +673,23 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             r.LastError = null;
         }, ct);
 
-        _retry.RecordSuccess(mac);
-        lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.Healthy, ApAgentAction.None, "Deployed and running.");
+        // A running process proves nothing about auth: only a signed request does. Without this, a
+        // deploy onto an AP that rejects every signature showed green until the first real call.
+        progress?.Report("Verifying the agent...");
+        var verified = await VerifyDeployedAsync(ap, mac, ct);
         _directory.Invalidate(_siteSlug);
+
+        // ApOffline and Unknown mean no probe was sent (the console's device list says offline), so
+        // there is no verdict to fail the deploy on.
+        if (verified.State is not (ApAgentState.Healthy or ApAgentState.OutOfDate or ApAgentState.ApOffline or ApAgentState.Unknown))
+        {
+            await RecordFailureAsync(mac, verified.Detail, ct, backOff: verified.State != ApAgentState.ClockSkewed);
+            _logger.LogWarning("AP Agent deployed to {Host} on site {Site} but failed verification: {State} - {Detail}",
+                ap.DisplayIpAddress, _siteSlug, verified.State, verified.Detail);
+            return ApAgentOperationResult.Fail(verified.Detail, verified.State);
+        }
+
+        _retry.RecordSuccess(mac);
 
         _logger.LogInformation("AP Agent deployed to {Host} on site {Site} (version {Version})",
             ap.DisplayIpAddress, _siteSlug, after.Version ?? "unknown");
