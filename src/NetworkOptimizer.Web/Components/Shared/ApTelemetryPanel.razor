@@ -8,6 +8,7 @@
 @implements IDisposable
 @inject IApAgentDeploymentService ApAgents
 @inject ISshSettingsAdminService SshSettingsAdmin
+@inject UniFiConnectionService ConnectionService
 @inject ILogger<ApTelemetryPanel> Logger
 
 <div class="card @Class" id="ap-telemetry" data-tour="ap-telemetry">
@@ -75,7 +76,9 @@
                 <div class="alert alert-@_messageClass">@_message</div>
             }
 
-            @if (_fleet.Count == 0)
+            <ConsoleConnectionBanner />
+
+            @if (_fleet.Count == 0 && !ConsoleDown)
             {
                 <div class="empty-state empty-state-small">
                     <div class="empty-icon">
@@ -89,7 +92,7 @@
                     <p>This site's UniFi Console reports no access points, so there is nowhere to deploy the AP Agent.</p>
                 </div>
             }
-            else
+            else if (_fleet.Count > 0)
             {
                 @if (_bulkRunning)
                 {
@@ -495,6 +498,36 @@
     /// <summary>The per-method lines of the transfer-failure detail, after its lead sentence.</summary>
     private static IEnumerable<string> TransferFailureLines(ApAgentFleetEntry e)
         => (e.Detail ?? "").Split('\n').Skip(1);
+
+    /// <summary>
+    /// The Console is unreachable, so an empty fleet means unknown, not "no access points". The
+    /// banner above says why.
+    /// </summary>
+    private bool ConsoleDown => ConnectionService.IsInitialized && !ConnectionService.IsConnected;
+
+    protected override void OnInitialized()
+    {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    // Any site's Console can connect after this tab loaded (a restart, an outage, an agent tunnel
+    // coming up); refresh then rather than leaving the table empty until the 30 s timer.
+    private void OnConnectionChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                if (!_loaded || !_deviceSshConfigured) return;
+                await RefreshFleetAsync();
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "AP Telemetry refresh after a connection change failed");
+            }
+        });
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -954,6 +987,7 @@
 
     public void Dispose()
     {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
     }
 }
