@@ -250,6 +250,9 @@ public sealed class ApAgentFleetEntry
     /// <summary>Whether the server is deploying to (or otherwise working on) this AP right now.</summary>
     public bool DeployInProgress { get; set; }
 
+    /// <summary>Whether the server is removing the agent from this AP right now.</summary>
+    public bool RemoveInProgress { get; set; }
+
     /// <summary>The AP's last observed agent state.</summary>
     public ApAgentState State { get; set; } = ApAgentState.Unknown;
 
