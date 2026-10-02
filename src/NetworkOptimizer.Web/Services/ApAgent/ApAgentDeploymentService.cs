@@ -61,6 +61,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// <summary>How the binary last crossed the wire per AP, when not over SFTP. In-memory like the assessments.</summary>
     private readonly Dictionary<string, string> _transferNotes = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>APs whose in-flight work is a removal rather than a deploy.</summary>
+    private readonly HashSet<string> _removing = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Firmware last probed per AP, rendered into the transfer-failure detail at display time.</summary>
     private readonly Dictionary<string, string> _lastFirmware = new(StringComparer.OrdinalIgnoreCase);
     private DeviceRebootTracker? _rebootTracker;
@@ -218,6 +221,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             lock (_transferNotes) _transferNotes.TryGetValue(mac, out transferNote);
             string? firmware;
             lock (_lastFirmware) _lastFirmware.TryGetValue(mac, out firmware);
+            bool removing;
+            lock (_removing) removing = _removing.Contains(mac);
 
             fleet.Add(new ApAgentFleetEntry
             {
@@ -227,7 +232,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 Host = ap.DisplayIpAddress,
                 DeviceOnline = IsOnline(ap),
                 Enabled = record?.Enabled ?? true,
-                DeployInProgress = _retry.IsWorkInFlight(mac),
+                DeployInProgress = _retry.IsWorkInFlight(mac) && !removing,
+                RemoveInProgress = removing,
                 State = assessment?.State ?? ApAgentState.Unknown,
                 RecommendedAction = assessment?.Action ?? ApAgentAction.None,
                 Detail = assessment?.Detail,
@@ -346,6 +352,21 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (claim == null)
             return ApAgentOperationResult.InProgress();
 
+        // The claim is shared with deploys, so this is what tells the table which one is running.
+        // Held to the end: cleared any earlier, the row reads as Deploying while the claim lasts.
+        lock (_removing) _removing.Add(mac);
+        try
+        {
+            return await RemoveCoreAsync(ap, mac, ct);
+        }
+        finally
+        {
+            lock (_removing) _removing.Remove(mac);
+        }
+    }
+
+    private async Task<ApAgentOperationResult> RemoveCoreAsync(DiscoveredDevice ap, string mac, CancellationToken ct)
+    {
         var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
         var result = await _siteSsh.RunCommandAsync(
             ap.DisplayIpAddress, ApAgentScripts.RemoveCommand(status.ProcdAvailable), null, SshTimeout, ct);
