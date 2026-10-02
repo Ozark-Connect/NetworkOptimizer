@@ -56,6 +56,52 @@ public class ApAgentHealthClassifierTests
         result.Action.Should().Be(ApAgentAction.RepushConfig);
     }
 
+    [Theory]
+    [InlineData(-162 * 24 * 60)]
+    [InlineData(-6)]
+    [InlineData(6)]
+    public void Unauthorized_from_a_skewed_clock_surfaces_the_clock_and_never_repushes(int offsetMinutes)
+    {
+        var result = ApAgentHealthClassifier.Classify(
+            new ApAgentObservation(ApAgentReach.Answered, 401, ExpectedBinaryVersion: 3,
+                ClockOffset: TimeSpan.FromMinutes(offsetMinutes)));
+
+        result.State.Should().Be(ApAgentState.ClockSkewed);
+        result.Action.Should().Be(ApAgentAction.SurfaceClockProblem);
+        result.Detail.Should().Contain(offsetMinutes < 0 ? "behind" : "ahead of").And.Contain("external NTP");
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(-4)]
+    public void Unauthorized_inside_the_signature_window_is_still_a_token_problem(int offsetMinutes)
+    {
+        var result = ApAgentHealthClassifier.Classify(
+            new ApAgentObservation(ApAgentReach.Answered, 401, ExpectedBinaryVersion: 3,
+                ClockOffset: TimeSpan.FromMinutes(offsetMinutes)));
+
+        result.State.Should().Be(ApAgentState.Unauthorized);
+        result.Action.Should().Be(ApAgentAction.RepushConfig);
+    }
+
+    [Fact]
+    public void Skewed_clock_on_a_successful_answer_is_not_a_fault()
+    {
+        // The agent accepted the signature, so whatever the header says, the clock is inside its window.
+        var result = ApAgentHealthClassifier.Classify(
+            new ApAgentObservation(ApAgentReach.Answered, 200, Health: Health(), ExpectedBinaryVersion: 3,
+                ClockOffset: TimeSpan.FromDays(1)));
+
+        result.State.Should().Be(ApAgentState.Healthy);
+    }
+
+    [Fact]
+    public void ClockSkewDetail_names_the_offset()
+    {
+        ApAgentHealthClassifier.ClockSkewDetail(-TimeSpan.FromDays(162))
+            .Should().StartWith("The access point's clock is 162 days behind this server's");
+    }
+
     [Fact]
     public void StaleTimestamps_restart_in_place_without_re_transferring()
     {

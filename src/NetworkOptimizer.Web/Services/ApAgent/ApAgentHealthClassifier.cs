@@ -75,6 +75,14 @@ public static class ApAgentHealthClassifier
 
         if (status == 401 || status == 403)
         {
+            // Checked first: re-pushing the token restarts the agent on the same wrong clock, so the
+            // token path would loop forever on a fault it cannot fix.
+            if (ApAgentHttpTransport.IsClockSkewed(observation.ClockOffset))
+            {
+                return new ApAgentAssessment(ApAgentState.ClockSkewed, ApAgentAction.SurfaceClockProblem,
+                    ClockSkewDetail(observation.ClockOffset!.Value));
+            }
+
             return new ApAgentAssessment(ApAgentState.Unauthorized, ApAgentAction.RepushConfig,
                 observation.Detail ?? "The AP Agent rejected our token. Pushing a new one...");
         }
@@ -108,6 +116,13 @@ public static class ApAgentHealthClassifier
 
         return new ApAgentAssessment(ApAgentState.Healthy, ApAgentAction.None, detail);
     }
+
+    /// <summary>Operator-facing reason for a clock outside the signature window.</summary>
+    /// <param name="offset">The agent's clock minus ours.</param>
+    public static string ClockSkewDetail(TimeSpan offset)
+        => $"The access point's clock is {TimeFormatHelper.FormatDuration(offset.Duration())} "
+           + $"{(offset < TimeSpan.Zero ? "behind" : "ahead of")} this server's, so the AP Agent rejects every request. "
+           + "Its NTP sync is likely blocked: check that its management network can reach external NTP.";
 
     /// <summary>
     /// Maps a tunnel-proxy open failure to a reach outcome. An agent-routed AP is dialed on a

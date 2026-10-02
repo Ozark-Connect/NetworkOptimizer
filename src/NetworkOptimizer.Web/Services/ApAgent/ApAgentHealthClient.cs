@@ -74,7 +74,8 @@ public sealed class ApAgentHealthClient
                 DeviceOnline: true,
                 SupportedArchitecture: true,
                 Health: payload,
-                ExpectedBinaryVersion: expectedBinaryVersion);
+                ExpectedBinaryVersion: expectedBinaryVersion,
+                ClockOffset: result.ClockOffset);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

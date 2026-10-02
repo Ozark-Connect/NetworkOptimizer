@@ -6,7 +6,11 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 /// <param name="Status">HTTP status code.</param>
 /// <param name="Body">Response body, truncated at the cap.</param>
 /// <param name="Truncated">True when the cap cut the body short, so it must not be parsed.</param>
-public sealed record ApAgentHttpResult(int Status, string Body, bool Truncated)
+/// <param name="ClockOffset">
+/// The agent's clock minus ours, from the reply's Date header (second precision). Null when the
+/// reply carried none.
+/// </param>
+public sealed record ApAgentHttpResult(int Status, string Body, bool Truncated, TimeSpan? ClockOffset = null)
 {
     /// <summary>Whether the reply is a complete 2xx that is safe to parse.</summary>
     public bool IsUsable => Status is >= 200 and < 300 && !Truncated;
@@ -83,19 +87,39 @@ public sealed class ApAgentHttpTransport
         }
 
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        var clockOffset = response.Headers.Date is { } agentNow ? agentNow - DateTimeOffset.UtcNow : (TimeSpan?)null;
         var (body, truncated) = await ReadBoundedAsync(response, maxBytes, ct);
 
         // A refused signature is a misconfiguration that will not clear on its own, so it is never
         // the debug-level noise the other failures are. Callers only see an unusable result.
         if ((int)response.StatusCode == 401)
         {
-            _logger.LogWarning(
-                "AP Agent at {Host}:{Port} refused {Method} {Path} as unauthorized - the access point's token or the request signature is wrong",
-                host, port, method.Method, path);
+            if (IsClockSkewed(clockOffset))
+            {
+                _logger.LogWarning(
+                    "AP Agent at {Host}:{Port} refused {Method} {Path} as unauthorized - the access point's clock is {Offset} off from this server's, check NTP on the access point",
+                    host, port, method.Method, path, clockOffset);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "AP Agent at {Host}:{Port} refused {Method} {Path} as unauthorized - the access point's token or the request signature is wrong",
+                    host, port, method.Method, path);
+            }
         }
 
-        return new ApAgentHttpResult((int)response.StatusCode, body, truncated);
+        return new ApAgentHttpResult((int)response.StatusCode, body, truncated, clockOffset);
     }
+
+    /// <summary>
+    /// How far the agent accepts a signed request's timestamp from its own clock (hmacSkew in
+    /// src/apagent/hmacauth.go). Keep the two equal.
+    /// </summary>
+    public static readonly TimeSpan SignatureClockTolerance = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether a measured clock offset alone is enough for the agent to refuse our signatures.</summary>
+    public static bool IsClockSkewed(TimeSpan? clockOffset)
+        => clockOffset is { } offset && offset.Duration() > SignatureClockTolerance;
 
     private static async Task<(string Body, bool Truncated)> ReadBoundedAsync(
         HttpResponseMessage response, long maxBytes, CancellationToken ct)
