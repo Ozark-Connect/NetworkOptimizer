@@ -72,76 +72,7 @@
     </div>
 }
 
-@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
-{
-    @if (ConnectionService.IsAwaitingAgent)
-    {
-        <div class="connection-banner">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    <strong>Waiting for the site's agent</strong>
-                    <span>@ConnectionService.LastError</span>
-                </div>
-                <button class="btn btn-primary" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                        <span>Refreshing...</span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
-            </div>
-        </div>
-    }
-    else if (ConnectionService.IsConsoleUnresponsive)
-    {
-        <div class="connection-banner">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    <strong>Console isn't responding</strong>
-                    <span>@ConnectionService.LastError</span>
-                </div>
-                <button class="btn btn-primary" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                        <span>Refreshing...</span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
-            </div>
-        </div>
-    }
-    else
-    {
-        <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
-            <div class="banner-content">
-                <span class="banner-icon">!</span>
-                <div class="banner-text">
-                    @if (!string.IsNullOrEmpty(ConnectionService.LastError))
-                    {
-                        <strong>Connection Error</strong>
-                        <span>@ConnectionService.LastError</span>
-                    }
-                    else
-                    {
-                        <strong>Not Connected</strong>
-                        <span>Connect to your UniFi Console (Controller) to view network data.</span>
-                    }
-                </div>
-                <a href="/settings?tab=connection#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.LastError) ? "Check Settings" : "Connect Now")</a>
-            </div>
-        </div>
-    }
-}
+<NetworkOptimizer.Web.Components.Shared.ConsoleConnectionBanner Prominent="true" />
 
 <NetworkOptimizer.Web.Components.Shared.UpdateChecker />
 <NetworkOptimizer.Web.Components.Shared.SponsorshipBanner />
@@ -1172,24 +1103,6 @@
             });
         }
         catch { /* component may be disposed */ }
-    }
-
-    private bool _refreshingConnection;
-
-    // "Refresh" on the agent-wait banner: re-attempt the console connection now (the
-    // agent may have just come online). On success, ReconnectAsync fires
-    // OnConnectionChanged, which reloads the dashboard; otherwise the banner stays.
-    private async Task RefreshConnectionAsync()
-    {
-        _refreshingConnection = true;
-        try
-        {
-            await ConnectionService.ReconnectAsync();
-        }
-        finally
-        {
-            _refreshingConnection = false;
-        }
     }
 
     private async Task LoadAllDataAsync()

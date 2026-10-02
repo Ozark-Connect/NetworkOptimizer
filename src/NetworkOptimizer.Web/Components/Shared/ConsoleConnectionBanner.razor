@@ -1,6 +1,6 @@
-@* The site's UniFi Console connection state, for a panel that needs the Console: waiting for the
-   site's On-Site Agent, the Console not responding, or not connected. Renders nothing while
-   connected, and re-renders itself when the connection changes. *@
+@* The site's UniFi Console connection state, for a page or panel that needs the Console: waiting
+   for the site's On-Site Agent, the Console not responding, or not connected. Renders nothing
+   while connected, and re-renders itself when the connection changes. *@
 
 @implements IDisposable
 @inject UniFiConnectionService ConnectionService
@@ -16,16 +16,7 @@
                     <strong>Waiting for the site's agent</strong>
                     <span>@ConnectionService.LastError</span>
                 </div>
-                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+                @RefreshButton
             </div>
         </div>
     }
@@ -38,26 +29,18 @@
                     <strong>Console isn't responding</strong>
                     <span>@ConnectionService.LastError</span>
                 </div>
-                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
-                    @if (_refreshingConnection)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+                @RefreshButton
             </div>
         </div>
     }
     else
     {
-        <div class="connection-banner">
+        var hasError = !string.IsNullOrEmpty(ConnectionService.LastError);
+        <div class="connection-banner @(Prominent && hasError ? "connection-error" : "")">
             <div class="banner-content">
                 <span class="banner-icon">!</span>
                 <div class="banner-text">
-                    @if (!string.IsNullOrEmpty(ConnectionService.LastError))
+                    @if (hasError)
                     {
                         <strong>Connection Error</strong>
                         <span>@ConnectionService.LastError</span>
@@ -65,17 +48,45 @@
                     else
                     {
                         <strong>Not Connected</strong>
-                        <span>Configure your UniFi Console connection in Settings to get started.</span>
+                        <span>@(Prominent
+                            ? "Connect to your UniFi Console (Controller) to view network data."
+                            : "Configure your UniFi Console connection in Settings to get started.")</span>
                     }
                 </div>
-                <a href="/settings?tab=connection#console-connection" class="btn btn-primary btn-sm">Settings</a>
+                <a href="/settings?tab=connection#console-connection" class="@ButtonClass">@(Prominent ? (hasError ? "Check Settings" : "Connect Now") : "Settings")</a>
             </div>
         </div>
     }
 }
 
 @code {
+    /// <summary>
+    /// The Dashboard's form: full-size buttons, a red error state, and the first-run prompt to
+    /// connect. Off, the compact form for a page section or a panel.
+    /// </summary>
+    [Parameter] public bool Prominent { get; set; }
+
     private bool _refreshingConnection;
+
+    private string ButtonClass => Prominent ? "btn btn-primary" : "btn btn-primary btn-sm";
+
+    private RenderFragment RefreshButton => __builder =>
+    {
+        <button class="@ButtonClass" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
+            @if (_refreshingConnection)
+            {
+                <span class="spinner-sm"></span>
+                @if (Prominent)
+                {
+                    <span>Refreshing...</span>
+                }
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    };
 
     protected override void OnInitialized()
     {
