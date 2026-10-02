@@ -391,8 +391,14 @@ create_container() {
     fi
     [[ -n "$CT_VLAN_TAG" ]] && net_config="${net_config},tag=${CT_VLAN_TAG}"
 
-    # Unprivileged, no nesting: the agent is a plain systemd service with no Docker
-    # under it, so it needs none of the concessions the server container makes.
+    # Unprivileged, plus nesting+keyctl: the agent is a plain systemd service with
+    # no Docker under it, so it needs none of the server container's other
+    # concessions - but Debian 13 (systemd 257) will not boot inside an
+    # unprivileged container unless these two are set, and pct create only emits a
+    # "you may need to enable nesting" warning rather than setting them. Without
+    # them the container is created fine and then fails to spawn on first start
+    # ("sync_wait: 34 ... Failed to spawn container"). Harmless on older templates,
+    # so set unconditionally rather than parsing the version.
     pct create "$CT_ID" "$TEMPLATE_STORAGE:vztmpl/$CT_TEMPLATE_FILE" \
         --hostname "$CT_HOSTNAME" \
         --memory "$CT_RAM" \
@@ -402,6 +408,7 @@ create_container() {
         --net0 "$net_config" \
         --ostype debian \
         --unprivileged 1 \
+        --features nesting=1,keyctl=1 \
         --onboot 1 \
         --start 0
     CT_CREATED=true
@@ -415,7 +422,20 @@ create_container() {
 
 start_container() {
     msg_info "Starting container..."
-    pct start "$CT_ID"
+    if ! pct start "$CT_ID"; then
+        # pct start's own "Failed to spawn container" line names the symptom but not
+        # the cause, and the EXIT trap destroys the container on the way out - which
+        # takes the journal with it. Surface the real error, and leave the container
+        # in place for inspection instead of re-running blind. (Clearing CT_CREATED
+        # is what tells the EXIT trap to skip pct destroy.)
+        msg_error "pct start failed for container $CT_ID. Container left in place; diagnostics:"
+        msg_info "pct config $CT_ID"
+        pct config "$CT_ID" 2>/dev/null || true
+        msg_info "journalctl -u lxc@$CT_ID --no-pager -n 50"
+        journalctl -u "lxc@$CT_ID" --no-pager -n 50 2>/dev/null || true
+        CT_CREATED=false
+        exit 1
+    fi
 
     local max_wait=60 waited=0
     while ! pct exec "$CT_ID" -- test -f /etc/os-release 2>/dev/null; do
