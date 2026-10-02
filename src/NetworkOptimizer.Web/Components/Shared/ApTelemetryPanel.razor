@@ -143,7 +143,7 @@
                             @foreach (var entry in _fleet)
                             {
                                 var mac = entry.DeviceMac;
-                                var busy = _busyMacs.Contains(mac) || entry.DeployInProgress;
+                                var busy = _busyMacs.Contains(mac) || _removingMacs.Contains(mac) || entry.DeployInProgress || entry.RemoveInProgress;
                                 var view = StatusView(entry);
                                 <tr class="@RowClass(entry)"
                                     @onclick="@(() => IsRowOpen(mac) ? CollapsePanelsAsync() : Task.CompletedTask)">
@@ -441,6 +441,8 @@
     private string _messageClass = "info";
 
     private readonly HashSet<string> _busyMacs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _removingMacs = new(StringComparer.OrdinalIgnoreCase);
+    private bool _siteRemovalRunning;
     private readonly Dictionary<string, string> _rowProgress = new(StringComparer.OrdinalIgnoreCase);
     private bool _bulkRunning;
     private int _bulkTotal;
@@ -561,7 +563,7 @@
     /// </summary>
     private void QueueFastRefresh(bool force = false)
     {
-        if (_fastRefreshQueued || (!force && !_fleet.Any(e => e.DeployInProgress))) return;
+        if (_fastRefreshQueued || (!force && !_siteRemovalRunning && !_fleet.Any(e => e.DeployInProgress || e.RemoveInProgress))) return;
         _fastRefreshQueued = true;
         _ = Task.Run(async () =>
         {
@@ -603,7 +605,8 @@
 
     /// <summary>Rows Deploy to All Eligible picks up. Filtered, offline, and mid-deploy APs are deliberately not eligible.</summary>
     private bool IsEligible(ApAgentFleetEntry e) =>
-        e.Enabled && IsDeployable(e) && !_busyMacs.Contains(e.DeviceMac) && !e.DeployInProgress;
+        e.Enabled && IsDeployable(e) && !_busyMacs.Contains(e.DeviceMac) && !_removingMacs.Contains(e.DeviceMac)
+        && !e.DeployInProgress && !e.RemoveInProgress;
 
     private int EligibleCount => _fleet.Count(IsEligible);
     private int RunningCount => _fleet.Count(IsRunning);
@@ -663,6 +666,9 @@
     {
         // DeployInProgress covers server-driven deploys (the pass after enabling the site,
         // supervision redeploys), so those show as Deploying without the user pressing anything.
+        if (_removingMacs.Contains(e.DeviceMac) || e.RemoveInProgress)
+            return ("", "Removing", null);
+
         if (_busyMacs.Contains(e.DeviceMac) || e.DeployInProgress)
             return ("", "Deploying", _rowProgress.TryGetValue(e.DeviceMac, out var p) ? p : null);
 
@@ -763,6 +769,13 @@
         _message = null;
         try
         {
+            // Disabling removes the agent from every AP before it returns; keep polling meanwhile so
+            // each row shows Removing as its turn comes.
+            if (!_siteEnabled)
+            {
+                _siteRemovalRunning = true;
+                QueueFastRefresh(force: true);
+            }
             await ApAgents.SetSiteEnabledAsync(_siteEnabled);
             // Enabling kicks a server-side deploy pass; force one fast poll so its Deploying rows
             // appear right away, and the chain keeps refreshing while work is in flight.
@@ -777,6 +790,14 @@
             Logger.LogWarning(ex, "Could not change the AP Agent site setting");
             _siteEnabled = !_siteEnabled;
             ShowMessage("Could not save the setting.", "danger");
+        }
+        finally
+        {
+            if (_siteRemovalRunning)
+            {
+                _siteRemovalRunning = false;
+                await RefreshFleetAsync();
+            }
         }
     }
 
@@ -905,6 +926,8 @@
     private async Task RemoveOneAsync(ApAgentFleetEntry entry)
     {
         _message = null;
+        if (!_removingMacs.Add(entry.DeviceMac)) return;
+        StateHasChanged();
         try
         {
             var result = await ApAgents.RemoveAsync(entry.DeviceMac);
@@ -921,6 +944,10 @@
         {
             Logger.LogWarning(ex, "AP Agent removal failed for {Mac}", entry.DeviceMac);
             ShowMessage($"Removing the AP Agent from {entry.DeviceName} failed.", "danger");
+        }
+        finally
+        {
+            _removingMacs.Remove(entry.DeviceMac);
         }
         await RefreshFleetAsync();
     }
