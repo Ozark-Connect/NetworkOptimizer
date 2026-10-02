@@ -312,7 +312,15 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <inheritdoc />
-    public async Task<ApAgentOperationResult> RestartAsync(string deviceMac, CancellationToken ct = default)
+    public Task<ApAgentOperationResult> RestartAsync(string deviceMac, CancellationToken ct = default)
+        => RestartCoreAsync(deviceMac, repushToken: false, ct);
+
+    /// <summary>
+    /// Restarts the agent already on the AP. With <paramref name="repushToken"/>, first mints a new
+    /// token and rewrites the support files: the agent reads its token only from the init script
+    /// (procd) or the token file, both written at deploy, so a plain restart keeps the rejected one.
+    /// </summary>
+    private async Task<ApAgentOperationResult> RestartCoreAsync(string deviceMac, bool repushToken, CancellationToken ct)
     {
         var ap = await FindAccessPointAsync(deviceMac, ct);
         if (ap == null) return ApAgentOperationResult.Fail("No access point with that MAC on this site.");
@@ -329,10 +337,27 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!status.BinaryDeployed)
             return ApAgentOperationResult.Fail("The agent is not on this access point; deploy it instead.");
 
-        var record = await GetOrCreateRecordAsync(mac, ap.Name, ct);
-        var token = ResolveToken(record);
+        // The token changes under callers on a repush, as in a deploy; keep them off it meanwhile.
+        using var hold = repushToken ? _directory.HoldDuringDeploy(_siteSlug, mac) : null;
 
         await _siteSsh.RunCommandAsync(ap.DisplayIpAddress, ApAgentScripts.StopCommand(status.ProcdAvailable), null, SshTimeout, ct);
+
+        string token;
+        if (repushToken)
+        {
+            token = await RotateTokenAsync(mac, ct);
+            var wrote = await WriteSupportFilesAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
+            if (!wrote.Success)
+            {
+                await RecordFailureAsync(mac, wrote.Error, ct);
+                return wrote;
+            }
+        }
+        else
+        {
+            token = ResolveToken(await GetOrCreateRecordAsync(mac, ap.Name, ct));
+        }
+
         var started = await StartAgentAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
 
         if (!started.Success)
@@ -593,6 +618,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 break;
 
             case ApAgentAction.RepushConfig:
+                AuditSupervisorAction(ap, AuditActions.ApAgentRestarted, assessment, await RestartCoreAsync(mac, repushToken: true, ct));
+                break;
+
             case ApAgentAction.RestartInPlace:
                 AuditSupervisorAction(ap, AuditActions.ApAgentRestarted, assessment, await RestartAsync(mac, ct));
                 break;
