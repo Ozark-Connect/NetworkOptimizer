@@ -488,6 +488,10 @@ Restart Caddy:
 sudo systemctl reload caddy
 ```
 
+#### Nginx Proxy Manager and Zoraxy
+
+Both are GUI-driven, so they have their own step-by-step guides covering the app, the speed test and On-Site Agents: [Nginx Proxy Manager](../docs/NGINX-PROXY-MANAGER.md) and [Zoraxy](../docs/ZORAXY.md).
+
 ### Speed Test Server Tuning
 
 Enable BBR congestion control on any host serving the speed test over the internet. The default (CUBIC) backs off hard on the small amount of loss normal to a long path, so it under-reports throughput the link can actually deliver. BBR paces on measured bandwidth and RTT instead. On a LAN-only speed test it makes little difference.
