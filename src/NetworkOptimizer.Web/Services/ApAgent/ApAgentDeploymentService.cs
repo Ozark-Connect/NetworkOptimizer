@@ -689,7 +689,11 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (!File.Exists(localPath))
         {
             _logger.LogWarning("AP Agent binary not found at {Path}", localPath);
-            return ApAgentOperationResult.Fail($"The AP Agent binary for {status.Machine} is not included in this build.");
+            // Backed off like every other failure here: the supervisor would otherwise SSH into the AP
+            // and write an audit row every tick until someone builds the binary.
+            var missing = $"The AP Agent binary for {status.Machine} is not included in this build.";
+            await RecordFailureAsync(mac, missing, ct);
+            return ApAgentOperationResult.Fail(missing);
         }
 
         await GetOrCreateRecordAsync(mac, ap.Name, ct);
