@@ -825,13 +825,35 @@ git fetch origin && git checkout main && git pull
 dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 
+# Rebuild the Go helpers, every update: a release can change one or add a new target
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+VERSION="${VERSION#v}"
+TOOLS=/opt/network-optimizer/tools
+mkdir -p "$TOOLS"
+cd src/uwnspeedtest
+CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOHOSTARCH) go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/uwnspeedtest-linux-$(go env GOHOSTARCH)" .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/uwnspeedtest-linux-arm64" .
+cd ../wansteer
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/wansteer-linux-arm64" .
+cd ../apagent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/apagent-linux-arm" .
+CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/apagent-linux-mipsle" .
+CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o "$TOOLS/apagent-linux-mips" .
+cd ../..
+
 # Start service
 sudo systemctl start network-optimizer
 ```
 
 On ARM64 hardware, publish with `-r linux-arm64` and prefix the command with `PROTOBUF_PROTOC=/usr/bin/protoc`, using the distro's protoc as described in the [Native Deployment Guide](NATIVE-DEPLOYMENT.md#build-from-source).
 
-Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. If you built the optional helpers (`uwnspeedtest`, `wansteer`, `apagent`), rebuild them per the [Native Deployment Guide](NATIVE-DEPLOYMENT.md) when a release changes them.
+Publishing over the install directory replaces the app files only: your `start.sh`, `tools/`, and `logs/` are left in place, and your database and credential key live outside it in `~/.local/share/NetworkOptimizer/`. The Go helpers in `tools/` are not part of the publish, which is why the update rebuilds them. They need [Go](https://go.dev/dl/), as in the [Native Deployment Guide](NATIVE-DEPLOYMENT.md#build-the-go-helpers).
 
 ### Verify Update
 
