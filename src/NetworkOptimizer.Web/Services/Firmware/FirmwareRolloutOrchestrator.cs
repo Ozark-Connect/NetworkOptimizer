@@ -2977,34 +2977,46 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
-    /// Puts back the per-model channel a hand-added device build's rollout raised. The console
-    /// channels come back through <see cref="RestoreChannelsAsync"/>, but this one lives only in the
-    /// saved settings, where the next wizard would otherwise read it. An entry changed since is left alone.
+    /// Puts back the per-model channels a hand-added device build's rollout raised. The console
+    /// channels come back through <see cref="RestoreChannelsAsync"/>, but these live only in the
+    /// saved settings, where the next wizard would otherwise read them. An entry changed since is left alone.
     /// </summary>
     private async Task RestoreRaisedModelChannelAsync(
         FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
     {
-        if (document.RaisedModelChannel is not { } raised)
+        if (document.RaisedModelChannels.Count == 0)
             return;
 
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         var map = RolloutPlanner.ParseMap(settings.PerSkuChannelsJson);
-        if (map.TryGetValue(raised.Model, out var current)
-            && string.Equals(current, raised.Channel, StringComparison.OrdinalIgnoreCase))
+        var restored = new List<RaisedModelChannel>();
+        foreach (var raised in document.RaisedModelChannels)
         {
+            if (!map.TryGetValue(raised.Model, out var current)
+                || !string.Equals(current, raised.Channel, StringComparison.OrdinalIgnoreCase))
+                continue;
             if (raised.Previous == null) map.Remove(raised.Model);
             else map[raised.Model] = raised.Previous;
+            restored.Add(raised);
+        }
+
+        if (restored.Count > 0)
+        {
             settings.PerSkuChannelsJson = JsonSerializer.Serialize(map);
             await _repositories.UseAsync((r, c) => r.SaveSettingsAsync(settings, c), cancellationToken);
 
             _logger.LogInformation(
-                "Put the {Model} channel on site {Site} back to {Channel} after rollout {Id}",
-                raised.Model, _siteSlug, raised.Previous ?? "the site's own channel", plan.Id);
+                "Put the per-model channel back for {Models} on site {Site} after rollout {Id}",
+                string.Join(", ", restored.Select(r => r.Model)), _siteSlug, plan.Id);
             RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutSettingsChanged,
-                _siteSlug, plan.Id, new { model = raised.Model, from = raised.Channel, to = raised.Previous, reason = "rollout ended" });
+                _siteSlug, plan.Id, new
+                {
+                    models = restored.Select(r => new { model = r.Model, from = r.Channel, to = r.Previous }).ToList(),
+                    reason = "rollout ended",
+                });
         }
 
-        document.RaisedModelChannel = null;
+        document.RaisedModelChannels = [];
         await PersistDocumentAsync(plan, document, cancellationToken);
     }
 
@@ -3021,7 +3033,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         foreach (var plan in history.Where(p => FirmwareRolloutStatuses.Terminal.Contains(p.Status)))
         {
             var document = ParseDocument(plan);
-            if (plan.OriginalChannelSettingsJson == null && document.RaisedModelChannel == null)
+            if (plan.OriginalChannelSettingsJson == null && document.RaisedModelChannels.Count == 0)
                 continue;
 
             _logger.LogWarning(

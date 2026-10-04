@@ -446,19 +446,25 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <summary>
-    /// The per-model channel a hand-added device build's rollout changes, with the entry it replaces,
-    /// so the plan can put it back when it ends. Null for any other rollout or when nothing changed.
+    /// The per-model channels a hand-added device build's rollout changes, each with the entry it
+    /// replaces, so the plan can put them back when it ends. Empty for any other rollout.
     /// </summary>
-    internal static RaisedModelChannel? RaisedModelChannelFor(RolloutBuildPin? pin, string? storedJson, string? newJson)
+    internal static List<RaisedModelChannel> RaisedModelChannelsFor(RolloutBuildPin? pin, string? storedJson, string? newJson)
     {
-        if (pin is not { Kind: FirmwareUrlKind.Device, Target: { Length: > 0 } model }) return null;
+        if (pin is not { Kind: FirmwareUrlKind.Device }) return [];
 
-        RolloutPlanner.ParseMap(newJson).TryGetValue(model, out var channel);
-        RolloutPlanner.ParseMap(storedJson).TryGetValue(model, out var previous);
-        if (string.IsNullOrWhiteSpace(channel) || string.Equals(channel, previous, StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        return new RaisedModelChannel { Model = model, Channel = channel, Previous = string.IsNullOrWhiteSpace(previous) ? null : previous };
+        var after = RolloutPlanner.ParseMap(newJson);
+        var before = RolloutPlanner.ParseMap(storedJson);
+        var raised = new List<RaisedModelChannel>();
+        foreach (var model in pin.DeviceModels)
+        {
+            after.TryGetValue(model, out var channel);
+            before.TryGetValue(model, out var previous);
+            if (string.IsNullOrWhiteSpace(channel) || string.Equals(channel, previous, StringComparison.OrdinalIgnoreCase))
+                continue;
+            raised.Add(new RaisedModelChannel { Model = model, Channel = channel, Previous = string.IsNullOrWhiteSpace(previous) ? null : previous });
+        }
+        return raised;
     }
 
     private async Task<CreatedPlan> CreatePlanAsync(
@@ -487,12 +493,12 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // preview, so it is overwritten here rather than trusted.
         var stored = await _repository.GetSettingsAsync(cancellationToken);
         settings.Mode = stored.Mode;
-        var raised = RaisedModelChannelFor(pin, stored.PerSkuChannelsJson, settings.PerSkuChannelsJson);
+        var raised = RaisedModelChannelsFor(pin, stored.PerSkuChannelsJson, settings.PerSkuChannelsJson);
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
 
         var (result, _) = await PlanAsync(settings, readOnly: false, pin, cancellationToken);
-        result.Document.RaisedModelChannel = raised;
+        result.Document.RaisedModelChannels = raised;
         var upgrading = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded);
         // The console counts too: a Cloud Gateway's UniFi OS build waits while every device
         // reports nothing pending, and that is still a rollout worth running.

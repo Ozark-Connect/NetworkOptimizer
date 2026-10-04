@@ -300,6 +300,10 @@ builder.Services.AddHttpClient(
     NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient.HttpClientName,
     client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient>();
+// Reads an added firmware image's md5 (its .md5sum, or the image itself as a fallback); the service caps it at 3 minutes.
+builder.Services.AddHttpClient(
+    NetworkOptimizer.Web.Services.Firmware.SharedFirmwareCatalogService.HttpClientName,
+    client => client.Timeout = TimeSpan.FromMinutes(3));
 // Publish dates (autopilot's release-ripeness gate) and changelog links (the soak report) off that feed.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.IReleaseMetadataSource,
     NetworkOptimizer.Web.Services.Firmware.ReleaseFeedMetadataSource>();
