@@ -161,6 +161,7 @@ public static class AuditActions
     public const string FirmwareRolloutAborted = "firmware_rollout.aborted";
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+    public const string FirmwareSharedBuildAdded = "firmware_rollout.shared_build.added";
 
     // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)
     public const string ApAgentDeployed = "ap_agent.deployed";

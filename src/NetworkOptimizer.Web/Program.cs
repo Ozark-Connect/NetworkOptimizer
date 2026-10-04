@@ -756,6 +756,8 @@ builder.Services.AddHostedService(sp =>
 // client is site-pinned the same way the registry pins it for the executor.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Firmware.IRolloutPlanningSource,
     NetworkOptimizer.Web.Services.Firmware.RolloutPlanningSource>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.ISharedFirmwareCatalogService>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.SharedFirmwareCatalogService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirmwareRolloutService>(sp =>
 {
     var slug = sp.GetRequiredService<SiteContextService>().Slug;

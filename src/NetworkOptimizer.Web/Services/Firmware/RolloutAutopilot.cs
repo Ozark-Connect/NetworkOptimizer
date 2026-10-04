@@ -206,7 +206,7 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         var timings = await _repositories.UseAsync((r, c) => r.GetModelTimingsAsync(c), cancellationToken);
         var inputs = await _planning.UseAsync(
-            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, _feed, c), cancellationToken);
+            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, _feed, cancellationToken: c), cancellationToken);
 
         // Don't burn the check interval when the site wasn't reachable: the catalog and
         // update availability are unknown, so "nothing to upgrade" is an absence of data, not
@@ -400,7 +400,8 @@ public class RolloutAutopilot : IRolloutAutopilot
     /// <summary>
     /// Drops the console's own UniFi OS step when the build on offer is too new. Its publish date
     /// comes from the console rather than the feed - the feed does not carry Cloud Gateway OS builds
-    /// per console model.
+    /// per console model. The date the plan captured wins: a target adopted from another site is
+    /// not the build the console itself is offering.
     /// </summary>
     private async Task ApplyUniFiOsRipenessAsync(
         RolloutPlanDocument document, int minAgeDays, CancellationToken cancellationToken)
@@ -408,24 +409,27 @@ public class RolloutAutopilot : IRolloutAutopilot
         if (minAgeDays <= 0 || !document.IncludesUniFiOsUpdate)
             return;
 
-        DateTime? created = null;
-        string? version = null;
-        try
+        DateTime? created = document.UniFiOsUpdate.PublishedAt;
+        string? version = created != null ? document.UniFiOsUpdate.TargetVersion : null;
+        if (created == null)
         {
-            var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
-            created = pending?.Created;
-            version = pending?.Version;
-
-            if (created == null)
+            try
             {
-                var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
-                created = info?.Firmware?.Latest?.Created;
-                version ??= info?.Firmware?.Latest?.Version;
+                var pending = await _commands.GetPendingUniFiOsUpdateAsync(cancellationToken);
+                created = pending?.Created;
+                version = pending?.Version;
+
+                if (created == null)
+                {
+                    var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+                    created = info?.Firmware?.Latest?.Created;
+                    version ??= info?.Firmware?.Latest?.Version;
+                }
             }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug(ex, "Autopilot could not read the console's UniFi OS publish date on site {Site}", _siteSlug);
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Autopilot could not read the console's UniFi OS publish date on site {Site}", _siteSlug);
+            }
         }
 
         if (ReleaseRipeness.IsRipe(created, Now, minAgeDays))

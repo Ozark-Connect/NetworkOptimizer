@@ -21234,8 +21234,13 @@ body.kiosk-mode .status-indicators {
     flex-shrink: 0;
 }
 
-.firmware-rollout-autopilot-config {
+.firmware-rollout-autopilot-config,
+.firmware-rollout-add-url {
     padding-top: 0;
+}
+
+.firmware-rollout-add-url .setup-guide {
+    margin-top: 0.5rem;
 }
 
 .firmware-rollout-config-title {
@@ -21420,7 +21425,8 @@ body.kiosk-mode .status-indicators {
     }
 }
 
-.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child {
+.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child,
+.firmware-rollout-add-url .setup-guide-content > .form-group:last-child {
     margin-bottom: 0.5rem;
 }
 

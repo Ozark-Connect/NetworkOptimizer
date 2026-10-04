@@ -1111,6 +1111,32 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var application = console?.NetworkApplication;
 
+        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        if (state.Pinned)
+        {
+            var pinnedNewer = console?.IsStandaloneConsole != true
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(state.Url))
+            {
+                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+                if (pinnedSsh.IsOk)
+                {
+                    state.Triggered = true;
+                    state.TriggeredAt = Now;
+                    _logger.LogInformation(
+                        "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
+                    return;
+                }
+                _logger.LogWarning(
+                    "SSH install of the chosen UniFi Network {Version} failed on site {Site}: {Reason}",
+                    state.TargetVersion, _siteSlug, pinnedSsh.Message);
+            }
+
+            state.Settled = true;
+            state.Outcome = pinnedNewer ? "refused" : "nothing-to-update";
+            return;
+        }
+
         var apiPathAvailable = application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
@@ -1464,7 +1490,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // nobody chose. Version match, not "newer": a beta on offer is newer than the planned RC.
         var offerIsPlanned = channelInForce
             || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending?.Version, document.UniFiOsUpdate.TargetVersion);
-        if (pending?.Version != null && !offerIsPlanned)
+        if (pending?.Version != null && !offerIsPlanned && !document.UniFiOsUpdate.Pinned)
         {
             _logger.LogError(
                 "Declining the UniFi OS update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
@@ -1489,6 +1515,30 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var preWindow = ResourceWindowFor(settings);
             document.UniFiOsUpdate.PreStatsJson = JsonSerializer.Serialize(
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
+        }
+
+        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        if (document.UniFiOsUpdate.Pinned)
+        {
+            var pinnedNewer = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(
+                document.UniFiOsUpdate.TargetVersion, installedOs);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+                && await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken))
+                return false;
+
+            await SettleUniFiOsAsync(plan, document, pinnedNewer ? "refused" : "nothing-to-update", cancellationToken);
+            return true;
+        }
+
+        // A plan adopted from the shared catalog targets a build newer than the console's own offer.
+        // Taking the API path here would install the older build, so the URL goes first.
+        var sshTried = false;
+        if (apiPathAvailable
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(document.UniFiOsUpdate.TargetVersion, pending!.Version))
+        {
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
+            sshTried = true;
         }
 
         if (apiPathAvailable)
@@ -1516,33 +1566,59 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _siteSlug, installedOs ?? "unknown", pending?.Version ?? "none");
         }
 
-        // The console may not see the build because the channel switch failed, but the plan
-        // captured the firmware URL at planning time when the channel was still right.
+        // The console may not see the build because the channel switch failed, or because the
+        // build came from another site's console; the plan captured its URL either way.
         var plannedOs = document.UniFiOsUpdate.TargetVersion;
-        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+        if (!sshTried
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
             && !string.IsNullOrWhiteSpace(plannedOs)
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedOs, installedOs))
         {
-            _logger.LogInformation(
-                "Falling back to SSH for the UniFi OS update on site {Site} ({Url})", _siteSlug, document.UniFiOsUpdate.Url);
-            var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
-            if (ssh.IsOk)
-            {
-                document.UniFiOsUpdate.Triggered = true;
-                document.UniFiOsUpdate.TriggeredAt = Now;
-                await PersistDocumentAsync(plan, document, cancellationToken);
-                _logger.LogInformation(
-                    "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
-                return false;
-            }
-            _logger.LogWarning(
-                "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
         }
 
         var outcome = apiPathAvailable || (pending?.Version != null && !offerIsPlanned) ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
+    }
+
+    /// <summary>Installs the plan's UniFi OS image by URL over SSH. True when the gateway accepted it.</summary>
+    private async Task<bool> TrySshUniFiOsUpdateAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
+            document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
+
+        // The command returns only after the gateway has downloaded the image, so the step shows as
+        // upgrading from the moment it is sent rather than a minute or more later.
+        document.UniFiOsUpdate.SendingAt = Now;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+
+        FirmwareCommandResult ssh;
+        try
+        {
+            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+        }
+        finally
+        {
+            document.UniFiOsUpdate.SendingAt = null;
+        }
+
+        if (ssh.IsOk)
+        {
+            document.UniFiOsUpdate.Triggered = true;
+            document.UniFiOsUpdate.TriggeredAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogInformation(
+                "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+            return true;
+        }
+
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        return false;
     }
 
     private async Task SettleUniFiOsAsync(
@@ -2324,7 +2400,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
-        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached)
+        // Not for a build chosen by hand: the console would install its newest one instead.
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
             result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
 
         if (!result.IsOk)
