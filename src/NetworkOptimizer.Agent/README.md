@@ -188,9 +188,9 @@ blocks the speed test (off by default).
 
 Once the agent is connected, **Settings > Multi-Site** shows the site as
 **Online**, and **(site) > Configuration** shows the agent as **Online (tunnel)**.
-An agent that reaches the server's REST endpoints but not the tunnel shows
-**Offline**, with a recent **Last seen** time: enrollment works, the tunnel
-route does not.
+An agent that reaches the server's REST endpoints but not the tunnel leaves the
+site **Offline**, and its agent row shows a recent **Last seen** time instead:
+enrollment works, the tunnel route does not.
 
 If it does not reach **Online (tunnel)**, read the agent log:
 
@@ -207,7 +207,8 @@ problem, check the connection.
 
 #### Verify the connection
 
-Run these from the site, with the agent's `serverUrl`:
+Run these from the site, with the server URL (`--server` in the install command,
+`serverUrl` in an installed agent's `agent.json`):
 
 ```bash
 curl -sSf https://optimizer.example.com/api/health
@@ -444,8 +445,8 @@ chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent
 On first run it exchanges the one-time token for an agent key via
 `POST /api/public/agents/enrollments`, writes the key and site slug back into
 `agent.json`, and discards the token. It then holds a persistent gRPC tunnel to
-the server, heartbeating every 30 seconds, and **Settings > Multi-Site** shows
-it as **Online (tunnel)**. If the tunnel is unreachable (the reverse-proxy gRPC route is
+the server, heartbeating every 30 seconds, and **Settings > Multi-Site > (site) >
+Configuration** shows it as **Online (tunnel)**. If the tunnel is unreachable (the reverse-proxy gRPC route is
 missing, or the server could not bind its listener), it falls back to
 `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
@@ -642,7 +643,8 @@ The first install writes the URL into `agent.json` as `serverUrl` and
 `tunnelUrl`. Later runs of the installer keep `agent.json`, so to change the URL
 on an installed agent, edit both fields there and restart the agent.
 
-Then check it from the site with [Verify the connection](#verify-the-connection).
+Check both routes from the site with [Verify the connection](#verify-the-connection)
+before installing an agent. Both checks work without one.
 
 ## Security and hardening
 
