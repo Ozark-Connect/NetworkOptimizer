@@ -31,7 +31,7 @@
 {
     <div class="loading-container"><span class="spinner"></span> <span>Loading rollout state...</span></div>
 }
-else if (_active != null)
+else if (_active != null && !_wizardOpen)
 {
     @* ---- Live / scheduled rollout view ---- *@
     <div class="card" data-tour="firmware-rollout">
@@ -185,6 +185,10 @@ else if (_active != null)
                 </SiteAdminOnly>
             }
         </div>
+        @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+        {
+            @AddFirmwareSection
+        }
     </div>
 }
 else if (_wizardOpen)
@@ -510,34 +514,8 @@ else
                     </button>
                 </div>
             </SiteAdminOnly>
-            <AdminOnly>
-                <details class="setup-guide firmware-rollout-guide" data-tour="firmware-add-url">
-                    <summary>Add Firmware by URL</summary>
-                    <div class="setup-guide-content">
-                        <p>Paste a Ubiquiti download link for a build your Consoles have not offered yet. It is added on Early Access for every site on this install.</p>
-                        <div class="form-group">
-                            <label class="form-label">Download Link</label>
-                            <div class="input-with-button">
-                                <input class="form-control" placeholder="https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
-                                <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">Add</button>
-                            </div>
-                        </div>
-                        @if (_addResult is { Succeeded: false } failed)
-                        {
-                            <div class="alert alert-danger firmware-rollout-note">@failed.Error</div>
-                        }
-                        else if (_addResult is { Succeeded: true } added)
-                        {
-                            <div class="alert alert-success firmware-rollout-note">Added @AddedBuildLabel(added) on Early Access. Plan a rollout with it now?</div>
-                            <div class="action-buttons">
-                                <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added.Kind)" disabled="@_busy">Plan Rollout Now</button>
-                                <button class="btn btn-contrast" @onclick="() => _addResult = null" disabled="@_busy">Not Now</button>
-                            </div>
-                        }
-                    </div>
-                </details>
-            </AdminOnly>
         </div>
+        @AddFirmwareSection
         @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
         {
             <SiteAdminOnly>
@@ -1129,6 +1107,7 @@ else
     private async Task CloseWizard()
     {
         _wizardOpen = false;
+        _replacesPlanId = null;
         _preview = null;
         _wizardError = null;
         _ = DisposeVizAsync();
@@ -1161,8 +1140,45 @@ else
 
     // ---- Add firmware by URL ----
 
+    /// <summary>The Add Firmware by URL section, shown on the landing card and on a scheduled plan.</summary>
+    private RenderFragment AddFirmwareSection => @<AdminOnly>
+        <div class="card-body firmware-rollout-add-url">
+            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-add-url">
+                <summary>Add Firmware by URL</summary>
+                <div class="setup-guide-content">
+                    <div class="form-group">
+                        <label class="form-label">Download Link</label>
+                        <div class="input-with-button">
+                            <input class="form-control" placeholder="https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
+                            <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">Add</button>
+                        </div>
+                        <small class="form-help">Paste a Ubiquiti download link for a build your Consoles have not offered yet. It is added on Early Access for every site on this install.</small>
+                    </div>
+                    @if (_addResult is { Succeeded: false } failed)
+                    {
+                        <div class="alert alert-danger">@failed.Error</div>
+                    }
+                    else if (_addResult is { Succeeded: true } added)
+                    {
+                        <div class="alert alert-success">Added @AddedBuildLabel(added) on Early Access. Plan a rollout with it now?</div>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added.Kind)" disabled="@_busy">Plan Rollout Now</button>
+                            <button class="btn btn-contrast" @onclick="() => _addResult = null" disabled="@_busy">Not Now</button>
+                        </div>
+                    }
+                </div>
+            </details>
+        </div>
+    </AdminOnly>;
+
     private string? _addUrl;
     private FirmwareUrlAddResult? _addResult;
+
+    /// <summary>
+    /// The scheduled plan a wizard opened from an added build replaces. It is aborted only on
+    /// commit, so Cancel leaves the schedule as it was.
+    /// </summary>
+    private int? _replacesPlanId;
 
     private async Task AddFirmwareUrlAsync()
     {
@@ -1188,9 +1204,9 @@ else
 
     private static string AddedBuildLabel(FirmwareUrlAddResult added) => added.Kind switch
     {
-        FirmwareUrlKind.UniFiOs => $"UniFi OS {FirmwareVersionFormat.ShortOrNull(added.Version)} for {added.Target}",
+        FirmwareUrlKind.UniFiOs => $"UniFi OS {FirmwareVersionFormat.ShortOrNull(added.Version)} for {UniFiProductDatabase.GetBestProductName(added.Target, added.Target)}",
         FirmwareUrlKind.NetworkApp => $"UniFi Network {added.Version}",
-        _ => $"{UniFiProductDatabase.GetBestProductName(added.Target ?? "", null)} firmware {FirmwareVersionFormat.ShortOrNull(added.Version)}",
+        _ => $"{UniFiProductDatabase.GetBestProductName(added.Target, added.Target)} firmware {FirmwareVersionFormat.ShortOrNull(added.Version)}",
     };
 
     /// <summary>
@@ -1204,6 +1220,9 @@ else
         StateHasChanged();
         try
         {
+            _replacesPlanId = _active?.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced
+                ? _active.Id
+                : null;
             _settings = await RolloutService.GetSettingsAsync();
             AdoptStandingAutopilotConfig();
             LoadWorkingSets();
@@ -1272,6 +1291,11 @@ else
         try
         {
             var settings = WorkingSettings();
+            if (_replacesPlanId is int replaced)
+            {
+                await RolloutService.AbortAsync(replaced);
+                _replacesPlanId = null;
+            }
             switch (_scheduleMode)
             {
                 case "now":
@@ -1916,6 +1940,8 @@ else
             {
                 await InvokeAsync(async () =>
                 {
+                    // The wizard can be open over a scheduled plan it will replace; it owns the map.
+                    if (_wizardOpen) return;
                     var wasActive = _active != null;
                     _active = await RolloutService.GetActivePlanAsync();
                     if (_active == null && wasActive)
