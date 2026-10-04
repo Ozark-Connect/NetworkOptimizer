@@ -78,7 +78,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
             result = new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched, parsed.Url);
         }
 
-        _audit.SetTarget(result.Target ?? "unifi-network", $"{result.Kind} {result.Version}");
+        _audit.SetTarget(result.Target ?? "unifi-network", result.DisplayName);
         _audit.SetDetails(new
         {
             kind = result.Kind.ToString(),

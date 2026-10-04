@@ -23,6 +23,19 @@ public sealed record FirmwareUrlAddResult(
     /// <summary>True when the build was added.</summary>
     public bool Succeeded => Error == null;
 
+    /// <summary>
+    /// The build as people read it, e.g. "UniFi OS 6.0.10 for UCG-Fiber". Shared by the page's
+    /// confirmation and the audit entry so the two never name it differently.
+    /// </summary>
+    public string DisplayName => Kind switch
+    {
+        FirmwareUrlKind.UniFiOs =>
+            $"UniFi OS {NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(Version)} for {NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(Target, Target)}",
+        FirmwareUrlKind.NetworkApp => $"UniFi Network {Version}",
+        _ =>
+            $"{NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(Target, Target)} firmware {NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(Version)}",
+    };
+
     /// <summary>The added build as a pin for the rollout planned from it, or null when nothing was added.</summary>
     public RolloutBuildPin? ToPin() =>
         Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url) : null;

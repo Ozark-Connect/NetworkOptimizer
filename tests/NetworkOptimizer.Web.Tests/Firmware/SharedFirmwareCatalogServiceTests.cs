@@ -123,6 +123,7 @@ public class SharedFirmwareCatalogServiceTests
         var result = await _service.AddFirmwareUrlAsync("https://dl.ui.com/unifi/10.6.97/unifi-native_sysvinit.deb");
 
         result.Kind.Should().Be(FirmwareUrlKind.NetworkApp);
+        result.DisplayName.Should().Be("UniFi Network 10.6.97");
         (await _catalog.FindNewerNetworkAppBuildAsync(FirmwareChannels.Beta, "10.5.0"))!.Version.Should().Be("10.6.97");
     }
 
@@ -135,6 +136,7 @@ public class SharedFirmwareCatalogServiceTests
         var drained = _audit.Drain();
         drained.Suppressed.Should().BeFalse();
         drained.TargetId.Should().Be("UCGF");
+        drained.TargetName.Should().Be("UniFi OS 6.0.11 for UCG-Fiber", "the Audit Log names the build the way the page does");
         drained.Details.Should().NotBeNull();
     }
 }

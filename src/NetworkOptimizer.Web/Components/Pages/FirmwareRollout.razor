@@ -1165,7 +1165,7 @@ else
                     }
                     else if (_addResult is { Succeeded: true } added)
                     {
-                        <div class="alert alert-success">Added @AddedBuildLabel(added) on Early Access. Plan a rollout with it now?</div>
+                        <div class="alert alert-success">Added @added.DisplayName on Early Access. Plan a rollout with it now?</div>
                         <div class="action-buttons">
                             <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added)" disabled="@_busy">Plan Rollout Now</button>
                             <button class="btn btn-contrast" @onclick="() => _addResult = null" disabled="@_busy">Not Now</button>
@@ -1213,12 +1213,6 @@ else
         }
     }
 
-    private static string AddedBuildLabel(FirmwareUrlAddResult added) => added.Kind switch
-    {
-        FirmwareUrlKind.UniFiOs => $"UniFi OS {FirmwareVersionFormat.ShortOrNull(added.Version)} for {UniFiProductDatabase.GetBestProductName(added.Target, added.Target)}",
-        FirmwareUrlKind.NetworkApp => $"UniFi Network {added.Version}",
-        _ => $"{UniFiProductDatabase.GetBestProductName(added.Target, added.Target)} firmware {FirmwareVersionFormat.ShortOrNull(added.Version)}",
-    };
 
     /// <summary>
     /// Opens the wizard for a build added by hand, with Start now selected and straight on the
