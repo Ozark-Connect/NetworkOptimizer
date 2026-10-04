@@ -35,10 +35,11 @@ public sealed record DeviceSshCredentialOverrides(string? Username, string? Pass
 /// The one place that decides which SSH credentials a UniFi device takes, and at which host.
 ///
 /// The site gateway goes through the Gateway SSH service. Every other device takes Device SSH,
-/// except gateway hardware adopted as an access point (UX, UX7): UniFi OS may refuse the
-/// adopted-device login there, so a refused Device SSH login is retried with the Gateway SSH
-/// credentials at the device's own address. The outcome is persisted per MAC, so a restart does
-/// not cost a refused login per device, and dropped again if the Gateway SSH login is refused.
+/// except gateway hardware adopted as an access point (UX, UX7): its login is the console's root
+/// login, which is what Gateway SSH holds, so a refused Device SSH login is retried with the
+/// Gateway SSH credentials at the device's own address. Device SSH goes first so a device that
+/// already accepts it is untouched. The outcome is persisted per MAC, so a restart does not cost
+/// a refused login per device, and dropped again if the Gateway SSH login is refused.
 /// </summary>
 public sealed class DeviceSshRouter
 {

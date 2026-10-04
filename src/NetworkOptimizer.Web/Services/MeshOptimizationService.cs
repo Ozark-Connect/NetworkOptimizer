@@ -73,8 +73,8 @@ public class MeshOptimizationService : IMeshOptimizationService
         var target = new Ssh.DeviceSshTarget(apMac ?? "", host, NetworkOptimizer.Core.Enums.DeviceType.AccessPoint);
 
         // Without Device SSH every wpa_cli call fails with a generic error, so point the user at
-        // where to set it up. Checked after settling the route: an Express adopted as an AP may
-        // take the Gateway SSH credentials instead and needs no Device SSH at all.
+        // where to set it up. Checked after settling the route: an Express adopted as an AP takes
+        // the console's root login (Gateway SSH) and needs no Device SSH at all.
         var route = await _sshRouters.GetFor(_siteContext.Slug).SettleAsync(target, cancellationToken);
         var sshSettings = await _ssh.GetSettingsAsync();
         var sshConfigured = !string.IsNullOrEmpty(sshSettings.Username) &&
