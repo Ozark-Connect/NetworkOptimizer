@@ -245,7 +245,8 @@ curl -k -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H "content-type: ap
 | `grpc-message: First message must be a hello` | Working. The tunnel answered. |
 | `grpc-message: Service is unimplemented.` | The proxy sends the tunnel path to the app, not the tunnel port. Add the gRPC route. |
 | `HTTP/2 404` with no `grpc-message` | The proxy has no route for this hostname or path. |
-| `curl: (6) Could not resolve host` | DNS. The site cannot resolve the server's hostname. |
+| `curl: (6) Could not resolve host` | DNS. The site's DNS has no record for the server's hostname. |
+| `curl: (28) Resolving timed out` | DNS. The site's DNS server did not answer: check the host's resolver and that it can reach it. |
 | `curl: (7) Failed to connect ... port 443` | Something refused the connection: the proxy is not listening, or a firewall rejects it. |
 | `curl: (28) Connection timed out` | Something drops the traffic silently: a firewall, or the wrong IP. |
 
