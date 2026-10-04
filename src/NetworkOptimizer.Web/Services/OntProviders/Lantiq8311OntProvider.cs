@@ -55,13 +55,13 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         try
         {
             var baseUrl = BuildBaseUrl(context);
-            using var handler = CreateHandler();
+            using var handler = CreateHandler(context.Dialer);
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
 
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("8311 ONT {Name}: login failed", context.Name);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var json = await client.GetStringAsync($"{baseUrl}{GponStatusPath}", cancellationToken);
@@ -83,8 +83,8 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -97,7 +97,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         try
         {
             var baseUrl = BuildBaseUrl(context);
-            using var handler = CreateHandler();
+            using var handler = CreateHandler(context.Dialer);
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
 
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
@@ -120,7 +120,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -165,7 +165,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         var stats = new OntStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "8311 ONT",
         };
@@ -238,7 +238,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "Failed to parse 8311 gpon_status JSON from {Host}", context.ConfiguredHost ?? context.Host);
+            _logger.LogDebug(ex, "Failed to parse 8311 gpon_status JSON from {Host}", context.Host);
         }
 
         return stats;
@@ -304,11 +304,12 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         return $"{scheme}://{context.Host}{portSuffix}";
     }
 
-    private static HttpClientHandler CreateHandler()
+    private static SocketsHttpHandler CreateHandler(IDeviceDialer dialer)
     {
-        return new HttpClientHandler
+        return new SocketsHttpHandler
         {
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            ConnectCallback = DeviceHttp.Via(dialer),
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             CookieContainer = new CookieContainer(),
             UseCookies = true,
         };

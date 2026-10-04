@@ -200,11 +200,11 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (provider == null)
             return PollResult<CellularModemStats>.Failed($"No provider is registered for '{modem.Provider}'.");
 
-        var context = await ToPollContextAsync(modem);
+        var context = ToPollContext(modem);
         return await provider.PollAsync(context);
     }
 
-    private async Task<ModemPollContext> ToPollContextAsync(ModemConfiguration modem)
+    private ModemPollContext ToPollContext(ModemConfiguration modem)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(modem.Password))
@@ -213,22 +213,14 @@ public class CellularModemService : ICellularModemService, IDisposable
             catch { password = modem.Password; }
         }
 
-        // HTTP and per-modem-SSH providers reach agent sites through the tunnel
-        // proxy. Shared-SSH (qmicli) providers are left alone: their transport is
-        // the site's UniFiSshService, which applies the same routing itself -
-        // rewriting here too would proxy the proxy.
-        var (host, port) = (modem.Host, modem.Port);
-        if (!RequiresSharedSsh(modem))
-            (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, modem.Host, modem.Port);
-
         return new ModemPollContext
         {
             Id = modem.Id,
             SiteSlug = _siteSlug,
             Name = modem.Name,
-            Host = host,
-            ConfiguredHost = modem.Host,
-            Port = port,
+            Host = modem.Host,
+            Port = modem.Port,
+            Dialer = _tunnelRouting.DialerFor(_siteSlug),
             Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
             Password = password,
             PrivateKeyPath = string.IsNullOrEmpty(modem.PrivateKeyPath) ? null : modem.PrivateKeyPath,
@@ -254,7 +246,7 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (ResolveProvider(modem) is not ISupportsRadioReset provider)
             return (false, $"{modem.Name} does not support a radio reset.");
 
-        var context = await ToPollContextAsync(modem);
+        var context = ToPollContext(modem);
         var result = await provider.ResetRadioAsync(context);
 
         if (result.success)
@@ -274,7 +266,7 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{modem.Provider}'");
 
-        var context = await ToPollContextAsync(modem);
+        var context = ToPollContext(modem);
         return await provider.TestConnectionAsync(context);
     }
 

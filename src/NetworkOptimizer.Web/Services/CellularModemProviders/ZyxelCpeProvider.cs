@@ -21,7 +21,7 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// The session cookie and AES key are kept per modem and renewed when the router refuses them.
 /// Parsing lives in <see cref="ZyxelCellwanParser"/>.
 /// </summary>
-public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
+public sealed class ZyxelCpeProvider : ICellularModemProvider
 {
     /// <inheritdoc/>
     public string ProviderKey => "zyxel-cpe";
@@ -35,7 +35,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     private const int DefaultTimeoutSeconds = 15;
 
     private readonly ILogger<ZyxelCpeProvider> _logger;
-    private readonly HttpClient _client;
+    private readonly Func<IDeviceDialer, HttpMessageHandler> _createHandler;
     private readonly ConcurrentDictionary<string, ZyxelSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
 
     // The router counts failed sign-ins and locks the account, so a rejected password is not
@@ -43,10 +43,11 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     private readonly ConcurrentDictionary<string, string> _rejectedCredentials = new(StringComparer.OrdinalIgnoreCase);
 
     public ZyxelCpeProvider(ILogger<ZyxelCpeProvider> logger)
-        : this(logger, new HttpClientHandler
+        : this(logger, dialer => new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             // The router serves a self-signed certificate.
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             // Cookies are tracked per modem session, not per client.
             UseCookies = false,
             AllowAutoRedirect = false,
@@ -55,14 +56,11 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     {
     }
 
-    /// <summary>Test seam: supply the transport.</summary>
-    internal ZyxelCpeProvider(ILogger<ZyxelCpeProvider> logger, HttpMessageHandler handler)
+    /// <summary>Test seam: supply the transport for a modem's dialer.</summary>
+    internal ZyxelCpeProvider(ILogger<ZyxelCpeProvider> logger, Func<IDeviceDialer, HttpMessageHandler> createHandler)
     {
         _logger = logger;
-        _client = new HttpClient(handler, disposeHandler: true)
-        {
-            Timeout = TimeSpan.FromSeconds(DefaultTimeoutSeconds),
-        };
+        _createHandler = createHandler;
     }
 
     /// <inheritdoc/>
@@ -101,7 +99,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
         if (string.IsNullOrWhiteSpace(context.Host))
             return (null, "No address is configured for this modem.");
 
-        var host = context.ConfiguredHost ?? context.Host;
+        var host = context.Host;
         if (string.IsNullOrEmpty(context.Password))
             return (null, "A password is required. The router serves signal data only to a signed-in session.");
 
@@ -128,11 +126,17 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
         {
             var baseUrl = BuildBaseUrl(context);
 
+            // A client per poll: connections must not be pooled across modems on different sites.
+            using var client = new HttpClient(_createHandler(context.Dialer), disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromSeconds(DefaultTimeoutSeconds),
+            };
+
             for (var attempt = 0; attempt < 2; attempt++)
             {
                 if (!_sessions.TryGetValue(context.CacheKey, out var session))
                 {
-                    var login = await LoginAsync(baseUrl, username, context.Password, credentials, host, cancellationToken);
+                    var login = await LoginAsync(client, baseUrl, username, context.Password, credentials, host, cancellationToken);
                     if (login.Session == null)
                     {
                         if (login.Rejected)
@@ -146,7 +150,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
                     _sessions[context.CacheKey] = session;
                 }
 
-                var cellwan = await GetDalObjectAsync(baseUrl, session, "cellwan_status", cancellationToken);
+                var cellwan = await GetDalObjectAsync(client, baseUrl, session, "cellwan_status", cancellationToken);
                 if (cellwan == null)
                 {
                     _logger.LogInformation("Zyxel session for {Host} was refused, signing in again", host);
@@ -158,7 +162,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
                 {
                     // Model and firmware do not change within a session, and "status" is a large
                     // object, so it is read once per sign-in. Its absence is not a poll failure.
-                    var status = await GetDalObjectAsync(baseUrl, session, "status", cancellationToken);
+                    var status = await GetDalObjectAsync(client, baseUrl, session, "status", cancellationToken);
                     if (status is { } s && s.TryGetProperty("DeviceInfo", out var info) && info.ValueKind == JsonValueKind.Object)
                         session.DeviceInfo = info.Clone();
                     session.DeviceInfoRead = true;
@@ -189,17 +193,17 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     /// sends it as plain JSON when it does not.
     /// </summary>
     private async Task<LoginResult> LoginAsync(
-        string baseUrl, string username, string password, string credentials, string host,
+        HttpClient client, string baseUrl, string username, string password, string credentials, string host,
         CancellationToken cancellationToken)
     {
         var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Mints the pre-login session cookie on the firmware that uses one.
-        using (var info = await SendAsync(HttpMethod.Get, $"{baseUrl}/GetInfoNoLogin", baseUrl, cookies, null, cancellationToken))
+        using (var info = await SendAsync(client, HttpMethod.Get, $"{baseUrl}/GetInfoNoLogin", baseUrl, cookies, null, cancellationToken))
             CaptureCookies(info, cookies);
 
         string? rsaKey = null;
-        using (var keyResponse = await SendAsync(HttpMethod.Get, $"{baseUrl}/getRSAPublickKey", baseUrl, cookies, null, cancellationToken))
+        using (var keyResponse = await SendAsync(client, HttpMethod.Get, $"{baseUrl}/getRSAPublickKey", baseUrl, cookies, null, cancellationToken))
         {
             CaptureCookies(keyResponse, cookies);
             if (keyResponse.IsSuccessStatusCode)
@@ -226,7 +230,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
             body = loginJson;
         }
 
-        using var response = await SendAsync(HttpMethod.Post, $"{baseUrl}/UserLogin", baseUrl, cookies, body, cancellationToken);
+        using var response = await SendAsync(client, HttpMethod.Post, $"{baseUrl}/UserLogin", baseUrl, cookies, body, cancellationToken);
         CaptureCookies(response, cookies);
 
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -260,13 +264,13 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     /// the session key cannot decrypt, or a result other than success.
     /// </summary>
     private async Task<JsonElement?> GetDalObjectAsync(
-        string baseUrl, ZyxelSession session, string oid, CancellationToken cancellationToken)
+        HttpClient client, string baseUrl, ZyxelSession session, string oid, CancellationToken cancellationToken)
     {
         var url = $"{baseUrl}/cgi-bin/DAL?oid={oid}";
         if (session.SessionKey != null)
             url += "&sessionkey=" + Uri.EscapeDataString(session.SessionKey);
 
-        using var response = await SendAsync(HttpMethod.Get, url, baseUrl, session.Cookies, null, cancellationToken);
+        using var response = await SendAsync(client, HttpMethod.Get, url, baseUrl, session.Cookies, null, cancellationToken);
         CaptureCookies(response, session.Cookies);
 
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -308,8 +312,8 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
             return JsonDocument.Parse(ZyxelDalCrypto.Decrypt(doc.RootElement, aesKey));
     }
 
-    private async Task<HttpResponseMessage> SendAsync(
-        HttpMethod method, string url, string baseUrl, Dictionary<string, string> cookies, string? body,
+    private static async Task<HttpResponseMessage> SendAsync(
+        HttpClient client, HttpMethod method, string url, string baseUrl, Dictionary<string, string> cookies, string? body,
         CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, url);
@@ -322,7 +326,7 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
         if (body != null)
             request.Content = new StringContent(body, Encoding.UTF8, "application/x-www-form-urlencoded");
 
-        return await _client.SendAsync(request, cancellationToken);
+        return await client.SendAsync(request, cancellationToken);
     }
 
     private static void CaptureCookies(HttpResponseMessage response, Dictionary<string, string> cookies)
@@ -377,7 +381,6 @@ public sealed class ZyxelCpeProvider : ICellularModemProvider, IDisposable
     private static string RejectedMessage(string host) =>
         $"{host} rejected the username or password. Polling pauses until the credentials change or Probe & Detect runs, so the router does not lock the account.";
 
-    public void Dispose() => _client.Dispose();
 
     /// <summary>
     /// One signed-in session: its cookies, AES key (null on plain firmware), DAL session key, and

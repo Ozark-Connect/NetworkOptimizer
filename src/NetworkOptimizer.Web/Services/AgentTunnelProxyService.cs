@@ -8,12 +8,12 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Reaches TCP services inside an agent's site through the tunnel (SSH, the
-/// UniFi Console API). For each requested site-local host:port this service
-/// binds a loopback listener on the central server; every connection accepted
-/// there is multiplexed over the site's agent tunnel, where the agent dials
-/// the real host:port and pumps bytes both ways. Existing code paths (HTTP
-/// clients, SSH.NET) then just talk to 127.0.0.1:{proxyPort} - the proxying
-/// is invisible to them.
+/// UniFi Console API, device status pages). Every connection is multiplexed over
+/// the site's agent tunnel, where the agent dials the real host:port and pumps
+/// bytes both ways. Two ways in: a loopback listener per site-local host:port,
+/// for code that dials an address itself (SSH.NET, the console client), and
+/// <see cref="OpenStreamAsync"/>, a stream for any address, for device clients, which
+/// dial whatever address a device names, redirects included.
 /// </summary>
 public class AgentTunnelProxyService : IDisposable
 {
@@ -104,15 +104,65 @@ public class AgentTunnelProxyService : IDisposable
         }
     }
 
+    /// <summary>
+    /// A connection to {host}:{port} inside the given site, as a stream, with no loopback listener.
+    /// The agent dials whatever address it is given, so a caller that follows a device's redirect
+    /// with this stays inside that site. Throws when the agent refuses or cannot open the target.
+    /// </summary>
+    public async Task<Stream> OpenStreamAsync(string siteSlug, string host, int port, CancellationToken ct)
+    {
+        var (callerSide, proxySide) = DuplexPipeStream.CreatePair();
+        (ProxyConnection? Connection, string? Error) opened;
+        try
+        {
+            opened = await OpenAsync(new ProxyTarget(siteSlug, host, port, IsConsole: false, LocalPort: null), proxySide, ct);
+        }
+        catch
+        {
+            await callerSide.DisposeAsync();
+            throw;
+        }
+
+        var (connection, error) = opened;
+        if (connection == null)
+        {
+            await callerSide.DisposeAsync();
+            throw new IOException($"{host}:{port} via the site's agent - {error}");
+        }
+
+        _ = PumpToAgentAsync(connection, _shutdown.Token);
+        return callerSide;
+    }
+
     private async Task HandleLocalConnectionAsync(ProxyListener listener, TcpClient client, CancellationToken ct)
     {
-        var agent = _registry.GetForSite(listener.SiteSlug).FirstOrDefault();
+        try
+        {
+            var target = new ProxyTarget(listener.SiteSlug, listener.TargetHost, listener.TargetPort, listener.IsConsole, listener.LocalPort);
+            var (connection, _) = await OpenAsync(target, client.GetStream(), ct);
+            if (connection != null)
+                await PumpToAgentAsync(connection, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Asks the site's agent to open the target and waits for its answer. On success the connection
+    /// is registered and <paramref name="local"/> carries its bytes; otherwise <paramref name="local"/>
+    /// is disposed and the reason returned.
+    /// </summary>
+    private async Task<(ProxyConnection? Connection, string? Error)> OpenAsync(
+        ProxyTarget target, Stream local, CancellationToken ct)
+    {
+        var agent = _registry.GetForSite(target.SiteSlug).FirstOrDefault();
         if (agent == null)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - no agent online for site {Slug}",
-                listener.TargetHost, listener.TargetPort, listener.SiteSlug);
-            client.Dispose();
-            return;
+                target.Host, target.Port, target.SiteSlug);
+            local.Dispose();
+            return (null, "no agent online for the site");
         }
 
         // A black-holed tunnel stays registered (IsAgentOnline() true) until the
@@ -126,13 +176,13 @@ public class AgentTunnelProxyService : IDisposable
         if (silent > AgentTunnelConnection.StaleThreshold)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - agent {AgentId} silent for {Silent:n0}s (site {Slug})",
-                listener.TargetHost, listener.TargetPort, agent.AgentId, silent.TotalSeconds, listener.SiteSlug);
-            client.Dispose();
+                target.Host, target.Port, agent.AgentId, silent.TotalSeconds, target.SiteSlug);
+            local.Dispose();
             // Belt-and-braces with the watchdog's proactive flip: if a dial reaches
             // a stale tunnel before the watchdog's next 15s tick has flipped the
             // console, flip it now so this page's remaining calls short-circuit.
-            FlipConsoleAwaitingAgent(listener.SiteSlug);
-            return;
+            FlipConsoleAwaitingAgent(target.SiteSlug);
+            return (null, "the site's agent has gone silent");
         }
 
         // Circuit breaker: a recent open to this site timed out and no inbound has
@@ -140,29 +190,29 @@ public class AgentTunnelProxyService : IDisposable
         // Fast-fail the render's remaining opens rather than eat OpenTimeout on
         // each. Fresh inbound (LastMessageAt past when the breaker tripped) means
         // the tunnel recovered, clearing this without needing a probe.
-        if (_openBreaker.TryGetValue(listener.SiteSlug, out var breaker)
+        if (_openBreaker.TryGetValue(target.SiteSlug, out var breaker)
             && DateTime.UtcNow < breaker.Until
             && agent.LastMessageAt <= breaker.OpenedAtLastMsg)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} fast-refused - open breaker tripped for agent {AgentId} (site {Slug})",
-                listener.TargetHost, listener.TargetPort, agent.AgentId, listener.SiteSlug);
-            client.Dispose();
-            return;
+                target.Host, target.Port, agent.AgentId, target.SiteSlug);
+            local.Dispose();
+            return (null, "the site's agent is not answering");
         }
 
         var id = Interlocked.Increment(ref _nextConnectionId);
-        var connection = new ProxyConnection(id, client, agent);
+        var connection = new ProxyConnection(id, local, agent);
         _connections[id] = connection;
         try
         {
             var sent = await agent.SendAsync(new ServerMessage
             {
-                ProxyOpen = new ProxyOpen { ConnectionId = id, Host = listener.TargetHost, Port = listener.TargetPort }
+                ProxyOpen = new ProxyOpen { ConnectionId = id, Host = target.Host, Port = target.Port }
             }, ct);
             if (!sent)
             {
                 CloseConnection(connection, notifyAgent: false);
-                return;
+                return (null, "the site's agent disconnected");
             }
 
             using var openTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -177,9 +227,9 @@ public class AgentTunnelProxyService : IDisposable
                 openError = "open timed out";
                 // Trip the breaker so the opens queued behind this one fast-fail
                 // instead of each blocking the full OpenTimeout.
-                var wasTripped = _openBreaker.TryGetValue(listener.SiteSlug, out var prev)
+                var wasTripped = _openBreaker.TryGetValue(target.SiteSlug, out var prev)
                                  && DateTime.UtcNow < prev.Until;
-                _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
+                _openBreaker[target.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
 
                 // On the FIRST timeout of an outage, flip the site's console to
                 // awaiting-agent now (not at the 90s watchdog), so its page renders
@@ -192,46 +242,62 @@ public class AgentTunnelProxyService : IDisposable
                 // the site offline over one unreachable device.
                 var tunnelSilent = DateTime.UtcNow - agent.LastMessageAt > AgentTunnelConnection.StaleThreshold;
                 if (!wasTripped && tunnelSilent)
-                    FlipConsoleAwaitingAgent(listener.SiteSlug);
+                    FlipConsoleAwaitingAgent(target.SiteSlug);
             }
             if (openError != null)
             {
                 _logger.LogDebug("Proxy open {Host}:{Port} via agent {AgentId} failed: {Error}",
-                    listener.TargetHost, listener.TargetPort, agent.AgentId, openError);
+                    target.Host, target.Port, agent.AgentId, openError);
 
                 // The console's own endpoint failing IS the console being down - the flip above only
                 // covers a silent tunnel. Two strikes so one blip can't mark a healthy console down.
-                if (listener.IsConsole
-                    && _consoleOpenFailures.AddOrUpdate(listener.SiteSlug, 1, (_, n) => n + 1) >= ConsoleFailuresBeforeUnreachable)
+                if (target.IsConsole
+                    && _consoleOpenFailures.AddOrUpdate(target.SiteSlug, 1, (_, n) => n + 1) >= ConsoleFailuresBeforeUnreachable)
                 {
-                    NoteConsoleUnreachable(listener.SiteSlug);
+                    NoteConsoleUnreachable(target.SiteSlug);
                 }
                 // The dialer only sees the socket close, so leave the agent's reason where they can
                 // find it - SSH.NET reports the hang-up as a missing banner and buries the cause.
-                _lastOpenFailure[listener.LocalPort] =
-                    ($"{listener.TargetHost}:{listener.TargetPort} via the site's agent - {openError}", DateTime.UtcNow);
+                if (target.LocalPort is { } localPort)
+                {
+                    _lastOpenFailure[localPort] =
+                        ($"{target.Host}:{target.Port} via the site's agent - {openError}", DateTime.UtcNow);
+                }
                 CloseConnection(connection, notifyAgent: false);
-                return;
+                return (null, openError);
             }
 
             // The tunnel answered, so clear any open breaker for this site.
-            if (listener.IsConsole) _consoleOpenFailures.TryRemove(listener.SiteSlug, out _);
-            _openBreaker.TryRemove(listener.SiteSlug, out _);
-            _lastOpenFailure.TryRemove(listener.LocalPort, out _);
+            if (target.IsConsole) _consoleOpenFailures.TryRemove(target.SiteSlug, out _);
+            _openBreaker.TryRemove(target.SiteSlug, out _);
+            if (target.LocalPort is { } openedPort) _lastOpenFailure.TryRemove(openedPort, out _);
+            return (connection, null);
+        }
+        catch
+        {
+            CloseConnection(connection, notifyAgent: true);
+            throw;
+        }
+    }
 
-            // Local reads -> tunnel, with backpressure. The agent-to-local
-            // direction is written by the tunnel read loop via OnProxyDataAsync.
+    /// <summary>
+    /// Local reads -> tunnel, with backpressure, until either side closes. The agent-to-local
+    /// direction is written by the tunnel read loop via OnProxyDataAsync.
+    /// </summary>
+    private async Task PumpToAgentAsync(ProxyConnection connection, CancellationToken ct)
+    {
+        try
+        {
             var buffer = new byte[FrameBytes];
-            var stream = client.GetStream();
             while (!ct.IsCancellationRequested)
             {
                 int read;
-                try { read = await stream.ReadAsync(buffer, ct); }
+                try { read = await connection.Local.ReadAsync(buffer, ct); }
                 catch { break; }
                 if (read <= 0) break;
-                var ok = await agent.SendAsync(new ServerMessage
+                var ok = await connection.Agent.SendAsync(new ServerMessage
                 {
-                    ProxyData = new ProxyData { ConnectionId = id, Data = ByteString.CopyFrom(buffer, 0, read) }
+                    ProxyData = new ProxyData { ConnectionId = connection.Id, Data = ByteString.CopyFrom(buffer, 0, read) }
                 }, ct);
                 if (!ok) break;
             }
@@ -309,7 +375,7 @@ public class AgentTunnelProxyService : IDisposable
         if (!TryGetOwnedConnection(sender, data.ConnectionId, out var connection)) return;
         try
         {
-            await connection.Client.GetStream().WriteAsync(data.Data.Memory, ct);
+            await connection.Local.WriteAsync(data.Data.Memory, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -385,7 +451,7 @@ public class AgentTunnelProxyService : IDisposable
         connection.OpenResult.TrySetResult("closed");
         if (notifyAgent)
             connection.Agent.TrySend(new ServerMessage { ProxyClose = new ProxyClose { ConnectionId = connection.Id } });
-        try { connection.Client.Dispose(); } catch { }
+        try { connection.Local.Dispose(); } catch { }
     }
 
     public void Dispose()
@@ -401,6 +467,8 @@ public class AgentTunnelProxyService : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    private sealed record ProxyTarget(string SiteSlug, string Host, int Port, bool IsConsole, int? LocalPort);
+
     private sealed record ProxyListener(TcpListener Tcp, string SiteSlug, string TargetHost, int TargetPort, bool IsConsole = false)
     {
         public int LocalPort => ((IPEndPoint)Tcp.LocalEndpoint).Port;
@@ -408,15 +476,17 @@ public class AgentTunnelProxyService : IDisposable
 
     private sealed class ProxyConnection
     {
-        public ProxyConnection(long id, TcpClient client, AgentTunnelConnection agent)
+        public ProxyConnection(long id, Stream local, AgentTunnelConnection agent)
         {
             Id = id;
-            Client = client;
+            Local = local;
             Agent = agent;
         }
 
         public long Id { get; }
-        public TcpClient Client { get; }
+        /// <summary>This end of the connection, disposed when it closes: a loopback socket's stream, or the proxy side of a stream pair.</summary>
+        public Stream Local { get; }
+
         public AgentTunnelConnection Agent { get; }
 
         /// <summary>Null = opened; otherwise the failure reason.</summary>

@@ -230,7 +230,7 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
         if (provider == null)
             return (false, $"No provider registered for '{config.Provider}'");
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
         return await provider.TestConnectionAsync(context);
     }
 
@@ -293,7 +293,7 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
             return;
         }
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
 
         try
         {
@@ -488,22 +488,16 @@ public sealed class StarlinkMonitorService : IStarlinkMonitorService, IDisposabl
         return null;
     }
 
-    private async Task<StarlinkPollContext> ToContextAsync(StarlinkConfiguration config)
+    private StarlinkPollContext ToContext(StarlinkConfiguration config)
     {
-        // gRPC to agent sites goes through the tunnel proxy: the channel dials
-        // a loopback endpoint whose bytes the agent pumps to the dish inside
-        // the site's network (the proxy is a raw TCP relay, so plaintext
-        // HTTP/2 passes through unmodified).
-        var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
-
         return new StarlinkPollContext
         {
             Id = config.Id,
             SiteSlug = _siteSlug,
             Name = config.Name,
-            Host = host,
-            ConfiguredHost = config.Host,
-            Port = port,
+            Host = config.Host,
+            Port = config.Port,
+            Dialer = _tunnelRouting.DialerFor(_siteSlug),
         };
     }
 

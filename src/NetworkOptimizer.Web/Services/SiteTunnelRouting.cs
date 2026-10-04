@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -8,10 +9,10 @@ namespace NetworkOptimizer.Web.Services;
 /// flag (stored in the site's own database) says whether this server reaches
 /// the site's device endpoints - SSH to the gateway and devices, cable modem /
 /// ONT / cellular hotspot status pages - through the site's agent tunnel
-/// instead of directly. When enabled, <see cref="RouteAsync"/> rewrites a
-/// host:port to a loopback endpoint from <see cref="AgentTunnelProxyService"/>;
-/// the agent dials the real target inside the site's network, and the caller's
-/// transport (SSH.NET, HttpClient) is unaware of the proxying. The default site is normally this
+/// instead of directly. When enabled, <see cref="RouteAsync"/> gives SSH.NET and the console
+/// client a loopback endpoint from <see cref="AgentTunnelProxyService"/> per host:port, and
+/// <see cref="DialerFor"/> gives device providers a connection to any address inside the site.
+/// Either way the agent dials the real target in the site's network. The default site is normally this
 /// server's own network and routes directly; it can route via tunnel too, but only once it is
 /// explicitly configured for its agent to cover it (the off-site-server case).
 /// </summary>
@@ -99,5 +100,32 @@ public class SiteTunnelRouting
         _logger.LogDebug("Endpoint {Host}:{Port} (site {Slug}) routed via agent tunnel (127.0.0.1:{LocalPort})",
             host, port, slug, localPort);
         return ("127.0.0.1", localPort);
+    }
+
+    /// <summary>
+    /// A TCP connection to {host}:{port} inside the given site: a tunnel stream when the site's
+    /// devices are reached via its agent, otherwise a socket from this server. Unlike
+    /// <see cref="RouteAsync"/> it needs no listener per address, so any address works.
+    /// </summary>
+    public async ValueTask<Stream> ConnectAsync(string slug, string host, int port, CancellationToken ct)
+    {
+        if (await IsViaAgentAsync(slug) && _serviceProvider.GetService<AgentTunnelProxyService>() is { } proxy)
+            return await proxy.OpenStreamAsync(slug, host, port, ct);
+
+        // Defer to RouteAsync, so any policy it applies to a dial without a tunnel applies here too.
+        var (routedHost, routedPort) = await RouteAsync(slug, host, port);
+        return await DirectDeviceDialer.ConnectAsync(routedHost, routedPort, ct);
+    }
+
+    /// <summary>The dialer device providers use to reach this site's devices.</summary>
+    public IDeviceDialer DialerFor(string slug) => new SiteDeviceDialer(this, slug);
+
+    private sealed class SiteDeviceDialer(SiteTunnelRouting routing, string slug) : IDeviceDialer
+    {
+        public ValueTask<Stream> DialAsync(string host, int port, CancellationToken cancellationToken)
+            => routing.ConnectAsync(slug, host, port, cancellationToken);
+
+        public Task<(string Host, int Port)> ResolveAsync(string host, int port)
+            => routing.RouteAsync(slug, host, port);
     }
 }

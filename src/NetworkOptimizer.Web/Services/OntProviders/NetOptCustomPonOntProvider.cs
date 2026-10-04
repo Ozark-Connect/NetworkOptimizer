@@ -62,9 +62,9 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         var payload = await FetchPayloadAsync(context, cancellationToken);
         if (payload == null)
             return PollResult<OntStats>.Failed(
-                $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+                $"No stats could be read from {context.Host}.");
         var stats = MapToOntStats(payload);
-        stats.DeviceHost = context.ConfiguredHost ?? context.Host;
+        stats.DeviceHost = context.Host;
         stats.DeviceName = context.Name;
         return PollResult<OntStats>.Ok(stats);
     }
@@ -100,11 +100,11 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         }
         catch (HttpRequestException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (TaskCanceledException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (Exception ex)
         {
@@ -128,13 +128,16 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         {
             // Generous timeout: reference implementations gather stats on demand
             // (e.g. an SSH round-trip into the SFP stick) before responding.
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var client = new HttpClient(new SocketsHttpHandler { ConnectCallback = DeviceHttp.Via(context.Dialer) })
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+            };
             var json = await client.GetStringAsync(url, cancellationToken);
 
             var payload = ParsePayload(json);
             if (payload == null)
             {
-                _logger.LogDebug("PON stats endpoint {Host} returned unparseable payload", context.ConfiguredHost ?? context.Host);
+                _logger.LogDebug("PON stats endpoint {Host} returned unparseable payload", context.Host);
                 if (throwOnError) throw new InvalidOperationException("Response was not valid PON stats JSON");
                 return null;
             }
@@ -142,7 +145,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
             if (!string.IsNullOrEmpty(payload.Error))
             {
                 _logger.LogDebug("PON stats endpoint {Host} reported error: {Error} - {Message}",
-                    context.ConfiguredHost ?? context.Host, payload.Error, payload.Message);
+                    context.Host, payload.Error, payload.Message);
                 if (throwOnError)
                     throw new InvalidOperationException(
                         string.IsNullOrEmpty(payload.Message) ? payload.Error : $"{payload.Error}: {payload.Message}");
@@ -153,7 +156,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         }
         catch (Exception ex) when (!throwOnError)
         {
-            _logger.LogDebug(ex, "PON stats poll failed for {Host}", context.ConfiguredHost ?? context.Host);
+            _logger.LogDebug(ex, "PON stats poll failed for {Host}", context.Host);
             return null;
         }
         finally

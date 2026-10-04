@@ -244,7 +244,7 @@ public class VodafoneStationProviderTests
     [Fact]
     public void ParseDocsis_CarriesDeviceIdentityFromContext()
     {
-        var context = Context() with { ConfiguredHost = "198.51.100.5" };
+        var context = Context() with { Host = "198.51.100.5" };
 
         var stats = VodafoneStationProvider.ParseDocsis(DocsisPage, context, "ARRIS TG3442DE");
 

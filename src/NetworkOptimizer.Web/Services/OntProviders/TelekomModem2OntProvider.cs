@@ -39,13 +39,13 @@ public sealed class TelekomModem2OntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
+            using var client = CreateClient(context.Dialer);
             var json = await client.GetStringAsync($"{BuildBaseUrl(context)}{StatusPath}", cancellationToken);
 
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
+                DeviceHost = context.Host,
                 DeviceName = context.Name,
                 DeviceModel = "Glasfaser-Modem 2",
             };
@@ -61,8 +61,8 @@ public sealed class TelekomModem2OntProvider : IOntProvider
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -74,7 +74,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
+            using var client = CreateClient(context.Dialer);
             var json = await client.GetStringAsync($"{BuildBaseUrl(context)}{StatusPath}", cancellationToken);
 
             var stats = new OntStats();
@@ -88,7 +88,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -173,9 +173,12 @@ public sealed class TelekomModem2OntProvider : IOntProvider
     /// Assistant integration for this same device, which sets exactly this header and nothing
     /// else beyond a plain GET.
     /// </summary>
-    internal static HttpClient CreateClient()
+    internal static HttpClient CreateClient(IDeviceDialer dialer)
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+        var client = new HttpClient(new SocketsHttpHandler { ConnectCallback = DeviceHttp.Via(dialer) })
+        {
+            Timeout = TimeSpan.FromSeconds(TimeoutSeconds),
+        };
         client.DefaultRequestHeaders.Add("Accept-Language", "en");
         return client;
     }
