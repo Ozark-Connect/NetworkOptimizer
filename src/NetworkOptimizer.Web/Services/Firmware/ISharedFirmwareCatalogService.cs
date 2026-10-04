@@ -29,10 +29,10 @@ public sealed record FirmwareUrlAddResult(
 }
 
 /// <summary>
-/// Admin changes to the install-wide shared firmware catalog. Instance-scoped, not site-scoped: a
-/// build added here is offered to every site on this install, so only an instance Admin may add one.
+/// Changes to the install-wide shared firmware catalog, made from a site's Firmware Rollout page.
+/// Site-scoped like the rest of Firmware Rollout: Admin means Site Admin on the site in context.
 /// </summary>
-[MutatingService]
+[MutatingService(SiteScoped = true)]
 public interface ISharedFirmwareCatalogService
 {
     /// <summary>
@@ -43,6 +43,6 @@ public interface ISharedFirmwareCatalogService
     /// <param name="url">The download link as pasted.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.FirmwareSharedBuildAdded, TargetType = "firmware_build", InstanceScoped = true)]
+    [AuditAction(AuditActions.FirmwareSharedBuildAdded, TargetType = "firmware_build")]
     Task<FirmwareUrlAddResult> AddFirmwareUrlAsync(string url, CancellationToken cancellationToken = default);
 }

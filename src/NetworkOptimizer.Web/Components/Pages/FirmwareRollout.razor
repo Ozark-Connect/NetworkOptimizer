@@ -1146,7 +1146,7 @@ else
     // ---- Add firmware by URL ----
 
     /// <summary>The Add Firmware by URL section, shown on the landing card and on a scheduled plan.</summary>
-    private RenderFragment AddFirmwareSection => @<AdminOnly>
+    private RenderFragment AddFirmwareSection => @<SiteAdminOnly>
         <div class="card-body firmware-rollout-add-url">
             <details class="setup-guide firmware-rollout-guide" data-tour="firmware-add-url">
                 <summary>Add Firmware by URL</summary>
@@ -1174,7 +1174,7 @@ else
                 </div>
             </details>
         </div>
-    </AdminOnly>;
+    </SiteAdminOnly>;
 
     private string? _addUrl;
     private FirmwareUrlAddResult? _addResult;
