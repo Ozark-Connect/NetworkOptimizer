@@ -201,9 +201,24 @@ If it does not reach **Online (tunnel)**, read the agent log:
 | Proxmox LXC (from the host) | `pct exec <CT_ID> -- journalctl -u netopt-agent -f` |
 
 A healthy first start logs `Enrolled for site '<slug>'`, then
-`Tunnel open for site '<slug>'`. `Enrollment failed:`, `Tunnel error:`, or
-`Heartbeat error:` is followed by the reason. When the reason is a connection
-problem, check the connection.
+`Tunnel open for site '<slug>'`. After that, `Received probe config` once a
+minute means config is arriving over the tunnel. Those minute lines bury the
+connection history, so search for it:
+
+```bash
+journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+# Docker: docker logs network-optimizer-agent 2>&1 | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+```
+
+`Enrollment failed:`, `Tunnel error:`, `Heartbeat failed:`, and `Heartbeat error:`
+are each followed by the reason. A `Tunnel error:` and `Heartbeat failed:
+BadGateway`, then `Tunnel open` about 30 seconds later, is the server
+restarting, not a fault. When the reason is a connection problem, check the
+connection.
+
+Check the dates. A UniFi gateway keeps a small in-memory journal, so the last
+connect lines can be older than the running agent; `systemctl status
+netopt-agent` shows when it started.
 
 #### Verify the connection
 
