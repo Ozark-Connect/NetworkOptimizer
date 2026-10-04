@@ -1,0 +1,19 @@
+{
+  "id": "2.9.2",
+  "kind": "whats-new",
+  "title": "What's new in v2.9.2",
+  "summary": "Roll out a UniFi OS, device, or UniFi Network build as soon as any of your Consoles is offered it, or paste its download link yourself.",
+  "steps": [
+    {
+      "id": "firmware-add-url",
+      "level": "minor",
+      "url": "/firmware-rollout",
+      "selector": "[data-tour=\"firmware-add-url\"]",
+      "title": "Add Firmware by URL",
+      "listLabel": "Roll out a build before your Consoles are offered it",
+      "body": "Paste a Ubiquiti download link for device firmware, UniFi OS, or the UniFi Network application. Network Optimizer works out what it is for and offers it to every site on Early Access.\n\n**Plan Rollout Now** takes you straight to the preview of a rollout that starts now.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}
