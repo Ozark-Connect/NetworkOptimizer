@@ -423,6 +423,38 @@ public class RolloutConsoleChannelTests
     }
 
     [Fact]
+    public async Task AnSshUniFiOsInstall_ShowsAsSendingWhileTheGatewayDownloads()
+    {
+        // The command returns only once the image has downloaded; the step must not read as queued meanwhile.
+        using var harness = new RolloutHarness();
+        var plan = await SeedPinnedOsPlanAsync(harness);
+        DateTime? sendingDuringCommand = null;
+        harness.Commands.DuringSshUniFiOsUpdate = async () =>
+            sendingDuringCommand = Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.SendingAt;
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        sendingDuringCommand.Should().NotBeNull();
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.SendingAt.Should().BeNull("it clears once the command returns");
+        stored.UniFiOsUpdate.Triggered.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AFailedSshUniFiOsInstall_ClearsSending()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsResult = FirmwareCommandResult.Failed("no route");
+        var plan = await SeedPinnedOsPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.SendingAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task APinnedUniFiOsBuild_IsNeverSwappedForTheConsolesBuildWhenSshFails()
     {
         using var harness = new RolloutHarness();

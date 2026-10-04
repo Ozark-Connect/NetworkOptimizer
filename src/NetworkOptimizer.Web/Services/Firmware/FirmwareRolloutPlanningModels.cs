@@ -512,6 +512,13 @@ public class RolloutConsoleStepState
     /// <summary>Whether the install has been commanded. The resume guard.</summary>
     public bool Triggered { get; set; }
 
+    /// <summary>
+    /// When an SSH install was sent and has not returned yet. The command blocks while the gateway
+    /// downloads the image, so this is what shows the step as upgrading in the meantime. Display
+    /// only: <see cref="Triggered"/> stays the resume guard.
+    /// </summary>
+    public DateTime? SendingAt { get; set; }
+
     /// <summary>When it was commanded, which the recovery budget runs from.</summary>
     public DateTime? TriggeredAt { get; set; }
 

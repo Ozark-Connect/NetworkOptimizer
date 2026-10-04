@@ -771,7 +771,7 @@ else
     {
         // A step can settle without ever triggering (nothing to install), so Settled is checked
         // before Triggered - the outcome word, not a "Queued" it never left.
-        if (!state.Triggered && !state.Settled) return "Queued";
+        if (!state.Triggered && !state.Settled) return state.SendingAt != null ? "Upgrading" : "Queued";
         if (!state.Settled) return "Upgrading";
         return state.Outcome switch
         {
@@ -831,7 +831,7 @@ else
 
     private static string ConsoleChipClass(RolloutConsoleStepState state)
     {
-        if (!state.Triggered && !state.Settled) return "chip-muted";
+        if (!state.Triggered && !state.Settled) return state.SendingAt != null ? "chip-active" : "chip-muted";
         if (!state.Settled) return "chip-active";
         return state.Outcome switch
         {

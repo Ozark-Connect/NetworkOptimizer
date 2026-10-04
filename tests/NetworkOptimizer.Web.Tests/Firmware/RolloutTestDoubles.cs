@@ -250,10 +250,14 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(SshNetworkAppResult);
     }
 
-    public Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
+    /// <summary>Runs while the SSH UniFi OS install is in flight, before it returns.</summary>
+    public Func<Task>? DuringSshUniFiOsUpdate { get; set; }
+
+    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-unifi-os-update");
-        return Task.FromResult(SshUniFiOsResult);
+        if (DuringSshUniFiOsUpdate != null) await DuringSshUniFiOsUpdate();
+        return SshUniFiOsResult;
     }
 
     public bool GatewaySshConfigured { get; set; } = true;

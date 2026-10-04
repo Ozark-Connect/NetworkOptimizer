@@ -1590,7 +1590,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogInformation(
             "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
             document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
-        var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+
+        // The command returns only after the gateway has downloaded the image, so the step shows as
+        // upgrading from the moment it is sent rather than a minute or more later.
+        document.UniFiOsUpdate.SendingAt = Now;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+
+        FirmwareCommandResult ssh;
+        try
+        {
+            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+        }
+        finally
+        {
+            document.UniFiOsUpdate.SendingAt = null;
+        }
+
         if (ssh.IsOk)
         {
             document.UniFiOsUpdate.Triggered = true;
@@ -1601,6 +1616,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return true;
         }
 
+        await PersistDocumentAsync(plan, document, cancellationToken);
         _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
         return false;
     }
