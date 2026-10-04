@@ -1638,12 +1638,15 @@ public class FirewallRuleAnalyzerTests
     // Firmware needs fw-download.ubnt.com AND fw-update.ubnt.com. Either both are named, or a rule
     // covers ubnt.com itself, which is an effective wildcard over both.
     private List<FirewallRule> FirmwareAccessRules(string mgmtNetworkId, params string[] ubntDomains)
+        => FirmwareAccessRulesWithCloud(mgmtNetworkId, "ui.com", ubntDomains);
+
+    private List<FirewallRule> FirmwareAccessRulesWithCloud(string mgmtNetworkId, string cloudDomain, params string[] ubntDomains)
     {
         var rules = new List<FirewallRule>
         {
             CreateFirewallRule("Allow UniFi Access", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "ui.com" }),
+                webDomains: new List<string> { cloudDomain }),
             CreateFirewallRule("Allow AFC Traffic", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
@@ -1701,6 +1704,37 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         issues.Should().ContainSingle(issue => issue.Type == IssueTypes.MgmtMissingFirmwareDownload);
+    }
+
+    // The release-note download links come from dl.ui.com, which a rule for ui.com as a whole covers.
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_UbntWithoutDlUi_FlagsFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = FirmwareAccessRulesWithCloud(mgmtNetworkId, "unifi.ui.com", "ubnt.com");
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        issues.Should().ContainSingle(issue => issue.Type == IssueTypes.MgmtMissingFirmwareDownload);
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_UbntAndDlUi_SatisfiesFirmwareCheck()
+    {
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = FirmwareAccessRulesWithCloud(mgmtNetworkId, "unifi.ui.com", "ubnt.com", "dl.ui.com");
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        issues.Should().NotContain(issue => issue.Type == IssueTypes.MgmtMissingFirmwareDownload);
     }
 
 #endregion
