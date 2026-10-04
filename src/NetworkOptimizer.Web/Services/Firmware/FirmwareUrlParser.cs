@@ -28,14 +28,20 @@ public enum FirmwareUrlKind
 public sealed record ParsedFirmwareUrl(FirmwareUrlKind Kind, string? Token, string Version, string Directory, string Url);
 
 /// <summary>
-/// Reads Ubiquiti firmware URLs pasted by an admin. Only Ubiquiti's own download hosts are accepted:
-/// the URL ends up in an SSH install command on a gateway and is shared with every site.
+/// Reads Ubiquiti firmware URLs pasted by an admin. The URL ends up in an install command and is
+/// shared with every site, so it must be on a Ubiquiti domain AND match a known image layout. The
+/// layout is the real check: some Ubiquiti hosts serve uploaded files, which never sit at these paths.
 /// </summary>
 [VendorSpecific("UniFi", "fw-download.ubnt.com and dl.ui.com path layouts")]
 public static class FirmwareUrlParser
 {
-    /// <summary>Hosts a firmware URL may point at.</summary>
-    public static readonly IReadOnlyList<string> AllowedHosts = ["fw-download.ubnt.com", "dl.ui.com"];
+    /// <summary>Ubiquiti's domains; a link's host must be one of these or a subdomain of one.</summary>
+    public static readonly IReadOnlyList<string> UbiquitiDomains = ["ui.com", "ubnt.com"];
+
+    /// <summary>Whether a host is a Ubiquiti domain or a subdomain of one (a suffix match on a dot boundary).</summary>
+    public static bool IsUbiquitiHost(string host) =>
+        UbiquitiDomains.Any(d => host.Equals(d, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("." + d, StringComparison.OrdinalIgnoreCase));
 
     // <hex>-<TOKEN>-<x.y.z[.n]>-<rest>.bin, e.g. 6a7a-UCGF-6.0.11-847f967b-....bin
     private static readonly Regex ImageFile = new(
@@ -70,9 +76,9 @@ public static class FirmwareUrlParser
             return null;
         }
 
-        if (!AllowedHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
+        if (!IsUbiquitiHost(uri.Host) || !uri.IsDefaultPort)
         {
-            error = $"Only Ubiquiti download links are accepted ({string.Join(", ", AllowedHosts)}).";
+            error = "Only Ubiquiti download links are accepted (a ui.com or ubnt.com address).";
             return null;
         }
 

@@ -614,10 +614,21 @@ public class PlanTargetImage
 /// <param name="Version">The version to install.</param>
 /// <param name="Url">The image or package URL.</param>
 /// <param name="Models">Every device model the image is for; null means <paramref name="Target"/> alone.</param>
-public sealed record RolloutBuildPin(FirmwareUrlKind Kind, string? Target, string Version, string Url, IReadOnlyList<string>? Models = null)
+/// <param name="ModelUrls">Per-model install URLs for the same image, where a model has its own; others use <paramref name="Url"/>.</param>
+public sealed record RolloutBuildPin(
+    FirmwareUrlKind Kind,
+    string? Target,
+    string Version,
+    string Url,
+    IReadOnlyList<string>? Models = null,
+    IReadOnlyDictionary<string, string>? ModelUrls = null)
 {
     /// <summary>The device models the pin covers.</summary>
     public IReadOnlyList<string> DeviceModels => Models is { Count: > 0 } ? Models : Target is { Length: > 0 } t ? [t] : [];
+
+    /// <summary>The URL a device of this model installs from.</summary>
+    public string UrlFor(string? model) =>
+        model != null && ModelUrls != null && ModelUrls.TryGetValue(model, out var url) ? url : Url;
 }
 
 /// <summary>A per-model channel entry a rollout changed, and the entry it replaced.</summary>

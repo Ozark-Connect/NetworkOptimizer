@@ -397,6 +397,28 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsync_AdoptsABuildFiledUnderTheSameProductsOtherCode()
+    {
+        // A link names the UCG-Ultra by its model code; the console reports its shortname.
+        using var harness = CloudGatewayHarness(platform: "UCG-ULTRA");
+        await SeedSharedOsBuildAsync(harness, platform: "UDRULT");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.11+ccc3333");
+    }
+
+    [Theory]
+    [InlineData("UCGF", "UCGF", true)]
+    [InlineData("UDRULT", "UCG-ULTRA", true)]
+    [InlineData("UCGF", "UCGMAX", false)]
+    [InlineData("UNKNOWN1", "UNKNOWN2", false)]
+    public void SamePlatform_MatchesCodesForTheSameProduct(string a, string b, bool expected)
+    {
+        RolloutPlanComposer.SamePlatform(a, b).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task BuildPreviewAsync_IgnoresASharedBuildForAnotherPlatform()
     {
         using var harness = CloudGatewayHarness();

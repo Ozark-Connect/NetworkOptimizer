@@ -81,7 +81,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
                 await _catalog.UpsertDeviceBuildsAsync(
                     family.Models.Select(m => new SharedFirmwareBuild
                     {
-                        Model = m, Channel = AddedChannel, Version = family.Version, Url = parsed.Url, Md5Sum = family.Md5,
+                        Model = m, Channel = AddedChannel, Version = family.Version, Url = family.UrlFor(m, parsed.Url), Md5Sum = family.Md5,
                     }).ToList(),
                     cancellationToken);
                 if (!(await _catalog.ListDeviceBuildsAsync(cancellationToken)).Any(b =>
@@ -90,7 +90,8 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
 
                 var lead = family.Models.FirstOrDefault(m => string.Equals(m, target, StringComparison.OrdinalIgnoreCase))
                     ?? family.Models[0];
-                result = new FirmwareUrlAddResult(null, kind, lead, family.Version, matched || family.Matched, parsed.Url, family.Models);
+                result = new FirmwareUrlAddResult(null, kind, lead, family.Version, matched || family.Matched, parsed.Url, family.Models,
+                    family.Models.ToDictionary(m => m, m => family.UrlFor(m, parsed.Url), StringComparer.OrdinalIgnoreCase));
             }
 
             result ??= new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched, parsed.Url);
@@ -102,6 +103,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
             kind = result.Kind.ToString(),
             target = result.Target,
             models = result.Models,
+            modelUrls = result.ModelUrls,
             version = result.Version,
             channel = AddedChannel,
             url = parsed.Url,
@@ -140,8 +142,20 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
         return (parsed.Kind, parsed.Kind == FirmwareUrlKind.Unknown ? null : token, false);
     }
 
-    /// <summary>The device models one image serves, the version to file it under, and its md5.</summary>
-    private sealed record ImageFamily(IReadOnlyList<string> Models, string Version, string? Md5, bool Matched);
+    /// <summary>
+    /// The device models one image serves, the version to file it under, its md5, and each model's
+    /// own catalog URL for the same bytes where it has one.
+    /// </summary>
+    private sealed record ImageFamily(
+        IReadOnlyList<string> Models, string Version, string? Md5, bool Matched,
+        IReadOnlyDictionary<string, string>? CatalogUrls = null)
+    {
+        public string UrlFor(string model, string pasted) =>
+            CatalogUrls != null && CatalogUrls.TryGetValue(model, out var url) ? url : pasted;
+    }
+
+    /// <summary>The host the Consoles' own catalogs serve device images from, and which networks already allow.</summary>
+    private const string CatalogImageHost = "fw-download.ubnt.com";
 
     /// <summary>
     /// Every device model an image is for. One image often serves a family (dl.ui.com's U7PRO folder
@@ -161,9 +175,17 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
             var same = rows.Where(r => string.Equals(r.Md5Sum, md5, StringComparison.OrdinalIgnoreCase)).ToList();
             if (same.Count > 0)
             {
-                // The catalog's version carries the build number a file name may leave off.
+                // The catalog's version carries the build number a file name may leave off. Each model
+                // installs from its own catalog URL for these bytes: that host is the one networks allow.
                 var version = same.Select(r => r.Version).FirstOrDefault(v => v.Count(c => c == '.') >= 3) ?? same[0].Version;
-                return new ImageFamily(same.Select(r => r.Model).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), version, md5, true);
+                var urls = same
+                    .GroupBy(r => r.Model, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => (g.FirstOrDefault(r => Uri.TryCreate(r.Url, UriKind.Absolute, out var u)
+                                  && u.Host.Equals(CatalogImageHost, StringComparison.OrdinalIgnoreCase)) ?? g.First()).Url,
+                        StringComparer.OrdinalIgnoreCase);
+                return new ImageFamily(urls.Keys.ToList(), version, md5, true, urls);
             }
         }
 

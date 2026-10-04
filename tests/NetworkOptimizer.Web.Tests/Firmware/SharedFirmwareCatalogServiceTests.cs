@@ -80,8 +80,13 @@ public class SharedFirmwareCatalogServiceTests
         result.Succeeded.Should().BeTrue();
         result.Models.Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
         result.Target.Should().Be("U7PRO");
-        (await _catalog.ListDeviceBuildsAsync()).Where(b => b.Url == FamilyLink).Select(b => b.Model)
-            .Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
+        // Same bytes, so each model installs from its own catalog URL: the host networks already allow.
+        result.ModelUrls.Should().BeEquivalentTo(new Dictionary<string, string>
+        {
+            ["U7PRO"] = "https://fw-download.ubnt.com/data/unifi-firmware/0001-U7PRO-8.8.8.20113-a.bin",
+            ["UAPA6A4"] = "https://fw-download.ubnt.com/data/unifi-firmware/0002-UAPA6A4-8.8.8.20113-b.bin",
+        });
+        result.ToPin()!.UrlFor("UAPA6A4").Should().Be("https://fw-download.ubnt.com/data/unifi-firmware/0002-UAPA6A4-8.8.8.20113-b.bin");
         _downloads.Requested.Should().ContainSingle("the published .md5sum is enough; the image is never downloaded");
     }
 
@@ -112,6 +117,7 @@ public class SharedFirmwareCatalogServiceTests
 
         result.Models.Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
         result.Version.Should().Be("8.8.9.20138");
+        result.ModelUrls!.Values.Should().AllBe(link, "no Console has this build, so the pasted link is the only source");
     }
 
     [Fact]

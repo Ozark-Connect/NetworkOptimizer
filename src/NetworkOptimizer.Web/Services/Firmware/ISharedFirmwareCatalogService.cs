@@ -13,6 +13,7 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <param name="MatchedExisting">True when the target came from a build already in the catalog rather than the file name.</param>
 /// <param name="Url">The canonical URL that was stored.</param>
 /// <param name="Models">Every device model the image was filed for; one image can serve a whole family.</param>
+/// <param name="ModelUrls">The URL each model was filed under: its own catalog URL for the same image where there is one.</param>
 public sealed record FirmwareUrlAddResult(
     string? Error,
     FirmwareUrlKind Kind = FirmwareUrlKind.Unknown,
@@ -20,7 +21,8 @@ public sealed record FirmwareUrlAddResult(
     string? Version = null,
     bool MatchedExisting = false,
     string? Url = null,
-    IReadOnlyList<string>? Models = null)
+    IReadOnlyList<string>? Models = null,
+    IReadOnlyDictionary<string, string>? ModelUrls = null)
 {
     /// <summary>True when the build was added.</summary>
     public bool Succeeded => Error == null;
@@ -41,7 +43,7 @@ public sealed record FirmwareUrlAddResult(
 
     /// <summary>The added build as a pin for the rollout planned from it, or null when nothing was added.</summary>
     public RolloutBuildPin? ToPin() =>
-        Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url, Models) : null;
+        Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url, Models, ModelUrls) : null;
 }
 
 /// <summary>
