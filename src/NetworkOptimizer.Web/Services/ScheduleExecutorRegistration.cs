@@ -293,35 +293,27 @@ public static class ScheduleExecutorRegistration
         var device = devices.FirstOrDefault(d => d.Host == targetId);
 
         // Fall back to UniFi-discovered devices if not found in manual config
+        NetworkOptimizer.UniFi.DiscoveredDevice? unifiDevice = null;
         if (device == null)
         {
             var connService = services.GetRequiredService<SiteConnectionRegistry>().GetFor(siteKey);
             try
             {
                 var discovered = await connService.GetDiscoveredDevicesAsync(ct);
-                var unifiDevice = discovered.FirstOrDefault(d =>
+                unifiDevice = discovered.FirstOrDefault(d =>
                     d.IpAddress == targetId && d.Type != DeviceType.Gateway && d.CanRunIperf3);
-                if (unifiDevice != null)
-                {
-                    device = new DeviceSshConfiguration
-                    {
-                        Name = unifiDevice.Name ?? "Unknown Device",
-                        Host = unifiDevice.IpAddress,
-                        DeviceType = unifiDevice.Type,
-                        Enabled = true,
-                        StartIperf3Server = true
-                    };
-                }
             }
             catch { /* UniFi unavailable - fall through to error */ }
         }
 
-        if (device == null)
+        if (device == null && unifiDevice == null)
             return (false, null, $"Device not found: {targetId}");
 
         try
         {
-            var result = await lanService.RunSpeedTestAsync(device);
+            var result = device != null
+                ? await lanService.RunSpeedTestAsync(device)
+                : await lanService.RunSpeedTestAsync(unifiDevice!);
             if (result.ErrorMessage != null)
                 return (false, null, result.ErrorMessage);
 

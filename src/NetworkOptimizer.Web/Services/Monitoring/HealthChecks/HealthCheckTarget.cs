@@ -1,6 +1,7 @@
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.HealthChecks;
 
@@ -16,10 +17,14 @@ public sealed record HealthCheckTarget(
     bool FromLastKnown)
 {
     /// <summary>
-    /// Gateway hardware is a gateway for SSH credentials and remedies whatever role it is in: a
-    /// UDR meshing as an access point still runs UniFi OS and still takes the console credentials.
+    /// Gateway hardware is gateway-class for templates and remedies whatever role it is in: a UX7
+    /// adopted as an access point still runs UniFi OS. SSH follows the real role instead; see
+    /// <see cref="ToSshTarget"/>.
     /// </summary>
     public DeviceType EffectiveType => HardwareType == DeviceType.Gateway ? DeviceType.Gateway : Type;
+
+    /// <summary>The device's SSH identity: its real role, so an AP-mode UX7 is dialed at its own address.</summary>
+    public DeviceSshTarget ToSshTarget(string deviceMac) => new(deviceMac, Host ?? "", Type, HardwareType);
 
     /// <summary>
     /// The target as UniFi Network lists it. A listing without an address keeps the last-known one.

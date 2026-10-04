@@ -13,8 +13,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 /// </summary>
 public class DeviceRebootProbe
 {
-    private readonly IUniFiSshService _deviceSsh;
-    private readonly IGatewaySshService _gatewaySsh;
+    private readonly DeviceSshRouter _ssh;
     private readonly ILogger<DeviceRebootProbe> _logger;
 
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
@@ -78,20 +77,19 @@ public class DeviceRebootProbe
 
     /// <summary>Creates the probe.</summary>
     public DeviceRebootProbe(
-        IUniFiSshService deviceSsh,
-        IGatewaySshService gatewaySsh,
+        DeviceSshRouter ssh,
         ILogger<DeviceRebootProbe> logger)
     {
-        _deviceSsh = deviceSsh;
-        _gatewaySsh = gatewaySsh;
+        _ssh = ssh;
         _logger = logger;
     }
 
     /// <summary>
     /// Probe one device for why its previous run ended.
     /// </summary>
+    /// <param name="deviceMac">The device's MAC, which the SSH router keys its credential route on.</param>
     /// <param name="host">Device IP or hostname to SSH to.</param>
-    /// <param name="deviceType">Gateways use the console's SSH credentials, everything else the shared device ones.</param>
+    /// <param name="deviceType">The device's role. <see cref="DeviceSshRouter"/> picks the credentials from it.</param>
     /// <param name="firmwareChanged">Whether the reported firmware version changed across this boot.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
@@ -99,6 +97,7 @@ public class DeviceRebootProbe
     /// platform that keeps no pstore). Callers fall back to the UniFi Network event in that case.
     /// </returns>
     public async Task<DeviceRebootReason?> ProbeAsync(
+        string deviceMac,
         string host,
         DeviceType deviceType,
         bool firmwareChanged,
@@ -112,7 +111,7 @@ public class DeviceRebootProbe
             return null;
         }
 
-        var (success, output) = await RunProbeAsync(host, deviceType, cancellationToken);
+        var (success, output) = await RunProbeAsync(deviceMac, host, deviceType, cancellationToken);
 
         if (!success)
         {
@@ -218,17 +217,13 @@ public class DeviceRebootProbe
     }
 
     private async Task<(bool success, string output)> RunProbeAsync(
-        string host, DeviceType deviceType, CancellationToken cancellationToken)
+        string deviceMac, string host, DeviceType deviceType, CancellationToken cancellationToken)
     {
         try
         {
-            // The gateway is a UniFi OS console with its own credentials; APs and switches
-            // share one device credential set.
-            if (deviceType == DeviceType.Gateway)
-                return await _gatewaySsh.RunCommandAsync(ProbeCommand, ProbeTimeout, cancellationToken);
-
-            return await _deviceSsh.RunCommandAsync(host, ProbeCommand, portOverride: null,
-                cancellationToken: cancellationToken);
+            // The gateway keeps the probe's own timeout; every other device keeps the SSH service default.
+            var timeout = deviceType == DeviceType.Gateway ? ProbeTimeout : (TimeSpan?)null;
+            return await _ssh.RunAsync(new DeviceSshTarget(deviceMac, host, deviceType), ProbeCommand, timeout, cancellationToken);
         }
         catch (Exception ex)
         {
