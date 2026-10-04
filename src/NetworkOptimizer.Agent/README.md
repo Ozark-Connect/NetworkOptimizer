@@ -216,9 +216,10 @@ BadGateway`, then `Tunnel open` about 30 seconds later, is the server
 restarting, not a fault. When the reason is a connection problem, check the
 connection.
 
-Check the dates. A UniFi gateway keeps a small in-memory journal, so the last
-connect lines can be older than the running agent; `systemctl status
-netopt-agent` shows when it started.
+Check the dates: the last connect lines can be older than the running agent,
+which `systemctl status netopt-agent` shows the start of. A gateway with the
+**Logging Offload** Performance Tweak keeps its journal in RAM, so older lines
+rotate out sooner there.
 
 #### Verify the connection
 
