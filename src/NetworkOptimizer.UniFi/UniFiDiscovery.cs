@@ -449,7 +449,7 @@ public class UniFiDiscovery
     /// Wi-Fi-less gateways that have no radios at all (a UXG-Fiber on firmware 5.0.16 -
     /// see issue #994). Those phantom entries false-positive the radio_table check and the
     /// gateway shows up as an AP with zero clients ("Significant Load Imbalance"). We can't
-    /// trust the API's radio data for gateways, so <see cref="IsGatewayOnlyConsole"/> makes
+    /// trust the API's radio data for gateways, so <see cref="IsWifiGateway(DiscoveredDevice)"/> makes
     /// the final call by model. SmartPower devices (USP-Strip, USP-Plug) are excluded via
     /// DeviceType classification.
     /// </summary>
@@ -462,7 +462,7 @@ public class UniFiDiscovery
         // but if a genuinely Wi-Fi-capable gateway we haven't listed shows up here, this log is
         // how we'd catch it instead of it silently vanishing from the Wi-Fi Optimizer.
         foreach (var d in devices.Where(d =>
-                     d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && IsGatewayOnlyConsole(d)))
+                     d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsWifiGateway(d)))
         {
             _logger.LogDebug(
                 "Excluding gateway {Name} ({Model}) from AP list: reports {RadioCount} radio(s) but is not in " +
@@ -479,7 +479,7 @@ public class UniFiDiscovery
     /// </summary>
     public static bool BroadcastsWifi(DiscoveredDevice d) =>
         d.Type == DeviceType.AccessPoint ||
-        (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d));
+        (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && IsWifiGateway(d));
 
     /// <summary>
     /// The handful of gateway-class consoles that DO have integrated Wi-Fi radios, keyed by
@@ -509,22 +509,23 @@ public class UniFiDiscovery
     };
 
     /// <summary>
-    /// Returns true for gateway-class consoles that do NOT have integrated Wi-Fi radios.
+    /// Returns true for a gateway model with integrated Wi-Fi radios. Only meaningful for
+    /// gateways: it answers false for any model not on the list, APs included.
     /// Decides by model, NOT by the API's reported radio_table, because that data is
     /// unreliable for gateways: some UniFi Network firmware reports phantom radio entries for
     /// Wi-Fi-less gateways (issue #994), so trusting it false-positives them as APs. Any
     /// gateway whose FriendlyModelName is not in <see cref="WifiCapableGateways"/> is treated
-    /// as gateway-only. Excludes: UXG-*, UCG-Max/Fiber/Ultra, UDM-Pro/SE/Max, EFG, EF-Core,
-    /// USG-*. Allows: UDM, UDR(7)/UDR-5G-Max, UX(7), UDW, UCG-Industrial.
+    /// as having no Wi-Fi. True for: UDM, UDR(7)/UDR-5G-Max, UX(7), UDW, UCG-Industrial.
+    /// False for: UXG-*, UCG-Max/Fiber/Ultra, UDM-Pro/SE/Max, EFG, EF-Core, USG-*.
     /// </summary>
-    internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
-        => IsGatewayOnlyConsole(device.FriendlyModelName);
+    internal static bool IsWifiGateway(DiscoveredDevice device)
+        => IsWifiGateway(device.FriendlyModelName);
 
-    internal static bool IsGatewayOnlyConsole(UniFiDeviceResponse device)
-        => IsGatewayOnlyConsole(device.FriendlyModelName);
+    internal static bool IsWifiGateway(UniFiDeviceResponse device)
+        => IsWifiGateway(device.FriendlyModelName);
 
-    private static bool IsGatewayOnlyConsole(string friendlyModelName)
-        => !WifiCapableGateways.Contains(friendlyModelName);
+    private static bool IsWifiGateway(string friendlyModelName)
+        => WifiCapableGateways.Contains(friendlyModelName);
 
     /// <summary>
     /// Gets the gateway IP from the default LAN network configuration.
@@ -870,9 +871,9 @@ public class UniFiDiscovery
             hasUplinkToUniFiDevice,
             device.ConfigNetworkLan != null);
 
-        // Gateway-only consoles (UDM-Pro, UDM-SE, UDM-Beast, EFG) never become
+        // Gateways without Wi-Fi (UDM-Pro, UDM-SE, UDM-Beast, EFG) never become
         // APs even if the API reports an uplink to another UniFi device.
-        if (IsGatewayOnlyConsole(device))
+        if (!IsWifiGateway(device))
         {
             return DeviceType.Gateway;
         }
@@ -921,7 +922,7 @@ public class UniFiDiscovery
         var hasUplinkToUniFiDevice = !string.IsNullOrEmpty(uplinkMac) &&
                                       allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
 
-        if (IsGatewayOnlyConsole(device))
+        if (!IsWifiGateway(device))
             return DeviceType.Gateway;
 
         return hasUplinkToUniFiDevice ? DeviceType.AccessPoint : DeviceType.Gateway;
