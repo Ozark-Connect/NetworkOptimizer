@@ -15,11 +15,16 @@ gRPC tunnel travel through that one host; the reverse proxy fans them out to the
 right port (see [Reverse proxy](#reverse-proxy)). The agent only ever speaks
 HTTPS, and never accepts inbound connections - it dials out.
 
+That host must be reachable from the site: over a VPN, or at a public address.
+For a public address on a UniFi gateway at the server's site, that is a port
+forward of 443/TCP to the reverse proxy (**UniFi Network > Settings > Policy
+Table > Port Forwarding**). The site itself needs no inbound access.
+
 ## When you need an agent
 
 The on-site agent is the recommended way to bring a site online: one outbound
-HTTPS tunnel, no VPN and no port-forwarding, works behind CGNAT, nothing new to
-deploy between sites. It proxies that site's **UniFi Console, SNMP, and device
+HTTPS tunnel, no VPN and no port-forwarding at the site, works behind CGNAT,
+nothing new to deploy between sites. It proxies that site's **UniFi Console, SNMP, and device
 SSH**, hosts the site's own probes and speed tests, and unlocks the full feature
 set.
 
@@ -93,10 +98,16 @@ box" hardening described under Security and hardening.
 
 ## Install
 
-On the site's agent box, install with Docker, bare-metal (systemd), or a Proxmox
-LXC - pick one. All dial out to the central server over HTTPS only, with no
-inbound access to the site. Generate the enrollment token in the web UI:
-**Settings > Multi-Site > (site) > Agents > Set up agent**.
+Start in **Settings > Multi-Site > (site) > Configuration**, with **Set up agent**
+(or **Add Agent** if the site already has one). The app shows an install command
+for each deployment shape, with the server URL and enrollment token filled in.
+Copy one and run it on the agent box. For an agent on the UniFi gateway, **Run It
+for Me** runs the command over SSH for you and shows its output. It appears when
+the site's gateway SSH is configured and the gateway answers.
+
+Every shape dials out to the central server over HTTPS only, with no inbound
+access to the site. The commands below are the same ones, for reference and for
+the flags each accepts. After installing, see [Check that it connected](#check-that-it-connected).
 
 ### Docker
 
@@ -130,10 +141,12 @@ bare-metal installer inside it, so the result is the systemd install above with
 its own MAC address (what a per-WAN agent behind a Policy-Based Route needs):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)"
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)" -- \
+  --server "https://optimizer.example.com" \
+  --token  "noa_..."
 ```
 
-Every prompt is also a flag (`--server`, `--token`, `--lan-speed-test`, `--ip`, `--vlan`,
+It prompts for the rest. Every prompt is also a flag (`--lan-speed-test`, `--ip`, `--vlan`,
 `--unattended`, ...); see the script header. To upgrade the agent later, re-run the
 bare-metal installer inside the container from the Proxmox host. The enrolled key and
 the speed test setting are kept, so only `--server` is needed:
@@ -145,7 +158,7 @@ pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-
 The Docker and bare-metal scripts accept:
 
 - `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only feature that uses nginx.
-- `--speed-test-port N` - serve that page on `N` instead of 24443, for a host where 24443 is taken
+- `--speed-test-port N` (bare metal) - serve that page on `N` instead of 24443, for a host where 24443 is taken
   or where you would rather use something else (443, if nothing else on the box wants it). Moves
   nginx's listener and records the port in `agent.json`; the agent announces it to the server, so
   in-app speed test links follow with no override needed. Docker equivalent: `AGENT_SPEEDTEST_PORT=N`
@@ -163,14 +176,88 @@ otherwise 24443. Two consequences worth knowing:
   restart the agent. That is also the way out if an agent ever ends up on a port that does not work.
 - `--insecure` - accept a self-signed cert on the server's reverse proxy
 - `--dir PATH` - override the install directory
+- `--release vX.Y.Z` - install that release instead of the latest. The app adds it
+  when the server runs a preview, so the agent matches the server. The gateway
+  installer accepts it too.
 
 The bare-metal installer additionally accepts `--configure-apparmor` - with
 `--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile
 blocks the speed test (off by default).
 
+### Check that it connected
+
+Once the agent is connected, **Settings > Multi-Site** shows the site as
+**Online**, and **(site) > Configuration** shows the agent as **Online (tunnel)**.
+An agent that reaches the server's REST endpoints but not the tunnel leaves the
+site **Offline**, and its agent row shows a recent **Last seen** time instead:
+enrollment works, the tunnel route does not.
+
+If it does not reach **Online (tunnel)**, read the agent log:
+
+| Install | Log command |
+|---|---|
+| UniFi gateway, bare metal | `journalctl -u netopt-agent -f` |
+| Docker | `docker logs -f network-optimizer-agent` |
+| Proxmox LXC (from the host) | `pct exec <CT_ID> -- journalctl -u netopt-agent -f` |
+
+A healthy first start logs `Enrolled for site '<slug>'`, then
+`Tunnel open for site '<slug>'`. After that, `Received probe config` once a
+minute means config is arriving over the tunnel. Those minute lines bury the
+connection history, so search for it:
+
+```bash
+journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+# Docker: docker logs network-optimizer-agent 2>&1 | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+```
+
+`Enrollment failed:`, `Tunnel error:`, `Heartbeat failed:`, and `Heartbeat error:`
+are each followed by the reason. A `Tunnel error:` and `Heartbeat failed:
+BadGateway`, then `Tunnel open` about 30 seconds later, is the server
+restarting, not a fault. When the reason is a connection problem, check the
+connection.
+
+Check the dates: the last connect lines can be older than the running agent,
+which `systemctl status netopt-agent` shows the start of. A gateway with the
+**Logging Offload** Performance Tweak keeps its journal in RAM, so older lines
+rotate out sooner there.
+
+#### Verify the connection
+
+Run these from the site, with the server URL (`--server` in the install command,
+`serverUrl` in an installed agent's `agent.json`):
+
+```bash
+curl -sSf https://optimizer.example.com/api/health
+```
+
+That has to succeed over HTTPS on the hostname you configured. If it does not,
+fix the proxy first; the agent has no fallback to plain HTTP by design.
+
+Then check the agent tunnel route:
+
+```bash
+curl -k -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H "content-type: application/grpc" \
+  https://optimizer.example.com/networkoptimizer.agent.v1.AgentTunnel/Connect
+```
+
+| You see | Meaning |
+|---------|---------|
+| `grpc-message: First message must be a hello` | Working. The tunnel answered. |
+| `grpc-message: Service is unimplemented.` | The proxy sends the tunnel path to the app, not the tunnel port. Add the gRPC route. |
+| `HTTP/2 404` with no `grpc-message` | The proxy has no route for this hostname or path. |
+| `curl: (6) Could not resolve host` | DNS. The site's DNS has no record for the server's hostname. |
+| `curl: (28) Resolving timed out` | DNS. The site's DNS server did not answer: check the host's resolver and that it can reach it. |
+| `curl: (7) Failed to connect ... port 443` | Something refused the connection: the proxy is not listening, or a firewall rejects it. |
+| `curl: (28) Connection timed out` | Something drops the traffic silently: a firewall, or the wrong IP. |
+
 ### Upgrading
 
-Re-run the installer you installed with. Each one keeps the enrolled key, the site,
+**Settings > Multi-Site > (site) > Configuration** marks each agent **Agent needs
+update** (a release requires it) or **Update available** (optional). Either one
+has an **Upgrade** button that shows the upgrade command for each deployment
+shape, and **Run It for Me** for a gateway agent.
+
+The upgrade re-runs the installer you installed with. Each one keeps the enrolled key, the site,
 and the speed test setting, downloads the current release, and restarts the agent;
 no token is needed. A saved install command that still carries its original token
 is safe to re-run too: the installer checks the existing key with the server first
@@ -191,10 +278,8 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
 ```
 
-Docker and bare metal: if you installed with `--dir`, pass the same `--dir`. The app
-tells you when an upgrade matters: **Settings > Multi-Site** flags an agent running
-older than the minimum version a release needs, and most releases do not change the
-agent at all. A UniFi OS firmware upgrade never requires re-running the gateway
+Docker and bare metal: if you installed with `--dir`, pass the same `--dir`. Most
+releases do not change the agent at all. A UniFi OS firmware upgrade never requires re-running the gateway
 installer (see "Where to run it > On a UniFi gateway").
 
 #### Uninstall
@@ -226,7 +311,7 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 ### Re-enrolling an existing agent
 
 If the agent's enrollment is invalidated server-side - removed in the UI
-(Settings > Multi-Site > site > Agents > Remove) - the agent stops connecting
+(**Settings > Multi-Site > (site) > Configuration > Remove**) - the agent stops connecting
 and logs `Invalid agent key`. The agent only enrolls when its config has no
 `agentKey`, so a stale key must go before a new token is used. Re-running the
 installer with a fresh token does this for you. The installer first checks the
@@ -236,7 +321,7 @@ its original, already-used token) is a safe in-place upgrade. Only a key the
 server rejects is replaced by the token:
 
 1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
-   (site) > Agents > Add Agent** (or **Set up agent** for a site with none).
+   (site) > Configuration > Add Agent** (or **Set up agent** for a site with none).
    The install panel's **New token** button issues another if the first one
    lapses; tokens expire one hour after they are issued.
 2. Re-run the install command shown there, on the agent box. Passing `--token`
@@ -297,8 +382,8 @@ persistence, and the isolation trade-off.
 
 The LAN speed test listener serves self-signed HTTPS by default (a secure
 context, so browser geolocation works for GPS-tagged results). Two supported
-deviations, and **both require updating the site's speed test URL override in
-the central app** (Settings > Multi-Site > the site's Configuration), because
+deviations, and **both require setting the site's Client speed test target
+override** (**Settings > Multi-Site > (site) > Configuration**), because
 the app builds agent speed-test links from the port the agent announces, defaulting to
 `https://<agent LAN IP>:24443`:
 
@@ -306,7 +391,7 @@ the app builds agent speed-test links from the port the agent announces, default
   on the Docker container, or in the environment when running
   `install-native.sh`) to skip cert generation and serve HTTP on port 24443 -
   e.g. to avoid the self-signed trust prompt or shave TLS overhead on a
-  high-throughput LAN. Then set the site's URL override to the matching
+  high-throughput LAN. Then set the site's override to the matching
   `http://<agent>:24443` address - the announcement carries the port but not the
   scheme, and the app defaults to https.
 - **Your own reverse proxy / TLS in front of the agent**: point the site's URL
@@ -315,7 +400,7 @@ the app builds agent speed-test links from the port the agent announces, default
   self-signed listener directly.
 
 If the two sides disagree (agent serving HTTP while the app links `https://`,
-or vice versa), the speed test page simply won't load - fix the URL override
+or vice versa), the speed test page simply won't load - fix the override
 to match how the agent actually serves.
 
 Note for the plain-HTTP opt-out: browsers block an https page from posting to
@@ -344,8 +429,8 @@ the LAN speed test is enabled (it serves the OpenSpeedTest page + transfer legs)
 
 ## Enroll and run
 
-1. In the central server's web UI: **Settings > Multi-Site > (site) > Agents >
-   Set up agent**. Copy the enrollment token - it is shown once.
+1. In the central server's web UI: **Settings > Multi-Site > (site) >
+   Configuration > Set up agent**. Copy the enrollment token - it is shown once.
 2. On the agent box, create `agent.json` next to the binary:
 
 ```json
@@ -377,14 +462,15 @@ chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent
 On first run it exchanges the one-time token for an agent key via
 `POST /api/public/agents/enrollments`, writes the key and site slug back into
 `agent.json`, and discards the token. It then holds a persistent gRPC tunnel to
-the server, heartbeating every 30 seconds; the Multi-Site tab and Sites page
-show it as Online. If the tunnel is unreachable (the reverse-proxy gRPC route is
+the server, heartbeating every 30 seconds, and **Settings > Multi-Site > (site) >
+Configuration** shows it as **Online (tunnel)**. If the tunnel is unreachable (the reverse-proxy gRPC route is
 missing, or the server could not bind its listener), it falls back to
 `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
 The tunnel listener (default port 8043, `AgentTunnel__Port` on the server) binds
 at startup on every install, so enabling multi-site needs no restart. The one
-case it does not bind is a server serving its own HTTPS, where its ports cannot
+case it does not bind is a server serving its own HTTPS (a custom
+`ASPNETCORE_URLS`), where its ports cannot
 be re-bound alongside the tunnel; it says so at startup, and those installs stay
 on REST heartbeats. Put the server behind the reverse proxy instead.
 
@@ -558,25 +644,24 @@ Everything rides that one TLS session: heartbeats, probe and SNMP traffic
 (including SNMP credentials pushed to the agent), and proxied UniFi Console
 connections - which are additionally HTTPS end-to-end inside the tunnel.
 
-### After the proxy is up: tell the app its address
+### After the proxy is up: the agent's server URL
 
-Set **`REVERSE_PROXIED_HOST_NAME`** on the central server to the proxy's
-hostname (plus `REVERSE_PROXIED_PORT` if the proxy's front end is not on 443),
-then restart it. This is what the agent's server URL is derived from, so until
-it is set, **Settings > Multi-Site > (site) > Agents** has no address to put in
-the install command and shows a placeholder instead. Substituting the app's own
-LAN address there does not work: the agent would dial that host on 443, where
-the app does not listen and the proxy is not running.
+The install command in **Settings > Multi-Site > (site) > Configuration** carries the
+URL the agent dials, as `--server`. The app builds it from
+**`REVERSE_PROXIED_HOST_NAME`** (plus `REVERSE_PROXIED_PORT` if the proxy's
+front end is not on 443), so set that on the central server and restart it.
+Until then the command shows `https://your-network-optimizer` as a placeholder.
 
-Verify before enrolling an agent - from the site, or anywhere outside the
-server's own box:
+You can also edit `--server` by hand. It must be the proxy's address: the app's
+own LAN address does not work, because the agent dials 443, where the app does
+not listen.
 
-```bash
-curl -sSf https://optimizer.example.com/api/health
-```
+The first install writes the URL into `agent.json` as `serverUrl` and
+`tunnelUrl`. Later runs of the installer keep `agent.json`, so to change the URL
+on an installed agent, edit both fields there and restart the agent.
 
-That has to succeed over HTTPS on the hostname you configured. If it does not,
-fix the proxy first; the agent has no fallback to plain HTTP by design.
+Check both routes from the site with [Verify the connection](#verify-the-connection)
+before installing an agent. Both checks work without one.
 
 ## Security and hardening
 
@@ -705,7 +790,7 @@ When the tunnel drops they keep running on the last configuration the server
 pushed, and results accumulate in a local buffer. When the tunnel reconnects,
 the backlog flushes and the site's monitoring history picks up where it left
 off. While the tunnel is down the agent falls back to REST heartbeats (every
-30 seconds), so it stays visible as Online on the server.
+30 seconds), so the server still records when it was last seen.
 
 ### Buffered results and acknowledgement
 
@@ -780,7 +865,7 @@ ssh user@sitebox 'cd /opt/netopt-agent && chmod +x NetworkOptimizer.Agent && ./N
 
 Run it in the foreground first to watch enrollment and the tunnel connect, then
 install the systemd unit above. To re-test enrollment from scratch, remove the
-agent in the UI (Settings > Multi-Site > site > Agents > Remove), delete the
+agent in the UI (**Settings > Multi-Site > (site) > Configuration > Remove**), delete the
 `agentKey`/`siteSlug` from `agent.json` (or just delete the file and recreate it
 with a fresh token), and run again.
 
@@ -820,13 +905,13 @@ host networking that is correct; if the agent can't see the real LAN address
 
 Probes leave by the default WAN unless something sends them elsewhere, so a
 second or third WAN goes unmeasured until you give it a Vantage. Vantages live on
-Monitoring - Network Performance, in the Multi-WAN Monitoring - Vantages card. A
+**Monitoring > Network Performance**, in the **Multi-WAN Monitoring - Vantages** card. A
 Vantage pairs a WAN with the box that probes it, and the targets you assign to it
 are measured over that WAN.
 
 **The easiest box to pair is an Agent on the UniFi Gateway itself.** It reaches each
 WAN by that WAN's own interface, so one Agent covers all of them with no routing
-to build. Set one up in Settings - Multi-Site.
+to build. Set one up in **Settings > Multi-Site**.
 
 Any other Agent has to be forced out the WAN you are measuring. Give the Vantage a
 Probe source IP, then add a Policy-Based Route in UniFi Network sending that
