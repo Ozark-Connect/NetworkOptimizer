@@ -6,7 +6,7 @@ using Xunit;
 namespace NetworkOptimizer.UniFi.Tests;
 
 /// <summary>
-/// Tests that gateway-only consoles (no Wi-Fi radios) are excluded from the
+/// Tests that gateways without Wi-Fi radios are excluded from the
 /// Wi-Fi Optimizer AP list, even when the UniFi API reports phantom radio_table entries.
 /// Device model/shortname values come from real API responses.
 /// </summary>
@@ -37,7 +37,7 @@ public class GatewayApExclusionTests
     }
 
     // ---------------------------------------------------------------
-    // Gateway-only consoles: must be excluded even with radio_table
+    // Gateways without Wi-Fi: must be excluded even with radio_table
     // ---------------------------------------------------------------
 
     [Theory]
@@ -77,7 +77,7 @@ public class GatewayApExclusionTests
 
         device.FriendlyModelName.Should().Be("EF-Core");
         UniFiDiscovery.IsWifiGateway(device).Should().BeFalse(
-            "EF-Core is a gateway-only console with no integrated Wi-Fi");
+            "EF-Core is a gateway with no integrated Wi-Fi");
     }
 
     [Theory]
@@ -89,7 +89,7 @@ public class GatewayApExclusionTests
     [InlineData("UDMA6A8", "UCGF", "UCG-Fiber")]        // Cloud Gateway Fiber
     [InlineData("UCGMAX", "UCGMAX", "UCG-Max")]         // Cloud Gateway Max
     [InlineData("UDRULT", "UDRULT", "UCG-Ultra")]       // Cloud Gateway Ultra
-    public void OtherGatewayOnly_ExcludedEvenWithPhantomRadios(string model, string shortname, string expectedFriendlyName)
+    public void OtherGatewaysWithoutWifi_ExcludedEvenWithPhantomRadios(string model, string shortname, string expectedFriendlyName)
     {
         // These Wi-Fi-less gateways aren't in the WifiCapableGateways allow-list, so they must be
         // excluded even when the API reports phantom radio_table entries (UXG-Fiber on firmware
@@ -203,7 +203,7 @@ public class GatewayApExclusionTests
     }
 
     [Fact]
-    public void AGatewayOnlyConsole_with_phantom_radios_does_not_broadcast_wifi()
+    public void AGatewayWithoutWifi_with_phantom_radios_does_not_broadcast_wifi()
     {
         UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice("UDMA6A8", "UCGF", radioCount: 2)).Should().BeFalse();
     }
