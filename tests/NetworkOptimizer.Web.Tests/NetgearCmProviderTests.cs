@@ -433,7 +433,7 @@ public class NetgearCmProviderTests
 
         var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
         var body = await provider.FetchViaRawSocketAsync(
-            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", DirectDeviceDialer.Instance, "admin", "password", CancellationToken.None);
 
         body.Should().Be(RawStatusPage);
         server.ReceivedRequests.Should().HaveCount(2);
@@ -458,7 +458,7 @@ public class NetgearCmProviderTests
 
         var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
         var body = await provider.FetchViaRawSocketAsync(
-            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", DirectDeviceDialer.Instance, "admin", "password", CancellationToken.None);
 
         body.Should().Be(RawStatusPage);
     }
@@ -479,7 +479,7 @@ public class NetgearCmProviderTests
 
         var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
         var body = await provider.FetchViaRawSocketAsync(
-            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", DirectDeviceDialer.Instance, "admin", "password", CancellationToken.None);
 
         body.Should().Be(RawStatusPage);
         server.ReceivedRequests.Should().HaveCount(2);
@@ -499,7 +499,7 @@ public class NetgearCmProviderTests
 
         var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
         Func<Task> act = () => provider.FetchViaRawSocketAsync(
-            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "wrongpw", CancellationToken.None);
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", DirectDeviceDialer.Instance, "admin", "wrongpw", CancellationToken.None);
 
         (await act.Should().ThrowAsync<HttpRequestException>())
             .Which.StatusCode.Should().Be(HttpStatusCode.Unauthorized);

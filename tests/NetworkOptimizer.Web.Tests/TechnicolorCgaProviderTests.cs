@@ -185,7 +185,7 @@ public class TechnicolorCgaProviderTests
     [Fact]
     public void ParseDocsis_CarriesDeviceIdentityFromContext()
     {
-        var context = Context() with { ConfiguredHost = "198.51.100.5" };
+        var context = Context() with { Host = "198.51.100.5" };
 
         var stats = TechnicolorCgaProvider.ParseDocsis(Payload(DocsisPayload), context, "Technicolor CGA437A");
 

@@ -230,7 +230,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{config.Provider}'");
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
         return await provider.TestConnectionAsync(context);
     }
 
@@ -298,7 +298,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
             return;
         }
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
 
         try
         {
@@ -377,7 +377,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
         return null;
     }
 
-    private async Task<CmPollContext> ToContextAsync(CmConfiguration config)
+    private CmPollContext ToContext(CmConfiguration config)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(config.Password))
@@ -386,22 +386,14 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
             catch { password = config.Password; }
         }
 
-        // Status page scrapes reach agent sites through the tunnel proxy: the
-        // provider's HTTP client dials a loopback endpoint that the agent
-        // forwards to the modem inside the site's network. A UCI config's Host is
-        // its MAC, not an address, and its data arrives from the agent unasked.
-        var (host, port) = config.Provider == UciInformService.ProviderKey
-            ? (config.Host, config.Port)
-            : await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
-
         return new CmPollContext
         {
             Id = config.Id,
             SiteSlug = _siteSlug,
             Name = config.Name,
-            Host = host,
-            ConfiguredHost = config.Host,
-            Port = port,
+            Host = config.Host,
+            Port = config.Port,
+            Dialer = _tunnelRouting.DialerFor(_siteSlug),
             Username = config.Username,
             Password = password,
             StatusPagePath = config.StatusPagePath,

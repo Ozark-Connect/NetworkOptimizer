@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
 using Xunit;
@@ -52,7 +53,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_SignsInThenPollsWithTheToken()
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context());
 
@@ -70,7 +71,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_ReusesTheTokenAcrossPolls()
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         await provider.PollAsync(Context());
         var second = await provider.PollAsync(Context());
@@ -92,7 +93,7 @@ public class InseegoFxProviderTests
             // The first poll after the first sign-in finds the session expired.
             return ++polls == 2 ? PollDenied : PollOk();
         });
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         (await provider.PollAsync(Context())).Stats.Should().NotBeNull();
         var result = await provider.PollAsync(Context());
@@ -106,7 +107,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_SessionRefusedEvenAfterFreshSignIn_Fails()
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollDenied);
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context());
 
@@ -119,7 +120,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_RejectedPassword_IsNotRetriedByLaterPolls()
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginRejected : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var first = await provider.PollAsync(Context());
         var second = await provider.PollAsync(Context());
@@ -134,7 +135,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_ChangedPassword_SignsInAgain()
     {
         var handler = new StubUbus(req => req.Password == "new-password" ? LoginOk() : req.IsLogin ? LoginRejected : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         await provider.PollAsync(Context());
         var result = await provider.PollAsync(Context(password: "new-password"));
@@ -148,7 +149,7 @@ public class InseegoFxProviderTests
     {
         var accept = false;
         var handler = new StubUbus(req => req.IsLogin ? (accept ? LoginOk() : LoginRejected) : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         await provider.PollAsync(Context());
         accept = true;  // e.g. the password was reset on the gateway itself
@@ -163,7 +164,7 @@ public class InseegoFxProviderTests
     public async Task TestConnectionAsync_AlwaysSignsInFresh()
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         await provider.PollAsync(Context());
         await provider.TestConnectionAsync(Context());
@@ -175,7 +176,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_NoPassword_FailsWithoutContactingTheGateway()
     {
         var handler = new StubUbus(_ => PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context(password: ""));
 
@@ -188,7 +189,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_NoHost_Fails()
     {
         var handler = new StubUbus(_ => PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(new ModemPollContext { Id = 1, Name = "x", Host = "", Password = Password });
 
@@ -202,7 +203,7 @@ public class InseegoFxProviderTests
         var handler = new StubUbus(req => req.IsLogin
             ? LoginOk()
             : """[{"jsonrpc":"2.0","id":2,"result":[0,{"status":2}]}]""");
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context());
 
@@ -213,7 +214,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_HtmlInsteadOfJson_ReportsUnreadableAnswer()
     {
         var handler = new StubUbus(_ => "<html><body>Not an Inseego gateway</body></html>");
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context());
 
@@ -224,7 +225,7 @@ public class InseegoFxProviderTests
     public async Task PollAsync_HttpError_ReportsTheStatus()
     {
         var handler = new StubUbus(_ => "", HttpStatusCode.InternalServerError);
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         var result = await provider.PollAsync(Context());
 
@@ -239,15 +240,31 @@ public class InseegoFxProviderTests
     public async Task PollAsync_PostsToUbusOverHttps(int port, string expectedUrl)
     {
         var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollOk());
-        using var provider = Create(handler);
+        var provider = Create(handler);
 
         await provider.PollAsync(Context(port: port));
 
         handler.Requests.Should().OnlyContain(r => r.Url == expectedUrl && r.Method == "POST");
     }
 
+    [Fact]
+    public async Task PollAsync_BuildsItsClientWithTheContextsDialer()
+    {
+        var handler = new StubUbus(req => req.IsLogin ? LoginOk() : PollOk());
+        var dialer = Mock.Of<IDeviceDialer>();
+        IDeviceDialer? used = null;
+        var provider = new InseegoFxProvider(NullLogger<InseegoFxProvider>.Instance, d =>
+        {
+            used = d;
+            return new BorrowedHandler(handler);
+        });
+
+        await provider.PollAsync(Context() with { Dialer = dialer });
+
+        used.Should().BeSameAs(dialer);
+    }
     private static InseegoFxProvider Create(StubUbus handler) =>
-        new(NullLogger<InseegoFxProvider>.Instance, handler);
+        new(NullLogger<InseegoFxProvider>.Instance, _ => new BorrowedHandler(handler));
 
     /// <summary>One request the stub received, decoded from its JSON-RPC body.</summary>
     private sealed record UbusRequest(string Url, string Method, bool IsLogin, string? Session, string? Password);

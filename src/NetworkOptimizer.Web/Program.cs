@@ -929,10 +929,14 @@ builder.Services.AddApexCharts();
 
 // Configure HTTP client for API calls
 builder.Services.AddHttpClient();
+// The TC monitor and AP Agent never redirect, and on an agent-routed site a followed redirect is
+// dialed from this server, outside the site's tunnel.
 builder.Services.AddHttpClient("TcMonitor", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddHttpClient(NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 // CORS for client speed test endpoint (OpenSpeedTest sends results from browser)
 // Auto-construct allowed origins from HOST_IP/HOST_NAME, or use CORS_ORIGINS if set

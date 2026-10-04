@@ -37,7 +37,7 @@ public class GenericHttpOntProvider : IOntProvider
     {
         try
         {
-            using var client = CreateHttpClient();
+            using var client = CreateHttpClient(context.Dialer);
 
             var port = context.Port > 0 ? context.Port : 80;
             var primaryScheme = port == 443 ? "https" : "http";
@@ -49,7 +49,7 @@ public class GenericHttpOntProvider : IOntProvider
                 using var response = await client.GetAsync(primaryUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                     return (true, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} - device is reachable");
-                return (false, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} from {context.ConfiguredHost ?? context.Host}");
+                return (false, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} from {context.Host}");
             }
             catch (HttpRequestException)
             {
@@ -61,15 +61,15 @@ public class GenericHttpOntProvider : IOntProvider
             using var fb = await client.GetAsync(fallbackUrl, cancellationToken);
             if (fb.IsSuccessStatusCode)
                 return (true, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} - device is reachable");
-            return (false, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} from {context.ConfiguredHost ?? context.Host}");
+            return (false, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} from {context.Host}");
         }
         catch (HttpRequestException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (TaskCanceledException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (Exception ex)
         {
@@ -77,11 +77,12 @@ public class GenericHttpOntProvider : IOntProvider
         }
     }
 
-    private static HttpClient CreateHttpClient()
+    private static HttpClient CreateHttpClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            ConnectCallback = DeviceHttp.Via(dialer),
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
     }

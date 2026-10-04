@@ -2618,17 +2618,16 @@ public class MonitoringCollectionAgent : BackgroundService
 
             try
             {
-                // Same tunnel-proxy routing the standalone ONT poll path uses, so
-                // attached endpoints on agent sites are reached through the relay.
-                var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
+                // Same dialer the standalone ONT poll path uses, so attached endpoints on
+                // agent sites are reached through the site's agent.
                 var context = new OntPollContext
                 {
                     Id = config.Id,
                     SiteSlug = _siteSlug,
                     Name = config.Name,
-                    Host = host,
-                    ConfiguredHost = config.Host,
-                    Port = port,
+                    Host = config.Host,
+                    Port = config.Port,
+                    Dialer = _tunnelRouting.DialerFor(_siteSlug),
                 };
 
                 var stats = await provider.PollSupplementalAsync(context, ct);

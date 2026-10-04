@@ -28,11 +28,14 @@ public sealed record ModemPollContext
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Host or IP for the modem. On agent-routed sites (HTTP and per-modem-SSH providers) this is the tunnel-proxy loopback endpoint, not the device's own address.</summary>
+    /// <summary>Host or IP for the modem, as configured. <see cref="Dialer"/> decides how it is reached.</summary>
     public required string Host { get; init; }
 
-    /// <summary>The configured device host before any tunnel-proxy rewrite; use for logs and stored stats so they name the real device.</summary>
-    public string? ConfiguredHost { get; init; }
+    /// <summary>
+    /// Opens every connection to the device, directly or through the site's agent. HTTP handlers take it as
+    /// their ConnectCallback (<see cref="DeviceHttp.Via"/>), so redirects are reached the same way.
+    /// </summary>
+    public IDeviceDialer Dialer { get; init; } = DirectDeviceDialer.Instance;
 
     /// <summary>Port; 0 means provider default.</summary>
     public int Port { get; init; }

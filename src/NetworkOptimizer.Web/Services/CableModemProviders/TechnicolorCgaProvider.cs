@@ -67,7 +67,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
             var stats = await TryPollAsync(context, cancellationToken);
             if (stats == null)
                 return PollResult<CableModemStats>.Failed(
-                    $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+                    $"No stats could be read from {context.Host}.");
 
             _logger.LogDebug(
                 "Technicolor CGA {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
@@ -83,8 +83,8 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         catch (Exception ex)
         {
             _sessions.TryRemove(context.CacheKey, out _);
-            _logger.LogWarning(ex, "Error polling Technicolor CGA {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            _logger.LogWarning(ex, "Error polling Technicolor CGA {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -113,7 +113,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -165,7 +165,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         // The firmware expects this cookie before the first API call.
         cookies.Add(new Uri(baseUrl), new Cookie("cwd", "No", "/"));
 
-        using var client = CreateClient(cookies, baseUrl, token: null);
+        using var client = CreateClient(context.Dialer, cookies, baseUrl, token: null);
 
         // Requesting the salts with logout=true also clears any session left behind by a
         // previous poll, which the firmware would otherwise refuse to replace.
@@ -222,7 +222,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
 
         var session = new CgaSession(token, cookies, "Technicolor CGA");
 
-        using var authedClient = CreateClient(cookies, baseUrl, token);
+        using var authedClient = CreateClient(context.Dialer, cookies, baseUrl, token);
 
         // Some firmware only arms the session once the menu has been requested.
         try
@@ -288,7 +288,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         var customPath = !string.IsNullOrWhiteSpace(context.StatusPagePath);
         var path = customPath ? context.StatusPagePath! : DefaultDocsisPath;
 
-        using var client = CreateClient(session.Cookies, baseUrl, session.Token);
+        using var client = CreateClient(context.Dialer, session.Cookies, baseUrl, session.Token);
 
         var doc = await FetchJsonAsync(client, baseUrl, path, context.Name, cancellationToken);
 
@@ -382,7 +382,7 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = deviceModel,
         };
@@ -555,14 +555,15 @@ public sealed class TechnicolorCgaProvider : ICableModemProvider, IDisposable
     private static double GetNumber(JsonElement element, params string[] names)
         => ParseLevel(GetString(element, names)) ?? 0;
 
-    private static HttpClient CreateClient(CookieContainer cookies, string baseUrl, string? token)
+    private static HttpClient CreateClient(IDeviceDialer dialer, CookieContainer cookies, string baseUrl, string? token)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = cookies,
             UseCookies = true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
 
         // The firmware checks User-Agent, X-Requested-With, and Referer on every request,

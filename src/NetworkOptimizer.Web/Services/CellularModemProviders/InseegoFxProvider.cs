@@ -16,7 +16,7 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// token, which is cached per modem and renewed when the gateway refuses it. Request
 /// building and parsing live in <see cref="InseegoUbusParser"/>.
 /// </summary>
-public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
+public sealed class InseegoFxProvider : ICellularModemProvider
 {
     /// <inheritdoc/>
     public string ProviderKey => "inseego-fx";
@@ -27,7 +27,7 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
     private const int DefaultTimeoutSeconds = 15;
 
     private readonly ILogger<InseegoFxProvider> _logger;
-    private readonly HttpClient _client;
+    private readonly Func<IDeviceDialer, HttpMessageHandler> _createHandler;
     private readonly ConcurrentDictionary<string, string> _tokens = new(StringComparer.OrdinalIgnoreCase);
 
     // The gateway counts failed sign-ins (retry_count), so a rejected password is not retried by
@@ -35,24 +35,22 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
     private readonly ConcurrentDictionary<string, string> _rejectedPasswords = new(StringComparer.OrdinalIgnoreCase);
 
     public InseegoFxProvider(ILogger<InseegoFxProvider> logger)
-        : this(logger, new HttpClientHandler
+        : this(logger, dialer => new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             // The gateway serves a self-signed certificate.
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             UseCookies = false,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
         })
     {
     }
 
-    /// <summary>Test seam: supply the transport.</summary>
-    internal InseegoFxProvider(ILogger<InseegoFxProvider> logger, HttpMessageHandler handler)
+    /// <summary>Test seam: supply the transport for a gateway's dialer.</summary>
+    internal InseegoFxProvider(ILogger<InseegoFxProvider> logger, Func<IDeviceDialer, HttpMessageHandler> createHandler)
     {
         _logger = logger;
-        _client = new HttpClient(handler, disposeHandler: true)
-        {
-            Timeout = TimeSpan.FromSeconds(DefaultTimeoutSeconds),
-        };
+        _createHandler = createHandler;
     }
 
     /// <inheritdoc/>
@@ -91,7 +89,7 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
         if (string.IsNullOrWhiteSpace(context.Host))
             return (null, "No address is configured for this modem.");
 
-        var host = context.ConfiguredHost ?? context.Host;
+        var host = context.Host;
         if (string.IsNullOrEmpty(context.Password))
             return (null, "An admin password is required. The gateway serves signal data only to a signed-in session.");
 
@@ -110,11 +108,17 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
         {
             var url = BuildUrl(context);
 
+            // A client per poll: connections must not be pooled across gateways on different sites.
+            using var client = new HttpClient(_createHandler(context.Dialer), disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromSeconds(DefaultTimeoutSeconds),
+            };
+
             for (var attempt = 0; attempt < 2; attempt++)
             {
                 if (!_tokens.TryGetValue(context.CacheKey, out var token))
                 {
-                    token = await LoginAsync(url, context.Password, cancellationToken);
+                    token = await LoginAsync(client, url, context.Password, cancellationToken);
                     if (token == null)
                     {
                         _rejectedPasswords[context.CacheKey] = context.Password;
@@ -125,7 +129,7 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
                 }
 
                 var body = InseegoUbusParser.BuildBatchRequest(token, InseegoUbusParser.PollCalls);
-                using var doc = await PostAsync(url, body, cancellationToken);
+                using var doc = await PostAsync(client, url, body, cancellationToken);
                 var results = InseegoUbusParser.ParseBatchResponse(doc.RootElement, out var accessDenied);
 
                 if (accessDenied)
@@ -156,19 +160,19 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
     }
 
     /// <summary>Exchange the admin password for a session token. Null when it is rejected.</summary>
-    private async Task<string?> LoginAsync(string url, string password, CancellationToken cancellationToken)
+    private static async Task<string?> LoginAsync(HttpClient client, string url, string password, CancellationToken cancellationToken)
     {
-        using var doc = await PostAsync(url, InseegoUbusParser.BuildLoginRequest(password), cancellationToken);
+        using var doc = await PostAsync(client, url, InseegoUbusParser.BuildLoginRequest(password), cancellationToken);
         return InseegoUbusParser.ParseLoginToken(doc.RootElement);
     }
 
-    private async Task<JsonDocument> PostAsync(string url, string body, CancellationToken cancellationToken)
+    private static async Task<JsonDocument> PostAsync(HttpClient client, string url, string body, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        using var response = await _client.SendAsync(request, cancellationToken);
+        using var response = await client.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
         return JsonDocument.Parse(text);
@@ -184,5 +188,4 @@ public sealed class InseegoFxProvider : ICellularModemProvider, IDisposable
     private static string RejectedMessage(string host) =>
         $"{host} rejected the admin password. Polling pauses until the password changes or Probe & Detect runs, so the gateway does not lock out sign-in.";
 
-    public void Dispose() => _client.Dispose();
 }

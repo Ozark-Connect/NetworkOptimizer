@@ -44,10 +44,10 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
+        _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.Host);
 
-        var host = context.ConfiguredHost ?? context.Host;
-        var connection = ToConnectionInfo(context);
+        var host = context.Host;
+        var connection = await ToConnectionInfoAsync(context);
         if (!connection.HasCredentials)
         {
             _logger.LogWarning("No SSH credentials configured for modem {Name}", context.Name);
@@ -110,7 +110,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        var connection = ToConnectionInfo(context);
+        var connection = await ToConnectionInfoAsync(context);
         if (!connection.HasCredentials)
             return (false, "SSH credentials not configured for this modem");
 
@@ -147,12 +147,16 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     /// <summary>
     /// Build SSH connection info from per-modem credentials in the poll context.
     /// </summary>
-    private static SshConnectionInfo ToConnectionInfo(ModemPollContext context) => new()
+    private static async Task<SshConnectionInfo> ToConnectionInfoAsync(ModemPollContext context)
     {
-        Host = context.Host,
-        Port = context.Port > 0 ? context.Port : 22,
-        Username = context.Username ?? "root",
-        Password = context.Password,
-        PrivateKeyPath = context.PrivateKeyPath,
-    };
+        var (host, port) = await context.Dialer.ResolveAsync(context.Host, context.Port > 0 ? context.Port : 22);
+        return new SshConnectionInfo
+        {
+            Host = host,
+            Port = port,
+            Username = context.Username ?? "root",
+            Password = context.Password,
+            PrivateKeyPath = context.PrivateKeyPath,
+        };
+    }
 }

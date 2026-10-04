@@ -26,11 +26,11 @@ public sealed record StarlinkPollContext
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Host or IP of the dish's gRPC endpoint. On agent-routed sites this is the tunnel-proxy loopback endpoint, not the dish's own address.</summary>
+    /// <summary>Host or IP of the dish's gRPC endpoint, as configured. <see cref="Dialer"/> decides how it is reached.</summary>
     public required string Host { get; init; }
 
-    /// <summary>The configured device host before any tunnel-proxy rewrite; use for logs so failures name the real device.</summary>
-    public string? ConfiguredHost { get; init; }
+    /// <summary>Opens every connection to the dish, directly or through the site's agent.</summary>
+    public IDeviceDialer Dialer { get; init; } = DirectDeviceDialer.Instance;
 
     /// <summary>gRPC port; 0 means provider default (9200).</summary>
     public int Port { get; init; }

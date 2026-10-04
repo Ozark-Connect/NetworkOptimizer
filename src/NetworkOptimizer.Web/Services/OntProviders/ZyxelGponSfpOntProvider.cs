@@ -93,7 +93,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
+                DeviceHost = context.Host,
                 DeviceName = context.Name,
             };
 
@@ -102,7 +102,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
                 _logger.LogWarning(
                     "Zyxel GPON-SFP ONT {Name}: get_gpon_info did not contain recognized PON status fields",
                     context.Name);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             _logger.LogDebug(
@@ -121,8 +121,8 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
             // A transport failure or an HttpClient.Timeout (OperationCanceledException with our
             // token not cancelled) yields null per the IOntProvider contract, not an exception.
             _logger.LogWarning(ex, "Error polling Zyxel GPON-SFP ONT {Name} at {Host}",
-                context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+                context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -164,7 +164,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             // HttpClient.Timeout elapsed - surfaces as a cancellation not tied to our token.
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -176,7 +176,7 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -475,7 +475,10 @@ public sealed class ZyxelGponSfpOntProvider : IOntProvider
         var pass = string.IsNullOrWhiteSpace(context.Password) ? DefaultPassword : context.Password;
         var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{pass}"));
 
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+        var client = new HttpClient(new SocketsHttpHandler { ConnectCallback = DeviceHttp.Via(context.Dialer) })
+        {
+            Timeout = TimeSpan.FromSeconds(TimeoutSeconds),
+        };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", token);
         return client;
     }

@@ -26,7 +26,6 @@ public class RealtekOntProviderTests
         Id = 1,
         Name = "Luleey WAN ONT",
         Host = "192.168.1.1",
-        ConfiguredHost = "192.168.1.1",
         Port = 80,
         Username = "admin",
         Password = "admin",
@@ -116,16 +115,5 @@ public class RealtekOntProviderTests
         // (changing it would alter output for every Realtek stick, not just the Luleey).
         stats.PonType.Should().BeNull();
         stats.DeviceHost.Should().Be("192.168.1.1");
-    }
-
-    [Fact]
-    public void ParseStatusPon_UsesConfiguredHostForDeviceHostWhenPresent()
-    {
-        var ctx = Context() with { Host = "127.0.0.1", ConfiguredHost = "192.168.1.1" };
-
-        var stats = RealtekOntProvider.ParseStatusPon(LuleeyStatusPon, ctx);
-
-        stats.DeviceHost.Should().Be("192.168.1.1",
-            "logs and UI should name the real device, not a tunnel-proxy loopback host");
     }
 }

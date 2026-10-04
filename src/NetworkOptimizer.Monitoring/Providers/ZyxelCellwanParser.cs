@@ -69,7 +69,7 @@ public static class ZyxelCellwanParser
         var stats = new CellularModemStats
         {
             Timestamp = DateTime.UtcNow,
-            ModemHost = context.ConfiguredHost ?? context.Host,
+            ModemHost = context.Host,
             ModemName = context.Name,
             // ProductClass is the Zyxel model; ModelName can be a carrier's rebrand ("5GEE Router").
             ModemModel = TryGetString(deviceInfo, "ProductClass")

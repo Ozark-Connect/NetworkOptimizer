@@ -54,13 +54,13 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("Quantum Q1000K ONT {Name}: login failed", context.Name);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
+                DeviceHost = context.Host,
                 DeviceName = context.Name,
                 DeviceModel = "Quantum Q1000K",
             };
@@ -86,8 +86,8 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -126,7 +126,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -311,7 +311,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
     /// Tries the port-based scheme first (HTTPS for 443, HTTP for 80), then falls back to the
     /// opposite scheme. All HTTPS uses self-signed cert bypass since these are local devices.
     /// </summary>
-    private async Task<(string BaseUrl, HttpClient Client, HttpClientHandler Handler)> ResolveBaseUrlAsync(
+    private async Task<(string BaseUrl, HttpClient Client, SocketsHttpHandler Handler)> ResolveBaseUrlAsync(
         OntPollContext context, CancellationToken ct)
     {
         var port = context.Port > 0 ? context.Port : 443;
@@ -319,7 +319,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         var fallbackScheme = primaryScheme == "https" ? "http" : "https";
 
         var primaryUrl = BuildBaseUrl(context.Host, port, primaryScheme);
-        var (handler, client) = CreateHttpClient();
+        var (handler, client) = CreateHttpClient(context.Dialer);
 
         try
         {
@@ -343,7 +343,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         handler.Dispose();
 
         var fallbackUrl = BuildBaseUrl(context.Host, port, fallbackScheme);
-        var (handler2, client2) = CreateHttpClient();
+        var (handler2, client2) = CreateHttpClient(context.Dialer);
 
         try
         {
@@ -360,13 +360,14 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         }
     }
 
-    private static (HttpClientHandler Handler, HttpClient Client) CreateHttpClient()
+    private static (SocketsHttpHandler Handler, HttpClient Client) CreateHttpClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = new CookieContainer(),
             UseCookies = true,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         return (handler, client);

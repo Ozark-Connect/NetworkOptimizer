@@ -42,18 +42,18 @@ public class AttGatewayOntProvider : IOntProvider
     {
         try
         {
-            using var client = CreateHttpClient();
+            using var client = CreateHttpClient(context.Dialer);
             var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
             if (baseUrl == null)
             {
-                _logger.LogWarning("Failed to reach AT&T gateway at {Host} via HTTP or HTTPS", context.ConfiguredHost ?? context.Host);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                _logger.LogWarning("Failed to reach AT&T gateway at {Host} via HTTP or HTTPS", context.Host);
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
+                DeviceHost = context.Host,
                 DeviceName = context.Name,
                 DeviceModel = "AT&T Gateway"
             };
@@ -61,8 +61,8 @@ public class AttGatewayOntProvider : IOntProvider
             var fiberHtml = await FetchPageAsync(client, $"{baseUrl}/cgi-bin/fiberstat.ha", cancellationToken);
             if (fiberHtml == null)
             {
-                _logger.LogWarning("Failed to fetch fiberstat.ha from {Host}", context.ConfiguredHost ?? context.Host);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                _logger.LogWarning("Failed to fetch fiberstat.ha from {Host}", context.Host);
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             ParseFiberStat(fiberHtml, stats);
@@ -83,8 +83,8 @@ public class AttGatewayOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling AT&T gateway at {Host}", context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling AT&T gateway at {Host}", context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -93,15 +93,15 @@ public class AttGatewayOntProvider : IOntProvider
     {
         try
         {
-            using var client = CreateHttpClient();
+            using var client = CreateHttpClient(context.Dialer);
             var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
             if (baseUrl == null)
-                return (false, $"Could not reach {context.ConfiguredHost ?? context.Host} via HTTP or HTTPS");
+                return (false, $"Could not reach {context.Host} via HTTP or HTTPS");
 
             var url = $"{baseUrl}/cgi-bin/fiberstat.ha";
             using var response = await client.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
-                return (false, $"HTTP {(int)response.StatusCode} from {context.ConfiguredHost ?? context.Host}");
+                return (false, $"HTTP {(int)response.StatusCode} from {context.Host}");
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
             var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";
@@ -112,11 +112,11 @@ public class AttGatewayOntProvider : IOntProvider
         }
         catch (HttpRequestException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (TaskCanceledException ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
         catch (Exception ex)
         {
@@ -270,11 +270,12 @@ public class AttGatewayOntProvider : IOntProvider
         }
     }
 
-    private static HttpClient CreateHttpClient()
+    private static HttpClient CreateHttpClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            ConnectCallback = DeviceHttp.Via(dialer),
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
     }
