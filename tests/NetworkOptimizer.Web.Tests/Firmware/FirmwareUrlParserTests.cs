@@ -79,6 +79,20 @@ public class FirmwareUrlParserTests
     }
 
     [Theory]
+    [InlineData("https://fw-download.ui.com/data/unifi-firmware/b4a0-UAPA6A5-8.7.11-367ab339.bin")]
+    [InlineData("https://downloads.ubnt.com/unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113.bin")]
+    public void Parse_AcceptsAnyUbiquitiSubdomainOnAKnownLayout(string url)
+    {
+        // The layout is the real check; the host only has to be Ubiquiti's.
+        FirmwareUrlParser.Parse(url, out var error).Should().NotBeNull();
+        error.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("https://evil-ui.com/unifi/firmware/U7PRO/8.8.8.20113/BZ.bin")]
+    [InlineData("https://dl.ui.com.example.net/unifi/firmware/U7PRO/8.8.8.20113/BZ.bin")]
+    [InlineData("https://dl.ui.com:8443/unifi/firmware/U7PRO/8.8.8.20113/BZ.bin")]
+    [InlineData("https://community.ui.com/uploads/attachment.bin")]
     [InlineData("http://fw-download.ubnt.com/data/unifi-dream/6a7a-UCGF-6.0.11-847f967b.bin")]
     [InlineData("https://example.com/data/unifi-dream/6a7a-UCGF-6.0.11-847f967b.bin")]
     [InlineData("https://fw-download.ubnt.com/data/unifi-dream/6a7a-UCGF-6.0.11-847f967b.bin?x=1")]

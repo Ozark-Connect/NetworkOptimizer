@@ -1154,7 +1154,7 @@ else
                     <div class="form-group">
                         <label class="form-label">Download Link</label>
                         <div class="input-with-button">
-                            <input class="form-control" placeholder="https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
+                            <input class="form-control" placeholder="https://dl.ui.com/unifi/firmware/... or https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
                             <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">
                                 @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Add</span> }
                             </button>

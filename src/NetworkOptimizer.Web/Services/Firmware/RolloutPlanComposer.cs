@@ -148,7 +148,7 @@ public static class RolloutPlanComposer
 
                     device.ToVersion = pin.Version;
                     device.Upgradable = true;
-                    images.Add(new PlanTargetImage { Mac = device.Mac, Version = pin.Version, Url = pin.Url, Pinned = true });
+                    images.Add(new PlanTargetImage { Mac = device.Mac, Version = pin.Version, Url = pin.UrlFor(device.Model), Pinned = true });
                 }
                 return (false, false);
 
@@ -156,7 +156,7 @@ public static class RolloutPlanComposer
             {
                 if (!ConsoleReachable(console) || console!.IsStandaloneConsole
                     || console.Firmware?.LatestByChannel is not { } byChannel
-                    || !string.Equals(console.Hardware?.Shortname, pin.Target, StringComparison.OrdinalIgnoreCase))
+                    || !SamePlatform(console.Hardware?.Shortname, pin.Target))
                     return (false, false);
 
                 // Nothing else may stand in for the pin. An unusable one leaves only the installed
@@ -645,8 +645,17 @@ public static class RolloutPlanComposer
         var offered = OfferedUniFiOsRelease(console, channel)?.Version;
         var floor = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(offered, installed) ? offered : installed;
 
-        var build = await sharedCatalog.FindNewerUniFiOsBuildAsync(
-            platform, ChannelsAtOrBelow(channel).ToList(), floor, cancellationToken);
+        // Matched by platform, not by code: an image link can name a model code (UDRULT) where the
+        // console reports its shortname (UCG-ULTRA).
+        var channels = ChannelsAtOrBelow(channel).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        SharedUniFiOsBuild? build = null;
+        foreach (var row in await sharedCatalog.ListUniFiOsBuildsAsync(cancellationToken))
+        {
+            if (!channels.Contains(row.Channel) || !SamePlatform(row.Platform, platform)) continue;
+            if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(row.Version, floor)) continue;
+            if (build == null || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(row.Version, build.Version))
+                build = row;
+        }
         if (build == null) return;
 
         if (!await commands.HasGatewaySshAsync(cancellationToken))
@@ -769,6 +778,23 @@ public static class RolloutPlanComposer
         // TODO: a deliberate downgrade is a separate opt-in mode, as for devices and the console.
         return !string.IsNullOrEmpty(app.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(app.UpdateAvailable, app.Version);
+    }
+
+    /// <summary>
+    /// Whether two hardware codes name the same console platform: equal, or both resolving to the
+    /// same product. Image file names carry a model code (UDRULT) while the console reports its
+    /// shortname (UCG-ULTRA); both are the UCG-Ultra.
+    /// </summary>
+    internal static bool SamePlatform(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+
+        // An unknown code resolves to itself, so two unknown codes only match when equal (above).
+        // A product name can differ from its shortname by case alone (UCG-Ultra / UCG-ULTRA).
+        var nameA = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(a, a);
+        var nameB = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(b, b);
+        return string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Whether /api/system answered with anything at all.</summary>
