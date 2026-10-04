@@ -39,7 +39,8 @@ public sealed record DeviceSshCredentialOverrides(string? Username, string? Pass
 /// just not running UniFi Network, so its login is the console's root login. That is what
 /// Gateway SSH holds, so a refused Device SSH login is retried with the
 /// Gateway SSH credentials at the device's own address. Device SSH goes first so a device that
-/// already accepts it is untouched. The outcome is persisted per MAC, so a restart does not cost
+/// already accepts it is untouched, and so this keeps working if that does not hold everywhere or
+/// Ubiquiti changes it. The outcome is persisted per MAC, so a restart does not cost
 /// a refused login per device, and dropped again if the Gateway SSH login is refused.
 /// </summary>
 public sealed class DeviceSshRouter
