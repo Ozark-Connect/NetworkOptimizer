@@ -123,19 +123,27 @@ public sealed class DeviceSshRouter
     }
 
     /// <summary>
+    /// The route the device takes, settled first with a no-op login when it is gateway hardware in
+    /// AP mode and nothing is remembered yet. For callers that build their own connection or
+    /// credentials rather than running a command, so the route reflects what the device accepts.
+    /// </summary>
+    public async Task<SshCredentialRoute> SettleAsync(DeviceSshTarget target, CancellationToken ct = default)
+    {
+        var route = await ResolveAsync(target, ct);
+        if (route != SshCredentialRoute.DeviceCredentials || !await IsGatewayHardwareAsync(target, ct)) return route;
+
+        await RunAsync(target, "true", SettleTimeout, ct);
+        return await ResolveAsync(target, ct);
+    }
+
+    /// <summary>
     /// The Gateway SSH credentials to set as per-device overrides, or null when the device takes
-    /// Device SSH. Settles the route with a no-op login first when the device is gateway hardware in
-    /// AP mode and nothing is remembered yet, so the answer reflects what the device accepts.
+    /// Device SSH. Settles the route first (<see cref="SettleAsync"/>).
     /// </summary>
     public async Task<DeviceSshCredentialOverrides?> GetCredentialOverridesAsync(
         DeviceSshTarget target, CancellationToken ct = default)
     {
-        if (target.Role == DeviceType.Gateway || !await IsGatewayHardwareAsync(target, ct)) return null;
-
-        if (await ResolveAsync(target, ct) == SshCredentialRoute.DeviceCredentials)
-            await RunAsync(target, "true", SettleTimeout, ct);
-
-        if (await ResolveAsync(target, ct) != SshCredentialRoute.GatewayCredentialsAtDevice) return null;
+        if (await SettleAsync(target, ct) != SshCredentialRoute.GatewayCredentialsAtDevice) return null;
 
         var gateway = await _gatewaySsh.GetSettingsAsync();
         return gateway.Enabled

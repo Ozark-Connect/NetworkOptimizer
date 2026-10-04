@@ -183,6 +183,33 @@ public class FirmwareRolloutOrchestratorTests
         harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
     }
 
+    [Theory]
+    [InlineData("U6PRO", false)]
+    // An Express adopted as an AP is still a UniFi OS gateway, so it takes the UniFi OS command.
+    [InlineData("UDMA69B", true)]
+    public async Task TheSshRetry_sends_the_UniFi_OS_command_to_a_UniFi_OS_gateway_in_any_role(string model, bool uniFiOs)
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = model,
+            Version = ToVersion,
+            Url = "https://fw-download.example.net/image.bin",
+        });
+        await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac, model: model))),
+            Step(ApMac, model: model));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, model: model);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion, model: model);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion, model: model);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle().Which.IsGateway.Should().Be(uniFiOs);
+    }
+
     [Fact]
     public async Task FullCycleOnTheWrongVersion_RetriesOverSshAndReEntersTheWatch()
     {

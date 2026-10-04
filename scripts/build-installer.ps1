@@ -149,7 +149,7 @@ if ($GoCmd) {
 }
 
 # AP Agent, pushed into tmpfs on each access point. U7-class APs are armv7l; arm64 is for UniFi OS
-# hardware with Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders, soft-float
+# gateways with Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders, soft-float
 # (no FPU on those SoCs).
 $ApAgentSrc = Join-Path $RepoRoot "src\apagent"
 

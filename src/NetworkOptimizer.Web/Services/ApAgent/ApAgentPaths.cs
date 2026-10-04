@@ -59,7 +59,7 @@ public static class ApAgentPaths
 
     /// <summary>
     /// The build for an AP, by the names src/apagent/apagent.sh expects, or null when there is none.
-    /// U7-class APs are armv7l; aarch64 is UniFi OS hardware with Wi-Fi (UDR7, UX7,
+    /// U7-class APs are armv7l; aarch64 is for UniFi OS gateways with Wi-Fi (UDR7, UX7,
     /// UCG-Industrial). aarch64_be has no build: Go's arm64 is little-endian only.
     /// </summary>
     /// <param name="machine"><c>uname -m</c>.</param>

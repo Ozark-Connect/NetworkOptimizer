@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
@@ -74,12 +75,22 @@ public interface IFirmwareCommandClient
     /// on UniFi OS gateways, <c>upgrade &lt;url&gt;</c> on everything else (APs, switches, legacy
     /// USG). The escalation path when a console command is accepted but nothing happens, and the
     /// first path for a rollback.
+    ///
+    /// A gateway step here is always a standalone gateway (UXG, USG): a Cloud Gateway updates as
+    /// UniFi OS and never becomes a device step. A standalone gateway is an adopted device, so it
+    /// takes Device SSH. Every other role goes through <see cref="Ssh.DeviceSshRouter"/>, which
+    /// covers an Express adopted as an AP.
     /// </summary>
+    /// <param name="deviceMac">Device MAC, which the SSH router keys its credential route on.</param>
     /// <param name="host">Device address.</param>
     /// <param name="firmwareUrl">Direct firmware image URL.</param>
-    /// <param name="isGateway">True for a UniFi OS gateway; legacy USG models count as false.</param>
+    /// <param name="role">The step's device role.</param>
+    /// <param name="isGateway">True for a UniFi OS gateway, including an Express adopted as an AP;
+    /// legacy USG models count as false.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default);
+    Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
+        string deviceMac, string host, string firmwareUrl, DeviceType role, bool isGateway,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The console's catalog for the channel in force: newest build per model, with image URLs. It

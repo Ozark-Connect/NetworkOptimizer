@@ -1229,7 +1229,7 @@
 
         try
         {
-            var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name);
+            var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name, ap.Mac);
             // Only warn about the data lag when it actually roamed - there's nothing to wait for
             // on a noop or a failure.
             var note = result.Action == "moved"

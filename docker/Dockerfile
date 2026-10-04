@@ -83,7 +83,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -o /wansteer-gateway .
 
 # Stage 2.6: Build apagent Go binaries (access-point-only: linux/arm/v7, linux/arm64, 32-bit MIPS)
-# AP Agent - on-AP Wi-Fi telemetry. U7-class APs are armv7l; arm64 is for UniFi OS hardware with
+# AP Agent - on-AP Wi-Fi telemetry. U7-class APs are armv7l; arm64 is for UniFi OS gateways with
 # Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders (U6-Lite is little-endian,
 # UAP-AC big), soft-float for FPU-less SoCs.
 FROM golang:1.22-alpine AS apagent-build

@@ -5,7 +5,7 @@
 # release pipeline are left untouched until the deployment service (W6) lands.
 #
 # Targets are linux/arm/v7, linux/arm64, and 32-bit MIPS in both byte orders (soft-float: no FPU
-# on those SoCs). U7-class APs are armv7l; arm64 is for UniFi OS hardware with Wi-Fi (UDR7, UX7,
+# on those SoCs). U7-class APs are armv7l; arm64 is for UniFi OS gateways with Wi-Fi (UDR7, UX7,
 # UCG-Industrial).
 
 param(
