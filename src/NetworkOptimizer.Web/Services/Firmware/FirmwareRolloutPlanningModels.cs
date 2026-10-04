@@ -445,6 +445,12 @@ public class RolloutPlanDocument
     /// <summary>Progress of the UniFi OS update that runs after every device step.</summary>
     public RolloutConsoleStepState UniFiOsUpdate { get; set; } = new();
 
+    /// <summary>
+    /// The per-model channel a rollout for a hand-added device build raised, put back when the plan
+    /// ends. Null when nothing was raised, and once restored.
+    /// </summary>
+    public RaisedModelChannel? RaisedModelChannel { get; set; }
+
     /// <summary>Console channels this rollout has already set.</summary>
     public RolloutConsoleChannels ConsoleChannels { get; set; } = new();
 
@@ -608,6 +614,19 @@ public class PlanTargetImage
 /// <param name="Version">The version to install.</param>
 /// <param name="Url">The image or package URL.</param>
 public sealed record RolloutBuildPin(FirmwareUrlKind Kind, string? Target, string Version, string Url);
+
+/// <summary>A per-model channel entry a rollout changed, and the entry it replaced.</summary>
+public class RaisedModelChannel
+{
+    /// <summary>Model code, the key in the per-model channel settings.</summary>
+    public string Model { get; set; } = string.Empty;
+
+    /// <summary>The channel the rollout set.</summary>
+    public string Channel { get; set; } = string.Empty;
+
+    /// <summary>The entry before the rollout; null when the model had none.</summary>
+    public string? Previous { get; set; }
+}
 
 public class PlanPriorVersion
 {

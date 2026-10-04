@@ -524,6 +524,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         await RestoreChannelsAsync(plan, cancellationToken);
+        await RestoreRaisedModelChannelAsync(plan, ParseDocument(plan), cancellationToken);
 
         plan.Status = FirmwareRolloutStatus.Aborted;
         plan.CompletedAt = Now;
@@ -2447,6 +2448,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         CancellationToken cancellationToken)
     {
         await RestoreChannelsAsync(plan, cancellationToken);
+        await RestoreRaisedModelChannelAsync(plan, document, cancellationToken);
 
         plan.Status = FirmwareRolloutStatus.SoakWait;
         plan.CompletedAt = Now;
@@ -2975,6 +2977,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Puts back the per-model channel a hand-added device build's rollout raised. The console
+    /// channels come back through <see cref="RestoreChannelsAsync"/>, but this one lives only in the
+    /// saved settings, where the next wizard would otherwise read it. An entry changed since is left alone.
+    /// </summary>
+    private async Task RestoreRaisedModelChannelAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        if (document.RaisedModelChannel is not { } raised)
+            return;
+
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var map = RolloutPlanner.ParseMap(settings.PerSkuChannelsJson);
+        if (map.TryGetValue(raised.Model, out var current)
+            && string.Equals(current, raised.Channel, StringComparison.OrdinalIgnoreCase))
+        {
+            if (raised.Previous == null) map.Remove(raised.Model);
+            else map[raised.Model] = raised.Previous;
+            settings.PerSkuChannelsJson = JsonSerializer.Serialize(map);
+            await _repositories.UseAsync((r, c) => r.SaveSettingsAsync(settings, c), cancellationToken);
+
+            _logger.LogInformation(
+                "Put the {Model} channel on site {Site} back to {Channel} after rollout {Id}",
+                raised.Model, _siteSlug, raised.Previous ?? "the site's own channel", plan.Id);
+            RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutSettingsChanged,
+                _siteSlug, plan.Id, new { model = raised.Model, from = raised.Channel, to = raised.Previous, reason = "rollout ended" });
+        }
+
+        document.RaisedModelChannel = null;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+    }
+
+    /// <summary>
     /// Puts the channels back for a rollout that ended while the server was down. The capture is
     /// only cleared once the restore has been made, so a leftover value is a restore that never ran.
     /// </summary>
@@ -2984,13 +3018,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _restoreSweepDone = true;
 
         var history = await _repositories.UseAsync((r, c) => r.GetPlanHistoryAsync(10, c), cancellationToken);
-        foreach (var plan in history.Where(p => p.OriginalChannelSettingsJson != null
-            && FirmwareRolloutStatuses.Terminal.Contains(p.Status)))
+        foreach (var plan in history.Where(p => FirmwareRolloutStatuses.Terminal.Contains(p.Status)))
         {
+            var document = ParseDocument(plan);
+            if (plan.OriginalChannelSettingsJson == null && document.RaisedModelChannel == null)
+                continue;
+
             _logger.LogWarning(
                 "Firmware rollout {Id} on site {Site} ended without putting the firmware channels back; restoring now",
                 plan.Id, _siteSlug);
             await RestoreChannelsAsync(plan, cancellationToken);
+            await RestoreRaisedModelChannelAsync(plan, document, cancellationToken);
         }
     }
 

@@ -505,6 +505,79 @@ public class RolloutConsoleChannelTests
         harness.Commands.UpgradeCommands.Should().BeEmpty("the console's own upgrade installs its newest build");
     }
 
+    // --- The per-model channel a hand-added device build raised ----------------------------------
+
+    private static readonly RolloutBuildPin DevicePin =
+        new(FirmwareUrlKind.Device, "U6PRO", "7.0.12", "https://example.test/U6PRO-7.0.12.bin");
+
+    [Fact]
+    public void RaisedModelChannelFor_RecordsTheEntryTheRolloutReplaced()
+    {
+        var raised = FirmwareRolloutService.RaisedModelChannelFor(
+            DevicePin, storedJson: "{\"USW24\":\"release\"}", newJson: "{\"USW24\":\"release\",\"U6PRO\":\"beta\"}");
+
+        raised.Should().NotBeNull();
+        raised!.Model.Should().Be("U6PRO");
+        raised.Channel.Should().Be("beta");
+        raised.Previous.Should().BeNull("the model had no entry of its own before");
+
+        FirmwareRolloutService.RaisedModelChannelFor(DevicePin, "{\"U6PRO\":\"release\"}", "{\"U6PRO\":\"beta\"}")!
+            .Previous.Should().Be("release");
+        FirmwareRolloutService.RaisedModelChannelFor(DevicePin, "{\"U6PRO\":\"beta\"}", "{\"U6PRO\":\"beta\"}")
+            .Should().BeNull("nothing changed");
+        FirmwareRolloutService.RaisedModelChannelFor(
+            DevicePin with { Kind = FirmwareUrlKind.UniFiOs }, "{}", "{\"U6PRO\":\"beta\"}")
+            .Should().BeNull("only a device build raises a per-model channel");
+    }
+
+    private static async Task<FirmwareRolloutPlan> SeedRaisedModelPlanAsync(RolloutHarness harness, string? previous)
+    {
+        await harness.WithSettingsAsync(s => s.PerSkuChannelsJson = "{\"USW24\":\"release\",\"U6PRO\":\"beta\"}");
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.RaisedModelChannel = new RaisedModelChannel { Model = "U6PRO", Channel = "beta", Previous = previous };
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        return plan;
+    }
+
+    [Fact]
+    public async Task AnAbortedRollout_PutsTheRaisedModelChannelBack()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedRaisedModelPlanAsync(harness, previous: null);
+
+        await harness.Orchestrator.AbortAsync("the operator stopped it");
+
+        var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>((await harness.SettingsAsync()).PerSkuChannelsJson!)!;
+        map.Should().NotContainKey("U6PRO", "it had no entry before the rollout");
+        map.Should().Contain("USW24", "release", "other models are untouched");
+        Stored((await harness.PlanAsync(plan.Id))!).RaisedModelChannel.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AnAbortedRollout_RestoresAPreviousModelEntry()
+    {
+        using var harness = new RolloutHarness();
+        await SeedRaisedModelPlanAsync(harness, previous: "release-candidate");
+
+        await harness.Orchestrator.AbortAsync("the operator stopped it");
+
+        var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>((await harness.SettingsAsync()).PerSkuChannelsJson!)!;
+        map.Should().Contain("U6PRO", "release-candidate");
+    }
+
+    [Fact]
+    public async Task AModelChannelChangedDuringTheRollout_IsLeftAlone()
+    {
+        using var harness = new RolloutHarness();
+        await SeedRaisedModelPlanAsync(harness, previous: null);
+        await harness.WithSettingsAsync(s => s.PerSkuChannelsJson = "{\"U6PRO\":\"release-candidate\"}");
+
+        await harness.Orchestrator.AbortAsync("the operator stopped it");
+
+        (await harness.SettingsAsync()).PerSkuChannelsJson.Should().Be("{\"U6PRO\":\"release-candidate\"}");
+    }
+
     /// <summary>Walks one commanded device all the way through to its litmus verdict.</summary>
     private static async Task RunDeviceToLitmusAsync(RolloutHarness harness, string mac)
     {
