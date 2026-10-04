@@ -25,16 +25,117 @@ public class SharedFirmwareCatalogServiceTests
             new DbContextOptionsBuilder<NetworkOptimizerDbContext>().UseInMemoryDatabase(_name).Options);
     }
 
+    /// <summary>Serves bodies by URL; anything else is a 404. Records every request.</summary>
+    private sealed class FakeDownloads : HttpMessageHandler, IHttpClientFactory
+    {
+        public Dictionary<string, byte[]> Bodies { get; } = new();
+        public List<string> Requested { get; } = [];
+
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            Requested.Add(url);
+            return Task.FromResult(Bodies.TryGetValue(url, out var body)
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(body) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+        }
+    }
+
     private readonly InMemoryFactory _db = new();
     private readonly SharedFirmwareCatalogRepository _catalog;
     private readonly AuditContext _audit = new();
+    private readonly FakeDownloads _downloads = new();
     private readonly SharedFirmwareCatalogService _service;
 
     public SharedFirmwareCatalogServiceTests()
     {
         _catalog = new SharedFirmwareCatalogRepository(_db, NullLogger<SharedFirmwareCatalogRepository>.Instance);
         _service = new SharedFirmwareCatalogService(
-            _catalog, _audit, new FakeTimeProvider(Now), NullLogger<SharedFirmwareCatalogService>.Instance);
+            _catalog, _audit, new FakeTimeProvider(Now), _downloads, NullLogger<SharedFirmwareCatalogService>.Instance);
+    }
+
+    // --- One image, a family of models ---------------------------------------------------------
+
+    private const string FamilyMd5 = "653094fe0cd20643c9c481a87544cdca";
+    private const string FamilyLink = "https://dl.ui.com/unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113.260910.1347.bin";
+
+    /// <summary>Two catalog models sharing one image, as the Consoles offered them, plus an unrelated one.</summary>
+    private Task SeedFamilyAsync(string version = "8.8.8.20113") => _catalog.UpsertDeviceBuildsAsync(
+    [
+        new SharedFirmwareBuild { Model = "U7PRO", Channel = FirmwareChannels.Beta, Version = version, Md5Sum = FamilyMd5, Url = $"https://fw-download.ubnt.com/data/unifi-firmware/0001-U7PRO-{version}-a.bin" },
+        new SharedFirmwareBuild { Model = "UAPA6A4", Channel = FirmwareChannels.Beta, Version = version, Md5Sum = FamilyMd5, Url = $"https://fw-download.ubnt.com/data/unifi-firmware/0002-UAPA6A4-{version}-b.bin" },
+        new SharedFirmwareBuild { Model = "U6ENT", Channel = FirmwareChannels.Beta, Version = version, Md5Sum = "02b4c862b9cd9e62add15814a7f74294", Url = $"https://fw-download.ubnt.com/data/unifi-firmware/0003-U6ENT-{version}-c.bin" },
+    ]);
+
+    [Fact]
+    public async Task AFamilyLink_CoversEveryModelThatSharesItsImage()
+    {
+        await SeedFamilyAsync();
+        _downloads.Bodies[FamilyLink + ".md5sum"] = System.Text.Encoding.ASCII.GetBytes($"{FamilyMd5}  BZ.ipq53xx_8.8.8+20113.260910.1347.bin\n");
+
+        var result = await _service.AddFirmwareUrlAsync(FamilyLink);
+
+        result.Succeeded.Should().BeTrue();
+        result.Models.Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
+        result.Target.Should().Be("U7PRO");
+        (await _catalog.ListDeviceBuildsAsync()).Where(b => b.Url == FamilyLink).Select(b => b.Model)
+            .Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
+        _downloads.Requested.Should().ContainSingle("the published .md5sum is enough; the image is never downloaded");
+    }
+
+    [Fact]
+    public async Task AFamilyLinkWithoutAPublishedMd5_HashesTheImage()
+    {
+        await SeedFamilyAsync();
+        var image = System.Text.Encoding.ASCII.GetBytes("image bytes");
+        var md5 = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(image)).ToLowerInvariant();
+        await _catalog.UpsertDeviceBuildsAsync(
+            [new SharedFirmwareBuild { Model = "UKPW", Channel = FirmwareChannels.Beta, Version = "8.8.8.20113", Md5Sum = md5, Url = "https://fw-download.ubnt.com/data/unifi-firmware/0004-UKPW-8.8.8-d.bin" }]);
+        const string link = "https://dl.ui.com/unifi/firmware/G7LR/8.8.8.20113/BZ2.ipq53xx_8.8.8+20113.260910.1353.bin";
+        _downloads.Bodies[link] = image;
+
+        var result = await _service.AddFirmwareUrlAsync(link);
+
+        result.Models.Should().BeEquivalentTo(["UKPW"], "G7LR is a folder, not a model; the md5 says which model it is");
+    }
+
+    [Fact]
+    public async Task AnUnseenBuild_TakesTheFolderModelsKnownFamily()
+    {
+        // No Console has been offered 8.8.9 yet, so nothing matches its md5.
+        await SeedFamilyAsync();
+        const string link = "https://dl.ui.com/unifi/firmware/U7PRO/8.8.9.20138/BZ.ipq53xx_8.8.9+20138.bin";
+
+        var result = await _service.AddFirmwareUrlAsync(link);
+
+        result.Models.Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
+        result.Version.Should().Be("8.8.9.20138");
+    }
+
+    [Fact]
+    public async Task AnUnseenBuildInAFolderThatIsNotAModel_IsRefused()
+    {
+        await SeedFamilyAsync();
+
+        var result = await _service.AddFirmwareUrlAsync(
+            "https://dl.ui.com/unifi/firmware/USMULTUS8/7.6.2.17186/US.MULT.US8_7.6.2+17186.260909.1319.bin");
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("USMULTUS8");
+        _audit.Drain().Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ALinkAlreadyInTheCatalog_TakesItsMd5FromThere()
+    {
+        await SeedFamilyAsync();
+
+        var result = await _service.AddFirmwareUrlAsync("https://fw-download.ubnt.com/data/unifi-firmware/0002-UAPA6A4-8.8.8.20113-b.bin");
+
+        result.Models.Should().BeEquivalentTo(["U7PRO", "UAPA6A4"]);
+        _downloads.Requested.Should().BeEmpty();
     }
 
     [Fact]
@@ -63,6 +164,17 @@ public class SharedFirmwareCatalogServiceTests
         var row = (await _catalog.ListDeviceBuildsAsync()).Should().ContainSingle().Subject;
         row.Model.Should().Be("UAPA6A5");
         row.Channel.Should().Be(FirmwareChannels.Beta);
+    }
+
+    [Fact]
+    public async Task ADownloadLinkNothingInTheCatalogExplains_IsRefused()
+    {
+        // A dl.ui.com folder is not necessarily a model code, so with no catalog to place it, it is not guessed.
+        var result = await _service.AddFirmwareUrlAsync(
+            "https://dl.ui.com/unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113.260910.1347.bin");
+
+        result.Succeeded.Should().BeFalse();
+        (await _catalog.ListDeviceBuildsAsync()).Should().BeEmpty();
     }
 
     [Fact]

@@ -12,13 +12,15 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <param name="Version">Version the build carries.</param>
 /// <param name="MatchedExisting">True when the target came from a build already in the catalog rather than the file name.</param>
 /// <param name="Url">The canonical URL that was stored.</param>
+/// <param name="Models">Every device model the image was filed for; one image can serve a whole family.</param>
 public sealed record FirmwareUrlAddResult(
     string? Error,
     FirmwareUrlKind Kind = FirmwareUrlKind.Unknown,
     string? Target = null,
     string? Version = null,
     bool MatchedExisting = false,
-    string? Url = null)
+    string? Url = null,
+    IReadOnlyList<string>? Models = null)
 {
     /// <summary>True when the build was added.</summary>
     public bool Succeeded => Error == null;
@@ -33,12 +35,13 @@ public sealed record FirmwareUrlAddResult(
             $"UniFi OS {NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(Version)} for {NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(Target, Target)}",
         FirmwareUrlKind.NetworkApp => $"UniFi Network {Version}",
         _ =>
-            $"{NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(Target, Target)} firmware {NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(Version)}",
+            $"{NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(Target, Target)} firmware {NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(Version)}"
+            + (Models is { Count: > 1 } ? $" ({Models.Count} models)" : ""),
     };
 
     /// <summary>The added build as a pin for the rollout planned from it, or null when nothing was added.</summary>
     public RolloutBuildPin? ToPin() =>
-        Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url) : null;
+        Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url, Models) : null;
 }
 
 /// <summary>

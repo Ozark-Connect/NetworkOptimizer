@@ -13,17 +13,20 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
     private readonly ISharedFirmwareCatalogRepository _catalog;
     private readonly IAuditContext _audit;
     private readonly TimeProvider _time;
+    private readonly IHttpClientFactory _http;
     private readonly ILogger<SharedFirmwareCatalogService> _logger;
 
     public SharedFirmwareCatalogService(
         ISharedFirmwareCatalogRepository catalog,
         IAuditContext audit,
         TimeProvider time,
+        IHttpClientFactory http,
         ILogger<SharedFirmwareCatalogService> logger)
     {
         _catalog = catalog;
         _audit = audit;
         _time = time;
+        _http = http;
         _logger = logger;
     }
 
@@ -38,7 +41,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        FirmwareUrlAddResult result;
+        FirmwareUrlAddResult? result = null;
 
         if (parsed.Kind == FirmwareUrlKind.NetworkApp)
         {
@@ -67,15 +70,30 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
             }
             else
             {
+                var family = await ResolveFamilyAsync(parsed, target, cancellationToken);
+                if (family == null)
+                {
+                    _audit.SuppressNoChange();
+                    return new FirmwareUrlAddResult(
+                        $"This image does not match any build a Console has been offered, and its folder ({parsed.Token}) is not a model code. Paste the per-model link from fw-download.ubnt.com instead.");
+                }
+
                 await _catalog.UpsertDeviceBuildsAsync(
-                    [new SharedFirmwareBuild { Model = target, Channel = AddedChannel, Version = parsed.Version, Url = parsed.Url }],
+                    family.Models.Select(m => new SharedFirmwareBuild
+                    {
+                        Model = m, Channel = AddedChannel, Version = family.Version, Url = parsed.Url, Md5Sum = family.Md5,
+                    }).ToList(),
                     cancellationToken);
                 if (!(await _catalog.ListDeviceBuildsAsync(cancellationToken)).Any(b =>
-                        b.Model == target && b.Channel == AddedChannel && b.Version == parsed.Version))
+                        b.Model == family.Models[0] && b.Channel == AddedChannel && b.Version == family.Version))
                     return SaveFailed();
+
+                var lead = family.Models.FirstOrDefault(m => string.Equals(m, target, StringComparison.OrdinalIgnoreCase))
+                    ?? family.Models[0];
+                result = new FirmwareUrlAddResult(null, kind, lead, family.Version, matched || family.Matched, parsed.Url, family.Models);
             }
 
-            result = new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched, parsed.Url);
+            result ??= new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched, parsed.Url);
         }
 
         _audit.SetTarget(result.Target ?? "unifi-network", result.DisplayName);
@@ -83,6 +101,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
         {
             kind = result.Kind.ToString(),
             target = result.Target,
+            models = result.Models,
             version = result.Version,
             channel = AddedChannel,
             url = parsed.Url,
@@ -120,6 +139,94 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
 
         return (parsed.Kind, parsed.Kind == FirmwareUrlKind.Unknown ? null : token, false);
     }
+
+    /// <summary>The device models one image serves, the version to file it under, and its md5.</summary>
+    private sealed record ImageFamily(IReadOnlyList<string> Models, string Version, string? Md5, bool Matched);
+
+    /// <summary>
+    /// Every device model an image is for. One image often serves a family (dl.ui.com's U7PRO folder
+    /// covers fourteen model codes), and its folder or file name need not be a model code at all, so
+    /// the family is whatever the Consoles' catalog lists with the same md5. When no Console has been
+    /// offered the build yet, a folder that is a model code stands in with that model's newest known
+    /// family. Null when neither can place the image.
+    /// </summary>
+    private async Task<ImageFamily?> ResolveFamilyAsync(ParsedFirmwareUrl parsed, string target, CancellationToken cancellationToken)
+    {
+        var rows = await _catalog.ListDeviceBuildsAsync(cancellationToken);
+        var md5 = rows.FirstOrDefault(r => r.Url == parsed.Url && !string.IsNullOrWhiteSpace(r.Md5Sum))?.Md5Sum
+            ?? await FetchMd5Async(parsed.Url, cancellationToken);
+
+        if (md5 != null)
+        {
+            var same = rows.Where(r => string.Equals(r.Md5Sum, md5, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (same.Count > 0)
+            {
+                // The catalog's version carries the build number a file name may leave off.
+                var version = same.Select(r => r.Version).FirstOrDefault(v => v.Count(c => c == '.') >= 3) ?? same[0].Version;
+                return new ImageFamily(same.Select(r => r.Model).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), version, md5, true);
+            }
+        }
+
+        var known = rows.Where(r => string.Equals(r.Model, target, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (known.Count == 0)
+        {
+            // A fw-download file name carries the model code; a dl.ui.com folder may not.
+            return parsed.Directory.StartsWith("/unifi/firmware", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : new ImageFamily([target], parsed.Version, md5, false);
+        }
+
+        var anchor = known.Where(r => !string.IsNullOrWhiteSpace(r.Md5Sum))
+            .Aggregate((SharedFirmwareBuild?)null, (best, r) =>
+                best == null || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(r.Version, best.Version) ? r : best);
+        var models = anchor == null
+            ? [target]
+            : rows.Where(r => r.Version == anchor.Version && string.Equals(r.Md5Sum, anchor.Md5Sum, StringComparison.OrdinalIgnoreCase))
+                .Select(r => r.Model).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new ImageFamily(models, parsed.Version, md5, false);
+    }
+
+    /// <summary>
+    /// The image's md5: the published <c>.md5sum</c> beside it where there is one (dl.ui.com), else
+    /// the hash of the image itself, capped so a mistaken link cannot pull an unbounded download.
+    /// Null when neither can be read.
+    /// </summary>
+    private async Task<string?> FetchMd5Async(string url, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(3));
+        var client = _http.CreateClient(HttpClientName);
+
+        try
+        {
+            using var sum = await client.GetAsync(url + ".md5sum", timeout.Token);
+            if (sum.IsSuccessStatusCode)
+            {
+                var text = await sum.Content.ReadAsStringAsync(timeout.Token);
+                var match = System.Text.RegularExpressions.Regex.Match(text, @"\b[0-9a-fA-F]{32}\b");
+                if (match.Success) return match.Value.ToLowerInvariant();
+            }
+
+            using var image = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!image.IsSuccessStatusCode || image.Content.Headers.ContentLength is > MaxImageBytes)
+                return null;
+            await using var stream = await image.Content.ReadAsStreamAsync(timeout.Token);
+            var hash = await System.Security.Cryptography.MD5.HashDataAsync(stream, timeout.Token);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException
+                                   && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Could not read the md5 of {Url}", url);
+            return null;
+        }
+    }
+
+    /// <summary>Named HTTP client for reading firmware images and their checksums.</summary>
+    public const string HttpClientName = "FirmwareImages";
+
+    /// <summary>Largest image the fallback hash will download. Device images are well under this.</summary>
+    private const long MaxImageBytes = 512L * 1024 * 1024;
 
     private FirmwareUrlAddResult SaveFailed()
     {

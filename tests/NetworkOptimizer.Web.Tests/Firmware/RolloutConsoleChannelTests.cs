@@ -511,30 +511,29 @@ public class RolloutConsoleChannelTests
         new(FirmwareUrlKind.Device, "U6PRO", "7.0.12", "https://example.test/U6PRO-7.0.12.bin");
 
     [Fact]
-    public void RaisedModelChannelFor_RecordsTheEntryTheRolloutReplaced()
+    public void RaisedModelChannelsFor_RecordsEachEntryTheRolloutReplaced()
     {
-        var raised = FirmwareRolloutService.RaisedModelChannelFor(
-            DevicePin, storedJson: "{\"USW24\":\"release\"}", newJson: "{\"USW24\":\"release\",\"U6PRO\":\"beta\"}");
+        var family = DevicePin with { Models = ["U6PRO", "UAPA6A4"] };
+        var raised = FirmwareRolloutService.RaisedModelChannelsFor(
+            family, storedJson: "{\"USW24\":\"release\",\"UAPA6A4\":\"release\"}",
+            newJson: "{\"USW24\":\"release\",\"U6PRO\":\"beta\",\"UAPA6A4\":\"beta\"}");
 
-        raised.Should().NotBeNull();
-        raised!.Model.Should().Be("U6PRO");
-        raised.Channel.Should().Be("beta");
-        raised.Previous.Should().BeNull("the model had no entry of its own before");
+        raised.Should().HaveCount(2);
+        raised.Single(r => r.Model == "U6PRO").Previous.Should().BeNull("the model had no entry of its own before");
+        raised.Single(r => r.Model == "UAPA6A4").Previous.Should().Be("release");
 
-        FirmwareRolloutService.RaisedModelChannelFor(DevicePin, "{\"U6PRO\":\"release\"}", "{\"U6PRO\":\"beta\"}")!
-            .Previous.Should().Be("release");
-        FirmwareRolloutService.RaisedModelChannelFor(DevicePin, "{\"U6PRO\":\"beta\"}", "{\"U6PRO\":\"beta\"}")
-            .Should().BeNull("nothing changed");
-        FirmwareRolloutService.RaisedModelChannelFor(
+        FirmwareRolloutService.RaisedModelChannelsFor(DevicePin, "{\"U6PRO\":\"beta\"}", "{\"U6PRO\":\"beta\"}")
+            .Should().BeEmpty("nothing changed");
+        FirmwareRolloutService.RaisedModelChannelsFor(
             DevicePin with { Kind = FirmwareUrlKind.UniFiOs }, "{}", "{\"U6PRO\":\"beta\"}")
-            .Should().BeNull("only a device build raises a per-model channel");
+            .Should().BeEmpty("only a device build raises a per-model channel");
     }
 
     private static async Task<FirmwareRolloutPlan> SeedRaisedModelPlanAsync(RolloutHarness harness, string? previous)
     {
         await harness.WithSettingsAsync(s => s.PerSkuChannelsJson = "{\"USW24\":\"release\",\"U6PRO\":\"beta\"}");
         var document = Document(Wave(1, PlanStep(ApMac)));
-        document.RaisedModelChannel = new RaisedModelChannel { Model = "U6PRO", Channel = "beta", Previous = previous };
+        document.RaisedModelChannels = [new RaisedModelChannel { Model = "U6PRO", Channel = "beta", Previous = previous }];
         var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
         harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
         return plan;
@@ -551,7 +550,7 @@ public class RolloutConsoleChannelTests
         var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>((await harness.SettingsAsync()).PerSkuChannelsJson!)!;
         map.Should().NotContainKey("U6PRO", "it had no entry before the rollout");
         map.Should().Contain("USW24", "release", "other models are untouched");
-        Stored((await harness.PlanAsync(plan.Id))!).RaisedModelChannel.Should().BeNull();
+        Stored((await harness.PlanAsync(plan.Id))!).RaisedModelChannels.Should().BeEmpty();
     }
 
     [Fact]

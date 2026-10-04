@@ -1155,7 +1155,9 @@ else
                         <label class="form-label">Download Link</label>
                         <div class="input-with-button">
                             <input class="form-control" placeholder="https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
-                            <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">Add</button>
+                            <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">
+                                @if (_busy) { <span class="spinner spinner-sm"></span> } else { <span>Add</span> }
+                            </button>
                         </div>
                         <small class="form-help">Paste a Ubiquiti download link for a build your Consoles have not offered yet. It is added on Early Access for every site on this install.</small>
                     </div>
@@ -1257,8 +1259,9 @@ else
                     _settings.IncludeUniFiNetwork = true;
                     _settings.NetworkAppChannel = FirmwareChannels.Beta;
                     break;
-                case FirmwareUrlKind.Device when added.Target != null:
-                    _skuChannels[added.Target] = FirmwareChannels.Beta;
+                case FirmwareUrlKind.Device:
+                    foreach (var model in _wizardPin?.DeviceModels ?? [])
+                        _skuChannels[model] = FirmwareChannels.Beta;
                     break;
             }
             _scheduleMode = "now";

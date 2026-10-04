@@ -42,6 +42,19 @@ public class FirmwareUrlParserTests
         parsed.Version.Should().Be("1.13.8");
     }
 
+    [Fact]
+    public void Parse_ReadsADeviceDownloadLink()
+    {
+        // dl.ui.com puts the model and the full version in folders rather than the file name.
+        var parsed = FirmwareUrlParser.Parse(
+            "https://dl.ui.com/unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113.260910.1347.bin", out var error);
+
+        error.Should().BeNull();
+        parsed!.Kind.Should().Be(FirmwareUrlKind.Device);
+        parsed.Token.Should().Be("U7PRO");
+        parsed.Version.Should().Be("8.8.8.20113");
+    }
+
     [Theory]
     [InlineData("https://dl.ui.com/unifi/10.6.97/unifi-native_sysvinit.deb")]
     [InlineData("https://dl.ui.com/unifi/10.6.97/unifi_sysvinit_all.deb")]

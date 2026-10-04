@@ -224,6 +224,23 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
+    public async Task BuildPreviewAsync_APinnedFamilyBuildCoversEveryModelInTheFamily()
+    {
+        // One image for two model codes, as dl.ui.com publishes it; a third model stays on its offer.
+        using var harness = HarnessWithTwoAps();
+        harness.Planning.Devices.Add(Ap("aa:bb:cc:dd:ee:03", "AP 3", model: "SKU-AP2"));
+        harness.Planning.Devices.Add(Ap("aa:bb:cc:dd:ee:05", "AP 5", model: "SKU-OTHER"));
+        var pin = new RolloutBuildPin(FirmwareUrlKind.Device, "SKU-AP1", "1.0.5", "https://example.test/family-1.0.5.bin",
+            ["SKU-AP1", "SKU-AP2"]);
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(), pin: pin);
+
+        var steps = preview.Plan.Waves.SelectMany(w => w.Steps).ToList();
+        steps.Where(s => s.Model is "SKU-AP1" or "SKU-AP2").Select(s => s.ToVersion).Should().HaveCount(3).And.AllBe("1.0.5");
+        steps.Single(s => s.Model == "SKU-OTHER").ToVersion.Should().Be("1.1.0");
+    }
+
+    [Fact]
     public async Task BuildPreviewAsync_APinnedDeviceBuildNoNewerThanInstalledPlansNothingForThatModel()
     {
         using var harness = HarnessWithTwoAps();

@@ -42,6 +42,11 @@ public static class FirmwareUrlParser
         @"^[0-9a-f]+-(?<token>[A-Za-z0-9]+)-(?<version>\d+\.\d+\.\d+(?:\.\d+)?)-[A-Za-z0-9-]+\.bin$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    // /unifi/firmware/<MODEL>/<x.y.z.build>/<file>.bin, e.g. /unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113....bin
+    private static readonly Regex DeviceDownloadPath = new(
+        @"^/unifi/firmware/(?<token>[A-Za-z0-9]+)/(?<version>\d+\.\d+\.\d+(?:\.\d+)?)/[A-Za-z0-9._+-]+\.bin$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     // /unifi/<version>/<package>.deb
     private static readonly Regex NetworkAppPath = new(
         @"^/unifi/(?<version>\d+\.\d+\.\d+)/(unifi-native_sysvinit|unifi_sysvinit_all)\.deb$",
@@ -83,6 +88,12 @@ public static class FirmwareUrlParser
         var app = NetworkAppPath.Match(path);
         if (app.Success)
             return new ParsedFirmwareUrl(FirmwareUrlKind.NetworkApp, null, app.Groups["version"].Value, DirectoryOf(path), url);
+
+        // The model is a folder here, not part of the file name, so no catalog match is needed for it.
+        var download = DeviceDownloadPath.Match(path);
+        if (download.Success)
+            return new ParsedFirmwareUrl(
+                FirmwareUrlKind.Device, download.Groups["token"].Value, download.Groups["version"].Value, DirectoryOf(path), url);
 
         var slash = path.LastIndexOf('/');
         var file = ImageFile.Match(path[(slash + 1)..]);

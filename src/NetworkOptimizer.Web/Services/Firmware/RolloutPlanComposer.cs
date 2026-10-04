@@ -132,8 +132,8 @@ public static class RolloutPlanComposer
         switch (pin.Kind)
         {
             case FirmwareUrlKind.Device:
-                foreach (var device in context.Devices.Where(d =>
-                    string.Equals(d.Model, pin.Target, StringComparison.OrdinalIgnoreCase)))
+                var models = new HashSet<string>(pin.DeviceModels, StringComparer.OrdinalIgnoreCase);
+                foreach (var device in context.Devices.Where(d => models.Contains(d.Model)))
                 {
                     if (FirmwareTimingEstimator.Classify(device) == FirmwareDeviceClass.CellularModem) continue;
 

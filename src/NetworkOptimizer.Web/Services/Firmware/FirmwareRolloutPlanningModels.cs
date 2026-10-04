@@ -446,10 +446,10 @@ public class RolloutPlanDocument
     public RolloutConsoleStepState UniFiOsUpdate { get; set; } = new();
 
     /// <summary>
-    /// The per-model channel a rollout for a hand-added device build raised, put back when the plan
-    /// ends. Null when nothing was raised, and once restored.
+    /// The per-model channels a rollout for a hand-added device build raised, put back when the plan
+    /// ends. Empty when nothing was raised, and once restored.
     /// </summary>
-    public RaisedModelChannel? RaisedModelChannel { get; set; }
+    public List<RaisedModelChannel> RaisedModelChannels { get; set; } = [];
 
     /// <summary>Console channels this rollout has already set.</summary>
     public RolloutConsoleChannels ConsoleChannels { get; set; } = new();
@@ -613,7 +613,12 @@ public class PlanTargetImage
 /// <param name="Target">Device model or hardware platform; null for the Network application.</param>
 /// <param name="Version">The version to install.</param>
 /// <param name="Url">The image or package URL.</param>
-public sealed record RolloutBuildPin(FirmwareUrlKind Kind, string? Target, string Version, string Url);
+/// <param name="Models">Every device model the image is for; null means <paramref name="Target"/> alone.</param>
+public sealed record RolloutBuildPin(FirmwareUrlKind Kind, string? Target, string Version, string Url, IReadOnlyList<string>? Models = null)
+{
+    /// <summary>The device models the pin covers.</summary>
+    public IReadOnlyList<string> DeviceModels => Models is { Count: > 0 } ? Models : Target is { Length: > 0 } t ? [t] : [];
+}
 
 /// <summary>A per-model channel entry a rollout changed, and the entry it replaced.</summary>
 public class RaisedModelChannel
