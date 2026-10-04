@@ -74,8 +74,8 @@ public class RolloutPlanner
         var canaried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceWave = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        // Not candidates: a Cloud Gateway reports upgradable=false while its UniFi OS build waits,
-        // because that update belongs to the console. Its own device candidacy says nothing here.
+        // A Cloud Gateway is never a device step: it updates as UniFi OS, never as a Network device,
+        // so it never reports upgradable. Its update is the console's UniFi OS step, planned here.
         var cloudGateway = input.Devices
             .FirstOrDefault(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
         doc.ConsoleMac = cloudGateway?.Mac;

@@ -12,9 +12,8 @@ namespace NetworkOptimizer.Web.Services.ApAgent;
 public static class ApAgentScripts
 {
     /// <summary>
-    /// Whether an AP Agent build exists for a machine architecture, in either byte order. The
-    /// Makefile deliberately builds no arm64 target, so aarch64 hardware is unsupported rather than
-    /// broken, and says so.
+    /// Whether an AP Agent build exists for a machine architecture, in either byte order. Hardware
+    /// with no build is unsupported rather than broken, and says so.
     /// </summary>
     public static bool SupportsArchitecture(string? machine)
         => ApAgentPaths.BinaryNameFor(machine, "little") != null || ApAgentPaths.BinaryNameFor(machine, "big") != null;
@@ -28,7 +27,7 @@ public static class ApAgentScripts
             return "Could not read this access point's architecture over SSH.";
         if (SupportsArchitecture(machine) && byteOrder == null)
             return $"This access point reports {machine.Trim()}, but its byte order could not be read over SSH.";
-        return $"This access point reports {machine.Trim()}. The AP Agent is built for 32-bit ARM (armv7l) and 32-bit MIPS.";
+        return $"This access point reports {machine.Trim()}. The AP Agent is built for 32-bit ARM (armv7l), 64-bit ARM (aarch64), and 32-bit MIPS.";
     }
 
     /// <summary>

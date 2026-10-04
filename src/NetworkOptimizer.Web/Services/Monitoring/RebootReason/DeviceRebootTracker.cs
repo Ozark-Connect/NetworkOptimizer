@@ -495,7 +495,7 @@ public class DeviceRebootTracker
                 "Probing {Device} ({Mac}, {DeviceType}) at {Host} for the reason behind its boot at {BootedAt:u}",
                 deviceName ?? "unknown", mac, deviceType, host, bootedAt);
 
-            var probed = await _probe.ProbeAsync(host, deviceType, firmwareChanged);
+            var probed = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged);
 
             // Name the versions from the UniFi device data. An AP's console ring proves a flash
             // happened but never says which image, and that detail is what the tooltip shows.

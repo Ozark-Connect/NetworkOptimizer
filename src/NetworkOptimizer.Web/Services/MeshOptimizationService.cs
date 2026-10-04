@@ -13,6 +13,7 @@ namespace NetworkOptimizer.Web.Services;
 public class MeshOptimizationService : IMeshOptimizationService
 {
     private readonly UniFiSshService _ssh;
+    private readonly Ssh.DeviceSshRouterRegistry _sshRouters;
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<MeshOptimizationService> _logger;
@@ -35,11 +36,13 @@ public class MeshOptimizationService : IMeshOptimizationService
 
     public MeshOptimizationService(
         UniFiSshService ssh,
+        Ssh.DeviceSshRouterRegistry sshRouters,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
         ILogger<MeshOptimizationService> logger)
     {
         _ssh = ssh;
+        _sshRouters = sshRouters;
         _siteContext = siteContext;
         _licenseState = licenseState;
         _logger = logger;
@@ -52,8 +55,9 @@ public class MeshOptimizationService : IMeshOptimizationService
     /// <param name="host">The AP's IP/host for SSH.</param>
     /// <param name="iface">The STA backhaul interface (e.g. "vwiresta7").</param>
     /// <param name="apName">AP display name, used only for log/message context.</param>
+    /// <param name="apMac">The AP's MAC, which the SSH router keys its credential route on.</param>
     public async Task<MeshOptimizationResult> OptimizeAsync(
-        string? host, string? iface, string? apName, CancellationToken cancellationToken = default)
+        string? host, string? iface, string? apName, string? apMac, CancellationToken cancellationToken = default)
     {
         if (!_licenseState.IsSiteOperational(_siteContext.Slug))
         {
@@ -64,13 +68,18 @@ public class MeshOptimizationService : IMeshOptimizationService
         if (string.IsNullOrWhiteSpace(host))
             return MeshOptimizationResult.NoOp(iface, "This AP has no reachable address.");
 
-        // The action runs over the shared UniFi device SSH credentials. Without them every
-        // wpa_cli call just fails with a generic error, so check up front and point the user at
-        // where to set it up.
+        // The router picks the credentials, so an Express adopted as an AP that refuses Device SSH
+        // falls back to Gateway SSH. A mesh child is always an access point.
+        var target = new Ssh.DeviceSshTarget(apMac ?? "", host, NetworkOptimizer.Core.Enums.DeviceType.AccessPoint);
+
+        // Without Device SSH every wpa_cli call fails with a generic error, so point the user at
+        // where to set it up. Checked after settling the route: an Express adopted as an AP is still
+        // a console, so it takes the console's root login (Gateway SSH) and needs no Device SSH.
+        var route = await _sshRouters.GetFor(_siteContext.Slug).SettleAsync(target, cancellationToken);
         var sshSettings = await _ssh.GetSettingsAsync();
         var sshConfigured = !string.IsNullOrEmpty(sshSettings.Username) &&
             (!string.IsNullOrEmpty(sshSettings.Password) || !string.IsNullOrEmpty(sshSettings.PrivateKeyPath));
-        if (!sshConfigured)
+        if (!sshConfigured && route == Ssh.SshCredentialRoute.DeviceCredentials)
             return MeshOptimizationResult.NoOp(iface, "Set up UniFi Device SSH in Settings to re-pair the uplink.");
 
         // UniFi does not always report a mesh child's own uplink - after a parent reboots it can
@@ -79,7 +88,7 @@ public class MeshOptimizationService : IMeshOptimizationService
         // reporting gap disable the action.
         if (string.IsNullOrWhiteSpace(iface) || !ValidStaIface.IsMatch(iface))
         {
-            iface = await DiscoverStaInterfaceAsync(host, cancellationToken);
+            iface = await DiscoverStaInterfaceAsync(target, cancellationToken);
             if (iface == null)
                 return MeshOptimizationResult.NoOp(null, "This AP isn't a wireless mesh child.");
 
@@ -97,14 +106,14 @@ public class MeshOptimizationService : IMeshOptimizationService
             $"do [ -S \"$d/{iface}\" ] && {{ printf %s \"$d\"; break; }}; done)\"";
         var wc = $"wpa_cli -p {ctrlDir} -i {iface}";
 
-        var before = await ReadLinkAsync(host, wc, cancellationToken);
+        var before = await ReadLinkAsync(target, wc, cancellationToken);
         if (before.Bssid == null)
         {
             _logger.LogDebug("[MeshOptimize] {Ap}: could not read backhaul status on {Iface}", apName, iface);
             return MeshOptimizationResult.Failed(iface, "Couldn't read the mesh backhaul status.");
         }
 
-        var (scanOk, _) = await _ssh.RunCommandAsync(host, $"{wc} scan", cancellationToken: cancellationToken);
+        var (scanOk, _) = await Run(target, $"{wc} scan", cancellationToken);
         if (!scanOk)
             return MeshOptimizationResult.Failed(iface, "Couldn't start the backhaul scan.");
 
@@ -126,7 +135,7 @@ public class MeshOptimizationService : IMeshOptimizationService
                 return MeshOptimizationResult.Failed(iface, "Mesh optimization was cancelled.");
             }
 
-            var read = await ReadLinkAsync(host, wc, cancellationToken);
+            var read = await ReadLinkAsync(target, wc, cancellationToken);
             if (read.Bssid == null) continue;
 
             after = read;
@@ -179,14 +188,12 @@ public class MeshOptimizationService : IMeshOptimizationService
     /// this also answers "is it actually a mesh child" when UniFi will not say. Both wpa_supplicant
     /// layouts are searched, the same pair the control socket is probed in below.
     /// </summary>
-    /// <param name="host">AP address.</param>
+    /// <param name="target">The AP.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task<string?> DiscoverStaInterfaceAsync(string host, CancellationToken cancellationToken)
+    private async Task<string?> DiscoverStaInterfaceAsync(Ssh.DeviceSshTarget target, CancellationToken cancellationToken)
     {
-        var (ok, output) = await _ssh.RunCommandAsync(
-            host,
-            "ls /sys/class/net 2>/dev/null | grep -x 'vwiresta[0-9]*' | head -1",
-            cancellationToken: cancellationToken);
+        var (ok, output) = await Run(
+            target, "ls /sys/class/net 2>/dev/null | grep -x 'vwiresta[0-9]*' | head -1", cancellationToken);
 
         if (!ok) return null;
         var name = output?.Trim().Split('\n', '\r').FirstOrDefault()?.Trim();
@@ -195,10 +202,9 @@ public class MeshOptimizationService : IMeshOptimizationService
 
     /// <summary>Read the current backhaul BSSID and RSSI in a single SSH round trip.</summary>
     private async Task<(string? Bssid, int? Rssi, int? LinkSpeedMbps)> ReadLinkAsync(
-        string host, string wc, CancellationToken cancellationToken)
+        Ssh.DeviceSshTarget target, string wc, CancellationToken cancellationToken)
     {
-        var (ok, output) = await _ssh.RunCommandAsync(
-            host, $"{wc} status; {wc} signal_poll", cancellationToken: cancellationToken);
+        var (ok, output) = await Run(target, $"{wc} status; {wc} signal_poll", cancellationToken);
         if (!ok || string.IsNullOrWhiteSpace(output))
             return (null, null, null);
 
@@ -207,6 +213,9 @@ public class MeshOptimizationService : IMeshOptimizationService
         var linkSpeed = MatchInt(output, @"(?im)^LINKSPEED=(\d+)");
         return (bssid, rssi, linkSpeed);
     }
+
+    private Task<(bool success, string output)> Run(Ssh.DeviceSshTarget target, string command, CancellationToken ct) =>
+        _sshRouters.GetFor(_siteContext.Slug).RunAsync(target, command, null, ct);
 
     private static string? MatchValue(string text, string pattern)
     {

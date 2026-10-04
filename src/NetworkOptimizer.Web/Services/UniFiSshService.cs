@@ -222,6 +222,19 @@ public class UniFiSshService : IUniFiSshService
         return await RunCommandCoreAsync(host, command, portOverride, usernameOverride, passwordOverride, privateKeyPathOverride, null, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<(bool success, string output)> RunCommandAsync(
+        string host,
+        string command,
+        string? usernameOverride,
+        string? passwordOverride,
+        string? privateKeyPathOverride,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken = default)
+    {
+        return await RunCommandCoreAsync(host, command, null, usernameOverride, passwordOverride, privateKeyPathOverride, timeout, cancellationToken);
+    }
+
     private async Task<(bool success, string output)> RunCommandCoreAsync(
         string host,
         string command,

@@ -64,8 +64,7 @@ public sealed class HealthCheckRunner
     private readonly bool _isDefault;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
-    private readonly IGatewaySshService _gatewaySsh;
-    private readonly IUniFiSshService _deviceSsh;
+    private readonly DeviceSshRouter _ssh;
     private readonly UniFiConnectionService _connection;
     private readonly MonitoringInfluxClient _influx;
     private readonly IAlertEventBus _eventBus;
@@ -89,8 +88,7 @@ public sealed class HealthCheckRunner
         string siteSlug,
         SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
-        IGatewaySshService gatewaySsh,
-        IUniFiSshService deviceSsh,
+        DeviceSshRouter ssh,
         UniFiConnectionService connection,
         MonitoringInfluxClient influx,
         IAlertEventBus eventBus,
@@ -102,8 +100,7 @@ public sealed class HealthCheckRunner
         _isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
         _siteDbFactory = siteDbFactory;
         _mainDbFactory = mainDbFactory;
-        _gatewaySsh = gatewaySsh;
-        _deviceSsh = deviceSsh;
+        _ssh = ssh;
         _connection = connection;
         _influx = influx;
         _eventBus = eventBus;
@@ -201,7 +198,7 @@ public sealed class HealthCheckRunner
             await _sshGate.WaitAsync(ct);
             try
             {
-                result = await HealthCheckExecutor.RunAsync(check, device.EffectiveType, device.Host, _gatewaySsh, _deviceSsh, ct);
+                result = await HealthCheckExecutor.RunAsync(check, device.ToSshTarget(check.DeviceMac), _ssh, ct);
             }
             finally
             {
@@ -364,7 +361,7 @@ public sealed class HealthCheckRunner
         _logger.LogInformation("Health check {Check} on {Device}: value {Value}, running remedy: {Command}",
             check.Name, device.Name, value, command);
 
-        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, type, device.Host, _gatewaySsh, _deviceSsh, ct);
+        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, device.ToSshTarget(check.DeviceMac), _ssh, ct);
 
         // A reboot drops the session, which the SSH layer reports as a failure that is not one.
         if (check.Remedy == HealthCheckRemedy.RebootDevice) ok = true;
@@ -621,8 +618,8 @@ public sealed class HealthCheckRunner
         : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
 
     /// <summary>
-    /// Gateway hardware is a gateway for SSH credentials and remedies whatever role it is in: a
-    /// UDR meshing as an access point still runs UniFi OS and still takes the console credentials.
+    /// Gateway hardware is gateway-class for templates and remedies whatever role it is in: a UX7
+    /// adopted as an access point still runs UniFi OS. SSH follows the real role; see DeviceSshRouter.
     /// </summary>
     internal static DeviceType EffectiveType(DiscoveredDevice device) =>
         device.HardwareType == DeviceType.Gateway ? DeviceType.Gateway : device.Type;

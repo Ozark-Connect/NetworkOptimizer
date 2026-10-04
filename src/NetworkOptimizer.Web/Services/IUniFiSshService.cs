@@ -72,6 +72,20 @@ public interface IUniFiSshService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Run an SSH command with credential overrides and a custom timeout. Null or empty overrides
+    /// fall back to the shared settings; the port is always the shared Device SSH port.
+    /// </summary>
+    /// <param name="passwordOverride">Encrypted, as stored.</param>
+    Task<(bool success, string output)> RunCommandAsync(
+        string host,
+        string command,
+        string? usernameOverride,
+        string? passwordOverride,
+        string? privateKeyPathOverride,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Run an SSH command using device-specific credentials if configured, falling back to global settings.
     /// </summary>
     /// <param name="device">The device configuration containing host and credentials.</param>

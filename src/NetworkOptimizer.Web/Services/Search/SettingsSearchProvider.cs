@@ -233,7 +233,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["wi-fi telemetry", "deploy", "redeploy", "repair", "capability report", "per-client signal",
              "per-client retries", "tcp stalls", "roam events", "roam timing", "radio airtime",
              "radio health", "wedged radio", "channel recommendations",
-             "hostapd", "wlanconfig", "armv7l", "update agent", "upgrade agent",
+             "hostapd", "wlanconfig", "armv7l", "aarch64", "UX7", "UDR7", "update agent", "upgrade agent",
              "access points", "device ssh"]),
 
         Entry("speedtests", "Speed Tests", "speed-test-settings",

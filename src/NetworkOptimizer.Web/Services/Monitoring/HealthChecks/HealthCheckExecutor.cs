@@ -36,34 +36,25 @@ public sealed class HealthCheckRunResult
 public static class HealthCheckExecutor
 {
     /// <summary>
-    /// Runs the check once. A gateway uses the console's SSH credentials, everything else the
-    /// shared device credentials, the same split <c>DeviceRebootProbe</c> makes.
+    /// Runs the check once, on the SSH route <see cref="DeviceSshRouter"/> picks for the device.
     /// </summary>
     public static async Task<HealthCheckRunResult> RunAsync(
         HealthCheckDefinition check,
-        DeviceType deviceType,
-        string? host,
-        IGatewaySshService gatewaySsh,
-        IUniFiSshService deviceSsh,
+        DeviceSshTarget target,
+        DeviceSshRouter router,
         CancellationToken ct)
     {
         var timeout = TimeSpan.FromSeconds(Math.Clamp(check.TimeoutSeconds, 5, 120));
         var wrapped = HealthCheckEvaluation.WrapCommand(check.Command);
 
+        if (NoAddress(target))
+            return new HealthCheckRunResult { Ran = false, Error = NoAddressError };
+
         bool success;
         string raw;
         try
         {
-            if (deviceType == DeviceType.Gateway)
-            {
-                (success, raw) = await gatewaySsh.RunCommandAsync(wrapped, timeout, ct);
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(host))
-                    return new HealthCheckRunResult { Ran = false, Error = "The site reports no address for this device." };
-                (success, raw) = await deviceSsh.RunCommandAsync(host, wrapped, null, timeout, ct);
-            }
+            (success, raw) = await router.RunAsync(target, wrapped, timeout, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -98,24 +89,24 @@ public static class HealthCheckExecutor
     /// <summary>Runs a remedy command on the device. Returns the SSH layer's verdict and text.</summary>
     public static async Task<(bool Success, string Output)> RunRemedyAsync(
         string command,
-        DeviceType deviceType,
-        string? host,
-        IGatewaySshService gatewaySsh,
-        IUniFiSshService deviceSsh,
+        DeviceSshTarget target,
+        DeviceSshRouter router,
         CancellationToken ct)
     {
-        var timeout = TimeSpan.FromSeconds(60);
+        if (NoAddress(target)) return (false, NoAddressError);
         try
         {
-            if (deviceType == DeviceType.Gateway)
-                return await gatewaySsh.RunCommandAsync(command, timeout, ct);
-            if (string.IsNullOrWhiteSpace(host))
-                return (false, "The site reports no address for this device.");
-            return await deviceSsh.RunCommandAsync(host, command, null, timeout, ct);
+            return await router.RunAsync(target, command, TimeSpan.FromSeconds(60), ct);
         }
         catch (Exception ex)
         {
             return (false, ex.Message);
         }
     }
+
+    private const string NoAddressError = "The site reports no address for this device.";
+
+    /// <summary>The site gateway is dialed at its configured host, so only other devices need an address.</summary>
+    private static bool NoAddress(DeviceSshTarget target) =>
+        target.Role != DeviceType.Gateway && string.IsNullOrWhiteSpace(target.Host);
 }

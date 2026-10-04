@@ -606,7 +606,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await HoldApAgentAsync(step, cancellationToken);
 
         var result = await _commands.TriggerSshUpgradeAsync(
-            observation?.IpAddress ?? string.Empty, prior.Url, SshUpgradesAsGateway(step), cancellationToken);
+            step.DeviceMac, observation?.IpAddress ?? string.Empty, prior.Url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
             result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, prior.Url, cancellationToken);
 
@@ -1663,7 +1663,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             step.DeviceName, _siteSlug);
 
         var result = await _commands.TriggerSshUpgradeAsync(
-            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+            step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -1711,7 +1711,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await HoldApAgentAsync(step, cancellationToken);
 
         var result = await _commands.TriggerSshUpgradeAsync(
-            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+            step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -2116,7 +2116,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 continue;
             }
 
-            if (_meshRepairs.Enqueue(repair.ChildIp, repair.Iface, repair.ChildName))
+            if (_meshRepairs.Enqueue(repair.ChildIp, repair.Iface, repair.ChildName, repair.ChildMac))
             {
                 _logger.LogInformation(
                     "Queued a mesh backhaul re-pair for {Ap} on site {Site}", repair.ChildName, _siteSlug);
@@ -2336,7 +2336,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (!result.IsOk && url != null && !string.IsNullOrWhiteSpace(observation.IpAddress))
             {
                 result = await _commands.TriggerSshUpgradeAsync(
-                    observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+                    step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
                 if (result.IsOk)
                     _escalatedAt[step.Id] = Now;
             }
@@ -3204,8 +3204,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Whether the SSH path takes the UniFi OS gateway command. Legacy USG models (UGW*) predate
     /// UniFi OS and upgrade with <c>upgrade</c> like an AP.
     /// </summary>
+    /// <summary>
+    /// Whether the SSH upgrade treats the device as a UniFi OS gateway. An Express adopted as an AP
+    /// is still one, so it takes firmware as it does when it is the gateway.
+    /// </summary>
     private static bool SshUpgradesAsGateway(FirmwareRolloutStep step) =>
-        IsGatewayStep(step) && step.Model?.StartsWith("UGW", StringComparison.OrdinalIgnoreCase) != true;
+        (IsGatewayStep(step) && step.Model?.StartsWith("UGW", StringComparison.OrdinalIgnoreCase) != true)
+        || NetworkOptimizer.UniFi.UniFiProductDatabase.IsCloudGateway(step.Model, null);
+
+    private static DeviceType StepRole(FirmwareRolloutStep step) => FirmwareDeviceTypes.Parse(step.DeviceType);
 
     private static TimeSpan CoolDownFor(FirmwareRolloutStep step) =>
         IsGatewayStep(step) ? GatewayCoolDown : CoolDown;

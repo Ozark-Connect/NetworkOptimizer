@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -6,27 +7,30 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
 /// The real <see cref="IFirmwareCommandClient"/>: the site's UniFi console for API commands,
-/// the site's device SSH service for the direct device upgrade path, and the gateway SSH
-/// service for console-level SSH fallbacks. All are already tunnel-routed, so an
-/// agent-connected site needs nothing extra here.
+/// the site's device SSH service for a standalone gateway's direct upgrade, the SSH router for
+/// every other device's, and the gateway SSH service for console-level SSH fallbacks. All are
+/// already tunnel-routed, so an agent-connected site needs nothing extra here.
 /// </summary>
 public class FirmwareCommandClient : IFirmwareCommandClient
 {
     private readonly UniFiConnectionService _connection;
     private readonly IUniFiSshService _ssh;
     private readonly IGatewaySshService _gatewaySsh;
+    private readonly DeviceSshRouter _router;
     private readonly ILogger<FirmwareCommandClient> _logger;
     private readonly string _siteSlug;
 
     /// <param name="siteConnections">Per-site console connections.</param>
     /// <param name="sshRegistry">Per-site device SSH services.</param>
     /// <param name="gatewaySshRegistry">Per-site gateway SSH services.</param>
+    /// <param name="sshRouters">Per-site SSH routers, for every non-gateway SSH upgrade.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this client commands.</param>
     public FirmwareCommandClient(
         SiteConnectionRegistry siteConnections,
         UniFiSshRegistry sshRegistry,
         GatewaySshRegistry gatewaySshRegistry,
+        DeviceSshRouterRegistry sshRouters,
         ILogger<FirmwareCommandClient> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
@@ -34,6 +38,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         _connection = siteConnections.GetFor(_siteSlug);
         _ssh = sshRegistry.GetFor(_siteSlug);
         _gatewaySsh = gatewaySshRegistry.GetFor(_siteSlug);
+        _router = sshRouters.GetFor(_siteSlug);
         _logger = logger;
     }
 
@@ -115,7 +120,8 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
-        string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
+        string deviceMac, string host, string firmwareUrl, DeviceType role, bool isGateway,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(host))
             return FirmwareCommandResult.Failed("No device address for the SSH upgrade path.");
@@ -129,7 +135,17 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         {
             // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool.
             var command = isGateway ? $"ubnt-systool fwupdate '{firmwareUrl}'" : $"upgrade '{firmwareUrl}'";
-            var (success, output) = await _ssh.RunCommandAsync(host, command, null, TimeSpan.FromMinutes(5), cancellationToken);
+            var timeout = TimeSpan.FromMinutes(5);
+            // A gateway step is a standalone UXG / USG (a Cloud Gateway never becomes a device step):
+            // an adopted device, so Device SSH is its login. Never route it through Gateway SSH,
+            // which is optional and may not be set up.
+            var (success, output) = role == DeviceType.Gateway
+                ? await _ssh.RunCommandAsync(host, command, null, timeout, cancellationToken)
+                : await _router.RunAsync(
+                    // Off a non-gateway step, isGateway marks an Express adopted as an AP: gateway
+                    // hardware. Passed rather than looked up, since the console may be mid-update.
+                    new DeviceSshTarget(deviceMac, host, role, isGateway ? DeviceType.Gateway : role),
+                    command, timeout, cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
 

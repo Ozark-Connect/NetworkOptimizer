@@ -34,7 +34,7 @@ public class DeviceRebootCommandedOverrideTests
 
     private sealed class NullProbe : DeviceRebootProbe
     {
-        public NullProbe() : base(null!, null!, NullLogger<DeviceRebootProbe>.Instance) { }
+        public NullProbe() : base(null!, NullLogger<DeviceRebootProbe>.Instance) { }
     }
 
     private sealed class NullInflux : MonitoringInfluxClient

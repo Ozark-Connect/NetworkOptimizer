@@ -333,6 +333,32 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         return await RunSpeedTestAsync(device, duration, parallelStreams);
     }
 
+    /// <inheritdoc />
+    public async Task<Iperf3Result> RunSpeedTestAsync(NetworkOptimizer.UniFi.DiscoveredDevice device)
+    {
+        // UniFi devices have iperf3 built in but don't run it persistently.
+        var config = new DeviceSshConfiguration
+        {
+            Name = device.Name ?? "Unknown Device",
+            Host = device.IpAddress ?? "",
+            DeviceType = device.Type,
+            Enabled = true,
+            StartIperf3Server = true
+        };
+
+        // Null for everything but gateway hardware in AP mode whose Device SSH login is refused.
+        var router = _serviceProvider.GetRequiredService<Ssh.DeviceSshRouterRegistry>().GetFor(_siteSlug);
+        var overrides = await router.GetCredentialOverridesAsync(Ssh.DeviceSshTarget.From(device, config.Host));
+        if (overrides != null)
+        {
+            config.SshUsername = overrides.Username;
+            config.SshPassword = overrides.Password;
+            config.SshPrivateKeyPath = overrides.PrivateKeyPath;
+        }
+
+        return await RunSpeedTestAsync(config);
+    }
+
     /// <summary>
     /// Determine the appropriate parallel streams setting based on device type
     /// </summary>

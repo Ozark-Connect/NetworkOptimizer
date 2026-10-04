@@ -18,7 +18,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 public class ProbeExecutorFactory
 {
     private readonly LocalProbeExecutor _local;
-    private readonly UniFiSshService _uniFiSsh;
+    private readonly DeviceSshRouterRegistry _sshRouters;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly SshClientService _sshClient;
     private readonly ICredentialProtectionService _credentialProtection;
@@ -32,7 +32,7 @@ public class ProbeExecutorFactory
 
     public ProbeExecutorFactory(
         LocalProbeExecutor local,
-        UniFiSshService uniFiSsh,
+        DeviceSshRouterRegistry sshRouters,
         IGatewaySshService gatewaySsh,
         SshClientService sshClient,
         ICredentialProtectionService credentialProtection,
@@ -45,7 +45,7 @@ public class ProbeExecutorFactory
         ILogger<ProbeExecutorFactory> logger)
     {
         _local = local;
-        _uniFiSsh = uniFiSsh;
+        _sshRouters = sshRouters;
         _gatewaySsh = gatewaySsh;
         _sshClient = sshClient;
         _credentialProtection = credentialProtection;
@@ -127,24 +127,27 @@ public class ProbeExecutorFactory
             }
             else
             {
-                var sshSettings = await _uniFiSsh.GetSettingsAsync();
-                if (sshSettings == null
-                    || string.IsNullOrEmpty(sshSettings.Username)
-                    || (string.IsNullOrEmpty(sshSettings.Password) && string.IsNullOrEmpty(sshSettings.PrivateKeyPath)))
+                // The router picks the device's credentials, so an Express adopted as an AP falls
+                // back to Gateway SSH when it refuses Device SSH. Settled first: this builds a
+                // connection rather than running a command. The router also tunnel-routes it.
+                var router = _sshRouters.GetFor(_siteContext.Slug);
+                var target = DeviceSshTarget.From(device);
+                await router.SettleAsync(target, ct);
+                var routed = await router.GetConnectionAsync(target, ct);
+                if (routed == null)
                 {
                     _logger.LogDebug("UniFi SSH credentials not configured; cannot build device vantage for {Mac}", deviceMac);
                     return null;
                 }
-
-                string? decryptedPassword = null;
-                if (!string.IsNullOrEmpty(sshSettings.Password))
-                    decryptedPassword = _credentialProtection.Decrypt(sshSettings.Password);
-
-                connection = SshConnectionInfo.FromUniFiSettings(sshSettings, device.DisplayIpAddress, decryptedPassword);
+                return new SshProbeExecutor(
+                    _sshClient,
+                    routed,
+                    vantageId: $"device:{deviceMac}",
+                    _loggerFactory.CreateLogger<SshProbeExecutor>());
             }
 
-            // Route the device SSH through the agent tunnel on secondary sites: the
-            // device's LAN IP is unreachable from the central server, so rewrite host:port
+            // Route the gateway SSH through the agent tunnel on secondary sites: the
+            // gateway's LAN IP is unreachable from the central server, so rewrite host:port
             // to the site agent's loopback proxy (the same routing gateway/device SSH use
             // via GatewaySshService.MaybeRouteViaAgentAsync). No-op on the default site.
             (connection.Host, connection.Port) = await _tunnelRouting.RouteAsync(

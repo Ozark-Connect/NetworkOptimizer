@@ -336,11 +336,14 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
 cd ../..
 
 # Optional: AP Agent (only if you want on-AP Wi-Fi telemetry)
-# U7-class access points are armv7l, not arm64, whatever your gateway or host is. The two MIPS
-# builds cover older access points (U6-Lite is little-endian, UAP-AC big-endian).
+# U7-class access points are armv7l, not arm64, whatever your gateway or host is. The arm64
+# build covers UniFi OS consoles with Wi-Fi (UDR7, UX7, UCG-Industrial). The two MIPS builds cover older access points
+# (U6-Lite is little-endian, UAP-AC big-endian).
 cd src/apagent
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
     -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/apagent-linux-arm .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/apagent-linux-arm64 .
 CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath \
     -ldflags "-s -w -X main.version=$VERSION" -o /opt/network-optimizer/tools/apagent-linux-mipsle .
 CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -trimpath \
