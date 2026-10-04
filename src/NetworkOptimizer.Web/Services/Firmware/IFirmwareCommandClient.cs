@@ -194,4 +194,10 @@ public interface IFirmwareCommandClient
     /// <c>ubnt-systool fwupdate</c>. The gateway host is resolved from the controller URL.
     /// </summary>
     Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether this site has gateway SSH configured and enabled - the only way to install a build
+    /// the console has not staged itself.
+    /// </summary>
+    Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default);
 }
