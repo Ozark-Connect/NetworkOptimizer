@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20261004152223_AddSharedUniFiOsBuilds")]
+    [Migration("20261004210243_AddSharedUniFiOsBuilds")]
     partial class AddSharedUniFiOsBuilds
     {
         /// <inheritdoc />
@@ -1217,6 +1217,28 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("Host");
 
                     b.ToTable("DeviceSshConfigurations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.DeviceSshRoute", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac")
+                        .IsUnique();
+
+                    b.ToTable("DeviceSshRoutes", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.DismissedIssue", b =>
