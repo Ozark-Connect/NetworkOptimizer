@@ -3,6 +3,7 @@
 @attribute [Authorize(Policy = Policies.RequireViewer)]
 @implements IAsyncDisposable
 @inject IFirmwareRolloutService RolloutService
+@inject ISharedFirmwareCatalogService SharedFirmwareCatalog
 @inject IServiceScopeFactory ScopeFactory
 @inject NetworkOptimizer.Web.Services.Identity.ICallerContext CallerContext
 @inject SiteContextService SiteContext
@@ -509,6 +510,33 @@ else
                     </button>
                 </div>
             </SiteAdminOnly>
+            <AdminOnly>
+                <details class="setup-guide firmware-rollout-guide" data-tour="firmware-add-url">
+                    <summary>Add Firmware by URL</summary>
+                    <div class="setup-guide-content">
+                        <p>Paste a Ubiquiti download link for a build your consoles have not offered yet. It is added on Early Access for every site on this install.</p>
+                        <div class="form-group">
+                            <label class="form-label">Download Link</label>
+                            <div class="input-with-button">
+                                <input class="form-control" placeholder="https://fw-download.ubnt.com/data/..." @bind="_addUrl" @bind:event="oninput" />
+                                <button class="btn btn-primary" @onclick="AddFirmwareUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_addUrl))">Add</button>
+                            </div>
+                        </div>
+                        @if (_addResult is { Succeeded: false } failed)
+                        {
+                            <div class="alert alert-danger firmware-rollout-note">@failed.Error</div>
+                        }
+                        else if (_addResult is { Succeeded: true } added)
+                        {
+                            <div class="alert alert-success firmware-rollout-note">Added @AddedBuildLabel(added) on Early Access. Plan a rollout with it now?</div>
+                            <div class="action-buttons">
+                                <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added.Kind)" disabled="@_busy">Plan Rollout Now</button>
+                                <button class="btn btn-contrast" @onclick="() => _addResult = null" disabled="@_busy">Not Now</button>
+                            </div>
+                        }
+                    </div>
+                </details>
+            </AdminOnly>
         </div>
         @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
         {
@@ -1124,6 +1152,80 @@ else
         {
             Logger.LogError(ex, "Rollout preview failed");
             _wizardError = "The preview could not be built. The console may be briefly unreachable - try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Add firmware by URL ----
+
+    private string? _addUrl;
+    private FirmwareUrlAddResult? _addResult;
+
+    private async Task AddFirmwareUrlAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_addUrl)) return;
+        _busy = true;
+        _addResult = null;
+        StateHasChanged();
+        try
+        {
+            _addResult = await SharedFirmwareCatalog.AddFirmwareUrlAsync(_addUrl);
+            if (_addResult.Succeeded) _addUrl = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Adding a firmware URL failed");
+            _addResult = new FirmwareUrlAddResult("The build could not be added. See the logs for details.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string AddedBuildLabel(FirmwareUrlAddResult added) => added.Kind switch
+    {
+        FirmwareUrlKind.UniFiOs => $"UniFi OS {FirmwareVersionFormat.ShortOrNull(added.Version)} for {added.Target}",
+        FirmwareUrlKind.NetworkApp => $"UniFi Network {added.Version}",
+        _ => $"{UniFiProductDatabase.GetBestProductName(added.Target ?? "", null)} firmware {FirmwareVersionFormat.ShortOrNull(added.Version)}",
+    };
+
+    /// <summary>
+    /// Opens the wizard on Early Access, the channel the added build was filed under, with Start
+    /// now selected and straight on the preview. Back still reaches the other steps.
+    /// </summary>
+    private async Task OpenWizardForAddedBuildAsync(FirmwareUrlKind kind)
+    {
+        _busy = true;
+        _wizardError = null;
+        StateHasChanged();
+        try
+        {
+            _settings = await RolloutService.GetSettingsAsync();
+            AdoptStandingAutopilotConfig();
+            LoadWorkingSets();
+            _settings.GlobalChannel = FirmwareChannels.Beta;
+            _settings.NetworkAppChannel = null;
+            _settings.UniFiOsChannel = null;
+            if (kind == FirmwareUrlKind.UniFiOs) _settings.IncludeUniFiOs = true;
+            if (kind == FirmwareUrlKind.NetworkApp) _settings.IncludeUniFiNetwork = true;
+            _scheduleMode = "now";
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _showBackupNotice = await UiHints.ShouldShowAsync(UiHintKeys.FirmwareBackupNotice);
+            _addResult = null;
+            _wizardOpen = true;
+            _step = 3;
+            _vizMode = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rollout wizard failed to open for an added firmware build");
+            _wizardError = "Could not read the console. Check the UniFi Console Connection in Settings and try again.";
+            _wizardOpen = true;
+            _step = 1;
         }
         finally
         {

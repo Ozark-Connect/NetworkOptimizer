@@ -63,4 +63,12 @@ public interface ISharedFirmwareCatalogRepository
     /// <param name="thanVersion">The newest version the console already runs or is offered.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<SharedUniFiOsBuild?> FindNewerUniFiOsBuildAsync(string platform, IReadOnlyCollection<string> channels, string? thanVersion, CancellationToken cancellationToken = default);
+
+    /// <summary>Every known device build. Empty when the catalog cannot be read.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<List<SharedFirmwareBuild>> ListDeviceBuildsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Every known UniFi OS build. Empty when the catalog cannot be read.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<List<SharedUniFiOsBuild>> ListUniFiOsBuildsAsync(CancellationToken cancellationToken = default);
 }
