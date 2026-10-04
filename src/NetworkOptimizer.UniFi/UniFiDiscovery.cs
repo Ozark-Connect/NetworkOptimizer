@@ -482,7 +482,7 @@ public class UniFiDiscovery
         (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && IsWifiGateway(d));
 
     /// <summary>
-    /// The handful of gateway-class consoles that DO have integrated Wi-Fi radios, keyed by
+    /// The handful of gateways that DO have integrated Wi-Fi radios, keyed by
     /// FriendlyModelName (the UI display name).
     ///
     /// This is an allow-list ONLY because the UniFi Network API can't be trusted to report a
@@ -490,7 +490,7 @@ public class UniFiDiscovery
     /// entries for gateways that physically have no Wi-Fi (issue #994). We would much rather
     /// key off the reported radios, but that data is garbage for this class of device, so we
     /// fall back to a curated model list. Gateways are overwhelmingly Wi-Fi-less, so anything
-    /// not listed here is treated as gateway-only. Exact match cleanly separates the original
+    /// not listed here is treated as having no Wi-Fi. Exact match cleanly separates the original
     /// "UDM" (has Wi-Fi) from "UDM-Pro"/"UDM-SE"/"UDM-Pro-Max" (Wi-Fi-less).
     ///
     /// If UniFi ships a NEW gateway with built-in Wi-Fi (rare), add its FriendlyModelName here,
