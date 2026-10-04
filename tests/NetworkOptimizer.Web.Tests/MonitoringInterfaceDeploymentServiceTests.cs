@@ -134,6 +134,8 @@ public class MonitoringInterfaceDeploymentServiceTests
         script.Should().Contain("ip rule show | grep -qF \"fwmark $MARK/$MASK lookup $TABLE\"");
         script.Should().Contain("iptables -w 5 -t mangle -C PREROUTING");
         script.Should().Contain("iptables -w 5 -t nat -C PREROUTING -m mark --mark \"$MARK/$MASK\" -j DNAT");
+        script.Should().Contain("iptables -w 5 -t mangle -C OUTPUT -d \"$ALIAS_IP\"");
+        script.Should().Contain("iptables -w 5 -t nat -C OUTPUT -m mark --mark \"$MARK/$MASK\" -j DNAT");
 
         // The sweep must still run as part of the re-apply path (edits need it to clear a
         // stale rule keyed on the OLD alias/target IP) - the guard wraps it, not replaces it.
@@ -426,7 +428,7 @@ public class MonitoringInterfaceDeploymentServiceTests
         // but ipt_total still differs from ipt_ours (an extra rule with our mark/mask exists
         // beyond the ones we'd recognize as our own).
         cmd.Should().Contain("elif [ \"$ipt_total\" -ne \"$ipt_ours\" ]; then echo FOREIGN");
-        cmd.Should().Contain("ipt_ours=$((mangle_ours + nat_ours))");
+        cmd.Should().Contain("ipt_ours=$((mangle_ours + nat_ours + mangle_out_ours + nat_out_ours))");
 
         // The "ours" counts must match the EXACT canonical whole line iptables-save emits for
         // the two rules the boot script creates (grep -xF: fixed-string, full-line; note the
@@ -459,6 +461,12 @@ public class MonitoringInterfaceDeploymentServiceTests
 
         cmd.Should().Contain($"-A PREROUTING -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp}");
         script.Should().Contain("iptables -w 5 -t nat -A PREROUTING -m mark --mark \"$MARK/$MASK\" -j DNAT --to-destination \"$TARGET_IP\"");
+
+        cmd.Should().Contain($"-A OUTPUT -d {mi.AliasIp}/32 -j MARK --set-xmark {mark}/{mask}");
+        script.Should().Contain("iptables -w 5 -t mangle -A OUTPUT -d \"$ALIAS_IP\" -j MARK --set-xmark \"$MARK/$MASK\"");
+
+        cmd.Should().Contain($"-A OUTPUT -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp}");
+        script.Should().Contain("iptables -w 5 -t nat -A OUTPUT -m mark --mark \"$MARK/$MASK\" -j DNAT --to-destination \"$TARGET_IP\"");
     }
 
     [Fact]
@@ -972,5 +980,49 @@ public class MonitoringInterfaceDeploymentServiceTests
         capturedCommand.Should().NotBeNull();
         capturedCommand!.Should().Contain($"grep -q 'dev {mi.Name}'");
         capturedCommand.Should().Contain($"grep -q 'src {mi.GatewayLocalIp}'");
+    }
+    [Fact]
+    public async Task CheckStatusAsync_Aliased_RequiresEachAliasRuleInBothPreroutingAndOutput()
+    {
+        // PREROUTING serves LAN clients; OUTPUT serves the gateway's own traffic (an agent on it).
+        // An interface deployed before the OUTPUT rules existed must read as not fully applied.
+        var mi = ValidAliased(id: 9);
+        string? capturedCommand = null;
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => capturedCommand = cmd)
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh);
+
+        await service.CheckStatusAsync(mi);
+
+        var mark = MonitoringInterfaceDeploymentService.AliasMark(mi.Id);
+        var mask = MonitoringInterfaceDeploymentService.AliasMarkMask;
+        capturedCommand.Should().Contain(
+            $"iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && " +
+            $"iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && echo y || echo n");
+        capturedCommand.Should().Contain(
+            $"iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && " +
+            $"iptables -w 5 -t nat -C OUTPUT -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n");
+    }
+
+    [Fact]
+    public async Task RemoveAsync_Aliased_VerifiesOutputRulesAreGoneToo()
+    {
+        var mi = ValidAliased(id: 9);
+        var commands = new List<string>();
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((cmd, _, _) => commands.Add(cmd))
+            .ReturnsAsync((true, ""));
+        var service = BuildService(ssh);
+
+        await service.RemoveAsync(mi);
+
+        var mark = MonitoringInterfaceDeploymentService.AliasMark(mi.Id);
+        var mask = MonitoringInterfaceDeploymentService.AliasMarkMask;
+        var verify = commands.Single(c => c.Contains("echo IFACE"));
+        verify.Should().Contain($"iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && echo AMARK");
+        verify.Should().Contain($"iptables -w 5 -t nat -C OUTPUT -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo ADNAT");
     }
 }
