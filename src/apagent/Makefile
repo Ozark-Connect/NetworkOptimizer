@@ -2,14 +2,17 @@ VERSION ?= dev
 
 .PHONY: build build-ap build-local test vet clean
 
-# Build for UniFi APs (static binaries). Every measured U7-class AP is armv7l; an arm64 build
-# will not exec on them, so there is deliberately no arm64 target. MIPS is built in both byte
-# orders (little-endian MediaTek U6-Lite, big-endian QCA UAP-AC), soft-float because neither has
-# an FPU.
+# Build for UniFi APs (static binaries). U7-class APs are armv7l, where an arm64 build will not
+# exec; arm64 is for UniFi OS hardware with Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both
+# byte orders (little-endian MediaTek U6-Lite, big-endian QCA UAP-AC), soft-float because neither
+# has an FPU.
 build-ap:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
 		-ldflags "-s -w -X main.version=$(VERSION)" \
 		-o bin/apagent-linux-arm .
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+		-ldflags "-s -w -X main.version=$(VERSION)" \
+		-o bin/apagent-linux-arm64 .
 	CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath \
 		-ldflags "-s -w -X main.version=$(VERSION)" \
 		-o bin/apagent-linux-mipsle .

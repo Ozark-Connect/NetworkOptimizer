@@ -470,10 +470,16 @@ public class UniFiDiscovery
                 d.Name, d.FriendlyModelName, d.RadioTable!.Count);
         }
 
-        return devices.Where(d =>
-            d.Type == DeviceType.AccessPoint ||
-            (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d))).ToList();
+        return devices.Where(BroadcastsWifi).ToList();
     }
+
+    /// <summary>
+    /// Whether a device serves Wi-Fi clients: an access point, or a gateway with integrated radios
+    /// (UDR7, UX7, UCG-Industrial). The rule <see cref="DiscoverAccessPointsAsync"/> applies.
+    /// </summary>
+    public static bool BroadcastsWifi(DiscoveredDevice d) =>
+        d.Type == DeviceType.AccessPoint ||
+        (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d));
 
     /// <summary>
     /// The handful of gateway-class consoles that DO have integrated Wi-Fi radios, keyed by

@@ -188,4 +188,48 @@ public class GatewayApExclusionTests
         UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
             "UDR-5G-Max has integrated Wi-Fi");
     }
+
+    // ---------------------------------------------------------------
+    // BroadcastsWifi: the shared "serves Wi-Fi clients" rule
+    // ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData("UDMA67A", "UDR7")]
+    [InlineData("UDMA69B", "UXMAX")]
+    [InlineData("UDMA6AD", "UCG-Industrial")]
+    public void AWifiGateway_broadcasts_wifi(string model, string shortname)
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice(model, shortname, radioCount: 3)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AGatewayOnlyConsole_with_phantom_radios_does_not_broadcast_wifi()
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice("UDMA6A8", "UCGF", radioCount: 2)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AWifiGateway_reporting_no_radios_does_not_broadcast_wifi()
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice("UDMA67A", "UDR7")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnApModeUx7_broadcasts_wifi_as_an_access_point()
+    {
+        var device = CreateGatewayDevice("UDMA69B", "UXMAX", radioCount: 3);
+        device.Type = DeviceType.AccessPoint;
+
+        UniFiDiscovery.BroadcastsWifi(device).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ASwitch_does_not_broadcast_wifi()
+    {
+        var device = CreateGatewayDevice("USL8LP", "USL8LP");
+        device.Type = DeviceType.Switch;
+        device.HardwareType = DeviceType.Switch;
+
+        UniFiDiscovery.BroadcastsWifi(device).Should().BeFalse();
+    }
 }

@@ -260,7 +260,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (ap == null)
             return new ApAgentSshStatus { Reachable = false, Error = "No access point with that MAC on this site." };
 
-        return await ProbeStatusAsync(ap.DisplayIpAddress, ct);
+        return await ProbeStatusAsync(TargetFor(ap), ct);
     }
 
     /// <inheritdoc />
@@ -330,7 +330,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (claim == null)
             return ApAgentOperationResult.InProgress();
 
-        var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
+        var target = TargetFor(ap);
+        var status = await ProbeStatusAsync(target, ct);
         if (!status.Reachable)
             return ApAgentOperationResult.Fail(status.Error ?? "Could not reach the access point over SSH.");
 
@@ -340,13 +341,13 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         // The token changes under callers on a repush, as in a deploy; keep them off it meanwhile.
         using var hold = repushToken ? _directory.HoldDuringDeploy(_siteSlug, mac) : null;
 
-        await _siteSsh.RunCommandAsync(ap.DisplayIpAddress, ApAgentScripts.StopCommand(status.ProcdAvailable), null, SshTimeout, ct);
+        await RunAsync(target, ApAgentScripts.StopCommand(status.ProcdAvailable), ct);
 
         string token;
         if (repushToken)
         {
             token = await RotateTokenAsync(mac, ct);
-            var wrote = await WriteSupportFilesAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
+            var wrote = await WriteSupportFilesAsync(target, token, status.ProcdAvailable, ct);
             if (!wrote.Success)
             {
                 await RecordFailureAsync(mac, wrote.Error, ct);
@@ -358,7 +359,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             token = ResolveToken(await GetOrCreateRecordAsync(mac, ap.Name, ct));
         }
 
-        var started = await StartAgentAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
+        var started = await StartAgentAsync(target, token, status.ProcdAvailable, ct);
 
         if (!started.Success)
         {
@@ -405,9 +406,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
     private async Task<ApAgentOperationResult> RemoveCoreAsync(DiscoveredDevice ap, string mac, CancellationToken ct)
     {
-        var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
-        var result = await _siteSsh.RunCommandAsync(
-            ap.DisplayIpAddress, ApAgentScripts.RemoveCommand(status.ProcdAvailable), null, SshTimeout, ct);
+        var target = TargetFor(ap);
+        var status = await ProbeStatusAsync(target, ct);
+        var result = await RunAsync(target, ApAgentScripts.RemoveCommand(status.ProcdAvailable), ct);
 
         if (!result.success)
             return ApAgentOperationResult.Fail($"Failed to remove the agent: {result.output}");
@@ -663,7 +664,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (ap == null) return ApAgentOperationResult.Fail("No access point with that MAC on this site.");
 
         progress?.Report("Checking the access point...");
-        var status = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
+        var target = TargetFor(ap);
+        var status = await ProbeStatusAsync(target, ct);
         if (!status.Reachable)
         {
             var error = status.Error ?? "Could not reach the access point over SSH.";
@@ -713,12 +715,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         using var hold = _directory.HoldDuringDeploy(_siteSlug, mac);
 
         progress?.Report("Stopping any running agent...");
-        await _siteSsh.RunCommandAsync(ap.DisplayIpAddress, ApAgentScripts.StopCommand(status.ProcdAvailable), null, SshTimeout, ct);
+        await RunAsync(target, ApAgentScripts.StopCommand(status.ProcdAvailable), ct);
 
         if (!binaryIsCurrent)
         {
             progress?.Report("Transferring the agent...");
-            var transferred = await TransferBinaryAsync(mac, ap.DisplayIpAddress, localPath, localMd5, status, ct);
+            var transferred = await TransferBinaryAsync(mac, target, localPath, localMd5, status, ct);
             if (!transferred.Success)
             {
                 if (transferred.State == ApAgentState.TransferFailed)
@@ -731,7 +733,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var token = await RotateTokenAsync(mac, ct);
 
         progress?.Report("Writing the service definition...");
-        var wrote = await WriteSupportFilesAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
+        var wrote = await WriteSupportFilesAsync(target, token, status.ProcdAvailable, ct);
         if (!wrote.Success)
         {
             await RecordFailureAsync(mac, wrote.Error, ct);
@@ -739,14 +741,14 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         }
 
         progress?.Report("Starting the agent...");
-        var started = await StartAgentAsync(ap.DisplayIpAddress, token, status.ProcdAvailable, ct);
+        var started = await StartAgentAsync(target, token, status.ProcdAvailable, ct);
         if (!started.Success)
         {
             await RecordFailureAsync(mac, started.Error, ct);
             return started;
         }
 
-        var after = await ProbeStatusAsync(ap.DisplayIpAddress, ct);
+        var after = await ProbeStatusAsync(target, ct);
         await UpdateRecordAsync(mac, r =>
         {
             r.DeviceName = ap.Name;
@@ -782,13 +784,16 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// before the next pass's md5 catches it.
     /// </summary>
     private async Task<ApAgentOperationResult> TransferBinaryAsync(
-        string mac, string host, string localPath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
+        string mac, SshTarget target, string localPath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
     {
-        var connection = await BuildConnectionAsync(host);
+        var host = target.Host;
+        var connection = await BuildConnectionAsync(target);
         if (connection == null)
-            return ApAgentOperationResult.Fail("Device SSH credentials are not configured for this site.");
+            return ApAgentOperationResult.Fail(target.IsGateway
+                ? "Gateway SSH credentials are not configured for this site."
+                : "Device SSH credentials are not configured for this site.");
 
-        var mkdir = await _siteSsh.RunCommandAsync(host, $"mkdir -p {ApAgentPaths.RemoteDir}", null, SshTimeout, ct);
+        var mkdir = await RunAsync(target, $"mkdir -p {ApAgentPaths.RemoteDir}", ct);
         if (!mkdir.success)
             return ApAgentOperationResult.Fail($"Could not create the install directory: {mkdir.output}");
 
@@ -801,8 +806,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             {
                 await transfer.UploadAsync(connection, localPath, remotePath, ct);
 
-                var check = await _siteSsh.RunCommandAsync(host,
-                    $"md5sum {remotePath} 2>/dev/null | cut -d' ' -f1", null, SshTimeout, ct);
+                var check = await RunAsync(target, $"md5sum {remotePath} 2>/dev/null | cut -d' ' -f1", ct);
                 if (!check.success || !string.Equals(check.output.Trim(), localMd5, StringComparison.OrdinalIgnoreCase))
                     error = "The copied file did not match the original (md5 mismatch).";
             }
@@ -822,7 +826,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                 continue;
             }
 
-            var chmod = await _siteSsh.RunCommandAsync(host, $"chmod +x {remotePath}", null, SshTimeout, ct);
+            var chmod = await RunAsync(target, $"chmod +x {remotePath}", ct);
             if (!chmod.success)
                 return ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
 
@@ -890,7 +894,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         return int.TryParse(shortForm.Split('.')[0], out var major) && major < 8;
     }
 
-    private async Task<ApAgentOperationResult> WriteSupportFilesAsync(string host, string token, bool procdAvailable, CancellationToken ct)
+    private async Task<ApAgentOperationResult> WriteSupportFilesAsync(SshTarget target, string token, bool procdAvailable, CancellationToken ct)
     {
         var commands = new List<string>
         {
@@ -901,15 +905,15 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (procdAvailable)
             commands.Add(ApAgentScripts.WriteFileCommand(ApAgentScripts.InitScript(token), ApAgentPaths.RemoteInitScriptPath, "755"));
 
-        var result = await _siteSsh.RunCommandAsync(host, string.Join(" && ", commands), null, SshTimeout, ct);
+        var result = await RunAsync(target, string.Join(" && ", commands), ct);
         return result.success
             ? ApAgentOperationResult.Ok()
             : ApAgentOperationResult.Fail($"Could not write the agent's support files: {result.output}");
     }
 
-    private async Task<ApAgentOperationResult> StartAgentAsync(string host, string token, bool procdAvailable, CancellationToken ct)
+    private async Task<ApAgentOperationResult> StartAgentAsync(SshTarget target, string token, bool procdAvailable, CancellationToken ct)
     {
-        var result = await _siteSsh.RunCommandAsync(host, ApAgentScripts.StartCommand(procdAvailable), null, SshTimeout, ct);
+        var result = await RunAsync(target, ApAgentScripts.StartCommand(procdAvailable), ct);
         if (result.success && result.output.Contains("started", StringComparison.Ordinal))
             return ApAgentOperationResult.Ok();
 
@@ -919,10 +923,36 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             : $"The agent did not start: {detail}");
     }
 
-    private async Task<ApAgentSshStatus> ProbeStatusAsync(string host, CancellationToken ct)
+    private async Task<ApAgentSshStatus> ProbeStatusAsync(SshTarget target, CancellationToken ct)
     {
-        var result = await _siteSsh.RunCommandAsync(host, ApAgentScripts.StatusProbeCommand(), null, SshTimeout, ct);
+        var result = await RunAsync(target, ApAgentScripts.StatusProbeCommand(), ct);
         return ApAgentScripts.ParseStatus(result.output, result.success);
+    }
+
+    /// <summary>
+    /// Where the agent's SSH work goes, and with which credentials. Credentials follow the role,
+    /// not the hardware: a UX7 in AP mode is an access point and takes Device SSH like any other.
+    /// </summary>
+    private readonly record struct SshTarget(string Host, bool IsGateway);
+
+    private static SshTarget TargetFor(DiscoveredDevice device) =>
+        new(device.DisplayIpAddress, device.Type == DeviceType.Gateway);
+
+    /// <summary>
+    /// Runs a command on the target. A gateway runs it with the gateway SSH credentials, dialed at the
+    /// device's own address rather than the configured gateway host, so it always reaches this box.
+    /// </summary>
+    private async Task<(bool success, string output)> RunAsync(SshTarget target, string command, CancellationToken ct)
+    {
+        if (!target.IsGateway)
+            return await _siteSsh.RunCommandAsync(target.Host, command, null, SshTimeout, ct);
+
+        var connection = await BuildConnectionAsync(target);
+        if (connection == null)
+            return (false, "Gateway SSH credentials are not configured for this site.");
+
+        var result = await _sshClient.ExecuteCommandAsync(connection, command, SshTimeout, ct);
+        return (result.Success, result.Success ? result.Output : result.CombinedOutput);
     }
 
     /// <summary>
@@ -930,16 +960,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// way <see cref="IUniFiSshService"/> routes its commands. Built by hand because the transfer
     /// is not a command and so never passes through that service.
     /// </summary>
-    private async Task<SshConnectionInfo?> BuildConnectionAsync(string host)
+    private async Task<SshConnectionInfo?> BuildConnectionAsync(SshTarget target)
     {
-        var settings = await _siteSsh.GetSettingsAsync();
-        if (string.IsNullOrEmpty(settings.Username)) return null;
-
-        string? password = null;
-        if (!string.IsNullOrEmpty(settings.Password))
-            password = _credentialProtection.Decrypt(settings.Password);
-
-        var connection = SshConnectionInfo.FromUniFiSettings(settings, host, password);
+        var connection = target.IsGateway
+            ? await BuildGatewayConnectionAsync(target.Host)
+            : await BuildDeviceConnectionAsync(target.Host);
+        if (connection == null) return null;
 
         using (var scope = CreateSiteScope())
         {
@@ -950,6 +976,39 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         (connection.Host, connection.Port) = await _tunnelRouting.RouteAsync(_siteSlug, connection.Host, connection.Port);
         return connection;
+    }
+
+    private async Task<SshConnectionInfo?> BuildGatewayConnectionAsync(string host)
+    {
+        var gatewaySsh = (IGatewaySshService)_serviceProvider.GetRequiredService<GatewaySshRegistry>().GetFor(_siteSlug);
+        var settings = await gatewaySsh.GetSettingsAsync();
+        if (!settings.Enabled || string.IsNullOrEmpty(settings.Username)) return null;
+
+        string? password = null;
+        if (!string.IsNullOrEmpty(settings.Password))
+            password = _credentialProtection.Decrypt(settings.Password);
+
+        return new SshConnectionInfo
+        {
+            Host = host,
+            Port = settings.Port,
+            Username = settings.Username,
+            Password = password,
+            PrivateKeyPath = settings.PrivateKeyPath,
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+    }
+
+    private async Task<SshConnectionInfo?> BuildDeviceConnectionAsync(string host)
+    {
+        var settings = await _siteSsh.GetSettingsAsync();
+        if (string.IsNullOrEmpty(settings.Username)) return null;
+
+        string? password = null;
+        if (!string.IsNullOrEmpty(settings.Password))
+            password = _credentialProtection.Decrypt(settings.Password);
+
+        return SshConnectionInfo.FromUniFiSettings(settings, host, password);
     }
 
     /// <summary>
@@ -973,7 +1032,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
     private void OnDeviceRebooted(DeviceRebootTracker.DeviceBootEvent boot)
     {
-        if (boot.DeviceType != DeviceType.AccessPoint) return;
+        if (boot.DeviceType is not (DeviceType.AccessPoint or DeviceType.Gateway)) return;
 
         var mac = NormalizeMac(boot.DeviceMac);
         _retry.RecordSuccess(mac);
@@ -985,7 +1044,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var connection = _serviceProvider.GetRequiredService<SiteConnectionRegistry>().GetFor(_siteSlug);
         var devices = await connection.GetDiscoveredDevicesAsync(ct);
         return devices
-            .Where(d => d.Type == DeviceType.AccessPoint && !string.IsNullOrEmpty(d.DisplayIpAddress))
+            .Where(d => UniFiDiscovery.BroadcastsWifi(d) && !string.IsNullOrEmpty(d.DisplayIpAddress))
             .ToList();
     }
 
