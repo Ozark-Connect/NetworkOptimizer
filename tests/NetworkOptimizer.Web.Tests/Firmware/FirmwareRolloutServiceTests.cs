@@ -168,6 +168,45 @@ public class FirmwareRolloutServiceTests
         preview.NetworkApplication.UpdateAvailable.Should().BeTrue();
     }
 
+    // --- Shared device builds -------------------------------------------------------------------
+
+    private static Task SeedSharedDeviceBuildAsync(RolloutHarness harness, string version) =>
+        harness.SharedCatalog.UpsertDeviceBuildsAsync(
+        [
+            new SharedFirmwareBuild
+            {
+                Model = "SKU-AP1", Channel = FirmwareChannels.Release, Version = version,
+                Url = $"https://example.test/unifi-firmware/SKU-AP1-{version}.bin",
+            },
+        ]);
+
+    [Fact]
+    public async Task BuildPreviewAsync_ANewerSharedDeviceBuildReplacesTheConsolesOlderOffer()
+    {
+        using var harness = HarnessWithTwoAps();
+        await SeedSharedDeviceBuildAsync(harness, "1.2.0");
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings());
+
+        preview.Plan.Waves.SelectMany(w => w.Steps).Where(s => s.Mac == ApMac)
+            .Should().ContainSingle().Which.ToVersion.Should().Be("1.2.0");
+        preview.Plan.TargetImages.Should().ContainSingle(i => i.Mac == ApMac)
+            .Which.Url.Should().Be("https://example.test/unifi-firmware/SKU-AP1-1.2.0.bin",
+                "the image must name the new target, or the step installs the console's own build");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_AnOlderSharedDeviceBuildLeavesTheConsolesOffer()
+    {
+        using var harness = HarnessWithTwoAps();
+        await SeedSharedDeviceBuildAsync(harness, "1.0.5");
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings());
+
+        preview.Plan.Waves.SelectMany(w => w.Steps).Where(s => s.Mac == ApMac)
+            .Should().ContainSingle().Which.ToVersion.Should().Be("1.1.0");
+    }
+
     // --- Shared UniFi OS builds -----------------------------------------------------------------
 
     private const string Platform = "UCGF";

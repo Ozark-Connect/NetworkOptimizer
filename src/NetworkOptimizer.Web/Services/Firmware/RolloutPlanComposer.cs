@@ -385,10 +385,11 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>
-    /// Offers each device the console had nothing for a build another site was already offered on
-    /// the same model and channel - Ubiquiti ungates builds per console, not per channel. Only
-    /// versions newer than what the device runs; a device whose running version is unknown is
-    /// never offered anything, because newer cannot be established for it.
+    /// Offers each device a build another site was already offered on the same model and channel -
+    /// Ubiquiti ungates builds per console, not per channel - when it is newer than what the device
+    /// runs and than what this console offers it. A device whose running version is unknown is
+    /// never offered anything, because newer cannot be established for it. A cellular modem keeps
+    /// its console's offer: it can only install the console-cached build.
     /// </summary>
     private static async Task AdoptSharedBuildsAsync(
         ISharedFirmwareCatalogRepository sharedCatalog,
@@ -399,26 +400,34 @@ public static class RolloutPlanComposer
         ILogger? logger,
         CancellationToken cancellationToken)
     {
-        foreach (var device in context.Devices.Where(d => !d.Upgradable))
+        foreach (var device in context.Devices)
         {
             if (string.IsNullOrWhiteSpace(device.Model) || string.IsNullOrWhiteSpace(device.FromVersion))
+                continue;
+
+            var offered = device.Upgradable
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion)
+                ? device.ToVersion
+                : null;
+            if (offered != null && FirmwareTimingEstimator.Classify(device) == FirmwareDeviceClass.CellularModem)
                 continue;
 
             var channel = settings != null ? RolloutPlanner.ResolveChannel(device, settings) : currentChannel;
             if (string.IsNullOrEmpty(channel)) continue;
 
             var build = await sharedCatalog.FindNewerDeviceBuildAsync(
-                device.Model, channel, device.FromVersion, cancellationToken);
+                device.Model, channel, offered ?? device.FromVersion, cancellationToken);
             if (build == null) continue;
 
             device.ToVersion = build.Version;
             device.Upgradable = true;
-            if (!images.Any(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase)))
-                images.Add(new PlanTargetImage { Mac = device.Mac, Version = build.Version, Url = build.Url });
+            // The image has to name the new target, or the step falls back to the console's own build.
+            images.RemoveAll(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase));
+            images.Add(new PlanTargetImage { Mac = device.Mac, Version = build.Version, Url = build.Url });
 
             logger?.LogInformation(
-                "Offering {Model} ({Mac}) {Version} on {Channel} from the shared catalog; this console offered nothing",
-                device.Model, device.Mac, build.Version, channel);
+                "Offering {Model} ({Mac}) {Version} on {Channel} from the shared catalog; this console offered {Offered}",
+                device.Model, device.Mac, build.Version, channel, offered ?? "nothing");
         }
     }
 
