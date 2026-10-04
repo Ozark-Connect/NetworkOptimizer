@@ -23,11 +23,21 @@ window.noTour = (function () {
     }
 
     // Open any collapsed section the target sits in, by clicking the header that owns it so the
-    // component's own state flips (setting the class by hand would be undone on its next render).
+    // component's own state flips (setting the class by hand would be undone on its next render),
+    // and any closed native <details> the target is or sits in.
     // Each wrapper is opened at most once per step: a section the user closes deliberately during
     // the tour stays closed. Returns whether anything was opened.
     function revealCollapsedAncestors(el, opened) {
         let clicked = false;
+        // A native <details> holding the target, or being it, opens by its own attribute: nothing
+        // renders it closed again, so no toggle needs clicking.
+        for (let node = el; node && node !== document.body; node = node.parentElement) {
+            if (node.tagName === 'DETAILS' && !node.open && !opened.has(node)) {
+                opened.add(node);
+                node.open = true;
+                clicked = true;
+            }
+        }
         for (const node of collapsedAncestors(el)) {
             if (opened.has(node)) continue;
             opened.add(node);
