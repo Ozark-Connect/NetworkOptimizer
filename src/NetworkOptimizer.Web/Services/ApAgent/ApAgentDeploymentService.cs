@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
@@ -789,8 +790,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var host = target.Host;
         var connection = await BuildConnectionAsync(target);
         if (connection == null)
-            return ApAgentOperationResult.Fail(target.IsGateway
-                ? "Gateway SSH credentials are not configured for this site."
+            return ApAgentOperationResult.Fail(UsesGatewayCredentials(target)
+                ? GatewayCredentialsMissing
                 : "Device SSH credentials are not configured for this site.");
 
         var mkdir = await RunAsync(target, $"mkdir -p {ApAgentPaths.RemoteDir}", ct);
@@ -930,30 +931,66 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <summary>
-    /// Where the agent's SSH work goes, and with which credentials. Credentials follow the role,
-    /// not the hardware: a UX7 in AP mode is an access point and takes Device SSH like any other.
+    /// Where the agent's SSH work goes, and with which credentials. A gateway takes Gateway SSH. An
+    /// access point takes Device SSH, except that gateway hardware in AP mode (UX, UX7) falls back to
+    /// Gateway SSH when Device SSH is refused: UniFi OS may not accept the adopted-device login.
     /// </summary>
-    private readonly record struct SshTarget(string Host, bool IsGateway);
+    private readonly record struct SshTarget(string Host, bool IsGateway, bool IsGatewayHardware);
 
     private static SshTarget TargetFor(DiscoveredDevice device) =>
-        new(device.DisplayIpAddress, device.Type == DeviceType.Gateway);
+        new(device.DisplayIpAddress, device.Type == DeviceType.Gateway, device.HardwareType == DeviceType.Gateway);
+
+    /// <summary>AP-mode gateway hardware that refused Device SSH and accepted Gateway SSH, by host.</summary>
+    private readonly ConcurrentDictionary<string, byte> _gatewayCredentialHosts = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool UsesGatewayCredentials(SshTarget target) =>
+        target.IsGateway || _gatewayCredentialHosts.ContainsKey(target.Host);
 
     /// <summary>
-    /// Runs a command on the target. A gateway runs it with the gateway SSH credentials, dialed at the
-    /// device's own address rather than the configured gateway host, so it always reaches this box.
+    /// Runs a command on the target. Gateway SSH credentials are always dialed at the device's own
+    /// address, never at the configured gateway host, so the command reaches this box.
     /// </summary>
     private async Task<(bool success, string output)> RunAsync(SshTarget target, string command, CancellationToken ct)
     {
-        if (!target.IsGateway)
-            return await _siteSsh.RunCommandAsync(target.Host, command, null, SshTimeout, ct);
+        if (UsesGatewayCredentials(target))
+        {
+            var gateway = await RunWithGatewayCredentialsAsync(target, command, ct);
+            // A fallback host whose Gateway SSH login stops working goes back to Device SSH.
+            if (target.IsGateway || !IsCredentialRefusal(gateway.output)) return gateway;
+            _gatewayCredentialHosts.TryRemove(target.Host, out _);
+        }
 
-        var connection = await BuildConnectionAsync(target);
+        var result = await _siteSsh.RunCommandAsync(target.Host, command, null, SshTimeout, ct);
+        if (result.success || !target.IsGatewayHardware || !IsCredentialRefusal(result.output))
+            return result;
+
+        var fallback = await RunWithGatewayCredentialsAsync(target, command, ct);
+        if (!IsCredentialRefusal(fallback.output))
+        {
+            _gatewayCredentialHosts[target.Host] = 0;
+            _logger.LogInformation("AP Agent on {Host} (site {Site}) refused Device SSH; using Gateway SSH", target.Host, _siteSlug);
+            return fallback;
+        }
+        return result;
+    }
+
+    private async Task<(bool success, string output)> RunWithGatewayCredentialsAsync(SshTarget target, string command, CancellationToken ct)
+    {
+        var connection = await BuildConnectionAsync(target with { IsGateway = true });
         if (connection == null)
-            return (false, "Gateway SSH credentials are not configured for this site.");
+            return (false, GatewayCredentialsMissing);
 
         var result = await _sshClient.ExecuteCommandAsync(connection, command, SshTimeout, ct);
         return (result.Success, result.Success ? result.Output : result.CombinedOutput);
     }
+
+    internal const string GatewayCredentialsMissing = "Gateway SSH credentials are not configured for this site.";
+
+    /// <summary>A login the credentials could not make, as opposed to a host that could not be reached.</summary>
+    internal static bool IsCredentialRefusal(string output) =>
+        output.Contains("Authentication failed", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("credentials not configured", StringComparison.OrdinalIgnoreCase) ||
+        output == GatewayCredentialsMissing;
 
     /// <summary>
     /// The SSH connection the file transfer dials, routed through the site's agent tunnel the same
@@ -962,7 +999,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     /// </summary>
     private async Task<SshConnectionInfo?> BuildConnectionAsync(SshTarget target)
     {
-        var connection = target.IsGateway
+        var connection = UsesGatewayCredentials(target)
             ? await BuildGatewayConnectionAsync(target.Host)
             : await BuildDeviceConnectionAsync(target.Host);
         if (connection == null) return null;
