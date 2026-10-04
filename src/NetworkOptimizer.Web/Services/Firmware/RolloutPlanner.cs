@@ -682,7 +682,7 @@ public class RolloutPlanner
         State = state,
     };
 
-    private static Dictionary<string, string> ParseMap(string? json)
+    internal static Dictionary<string, string> ParseMap(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
