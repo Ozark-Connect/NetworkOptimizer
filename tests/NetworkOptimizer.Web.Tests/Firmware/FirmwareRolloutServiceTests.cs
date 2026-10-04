@@ -207,6 +207,62 @@ public class FirmwareRolloutServiceTests
             .Should().ContainSingle().Which.ToVersion.Should().Be("1.1.0");
     }
 
+    // --- A build chosen by hand ----------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedDeviceBuildWinsOverNewerOffers()
+    {
+        // The console offers 1.1.0 and another site was offered 1.2.0; the admin chose 1.0.5.
+        using var harness = HarnessWithTwoAps();
+        await SeedSharedDeviceBuildAsync(harness, "1.2.0");
+        var pin = new RolloutBuildPin(FirmwareUrlKind.Device, "SKU-AP1", "1.0.5", "https://example.test/SKU-AP1-1.0.5.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(), pin: pin);
+
+        preview.Plan.Waves.SelectMany(w => w.Steps).Select(s => s.ToVersion).Should().AllBe("1.0.5");
+        preview.Plan.TargetImages.Should().HaveCount(2).And.OnlyContain(i => i.Pinned && i.Url == pin.Url);
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedDeviceBuildNoNewerThanInstalledPlansNothingForThatModel()
+    {
+        using var harness = HarnessWithTwoAps();
+        var pin = new RolloutBuildPin(FirmwareUrlKind.Device, "SKU-AP1", "1.0.0", "https://example.test/SKU-AP1-1.0.0.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(), pin: pin);
+
+        LiveMacs(preview).Should().BeEmpty("the newest build must not stand in for the one that was chosen");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedUniFiOsBuildWinsOverTheConsolesNewerOffer()
+    {
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness);
+        var pin = new RolloutBuildPin(FirmwareUrlKind.UniFiOs, Platform, "6.0.8", "https://example.test/unifi-dream/UCGF-6.0.8.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs(), pin: pin);
+
+        preview.Plan.IncludesUniFiOsUpdate.Should().BeTrue();
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("6.0.8");
+        preview.Plan.UniFiOsUpdate.Url.Should().Be(pin.Url);
+        preview.Plan.UniFiOsUpdate.Pinned.Should().BeTrue();
+        preview.UniFiOs!.TargetVersion.Should().Be("6.0.8");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedUniFiOsBuildWithoutGatewaySshPlansNoUniFiOsUpdate()
+    {
+        // The console's own install command would take its newest build, so nothing can install the pin.
+        using var harness = CloudGatewayHarness();
+        harness.Commands.GatewaySshConfigured = false;
+        var pin = new RolloutBuildPin(FirmwareUrlKind.UniFiOs, Platform, "6.0.8", "https://example.test/unifi-dream/UCGF-6.0.8.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs(), pin: pin);
+
+        preview.Plan.IncludesUniFiOsUpdate.Should().BeFalse();
+    }
+
     // --- Shared UniFi OS builds -----------------------------------------------------------------
 
     private const string Platform = "UCGF";

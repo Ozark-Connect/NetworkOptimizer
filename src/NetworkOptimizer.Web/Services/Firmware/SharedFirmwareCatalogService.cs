@@ -43,7 +43,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
         if (parsed.Kind == FirmwareUrlKind.NetworkApp)
         {
             await _catalog.UpsertNetworkAppBuildAsync(AddedChannel, parsed.Version, parsed.Url, cancellationToken);
-            result = new FirmwareUrlAddResult(null, FirmwareUrlKind.NetworkApp, null, parsed.Version);
+            result = new FirmwareUrlAddResult(null, FirmwareUrlKind.NetworkApp, null, parsed.Version, Url: parsed.Url);
         }
         else
         {
@@ -75,7 +75,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
                     return SaveFailed();
             }
 
-            result = new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched);
+            result = new FirmwareUrlAddResult(null, kind, target, parsed.Version, matched, parsed.Url);
         }
 
         _audit.SetTarget(result.Target ?? "unifi-network", $"{result.Kind} {result.Version}");

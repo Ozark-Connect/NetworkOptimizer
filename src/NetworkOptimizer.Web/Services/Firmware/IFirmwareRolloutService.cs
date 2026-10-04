@@ -52,9 +52,10 @@ public interface IFirmwareRolloutService
     /// The drift check runs read-only - it may fire for any role, and a hint must not move
     /// console channels. The wizard and autopilot keep staging: their preview is a commitment.
     /// </param>
+    /// <param name="pin">A build added by hand, planned in place of anything newer on offer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [RequireRole(Roles.Viewer)]
-    Task<RolloutPreviewView> BuildPreviewAsync(FirmwareRolloutSettings settings, bool readOnly = false, CancellationToken cancellationToken = default);
+    Task<RolloutPreviewView> BuildPreviewAsync(FirmwareRolloutSettings settings, bool readOnly = false, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default);
 
     /// <summary>Writes the site's rollout settings.</summary>
     /// <param name="settings">Settings to store.</param>
@@ -97,11 +98,12 @@ public interface IFirmwareRolloutService
     /// </summary>
     /// <param name="settings">Settings to plan and run with.</param>
     /// <param name="startAtUtc">When the rollout should begin.</param>
+    /// <param name="pin">A build added by hand, planned in place of anything newer on offer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The new plan's id.</returns>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.FirmwareRolloutScheduled, TargetType = "firmware_rollout")]
-    Task<int> SchedulePlanAsync(FirmwareRolloutSettings settings, DateTime startAtUtc, CancellationToken cancellationToken = default);
+    Task<int> SchedulePlanAsync(FirmwareRolloutSettings settings, DateTime startAtUtc, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Plans a rollout and starts it. The health gate is advisory here: an admin who has read the
@@ -109,11 +111,12 @@ public interface IFirmwareRolloutService
     /// </summary>
     /// <param name="settings">Settings to plan and run with.</param>
     /// <param name="overrideHealthGate">True to start despite open critical alerts.</param>
+    /// <param name="pin">A build added by hand, planned in place of anything newer on offer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The new plan's id.</returns>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.FirmwareRolloutStarted, TargetType = "firmware_rollout")]
-    Task<int> StartNowAsync(FirmwareRolloutSettings settings, bool overrideHealthGate, CancellationToken cancellationToken = default);
+    Task<int> StartNowAsync(FirmwareRolloutSettings settings, bool overrideHealthGate, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default);
 
     /// <summary>Holds a running rollout. Devices already mid-cycle are still watched to the end.</summary>
     /// <param name="planId">The running plan.</param>

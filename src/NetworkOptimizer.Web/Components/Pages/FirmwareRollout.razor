@@ -1041,6 +1041,8 @@ else
         if (_active == null || _driftPreview == null) return;
         _busy = true;
         _wizardError = null;
+        _wizardPin = null;
+        _replacesPlanId = null;
         StateHasChanged();
         try
         {
@@ -1077,6 +1079,8 @@ else
     {
         _busy = true;
         _wizardError = null;
+        _wizardPin = null;
+        _replacesPlanId = null;
         StateHasChanged();
         try
         {
@@ -1108,6 +1112,7 @@ else
     {
         _wizardOpen = false;
         _replacesPlanId = null;
+        _wizardPin = null;
         _preview = null;
         _wizardError = null;
         _ = DisposeVizAsync();
@@ -1122,7 +1127,7 @@ else
         StateHasChanged();
         try
         {
-            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), pin: _wizardPin);
             SeedStartFromProposal();
             _step = 3;
             _vizMode = null;
@@ -1162,7 +1167,7 @@ else
                     {
                         <div class="alert alert-success">Added @AddedBuildLabel(added) on Early Access. Plan a rollout with it now?</div>
                         <div class="action-buttons">
-                            <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added.Kind)" disabled="@_busy">Plan Rollout Now</button>
+                            <button class="btn btn-primary" @onclick="() => OpenWizardForAddedBuildAsync(added)" disabled="@_busy">Plan Rollout Now</button>
                             <button class="btn btn-contrast" @onclick="() => _addResult = null" disabled="@_busy">Not Now</button>
                         </div>
                     }
@@ -1179,6 +1184,12 @@ else
     /// commit, so Cancel leaves the schedule as it was.
     /// </summary>
     private int? _replacesPlanId;
+
+    /// <summary>
+    /// The build added by hand that this wizard session plans, in place of anything newer. Only
+    /// this session carries it: Autopilot and later plans take the newest build again.
+    /// </summary>
+    private RolloutBuildPin? _wizardPin;
 
     private async Task AddFirmwareUrlAsync()
     {
@@ -1210,10 +1221,12 @@ else
     };
 
     /// <summary>
-    /// Opens the wizard on Early Access, the channel the added build was filed under, with Start
-    /// now selected and straight on the preview. Back still reaches the other steps.
+    /// Opens the wizard for a build added by hand, with Start now selected and straight on the
+    /// preview; Back still reaches the other steps. The channels start from the saved Autopilot
+    /// configuration, or the console's own when there is none, and only the added build's surface
+    /// moves to Early Access. The plan installs exactly that build.
     /// </summary>
-    private async Task OpenWizardForAddedBuildAsync(FirmwareUrlKind kind)
+    private async Task OpenWizardForAddedBuildAsync(FirmwareUrlAddResult added)
     {
         _busy = true;
         _wizardError = null;
@@ -1223,16 +1236,39 @@ else
             _replacesPlanId = _active?.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced
                 ? _active.Id
                 : null;
+            _wizardPin = added.ToPin();
             _settings = await RolloutService.GetSettingsAsync();
-            AdoptStandingAutopilotConfig();
+            var standing = AutopilotSettingsSnapshot.Deserialize(_settings.AutopilotSettingsJson);
+            if (standing != null)
+            {
+                standing.Id = _settings.Id;
+                standing.Mode = _settings.Mode;
+                standing.AutopilotSettingsJson = _settings.AutopilotSettingsJson;
+                _settings = standing;
+            }
             LoadWorkingSets();
-            _settings.GlobalChannel = FirmwareChannels.Beta;
-            _settings.NetworkAppChannel = null;
-            _settings.UniFiOsChannel = null;
-            if (kind == FirmwareUrlKind.UniFiOs) _settings.IncludeUniFiOs = true;
-            if (kind == FirmwareUrlKind.NetworkApp) _settings.IncludeUniFiNetwork = true;
+            if (standing == null)
+            {
+                // The console's channels come from a preview; read-only, so nothing is staged yet.
+                _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), readOnly: true);
+                SeedChannelsFromConsole();
+            }
+            switch (added.Kind)
+            {
+                case FirmwareUrlKind.UniFiOs:
+                    _settings.IncludeUniFiOs = true;
+                    _settings.UniFiOsChannel = FirmwareChannels.Beta;
+                    break;
+                case FirmwareUrlKind.NetworkApp:
+                    _settings.IncludeUniFiNetwork = true;
+                    _settings.NetworkAppChannel = FirmwareChannels.Beta;
+                    break;
+                case FirmwareUrlKind.Device when added.Target != null:
+                    _skuChannels[added.Target] = FirmwareChannels.Beta;
+                    break;
+            }
             _scheduleMode = "now";
-            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
+            _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), pin: _wizardPin);
             _showBackupNotice = await UiHints.ShouldShowAsync(UiHintKeys.FirmwareBackupNotice);
             _addResult = null;
             _wizardOpen = true;
@@ -1300,7 +1336,7 @@ else
             {
                 case "now":
                     settings.Mode = FirmwareRolloutMode.ManualOnly;
-                    await RolloutService.StartNowAsync(settings, overrideHealthGate: true);
+                    await RolloutService.StartNowAsync(settings, overrideHealthGate: true, pin: _wizardPin);
                     break;
                 case "autopilot":
                     settings.Mode = FirmwareRolloutMode.Autopilot;
@@ -1308,10 +1344,11 @@ else
                     break;
                 default:
                     settings.Mode = FirmwareRolloutMode.ManualOnly;
-                    await RolloutService.SchedulePlanAsync(settings, SelectedStartUtc);
+                    await RolloutService.SchedulePlanAsync(settings, SelectedStartUtc, pin: _wizardPin);
                     break;
             }
             _wizardOpen = false;
+            _wizardPin = null;
             await DisposeVizAsync();
             await ReloadAsync();
         }

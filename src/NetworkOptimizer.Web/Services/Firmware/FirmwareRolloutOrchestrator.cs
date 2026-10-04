@@ -1111,6 +1111,32 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var application = console?.NetworkApplication;
 
+        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        if (state.Pinned)
+        {
+            var pinnedNewer = console?.IsStandaloneConsole != true
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(state.Url))
+            {
+                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+                if (pinnedSsh.IsOk)
+                {
+                    state.Triggered = true;
+                    state.TriggeredAt = Now;
+                    _logger.LogInformation(
+                        "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
+                    return;
+                }
+                _logger.LogWarning(
+                    "SSH install of the chosen UniFi Network {Version} failed on site {Site}: {Reason}",
+                    state.TargetVersion, _siteSlug, pinnedSsh.Message);
+            }
+
+            state.Settled = true;
+            state.Outcome = pinnedNewer ? "refused" : "nothing-to-update";
+            return;
+        }
+
         var apiPathAvailable = application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
@@ -1464,7 +1490,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // nobody chose. Version match, not "newer": a beta on offer is newer than the planned RC.
         var offerIsPlanned = channelInForce
             || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending?.Version, document.UniFiOsUpdate.TargetVersion);
-        if (pending?.Version != null && !offerIsPlanned)
+        if (pending?.Version != null && !offerIsPlanned && !document.UniFiOsUpdate.Pinned)
         {
             _logger.LogError(
                 "Declining the UniFi OS update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
@@ -1489,6 +1515,19 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var preWindow = ResourceWindowFor(settings);
             document.UniFiOsUpdate.PreStatsJson = JsonSerializer.Serialize(
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
+        }
+
+        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        if (document.UniFiOsUpdate.Pinned)
+        {
+            var pinnedNewer = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(
+                document.UniFiOsUpdate.TargetVersion, installedOs);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+                && await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken))
+                return false;
+
+            await SettleUniFiOsAsync(plan, document, pinnedNewer ? "refused" : "nothing-to-update", cancellationToken);
+            return true;
         }
 
         // A plan adopted from the shared catalog targets a build newer than the console's own offer.
@@ -2345,7 +2384,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
-        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached)
+        // Not for a build chosen by hand: the console would install its newest one instead.
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
             result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
 
         if (!result.IsOk)

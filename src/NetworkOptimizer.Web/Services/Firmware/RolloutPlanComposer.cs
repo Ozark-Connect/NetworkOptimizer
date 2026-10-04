@@ -8,12 +8,16 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <param name="Estimator">Downtime estimates (seeds, this site's history, and the other sites').</param>
 /// <param name="CurrentChannel">The release channel devices follow today.</param>
 /// <param name="Console">The console as it answered at plan time, or null when it did not.</param>
+/// <param name="UniFiOsPinned">True when the UniFi OS target is a build chosen by hand.</param>
+/// <param name="NetworkAppPinned">True when the Network application target is a build chosen by hand.</param>
 public sealed record RolloutPlanInputs(
     RolloutPlanningContext Context,
     FirmwareTimingEstimator Estimator,
     string CurrentChannel,
     NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console = null,
-    IReadOnlyList<PlanTargetImage>? TargetImages = null);
+    IReadOnlyList<PlanTargetImage>? TargetImages = null,
+    bool UniFiOsPinned = false,
+    bool NetworkAppPinned = false);
 
 /// <summary>
 /// The one path a plan is built through, wizard and autopilot alike: refresh the catalog, freeze
@@ -35,6 +39,7 @@ public static class RolloutPlanComposer
     /// The install-wide build store, fed from this refresh and consulted for devices the console
     /// offered nothing. Null skips both sides.
     /// </param>
+    /// <param name="pin">A build chosen by hand, installed in place of anything newer on offer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task<RolloutPlanInputs> GatherAsync(
         IRolloutPlanningSource planning,
@@ -44,6 +49,7 @@ public static class RolloutPlanComposer
         ILogger? logger = null,
         ISharedFirmwareCatalogRepository? sharedCatalog = null,
         UbiquitiReleaseFeedClient? feed = null,
+        RolloutBuildPin? pin = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(planning);
@@ -86,6 +92,10 @@ public static class RolloutPlanComposer
             await AdoptSharedUniFiOsAsync(sharedCatalog, commands, console, settings, logger, cancellationToken);
         }
 
+        var (osPinned, appPinned) = pin == null
+            ? (false, false)
+            : await ApplyPinAsync(pin, commands, context, console, settings, images, logger, cancellationToken);
+
         // Last word on every path, the read-only preview included. It used to run only inside the
         // channel staging above, so the drift check (which previews without staging) kept the
         // console's offer of an older build and Re-plan opened the wizard on a downgrade.
@@ -96,7 +106,112 @@ public static class RolloutPlanComposer
             estimator,
             string.IsNullOrEmpty(currentChannel) ? FirmwareChannels.Release : currentChannel,
             console,
-            images);
+            images,
+            osPinned,
+            appPinned);
+    }
+
+    /// <summary>
+    /// Puts a build chosen by hand in place of whatever newer one the console or the shared catalog
+    /// offers. A pin no newer than what runs takes that surface out of the plan rather than letting
+    /// the newest build through. UniFi OS and the Network application need gateway SSH, because
+    /// the console's own install command only takes its newest build; a cellular modem keeps its
+    /// offer, because it can only install the console-cached build.
+    /// </summary>
+    /// <returns>Whether the UniFi OS and the Network application targets are now pinned.</returns>
+    private static async Task<(bool UniFiOs, bool NetworkApp)> ApplyPinAsync(
+        RolloutBuildPin pin,
+        IFirmwareCommandClient commands,
+        RolloutPlanningContext context,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        FirmwareRolloutSettings? settings,
+        List<PlanTargetImage> images,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        switch (pin.Kind)
+        {
+            case FirmwareUrlKind.Device:
+                foreach (var device in context.Devices.Where(d =>
+                    string.Equals(d.Model, pin.Target, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (FirmwareTimingEstimator.Classify(device) == FirmwareDeviceClass.CellularModem) continue;
+
+                    images.RemoveAll(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase));
+                    if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pin.Version, device.FromVersion)
+                        || string.IsNullOrWhiteSpace(device.FromVersion))
+                    {
+                        device.ToVersion = null;
+                        device.Upgradable = false;
+                        continue;
+                    }
+
+                    device.ToVersion = pin.Version;
+                    device.Upgradable = true;
+                    images.Add(new PlanTargetImage { Mac = device.Mac, Version = pin.Version, Url = pin.Url, Pinned = true });
+                }
+                return (false, false);
+
+            case FirmwareUrlKind.UniFiOs:
+            {
+                if (!ConsoleReachable(console) || console!.IsStandaloneConsole
+                    || console.Firmware?.LatestByChannel is not { } byChannel
+                    || !string.Equals(console.Hardware?.Shortname, pin.Target, StringComparison.OrdinalIgnoreCase))
+                    return (false, false);
+
+                // Nothing else may stand in for the pin. An unusable one leaves only the installed
+                // build on offer: an empty list reads as "update available, details unknown".
+                var channel = settings?.EffectiveUniFiOsChannel ?? console.Firmware.ReleaseChannel ?? FirmwareChannels.Beta;
+                byChannel.Clear();
+                if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pin.Version, console.InstalledOsVersion)
+                    || !await commands.HasGatewaySshAsync(cancellationToken))
+                {
+                    byChannel[channel] = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+                    {
+                        Channel = channel,
+                        Version = console.InstalledOsVersion,
+                    };
+                    logger?.LogInformation(
+                        "Not planning UniFi OS {Version}: it is not newer than {Installed}, or gateway SSH is not configured",
+                        pin.Version, console.InstalledOsVersion ?? "unknown");
+                    return (false, false);
+                }
+
+                byChannel[channel] = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+                {
+                    Channel = channel,
+                    Version = pin.Version,
+                    Links = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLinks
+                    {
+                        Data = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLink { Href = pin.Url },
+                    },
+                };
+                return (true, false);
+            }
+
+            case FirmwareUrlKind.NetworkApp:
+            {
+                if (!ConsoleReachable(console) || console!.IsStandaloneConsole
+                    || console.NetworkApplication is not { } app)
+                    return (false, false);
+
+                if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pin.Version, app.Version)
+                    || !await commands.HasGatewaySshAsync(cancellationToken))
+                {
+                    app.UpdateAvailable = null;
+                    logger?.LogInformation(
+                        "Not planning UniFi Network {Version}: it is not newer than {Installed}, or gateway SSH is not configured",
+                        pin.Version, app.Version ?? "unknown");
+                    return (false, false);
+                }
+
+                app.UpdateAvailable = pin.Version;
+                return (false, true);
+            }
+
+            default:
+                return (false, false);
+        }
     }
 
     /// <summary>
@@ -630,6 +745,8 @@ public static class RolloutPlanComposer
             UniFiOsDownloadUrl = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.DownloadUrl,
             UniFiOsPublishedAt = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.Created,
             IsStandaloneConsole = inputs.Console?.IsStandaloneConsole ?? false,
+            UniFiOsPinned = inputs.UniFiOsPinned,
+            NetworkAppPinned = inputs.NetworkAppPinned,
         });
     }
 

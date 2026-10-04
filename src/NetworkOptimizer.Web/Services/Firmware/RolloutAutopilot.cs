@@ -206,7 +206,7 @@ public class RolloutAutopilot : IRolloutAutopilot
 
         var timings = await _repositories.UseAsync((r, c) => r.GetModelTimingsAsync(c), cancellationToken);
         var inputs = await _planning.UseAsync(
-            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, _feed, c), cancellationToken);
+            (p, c) => RolloutPlanComposer.GatherAsync(p, timings, _commands, settings, _logger, _sharedCatalog, _feed, cancellationToken: c), cancellationToken);
 
         // Don't burn the check interval when the site wasn't reachable: the catalog and
         // update availability are unknown, so "nothing to upgrade" is an absence of data, not

@@ -11,15 +11,21 @@ namespace NetworkOptimizer.Web.Services.Firmware;
 /// <param name="Target">Device model or hardware platform the build is for; null for the Network application.</param>
 /// <param name="Version">Version the build carries.</param>
 /// <param name="MatchedExisting">True when the target came from a build already in the catalog rather than the file name.</param>
+/// <param name="Url">The canonical URL that was stored.</param>
 public sealed record FirmwareUrlAddResult(
     string? Error,
     FirmwareUrlKind Kind = FirmwareUrlKind.Unknown,
     string? Target = null,
     string? Version = null,
-    bool MatchedExisting = false)
+    bool MatchedExisting = false,
+    string? Url = null)
 {
     /// <summary>True when the build was added.</summary>
     public bool Succeeded => Error == null;
+
+    /// <summary>The added build as a pin for the rollout planned from it, or null when nothing was added.</summary>
+    public RolloutBuildPin? ToPin() =>
+        Succeeded && Version != null && Url != null ? new RolloutBuildPin(Kind, Target, Version, Url) : null;
 }
 
 /// <summary>

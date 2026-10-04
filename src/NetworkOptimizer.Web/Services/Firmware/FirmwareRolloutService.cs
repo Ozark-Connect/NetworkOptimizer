@@ -167,14 +167,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<RolloutPreviewView> BuildPreviewAsync(
-        FirmwareRolloutSettings settings, bool readOnly = false, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, bool readOnly = false, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
         // Every step here is a console round trip, and on an agent-relayed site they are the whole
         // cost of opening the wizard. Timed individually so a slow preview names its own culprit.
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var (result, inputs) = await PlanAsync(settings, readOnly, cancellationToken);
+        var (result, inputs) = await PlanAsync(settings, readOnly, pin, cancellationToken);
         var planMs = timer.ElapsedMilliseconds;
         var document = result.Document;
         var context = inputs.Context;
@@ -332,9 +332,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<int> SchedulePlanAsync(
-        FirmwareRolloutSettings settings, DateTime startAtUtc, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, DateTime startAtUtc, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
-        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Scheduled, startAtUtc, cancellationToken);
+        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Scheduled, startAtUtc, pin, cancellationToken);
 
         _audit.SetTarget(plan.Id.ToString(), $"Firmware rollout {plan.Id}");
         _audit.SetDetails(new { planId = plan.Id, startAt = startAtUtc, devices = plan.DeviceCount, waves = plan.WaveCount });
@@ -343,9 +343,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<int> StartNowAsync(
-        FirmwareRolloutSettings settings, bool overrideHealthGate, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, bool overrideHealthGate, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
-        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Draft, startAtUtc: null, cancellationToken);
+        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Draft, startAtUtc: null, pin, cancellationToken);
 
         // The executor owns the transition to Running: it runs the health gate, the pre-flight
         // backup and the catalog refresh first, and postpones the plan itself if any of those say no.
@@ -435,11 +435,11 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// Read-only withholds the settings from the gather, which is what skips channel staging.
     /// </summary>
     private async Task<(RolloutPlanResult Result, RolloutPlanInputs Inputs)> PlanAsync(
-        FirmwareRolloutSettings settings, bool readOnly, CancellationToken cancellationToken)
+        FirmwareRolloutSettings settings, bool readOnly, RolloutBuildPin? pin, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(
-            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, cancellationToken);
+            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, pin, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs);
@@ -449,6 +449,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         FirmwareRolloutSettings settings,
         FirmwareRolloutStatus status,
         DateTime? startAtUtc,
+        RolloutBuildPin? pin,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -472,7 +473,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
 
-        var (result, _) = await PlanAsync(settings, readOnly: false, cancellationToken);
+        var (result, _) = await PlanAsync(settings, readOnly: false, pin, cancellationToken);
         var upgrading = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded);
         // The console counts too: a Cloud Gateway's UniFi OS build waits while every device
         // reports nothing pending, and that is still a rollout worth running.
