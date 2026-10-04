@@ -16,7 +16,8 @@ public interface IMeshRepairQueue
     /// <param name="childIp">Mesh child's address.</param>
     /// <param name="iface">Mesh STA backhaul interface, e.g. "vwiresta0".</param>
     /// <param name="apName">AP name, for the audit record and logs.</param>
-    bool Enqueue(string? childIp, string? iface, string? apName);
+    /// <param name="childMac">Mesh child's MAC, which the SSH router keys its credential route on.</param>
+    bool Enqueue(string? childIp, string? iface, string? apName, string? childMac);
 }
 
 /// <summary>
@@ -48,7 +49,7 @@ public partial class MeshRepairQueue : IMeshRepairQueue
     private static partial Regex MeshStaInterface();
 
     /// <inheritdoc />
-    public bool Enqueue(string? childIp, string? iface, string? apName)
+    public bool Enqueue(string? childIp, string? iface, string? apName, string? childMac)
     {
         if (string.IsNullOrWhiteSpace(childIp) || string.IsNullOrWhiteSpace(iface) || !MeshStaInterface().IsMatch(iface))
         {
@@ -58,11 +59,11 @@ public partial class MeshRepairQueue : IMeshRepairQueue
             return false;
         }
 
-        _ = Task.Run(() => RunAsync(childIp, iface, apName));
+        _ = Task.Run(() => RunAsync(childIp, iface, apName, childMac));
         return true;
     }
 
-    private async Task RunAsync(string childIp, string iface, string? apName)
+    private async Task RunAsync(string childIp, string iface, string? apName, string? childMac)
     {
         await _oneAtATime.WaitAsync();
         try
@@ -73,7 +74,7 @@ public partial class MeshRepairQueue : IMeshRepairQueue
                 scope.ServiceProvider, FirmwareRolloutRepositoryAccessor.SystemActor);
 
             var mesh = scope.ServiceProvider.GetRequiredService<IMeshOptimizationService>();
-            var result = await mesh.OptimizeAsync(childIp, iface, apName);
+            var result = await mesh.OptimizeAsync(childIp, iface, apName, childMac);
             _logger.LogInformation(
                 "Mesh re-pair for {Ap} on site {Site} finished: {Action} ({Message})",
                 apName ?? childIp, _siteSlug, result.Action, result.Message);

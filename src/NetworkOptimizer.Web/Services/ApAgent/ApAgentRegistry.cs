@@ -45,11 +45,7 @@ public sealed class ApAgentRegistry : BackgroundService, ISiteScopedRegistry
 
     /// <summary>The AP Agent service for a site, created on first use.</summary>
     public IApAgentDeploymentService GetFor(string slug) =>
-        _instances.GetOrAdd(slug, s =>
-        {
-            var siteSsh = _serviceProvider.GetRequiredService<UniFiSshRegistry>().GetFor(s);
-            return ActivatorUtilities.CreateInstance<ApAgentDeploymentService>(_serviceProvider, siteSsh, s);
-        });
+        _instances.GetOrAdd(slug, s => ActivatorUtilities.CreateInstance<ApAgentDeploymentService>(_serviceProvider, s));
 
     /// <summary>The default site's AP Agent service.</summary>
     public IApAgentDeploymentService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);

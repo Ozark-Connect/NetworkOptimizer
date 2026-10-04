@@ -10,8 +10,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 public class DeviceRebootRegistry : ISiteScopedRegistry
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly UniFiSshRegistry _deviceSshRegistry;
-    private readonly GatewaySshRegistry _gatewaySshRegistry;
+    private readonly Ssh.DeviceSshRouterRegistry _sshRouters;
     private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ILoggerFactory _loggerFactory;
@@ -20,15 +19,13 @@ public class DeviceRebootRegistry : ISiteScopedRegistry
     /// <summary>Creates the registry.</summary>
     public DeviceRebootRegistry(
         IServiceProvider serviceProvider,
-        UniFiSshRegistry deviceSshRegistry,
-        GatewaySshRegistry gatewaySshRegistry,
+        Ssh.DeviceSshRouterRegistry sshRouters,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringAlertRegistry alertRegistry,
         ILoggerFactory loggerFactory)
     {
         _serviceProvider = serviceProvider;
-        _deviceSshRegistry = deviceSshRegistry;
-        _gatewaySshRegistry = gatewaySshRegistry;
+        _sshRouters = sshRouters;
         _influxRegistry = influxRegistry;
         _alertRegistry = alertRegistry;
         _loggerFactory = loggerFactory;
@@ -39,8 +36,7 @@ public class DeviceRebootRegistry : ISiteScopedRegistry
         _instances.GetOrAdd(slug, s =>
         {
             var probe = new DeviceRebootProbe(
-                _deviceSshRegistry.GetFor(s),
-                _gatewaySshRegistry.GetFor(s),
+                _sshRouters.GetFor(s),
                 _loggerFactory.CreateLogger<DeviceRebootProbe>());
 
             return new DeviceRebootTracker(

@@ -4,9 +4,9 @@
 # it is transferred to the AP over SSH into tmpfs on every boot, so build-installer.ps1 and the
 # release pipeline are left untouched until the deployment service (W6) lands.
 #
-# Targets are linux/arm/v7 and 32-bit MIPS in both byte orders (soft-float: no FPU on those SoCs).
-# Every measured U7-class AP is armv7l, and an arm64 build will not exec on them, so there is no
-# arm64 target here.
+# Targets are linux/arm/v7, linux/arm64, and 32-bit MIPS in both byte orders (soft-float: no FPU
+# on those SoCs). U7-class APs are armv7l; arm64 is for UniFi OS gateways with Wi-Fi (UDR7, UX7,
+# UCG-Industrial).
 
 param(
     [string]$OutputDir,
@@ -50,6 +50,7 @@ try {
     $env:GOOS = "linux"
     $targets = @(
         @{ GOARCH = "arm";    GOARM = "7";   GOMIPS = $null;       Output = "apagent-linux-arm" },
+        @{ GOARCH = "arm64";  GOARM = $null; GOMIPS = $null;       Output = "apagent-linux-arm64" },
         @{ GOARCH = "mipsle"; GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mipsle" },
         @{ GOARCH = "mips";   GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mips" }
     )

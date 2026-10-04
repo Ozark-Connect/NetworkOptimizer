@@ -6,7 +6,7 @@ using Xunit;
 namespace NetworkOptimizer.UniFi.Tests;
 
 /// <summary>
-/// Tests that gateway-only consoles (no Wi-Fi radios) are excluded from the
+/// Tests that gateways without Wi-Fi radios are excluded from the
 /// Wi-Fi Optimizer AP list, even when the UniFi API reports phantom radio_table entries.
 /// Device model/shortname values come from real API responses.
 /// </summary>
@@ -37,7 +37,7 @@ public class GatewayApExclusionTests
     }
 
     // ---------------------------------------------------------------
-    // Gateway-only consoles: must be excluded even with radio_table
+    // Gateways without Wi-Fi: must be excluded even with radio_table
     // ---------------------------------------------------------------
 
     [Theory]
@@ -50,7 +50,7 @@ public class GatewayApExclusionTests
 
         device.FriendlyModelName.Should().Be(expectedFriendlyName,
             $"model={model} shortname={shortname} should resolve to {expectedFriendlyName}");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeFalse(
             $"{expectedFriendlyName} has no Wi-Fi radios");
     }
 
@@ -62,7 +62,7 @@ public class GatewayApExclusionTests
         var device = CreateGatewayDevice(model, shortname, radioCount: 2);
 
         device.FriendlyModelName.Should().Be(expectedFriendlyName);
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeFalse(
             $"{expectedFriendlyName} has no Wi-Fi radios");
     }
 
@@ -72,12 +72,12 @@ public class GatewayApExclusionTests
         // Enterprise Firewall Core resolves to "EF-Core" in the product database and has
         // no Wi-Fi, but the API may report phantom radio_table entries. Verify it is
         // excluded from AP discovery (the name doesn't start with "EFG", so this relies on
-        // the explicit "EF-Core" branch in IsGatewayOnlyConsole).
+        // the explicit "EF-Core" branch in IsWifiGateway).
         var device = CreateGatewayDevice("UDMEA4B", "EFG-Core", radioCount: 2);
 
         device.FriendlyModelName.Should().Be("EF-Core");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
-            "EF-Core is a gateway-only console with no integrated Wi-Fi");
+        UniFiDiscovery.IsWifiGateway(device).Should().BeFalse(
+            "EF-Core is a gateway with no integrated Wi-Fi");
     }
 
     [Theory]
@@ -89,7 +89,7 @@ public class GatewayApExclusionTests
     [InlineData("UDMA6A8", "UCGF", "UCG-Fiber")]        // Cloud Gateway Fiber
     [InlineData("UCGMAX", "UCGMAX", "UCG-Max")]         // Cloud Gateway Max
     [InlineData("UDRULT", "UDRULT", "UCG-Ultra")]       // Cloud Gateway Ultra
-    public void OtherGatewayOnly_ExcludedEvenWithPhantomRadios(string model, string shortname, string expectedFriendlyName)
+    public void OtherGatewaysWithoutWifi_ExcludedEvenWithPhantomRadios(string model, string shortname, string expectedFriendlyName)
     {
         // These Wi-Fi-less gateways aren't in the WifiCapableGateways allow-list, so they must be
         // excluded even when the API reports phantom radio_table entries (UXG-Fiber on firmware
@@ -98,7 +98,7 @@ public class GatewayApExclusionTests
 
         device.FriendlyModelName.Should().Be(expectedFriendlyName,
             $"model={model} shortname={shortname} should resolve to {expectedFriendlyName}");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeFalse(
             $"{expectedFriendlyName} has no integrated Wi-Fi");
     }
 
@@ -109,7 +109,7 @@ public class GatewayApExclusionTests
         var device = CreateGatewayDevice("UDMA6AD", "UCG-Industrial", radioCount: 2);
 
         device.FriendlyModelName.Should().Be("UCG-Industrial");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UCG-Industrial has integrated Wi-Fi");
     }
 
@@ -124,7 +124,7 @@ public class GatewayApExclusionTests
         var device = CreateGatewayDevice("UDM", "UDM", radioCount: 2);
 
         device.FriendlyModelName.Should().Be("UDM");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UDM (original Dream Machine) has integrated Wi-Fi");
     }
 
@@ -134,7 +134,7 @@ public class GatewayApExclusionTests
         // Dream Router - has real Wi-Fi radios
         var device = CreateGatewayDevice("UDR", "UDR", radioCount: 2);
 
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UDR has integrated Wi-Fi");
     }
 
@@ -145,7 +145,7 @@ public class GatewayApExclusionTests
         var device = CreateGatewayDevice("UDMA67A", "UDR7", radioCount: 3);
 
         device.FriendlyModelName.Should().Be("UDR7");
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UDR7 has integrated Wi-Fi");
     }
 
@@ -155,7 +155,7 @@ public class GatewayApExclusionTests
         // Express - has real Wi-Fi radios
         var device = CreateGatewayDevice("UX", "UX", radioCount: 2);
 
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UX (Express) has integrated Wi-Fi");
     }
 
@@ -165,7 +165,7 @@ public class GatewayApExclusionTests
         // Express 7 - has real Wi-Fi radios
         var device = CreateGatewayDevice("UDMA69B", "UX7", radioCount: 3);
 
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UX7 (Express 7) has integrated Wi-Fi");
     }
 
@@ -175,7 +175,7 @@ public class GatewayApExclusionTests
         // Dream Wall - has real Wi-Fi radios
         var device = CreateGatewayDevice("UDW", "UDW", radioCount: 3);
 
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UDW (Dream Wall) has integrated Wi-Fi");
     }
 
@@ -185,7 +185,51 @@ public class GatewayApExclusionTests
         // Dream Router 5G Max - has real Wi-Fi radios
         var device = CreateGatewayDevice("UDMA6B9", "UDR-5G-Max", radioCount: 3);
 
-        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+        UniFiDiscovery.IsWifiGateway(device).Should().BeTrue(
             "UDR-5G-Max has integrated Wi-Fi");
+    }
+
+    // ---------------------------------------------------------------
+    // BroadcastsWifi: the shared "serves Wi-Fi clients" rule
+    // ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData("UDMA67A", "UDR7")]
+    [InlineData("UDMA69B", "UXMAX")]
+    [InlineData("UDMA6AD", "UCG-Industrial")]
+    public void AWifiGateway_broadcasts_wifi(string model, string shortname)
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice(model, shortname, radioCount: 3)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AGatewayWithoutWifi_with_phantom_radios_does_not_broadcast_wifi()
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice("UDMA6A8", "UCGF", radioCount: 2)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AWifiGateway_reporting_no_radios_does_not_broadcast_wifi()
+    {
+        UniFiDiscovery.BroadcastsWifi(CreateGatewayDevice("UDMA67A", "UDR7")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnApModeUx7_broadcasts_wifi_as_an_access_point()
+    {
+        var device = CreateGatewayDevice("UDMA69B", "UXMAX", radioCount: 3);
+        device.Type = DeviceType.AccessPoint;
+
+        UniFiDiscovery.BroadcastsWifi(device).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ASwitch_does_not_broadcast_wifi()
+    {
+        var device = CreateGatewayDevice("USL8LP", "USL8LP");
+        device.Type = DeviceType.Switch;
+        device.HardwareType = DeviceType.Switch;
+
+        UniFiDiscovery.BroadcastsWifi(device).Should().BeFalse();
     }
 }

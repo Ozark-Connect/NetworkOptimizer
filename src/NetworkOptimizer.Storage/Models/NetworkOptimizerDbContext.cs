@@ -84,6 +84,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<HealthCheckDefinition> HealthCheckDefinitions { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
+    public DbSet<DeviceSshRoute> DeviceSshRoutes { get; set; }
     public DbSet<ApRoamRecord> ApRoamRecords { get; set; }
     public DbSet<ApRadioHealthSample> ApRadioHealthSamples { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
@@ -229,6 +230,12 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<ApAgentEventCursor>(entity =>
         {
             entity.ToTable("ApAgentEventCursors");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceSshRoute>(entity =>
+        {
+            entity.ToTable("DeviceSshRoutes");
             entity.HasIndex(e => e.DeviceMac).IsUnique();
         });
 

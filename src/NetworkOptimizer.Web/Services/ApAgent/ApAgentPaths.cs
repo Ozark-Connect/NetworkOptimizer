@@ -59,7 +59,8 @@ public static class ApAgentPaths
 
     /// <summary>
     /// The build for an AP, by the names src/apagent/apagent.sh expects, or null when there is none.
-    /// There is deliberately no arm64 build: every measured U7-class AP is armv7l.
+    /// U7-class APs are armv7l; aarch64 is for UniFi OS gateways with Wi-Fi (UDR7, UX7,
+    /// UCG-Industrial). aarch64_be has no build: Go's arm64 is little-endian only.
     /// </summary>
     /// <param name="machine"><c>uname -m</c>.</param>
     /// <param name="byteOrder">"little" or "big", read from the ELF header on MIPS. The kernel
@@ -68,6 +69,7 @@ public static class ApAgentPaths
         => machine?.Trim().ToLowerInvariant() switch
         {
             "armv6l" or "armv7l" or "armv8l" => BinaryPrefix + "arm",
+            "aarch64" or "arm64" => BinaryPrefix + "arm64",
             "mips" or "mips32" or "mipsel" or "mips32el" => byteOrder switch
             {
                 "little" => BinaryPrefix + "mipsle",

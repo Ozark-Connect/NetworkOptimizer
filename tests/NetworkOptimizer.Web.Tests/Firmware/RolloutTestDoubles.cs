@@ -134,7 +134,9 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(ExternalResult);
     }
 
-    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
+    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
+        string deviceMac, string host, string firmwareUrl, NetworkOptimizer.Core.Enums.DeviceType role, bool isGateway,
+        CancellationToken cancellationToken = default)
     {
         SshCommands.Add((host, firmwareUrl, isGateway));
         return Task.FromResult(SshResult);
@@ -327,7 +329,7 @@ internal sealed class RecordingMeshRepairQueue : IMeshRepairQueue
 {
     public List<(string? Ip, string? Iface, string? Name)> Enqueued { get; } = [];
 
-    public bool Enqueue(string? childIp, string? iface, string? apName)
+    public bool Enqueue(string? childIp, string? iface, string? apName, string? childMac)
     {
         Enqueued.Add((childIp, iface, apName));
         return childIp != null && iface != null && iface.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase);

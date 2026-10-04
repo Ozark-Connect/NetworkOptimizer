@@ -15,5 +15,6 @@ public interface IMeshOptimizationService
     /// running it again.</remarks>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.OptimizerApplied, TargetType = "mesh_ap")]
-    Task<MeshOptimizationResult> OptimizeAsync(string? host, string? iface, string? apName, CancellationToken cancellationToken = default);
+    Task<MeshOptimizationResult> OptimizeAsync(
+        string? host, string? iface, string? apName, string? apMac, CancellationToken cancellationToken = default);
 }

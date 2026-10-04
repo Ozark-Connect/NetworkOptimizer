@@ -354,6 +354,7 @@ builder.Services.AddScoped<IUdmBootService, UdmBootService>();
 // forwards to the current site's instance; singleton consumers inject the
 // registry and pin GetDefault() or GetFor(slug).
 builder.Services.AddSiteScopedRegistry<UniFiSshRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Ssh.DeviceSshRouterRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 

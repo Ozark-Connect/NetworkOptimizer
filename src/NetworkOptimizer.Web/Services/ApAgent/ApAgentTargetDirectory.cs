@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
 
@@ -123,7 +123,7 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
             var apCount = 0;
             foreach (var device in devices)
             {
-                if (device.Type != DeviceType.AccessPoint) continue;
+                if (!UniFiDiscovery.BroadcastsWifi(device)) continue;
                 if (string.IsNullOrEmpty(device.DisplayIpAddress)) continue;
                 if (device.State != 1) continue;
                 apCount++;

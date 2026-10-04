@@ -84,6 +84,16 @@ public interface IIperf3SpeedTestService
     Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device);
 
     /// <summary>
+    /// Runs a full speed test to a UniFi device from the site's device list, starting its iperf3
+    /// server over SSH with the credentials <see cref="Ssh.DeviceSshRouter"/> picks for it.
+    /// </summary>
+    /// <param name="device">The discovered device to test.</param>
+    /// <returns>The test result containing throughput measurements and analysis.</returns>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.SpeedTestRun, TargetType = "lan_speedtest")]
+    Task<Iperf3Result> RunSpeedTestAsync(NetworkOptimizer.UniFi.DiscoveredDevice device);
+
+    /// <summary>
     /// Runs a full speed test to a device with specific parameters.
     /// </summary>
     /// <param name="device">The device configuration to test.</param>
