@@ -521,7 +521,35 @@ public class MonitoringInterfaceDeploymentServiceTests
         status.MarkRulePresent = true;
         status.PolicyRoutePresent = true;
         status.DnatRulePresent = true;
+        status.IsFullyApplied(mi).Should().BeFalse("the OUTPUT pair isn't confirmed yet");
+
+        status.GatewayOriginRulesPresent = true;
         status.IsFullyApplied(mi).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsOwnDeployment_AliasedInterfaceWithoutOutputRules_IsOursButNotFullyApplied()
+    {
+        // An interface deployed before the OUTPUT rules existed: Gate 2 must still recognize it as
+        // ours, or a redeploy (the only way to add the OUTPUT pair) is refused as a foreign alias.
+        var mi = ValidAliased();
+        var status = new MonitoringInterfaceDeploymentService.InterfaceStatus
+        {
+            InterfaceExists = true,
+            LocalIpAssigned = true,
+            SnatPresent = true,
+            WatchdogCronPresent = true,
+            BootScriptPresent = true,
+            PolicyRoutePresent = true,
+            MarkRulePresent = true,
+            DnatRulePresent = true,
+        };
+
+        status.IsOwnDeployment(mi).Should().BeTrue();
+        status.IsFullyApplied(mi).Should().BeFalse();
+
+        status.MarkRulePresent = false;
+        status.IsOwnDeployment(mi).Should().BeFalse("without our PREROUTING signature the alias is not ours");
     }
 
     [Fact]
@@ -982,10 +1010,10 @@ public class MonitoringInterfaceDeploymentServiceTests
         capturedCommand.Should().Contain($"grep -q 'src {mi.GatewayLocalIp}'");
     }
     [Fact]
-    public async Task CheckStatusAsync_Aliased_RequiresEachAliasRuleInBothPreroutingAndOutput()
+    public async Task CheckStatusAsync_Aliased_ProbesPreroutingAndOutputRulesSeparately()
     {
         // PREROUTING serves LAN clients; OUTPUT serves the gateway's own traffic (an agent on it).
-        // An interface deployed before the OUTPUT rules existed must read as not fully applied.
+        // They are reported apart so a deployment that predates the OUTPUT pair still reads as ours.
         var mi = ValidAliased(id: 9);
         string? capturedCommand = null;
         var ssh = new Mock<IGatewaySshService>();
@@ -999,11 +1027,31 @@ public class MonitoringInterfaceDeploymentServiceTests
         var mark = MonitoringInterfaceDeploymentService.AliasMark(mi.Id);
         var mask = MonitoringInterfaceDeploymentService.AliasMarkMask;
         capturedCommand.Should().Contain(
-            $"iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && " +
-            $"iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && echo y || echo n");
+            $"echo '---MARKRULE---'; iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && echo y || echo n");
         capturedCommand.Should().Contain(
-            $"iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && " +
+            $"echo '---DNATRULE---'; iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n");
+        capturedCommand.Should().Contain(
+            $"echo '---OUTPUTRULES---'; iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{mask} 2>/dev/null && " +
             $"iptables -w 5 -t nat -C OUTPUT -m mark --mark {mark}/{mask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n");
+    }
+
+    [Fact]
+    public async Task CheckStatusAsync_AliasedWithoutOutputRules_ReadsAsOursButNotFullyApplied()
+    {
+        var mi = ValidAliased(id: 9);
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true,
+                "---UDM_BOOT---\ny\n---IFACE---\ny\n---LOCALIP---\ny\n---ROUTE---\nn\n---SNAT---\ny\n" +
+                "---POLICYROUTE---\ny\n---MARKRULE---\ny\n---DNATRULE---\ny\n---OUTPUTRULES---\nn\n" +
+                "---CRON---\ny\n---SCRIPT---\ny"));
+        var service = BuildService(ssh);
+
+        var status = await service.CheckStatusAsync(mi);
+
+        status.GatewayOriginRulesPresent.Should().BeFalse();
+        status.IsOwnDeployment(mi).Should().BeTrue();
+        status.IsFullyApplied(mi).Should().BeFalse();
     }
 
     [Fact]

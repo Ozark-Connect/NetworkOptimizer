@@ -10,13 +10,15 @@ namespace NetworkOptimizer.Web.Tests.Services.RoutedDevices;
 /// <summary>
 /// An agent on a site's LAN, connected to <see cref="AgentTunnelProxyService"/> the way the real tunnel
 /// handler connects one. Opens are answered from <c>lan</c>, a map from the address the server asks
-/// for to the local test server that plays it; an address not on the map is unreachable.
+/// for to the local test server that plays it; an address not on the map is unreachable. An address
+/// in <c>silent</c> is never answered, as a slow agent leaves an open pending.
 /// </summary>
 internal sealed class FakeSiteAgent : IAsyncDisposable
 {
     private readonly AgentTunnelProxyService _proxy;
     private readonly AgentTunnelConnection _connection;
     private readonly IReadOnlyDictionary<(string Host, int Port), int> _lan;
+    private readonly IReadOnlySet<(string Host, int Port)> _silent;
     private readonly ConcurrentDictionary<long, TcpClient> _sockets = new();
     private readonly ConcurrentQueue<(string Host, int Port)> _opens = new();
     private int _closesFromServer;
@@ -25,10 +27,12 @@ internal sealed class FakeSiteAgent : IAsyncDisposable
 
     public FakeSiteAgent(
         AgentTunnelRegistry registry, AgentTunnelProxyService proxy, string siteSlug,
-        IReadOnlyDictionary<(string Host, int Port), int> lan)
+        IReadOnlyDictionary<(string Host, int Port), int> lan,
+        IReadOnlySet<(string Host, int Port)>? silent = null)
     {
         _proxy = proxy;
         _lan = lan;
+        _silent = silent ?? new HashSet<(string Host, int Port)>();
         _connection = registry.Register(agentId: 1, siteSlug, "Test Agent");
         _loop = RunAsync();
     }
@@ -70,6 +74,8 @@ internal sealed class FakeSiteAgent : IAsyncDisposable
     private async Task OpenAsync(ProxyOpen open)
     {
         _opens.Enqueue((open.Host, open.Port));
+        if (_silent.Contains((open.Host, open.Port)))
+            return;
         if (!_lan.TryGetValue((open.Host, open.Port), out var localPort))
         {
             _proxy.OnProxyOpenResult(_connection, new ProxyOpenResult { ConnectionId = open.ConnectionId, Ok = false, Error = "no route to host" });

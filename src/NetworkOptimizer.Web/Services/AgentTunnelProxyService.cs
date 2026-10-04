@@ -222,7 +222,9 @@ public class AgentTunnelProxyService : IDisposable
             {
                 openError = await connection.OpenResult.Task.WaitAsync(openTimeout.Token);
             }
-            catch (OperationCanceledException)
+            // Only our own timeout counts against the tunnel. A caller giving up (a disposed client,
+            // a cancelled poll) propagates instead, and the outer catch closes the connection.
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 openError = "open timed out";
                 // Trip the breaker so the opens queued behind this one fast-fail

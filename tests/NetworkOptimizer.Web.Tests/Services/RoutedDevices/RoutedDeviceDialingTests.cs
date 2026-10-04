@@ -151,6 +151,30 @@ public class RoutedDeviceDialingTests
     }
 
     [Fact]
+    public async Task TunnelOpen_CancelledByTheCaller_DoesNotTripTheSitesOpenBreaker()
+    {
+        // A disposed client or cancelled poll gives up on a pending open. That says nothing about the
+        // tunnel, so the next dial on the site must still go through.
+        await using var services = BuildServices(viaAgent: true);
+        await using var device = new FakeDeviceHttpServer(_ => FakeDeviceHttpServer.Ok("up"));
+        await using var agent = new FakeSiteAgent(
+            services.GetRequiredService<AgentTunnelRegistry>(), services.GetRequiredService<AgentTunnelProxyService>(), Slug,
+            new Dictionary<(string, int), int> { [(Device, 80)] = device.Port }, silent: new HashSet<(string, int)> { (Device, 81) });
+        var dialer = DialerFor(services);
+
+        // Cancel only once the agent holds the open, so it is the pending open that gets abandoned.
+        using var giveUp = new CancellationTokenSource();
+        var pending = dialer.DialAsync(Device, 81, giveUp.Token).AsTask();
+        await WaitUntilAsync(() => agent.Opens.Contains((Device, 81)));
+        giveUp.Cancel();
+        await pending.Invoking(t => t).Should().ThrowAsync<OperationCanceledException>();
+        await WaitUntilAsync(() => agent.ClosesFromServer == 1);
+
+        using var client = DeviceClient(dialer);
+        (await client.GetStringAsync($"http://{Device}/")).Should().Be("up");
+    }
+
+    [Fact]
     public async Task TunnelStream_ClosedByTheDevice_EndsTheCallersStream()
     {
         await using var services = BuildServices(viaAgent: true);

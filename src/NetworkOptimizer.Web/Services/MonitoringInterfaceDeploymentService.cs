@@ -387,7 +387,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
                     $"{checkIp} is reachable, but the gateway itself couldn't be reached over SSH to confirm " +
                     "whether this is already your own deployment. Try again once the gateway is reachable.");
             }
-            if (!status.IsFullyApplied(mi))
+            if (!status.IsOwnDeployment(mi))
             {
                 var message = mi.AliasIp != null
                     ? $"Alias IP {mi.AliasIp} is already reachable from the Network Optimizer server - pick a different, unused alias."
@@ -778,19 +778,27 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         /// <summary>Alias-only: the per-interface policy route (private table) is present.</summary>
         public bool PolicyRoutePresent { get; set; }
 
-        /// <summary>Alias-only: the mangle mark rule on the alias IP is present in both PREROUTING and OUTPUT.</summary>
+        /// <summary>Alias-only: the mangle PREROUTING mark rule on the alias IP is present.</summary>
         public bool MarkRulePresent { get; set; }
 
-        /// <summary>Alias-only: the nat DNAT rule (matched on our mark) is present in both PREROUTING and OUTPUT.</summary>
+        /// <summary>Alias-only: the nat PREROUTING DNAT rule (matched on our mark) is present.</summary>
         public bool DnatRulePresent { get; set; }
 
         /// <summary>
-        /// True when every expected component for the given config is in place. For an
-        /// aliased interface this additionally requires the fwmark/policy-route/DNAT
-        /// signature - a stale or foreign route must not be able to satisfy this check,
-        /// since callers (the Gate 2 "is this already ours" carve-out) trust it completely.
+        /// Alias-only: the mark and DNAT rules are present in OUTPUT too, so the gateway's own
+        /// traffic (an agent on it) reaches the alias. Interfaces deployed before these rules
+        /// existed have only the PREROUTING pair until redeployed.
         /// </summary>
-        public bool IsFullyApplied(MonitoringInterface mi)
+        public bool GatewayOriginRulesPresent { get; set; }
+
+        /// <summary>
+        /// True when this interface's own deployment is on the gateway: every component, plus the
+        /// fwmark/policy-route/DNAT signature for an aliased interface - a stale or foreign route
+        /// must not be able to satisfy this check, since the Gate 2 "is this already ours"
+        /// carve-out trusts it completely. Deliberately excludes the OUTPUT pair: a deployment
+        /// that predates it is still ours, and Gate 2 must let it be redeployed to add them.
+        /// </summary>
+        public bool IsOwnDeployment(MonitoringInterface mi)
         {
             var routeOk = mi.AliasIp == null ? RoutePresent : PolicyRoutePresent;
             var baseline = InterfaceExists && LocalIpAssigned && routeOk &&
@@ -801,6 +809,13 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
 
             return baseline && MarkRulePresent && DnatRulePresent;
         }
+
+        /// <summary>
+        /// True when every expected component for the given config is in place, including the
+        /// OUTPUT pair for an aliased interface.
+        /// </summary>
+        public bool IsFullyApplied(MonitoringInterface mi)
+            => IsOwnDeployment(mi) && (mi.AliasIp == null || GatewayOriginRulesPresent);
     }
 
     /// <summary>
@@ -820,9 +835,9 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
             aliasChecks =
                 $"echo '---POLICYROUTE---'; ip route show table {table} {mi.TargetIp}/32 2>/dev/null | grep -q 'dev {mi.Name}' && " +
                 $"ip route show table {table} {mi.TargetIp}/32 2>/dev/null | grep -q 'src {mi.GatewayLocalIp}' && echo y || echo n; " +
-                $"echo '---MARKRULE---'; iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && " +
-                $"iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && echo y || echo n; " +
-                $"echo '---DNATRULE---'; iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && " +
+                $"echo '---MARKRULE---'; iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && echo y || echo n; " +
+                $"echo '---DNATRULE---'; iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n; " +
+                $"echo '---OUTPUTRULES---'; iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && " +
                 $"iptables -w 5 -t nat -C OUTPUT -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n; ";
         }
         // An out-of-range id can never have valid alias artifacts on the gateway (see
@@ -854,6 +869,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         status.PolicyRoutePresent = mi.AliasIp != null && Yes("POLICYROUTE");
         status.MarkRulePresent = mi.AliasIp != null && Yes("MARKRULE");
         status.DnatRulePresent = mi.AliasIp != null && Yes("DNATRULE");
+        status.GatewayOriginRulesPresent = mi.AliasIp != null && Yes("OUTPUTRULES");
         status.WatchdogCronPresent = Yes("CRON");
         status.BootScriptPresent = Yes("SCRIPT");
         return status;
