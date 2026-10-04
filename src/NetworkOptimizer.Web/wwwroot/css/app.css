@@ -21239,6 +21239,10 @@ body.kiosk-mode .status-indicators {
     padding-top: 0;
 }
 
+.firmware-rollout-add-url .setup-guide {
+    margin-top: 0.5rem;
+}
+
 .firmware-rollout-config-title {
     margin-bottom: 0.25rem;
 }
@@ -21264,8 +21268,7 @@ body.kiosk-mode .status-indicators {
         padding-top: 0.25rem;
     }
 
-    .firmware-rollout-autopilot-config,
-    .firmware-rollout-add-url {
+    .firmware-rollout-autopilot-config {
         margin-top: 1rem;
     }
 }
