@@ -79,9 +79,11 @@ public static class RolloutPlanComposer
         if (sharedCatalog != null)
         {
             await RecordSharedNetworkAppAsync(sharedCatalog, console, cancellationToken);
+            await RecordSharedUniFiOsAsync(sharedCatalog, console, cancellationToken);
             await AdoptSharedBuildsAsync(
                 sharedCatalog, context, settings, currentChannel, images, logger, cancellationToken);
             await AdoptSharedNetworkAppAsync(sharedCatalog, console, logger, cancellationToken);
+            await AdoptSharedUniFiOsAsync(sharedCatalog, commands, console, settings, logger, cancellationToken);
         }
 
         // Last word on every path, the read-only preview included. It used to run only inside the
@@ -458,6 +460,95 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>
+    /// Records every UniFi OS build this Cloud Gateway lists, one per channel, under its hardware
+    /// platform. A self-hosted UniFi OS Server is skipped: its OS is never ours to update.
+    /// </summary>
+    private static Task RecordSharedUniFiOsAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        CancellationToken cancellationToken)
+    {
+        var platform = console?.Hardware?.Shortname;
+        if (string.IsNullOrWhiteSpace(platform)
+            || console!.IsStandaloneConsole
+            || console.Firmware?.LatestByChannel is not { } byChannel)
+        {
+            return Task.CompletedTask;
+        }
+
+        var builds = byChannel
+            .Select(kv => new SharedUniFiOsBuild
+            {
+                Platform = platform,
+                Channel = kv.Key,
+                Version = kv.Value?.Version ?? string.Empty,
+                Url = kv.Value?.DownloadUrl ?? string.Empty,
+                PublishedUtc = kv.Value?.Created,
+            })
+            .Where(b => b.Version.Length > 0 && b.Url.Length > 0)
+            .ToList();
+
+        return builds.Count > 0
+            ? sharedCatalog.UpsertUniFiOsBuildsAsync(builds, cancellationToken)
+            : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Offers this Cloud Gateway a UniFi OS build another console of the same platform was already
+    /// offered, when it is newer than anything this console runs or offers on the planned channel.
+    /// The adopted build goes into latestByChannel, so the plan reads it like the console's own.
+    /// Needs gateway SSH: the console has not staged the build, so <c>ubnt-systool fwupdate</c> by
+    /// URL is the only install path.
+    /// </summary>
+    private static async Task AdoptSharedUniFiOsAsync(
+        ISharedFirmwareCatalogRepository sharedCatalog,
+        IFirmwareCommandClient commands,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        FirmwareRolloutSettings? settings,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (!ConsoleReachable(console) || console!.IsStandaloneConsole) return;
+        if (console.Firmware?.LatestByChannel is not { } byChannel) return;
+
+        var platform = console.Hardware?.Shortname;
+        var installed = console.InstalledOsVersion;
+        var channel = settings?.EffectiveUniFiOsChannel ?? console.Firmware.ReleaseChannel;
+        if (string.IsNullOrWhiteSpace(platform) || string.IsNullOrWhiteSpace(installed) || string.IsNullOrWhiteSpace(channel))
+            return;
+
+        // Beat the console's own offer as well as what it runs: its own build installs without SSH.
+        var offered = OfferedUniFiOsRelease(console, channel)?.Version;
+        var floor = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(offered, installed) ? offered : installed;
+
+        var build = await sharedCatalog.FindNewerUniFiOsBuildAsync(
+            platform, ChannelsAtOrBelow(channel).ToList(), floor, cancellationToken);
+        if (build == null) return;
+
+        if (!await commands.HasGatewaySshAsync(cancellationToken))
+        {
+            logger?.LogInformation(
+                "Not offering UniFi OS {Version} for {Platform} from the shared catalog: gateway SSH is not configured",
+                build.Version, platform);
+            return;
+        }
+
+        byChannel[build.Channel] = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+        {
+            Channel = build.Channel,
+            Version = build.Version,
+            Created = build.PublishedUtc,
+            Links = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLinks
+            {
+                Data = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLink { Href = build.Url },
+            },
+        };
+        logger?.LogInformation(
+            "Offering UniFi OS {Version} on {Channel} for {Platform} from the shared catalog; this console offered {Offered}",
+            build.Version, build.Channel, platform, offered ?? "nothing");
+    }
+
+    /// <summary>
     /// Puts both console surfaces on their planned channel before their versions are read.
     /// </summary>
     /// <returns>The console as it reads on the planned channels, or as it was when nothing changed.</returns>
@@ -528,6 +619,7 @@ public static class RolloutPlanComposer
             UniFiOsToVersion = OfferedUniFiOsVersion(inputs.Console, settings.EffectiveUniFiOsChannel),
             NetworkAppDownloadUrl = NetworkAppDebUrl(inputs.Console),
             UniFiOsDownloadUrl = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.DownloadUrl,
+            UniFiOsPublishedAt = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.Created,
             IsStandaloneConsole = inputs.Console?.IsStandaloneConsole ?? false,
         });
     }
@@ -567,7 +659,7 @@ public static class RolloutPlanComposer
     /// A promoted version can leave its origin channel (RC reverts to the prior RC build) and
     /// the GA entry can go stale, so we walk all channels at or below and take the newest.
     /// </summary>
-    private static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
+    internal static NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease? OfferedUniFiOsRelease(
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string channel)
     {
         if (console?.Firmware?.LatestByChannel is not { } byChannel)

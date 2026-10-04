@@ -168,6 +168,166 @@ public class FirmwareRolloutServiceTests
         preview.NetworkApplication.UpdateAvailable.Should().BeTrue();
     }
 
+    // --- Shared UniFi OS builds -----------------------------------------------------------------
+
+    private const string Platform = "UCGF";
+    private const string SharedUrl = "https://example.test/unifi-dream/UCGF-6.0.11.bin";
+
+    /// <summary>
+    /// A UCG-Fiber site on Early Access whose console offers 6.0.9 while running 6.0.7. Each
+    /// /api/system read is a fresh snapshot, so an adoption only lives on the plan's own object.
+    /// </summary>
+    private static RolloutHarness CloudGatewayHarness(string platform = Platform)
+    {
+        var harness = HarnessWithTwoAps();
+        harness.Planning.Devices.Add(new PlannerDevice
+        {
+            Mac = "aa:bb:cc:dd:ee:04",
+            Name = "Gateway",
+            Model = "UDMA6A8",
+            DisplayModel = "UDMA6A8",
+            Type = DeviceType.Gateway,
+            Upgradable = false,
+            FromVersion = "6.0.7",
+            IpAddress = "192.0.2.1",
+        });
+        harness.Commands.SnapshotConsoleInfoPerRead = true;
+        harness.Commands.ConsoleInfo = RolloutFixtures.Console(osChannel: "beta", installedOs: "6.0.7");
+        harness.Commands.ConsoleInfo.Hardware!.Shortname = platform;
+        harness.Commands.ConsoleInfo.Firmware!.LatestByChannel["beta"] = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+        {
+            Channel = "beta",
+            Version = "v6.0.9+bbb2222",
+            Created = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            Links = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLinks
+            {
+                Data = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareLink { Href = "https://example.test/unifi-dream/UCGF-6.0.9.bin" },
+            },
+        };
+        return harness;
+    }
+
+    private static FirmwareRolloutSettings EarlyAccessOs() => Settings(s =>
+    {
+        s.GlobalChannel = FirmwareChannels.Beta;
+        s.IncludeUniFiOs = true;
+    });
+
+    private static Task SeedSharedOsBuildAsync(RolloutHarness harness, string platform = Platform, string channel = "beta") =>
+        harness.SharedCatalog.UpsertUniFiOsBuildsAsync(
+        [
+            new SharedUniFiOsBuild
+            {
+                Platform = platform,
+                Channel = channel,
+                Version = "v6.0.11+ccc3333",
+                Url = SharedUrl,
+                PublishedUtc = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc),
+            },
+        ]);
+
+    [Fact]
+    public async Task BuildPreviewAsync_RecordsEveryChannelsUniFiOsBuildUnderThePlatform()
+    {
+        using var harness = CloudGatewayHarness();
+
+        await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        // Release may also be recorded: the public feed patches a stale GA entry before this runs.
+        using var db = harness.NewContext();
+        var row = db.SharedUniFiOsBuilds.Should().ContainSingle(b => b.Channel == "beta").Subject;
+        row.Platform.Should().Be(Platform);
+        row.Version.Should().Be("v6.0.9+bbb2222");
+        row.Url.Should().Be("https://example.test/unifi-dream/UCGF-6.0.9.bin");
+        row.PublishedUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_AdoptsANewerUniFiOsBuildAnotherConsoleWasOffered()
+    {
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness);
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        preview.UniFiOs!.TargetVersion.Should().Be("v6.0.11+ccc3333");
+        preview.UniFiOs.UpdateAvailable.Should().BeTrue();
+        preview.Plan.IncludesUniFiOsUpdate.Should().BeTrue();
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.11+ccc3333");
+        preview.Plan.UniFiOsUpdate.Url.Should().Be(SharedUrl);
+        preview.Plan.UniFiOsUpdate.PublishedAt.Should().Be(new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_AdoptsASharedBuildFromALessAggressiveChannel()
+    {
+        // Early Access sees every channel at or below it, so a newer RC from elsewhere qualifies.
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness, channel: "release-candidate");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.11+ccc3333");
+        preview.UniFiOs!.TargetVersion.Should().Be("v6.0.11+ccc3333", "the preview names the build the plan installs");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_KeepsTheConsolesOwnBuildWithoutGatewaySsh()
+    {
+        // The console has not staged the shared build, so SSH by URL is the only way to install it.
+        using var harness = CloudGatewayHarness();
+        harness.Commands.GatewaySshConfigured = false;
+        await SeedSharedOsBuildAsync(harness);
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.9+bbb2222");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_IgnoresASharedBuildForAnotherPlatform()
+    {
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness, platform: "UDMPRO");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.9+bbb2222");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_IgnoresASharedBuildFromAMoreAggressiveChannel()
+    {
+        // A site on Official never takes an Early Access build, wherever it was seen.
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness);
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(s =>
+        {
+            s.GlobalChannel = FirmwareChannels.Release;
+            s.IncludeUniFiOs = true;
+        }));
+
+        preview.Plan.UniFiOsUpdate.TargetVersion.Should().NotBe("v6.0.11+ccc3333");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_ASelfHostedConsoleNeitherRecordsNorAdoptsUniFiOsBuilds()
+    {
+        using var harness = CloudGatewayHarness();
+        harness.Commands.ConsoleInfo!.Firmware!.Latest = new NetworkOptimizer.UniFi.Models.UniFiConsoleFirmwareRelease
+        {
+            Product = NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo.StandaloneConsoleProduct,
+        };
+        await SeedSharedOsBuildAsync(harness, platform: "OTHER");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs());
+
+        using var db = harness.NewContext();
+        db.SharedUniFiOsBuilds.Should().ContainSingle(b => b.Platform == "OTHER", "only the seeded row exists");
+        preview.UniFiOs.Should().BeNull("a self-hosted console has no UniFi OS step");
+    }
+
     [Fact]
     public async Task BuildPreviewAsync_CountsExcludedDevicesSeparately()
     {

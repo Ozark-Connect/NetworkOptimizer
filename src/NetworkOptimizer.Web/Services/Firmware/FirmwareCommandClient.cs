@@ -516,4 +516,19 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             return FirmwareCommandResult.Failed($"The SSH UniFi OS update failed: {ex.Message}");
         }
     }
+
+    /// <inheritdoc />
+    public async Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var settings = await _gatewaySsh.GetSettingsAsync();
+            return settings != null && settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read gateway SSH settings for site {Site}", _siteSlug);
+            return false;
+        }
+    }
 }

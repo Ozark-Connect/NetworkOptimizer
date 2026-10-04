@@ -151,6 +151,9 @@ public class RolloutPlanningInput
     /// <summary>Direct firmware image URL for the SSH fallback UniFi OS install.</summary>
     public string? UniFiOsDownloadUrl { get; init; }
 
+    /// <summary>Publish date of the UniFi OS build the plan targets, when the console gave one.</summary>
+    public DateTime? UniFiOsPublishedAt { get; init; }
+
     /// <summary>True when the console is a self-hosted UniFi OS Server (uses the all.deb package).</summary>
     public bool IsStandaloneConsole { get; init; }
 
@@ -522,6 +525,12 @@ public class RolloutConsoleStepState
 
     /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
     public string? Url { get; set; }
+
+    /// <summary>
+    /// Publish date of <see cref="TargetVersion"/>, captured at plan time. The console's own
+    /// pending build can be a different one when the target came from another site's console.
+    /// </summary>
+    public DateTime? PublishedAt { get; set; }
 
     /// <summary>
     /// When the SSH retry ran because the console took the command and never installed it.

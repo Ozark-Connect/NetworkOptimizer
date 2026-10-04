@@ -358,4 +358,48 @@ public class RolloutAutopilotTests
 
         (await harness.PlanAsync(planId!.Value))!.PlanJson.Should().Contain("\"IncludesUniFiOsUpdate\":true");
     }
+
+    [Fact]
+    public async Task RipenessGate_JudgesASharedUniFiOsBuildByItsOwnPublishDate()
+    {
+        // The console's own pending build aged long ago, but the plan targets a newer build another
+        // site was offered yesterday. The gate must judge that one.
+        using var harness = new RolloutHarness();
+        harness.Planning.Devices.Add(CloudGateway());
+        await harness.WithSettingsAsync(s =>
+        {
+            s.Mode = FirmwareRolloutMode.Autopilot;
+            s.IncludeUniFiNetwork = false;
+            s.IncludeUniFiOs = true;
+            s.MinReleaseAgeDays = 7;
+        });
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Releases.Set("UCGMAX", "4.1.0", now.AddDays(-30));
+        harness.Commands.SnapshotConsoleInfoPerRead = true;
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "5.1.28", Shortname = "UCGMAX" },
+            Firmware = new UniFiConsoleFirmware { ReleaseChannel = FirmwareChannels.Release },
+        };
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v5.1.28+abc", Created = now.AddDays(-30) };
+        await harness.SharedCatalog.UpsertUniFiOsBuildsAsync(
+        [
+            new NetworkOptimizer.Storage.Models.SharedUniFiOsBuild
+            {
+                Platform = "UCGMAX",
+                Channel = FirmwareChannels.Release,
+                // Ahead of anything the public feed's GA patch can put on the console.
+                Version = "v99.0.1+def",
+                Url = "https://example.test/unifi-dream/UCGMAX-99.0.1.bin",
+                PublishedUtc = now.AddDays(-1),
+            },
+        ]);
+
+        var planId = await harness.Autopilot.CreatePlanIfDueAsync();
+
+        var plan = await harness.PlanAsync(planId!.Value);
+        var document = System.Text.Json.JsonSerializer.Deserialize<RolloutPlanDocument>(plan!.PlanJson)!;
+        document.Notes.Should().Contain(n => n.StartsWith("UniFi OS v99.0.1+def is waiting to age 7 days"));
+        plan.PlanJson.Should().Contain("\"IncludesUniFiOsUpdate\":false");
+    }
 }

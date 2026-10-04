@@ -154,6 +154,7 @@ public class RolloutPlanner
         doc.UniFiOsUpdate.FromVersion = input.UniFiOsFromVersion;
         doc.UniFiOsUpdate.TargetVersion = input.UniFiOsToVersion;
         doc.UniFiOsUpdate.Url = input.UniFiOsDownloadUrl;
+        doc.UniFiOsUpdate.PublishedAt = input.UniFiOsPublishedAt;
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
         doc.MaxApsInFlight = apCap;

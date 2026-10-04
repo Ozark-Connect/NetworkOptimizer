@@ -255,6 +255,11 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         Calls.Add("ssh-unifi-os-update");
         return Task.FromResult(SshUniFiOsResult);
     }
+
+    public bool GatewaySshConfigured { get; set; } = true;
+
+    public Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(GatewaySshConfigured);
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>

@@ -1491,6 +1491,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
         }
 
+        // A plan adopted from the shared catalog targets a build newer than the console's own offer.
+        // Taking the API path here would install the older build, so the URL goes first.
+        var sshTried = false;
+        if (apiPathAvailable
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(document.UniFiOsUpdate.TargetVersion, pending!.Version))
+        {
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
+            sshTried = true;
+        }
+
         if (apiPathAvailable)
         {
             document.UniFiOsUpdate.TargetVersion = pending!.Version;
@@ -1516,33 +1527,43 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _siteSlug, installedOs ?? "unknown", pending?.Version ?? "none");
         }
 
-        // The console may not see the build because the channel switch failed, but the plan
-        // captured the firmware URL at planning time when the channel was still right.
+        // The console may not see the build because the channel switch failed, or because the
+        // build came from another site's console; the plan captured its URL either way.
         var plannedOs = document.UniFiOsUpdate.TargetVersion;
-        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+        if (!sshTried
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
             && !string.IsNullOrWhiteSpace(plannedOs)
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedOs, installedOs))
         {
-            _logger.LogInformation(
-                "Falling back to SSH for the UniFi OS update on site {Site} ({Url})", _siteSlug, document.UniFiOsUpdate.Url);
-            var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
-            if (ssh.IsOk)
-            {
-                document.UniFiOsUpdate.Triggered = true;
-                document.UniFiOsUpdate.TriggeredAt = Now;
-                await PersistDocumentAsync(plan, document, cancellationToken);
-                _logger.LogInformation(
-                    "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
-                return false;
-            }
-            _logger.LogWarning(
-                "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
         }
 
         var outcome = apiPathAvailable || (pending?.Version != null && !offerIsPlanned) ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
+    }
+
+    /// <summary>Installs the plan's UniFi OS image by URL over SSH. True when the gateway accepted it.</summary>
+    private async Task<bool> TrySshUniFiOsUpdateAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
+            document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
+        var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+        if (ssh.IsOk)
+        {
+            document.UniFiOsUpdate.Triggered = true;
+            document.UniFiOsUpdate.TriggeredAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogInformation(
+                "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+            return true;
+        }
+
+        _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        return false;
     }
 
     private async Task SettleUniFiOsAsync(

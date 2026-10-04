@@ -342,6 +342,54 @@ public class RolloutConsoleChannelTests
         harness.Commands.UniFiOsUpdateCalls.Should().Be(1);
     }
 
+    /// <summary>
+    /// A plan whose UniFi OS target came from another site's console: newer than the build this
+    /// console offers itself, with the image URL captured at plan time.
+    /// </summary>
+    private static async Task<FirmwareRolloutPlan> SeedSharedBuildPlanAsync(RolloutHarness harness)
+    {
+        harness.Commands.ConsoleInfo = Console(osChannel: "beta", installedOs: "6.0.7");
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v6.0.9+bbb2222" };
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.Beta);
+        var document = UniFiOsPlan();
+        document.UniFiOsUpdate.TargetVersion = "v6.0.11+ccc3333";
+        document.UniFiOsUpdate.Url = "https://example.test/os-6.0.11.bin";
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        return plan;
+    }
+
+    [Fact]
+    public async Task APlannedBuildNewerThanTheConsolesOffer_IsInstalledByUrl()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await SeedSharedBuildPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.Calls.Should().Contain("ssh-unifi-os-update");
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0, "the API would install the console's older 6.0.9");
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Triggered.Should().BeTrue();
+        stored.UniFiOsUpdate.TargetVersion.Should().Be("v6.0.11+ccc3333");
+    }
+
+    [Fact]
+    public async Task APlannedBuildNewerThanTheConsolesOffer_FallsBackToTheConsoleBuildWhenSshFails()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsResult = FirmwareCommandResult.Failed("no route");
+        var plan = await SeedSharedBuildPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.Calls.Count(c => c == "ssh-unifi-os-update").Should().Be(1, "SSH is tried once, not again after the API");
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(1);
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.TargetVersion.Should().Be("v6.0.9+bbb2222");
+    }
+
     /// <summary>Walks one commanded device all the way through to its litmus verdict.</summary>
     private static async Task RunDeviceToLitmusAsync(RolloutHarness harness, string mac)
     {

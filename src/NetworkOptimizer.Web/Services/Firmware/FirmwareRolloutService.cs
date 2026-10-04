@@ -583,11 +583,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         if (!preview.HasCloudGateway) return;
 
+        // The plan's own channel walk, so the preview names the build the plan will install.
         var channel = settings.EffectiveUniFiOsChannel;
-        var offered = console?.Firmware?.LatestByChannel is { } byChannel
-            && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
+        var offered = RolloutPlanComposer.OfferedUniFiOsRelease(console, channel)?.Version;
         var installed = console?.InstalledOsVersion;
-
 
         preview.UniFiOs = new RolloutConsoleStepPreview
         {
