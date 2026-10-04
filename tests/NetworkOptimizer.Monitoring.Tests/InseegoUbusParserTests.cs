@@ -265,22 +265,6 @@ public class InseegoUbusParserTests
         InseegoUbusParser.Parse(Results(serviceStats: null), Context).Should().BeNull();
     }
 
-    [Fact]
-    public void Parse_ConfiguredHost_WinsOverTunnelHost()
-    {
-        var tunneled = new ModemPollContext
-        {
-            Id = 1,
-            Name = "Test Gateway",
-            Host = "127.0.0.1",
-            ConfiguredHost = "192.0.2.1",
-        };
-
-        var stats = InseegoUbusParser.Parse(Results(), tunneled)!;
-
-        stats.ModemHost.Should().Be("192.0.2.1");
-    }
-
     // ----- ParseBatchResponse -----
 
     [Fact]

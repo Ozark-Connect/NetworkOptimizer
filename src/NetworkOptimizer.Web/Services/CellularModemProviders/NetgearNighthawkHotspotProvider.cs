@@ -55,7 +55,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             return PollResult<CellularModemStats>.Failed("No address is configured for this modem.");
         }
 
-        var host = context.ConfiguredHost ?? context.Host;
+        var host = context.Host;
         var hasPassword = !string.IsNullOrEmpty(context.Password);
 
         try
@@ -107,7 +107,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -133,7 +133,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         {
             _logger.LogInformation(
                 "Netgear session for {Host} expired (302 to /sess_cd_tmp), rebuilding",
-                context.ConfiguredHost ?? context.Host);
+                context.Host);
             InvalidateSession(context.CacheKey);
 
             session = await GetOrCreateSessionAsync(context, requireAuth, cancellationToken);
@@ -208,7 +208,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             InvalidateSession(context.CacheKey);
         }
 
-        var session = CreateSession(context.Host);
+        var session = CreateSession(context.Host, context.Dialer);
 
         var bootstrapped = await BootstrapAsync(session, context.Host, cancellationToken);
         if (!bootstrapped)
@@ -222,7 +222,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             var loggedIn = await LoginAsync(session, context.Host, context.Password!, cancellationToken);
             if (!loggedIn)
             {
-                _logger.LogWarning("Netgear login failed for {Host}", context.ConfiguredHost ?? context.Host);
+                _logger.LogWarning("Netgear login failed for {Host}", context.Host);
                 // Keep the anonymous session - polling can still return signal data
             }
             else
@@ -337,11 +337,12 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
     }
 
-    private NetgearSession CreateSession(string host)
+    private NetgearSession CreateSession(string host, IDeviceDialer dialer)
     {
         var cookies = new CookieContainer();
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = cookies,
             AllowAutoRedirect = false,
             UseCookies = true,
@@ -406,7 +407,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
     {
         public required string Host { get; init; }
         public required CookieContainer CookieContainer { get; init; }
-        public required HttpClientHandler Handler { get; init; }
+        public required SocketsHttpHandler Handler { get; init; }
         public required HttpClient Client { get; init; }
         public bool IsAuthenticated { get; set; }
 
@@ -424,7 +425,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
     /// </summary>
     private sealed class RedirectAwareHandler : DelegatingHandler
     {
-        public RedirectAwareHandler(HttpClientHandler inner) : base(inner) { }
+        public RedirectAwareHandler(SocketsHttpHandler inner) : base(inner) { }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,

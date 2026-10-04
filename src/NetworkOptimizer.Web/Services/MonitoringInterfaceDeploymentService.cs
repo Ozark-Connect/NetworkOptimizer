@@ -140,9 +140,9 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
     /// of <c>FREE</c>, <c>OURS</c>, or <c>FOREIGN</c> on stdout. It does not merely check whether
     /// our mark exists somewhere; it verifies that <em>every</em> <c>ip rule</c> line referencing
     /// our routing table also carries our exact fwmark/mask, AND that every mangle/nat rule
-    /// carrying our mark/mask signature is one of the two exact rules the boot script itself
-    /// would create (the mangle MARK rule on <paramref name="aliasIp"/>, the nat DNAT rule to
-    /// <paramref name="targetIp"/>) - the boot script's own <c>cleanup_marked_rules()</c> deletes
+    /// carrying our mark/mask signature is one of the four exact rules the boot script itself
+    /// would create (the mangle MARK rule on <paramref name="aliasIp"/> and the nat DNAT rule to
+    /// <paramref name="targetIp"/>, each in PREROUTING and OUTPUT) - the boot script's own <c>cleanup_marked_rules()</c> deletes
     /// ANY mangle/nat rule matching the mark/mask signature regardless of ip-rule/table usage or
     /// which alias/target it references, so an extra foreign rule sharing our mark/mask (with a
     /// different alias or target IP) must not be missed just because a table reference also
@@ -158,7 +158,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
     /// foreign rule, or one referencing a different alias/target IP than this deploy).</item>
     /// </list>
     /// The "ours" counts match the EXACT canonical whole line <c>iptables-save</c> emits for the
-    /// two rules the boot script creates (<c>grep -xF</c>: fixed-string, full-line - confirmed
+    /// four rules the boot script creates (<c>grep -xF</c>: fixed-string, full-line - confirmed
     /// against real UniFi hardware, including the <c>/32</c> iptables-save always appends to a
     /// host destination). A substring match on just the destination would misclassify a foreign
     /// rule sharing our mark and destination but sitting in a different chain or carrying a
@@ -178,7 +178,9 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
             $"ipt_total=$((mangle + nat)); " +
             $"mangle_ours=$(iptables-save -t mangle 2>/dev/null | grep -cxF -- '-A PREROUTING -d {aliasIp}/32 -j MARK --set-xmark {mark}/{AliasMarkMask}'); " +
             $"nat_ours=$(iptables-save -t nat 2>/dev/null | grep -cxF -- '-A PREROUTING -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {targetIp}'); " +
-            $"ipt_ours=$((mangle_ours + nat_ours)); " +
+            $"mangle_out_ours=$(iptables-save -t mangle 2>/dev/null | grep -cxF -- '-A OUTPUT -d {aliasIp}/32 -j MARK --set-xmark {mark}/{AliasMarkMask}'); " +
+            $"nat_out_ours=$(iptables-save -t nat 2>/dev/null | grep -cxF -- '-A OUTPUT -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {targetIp}'); " +
+            $"ipt_ours=$((mangle_ours + nat_ours + mangle_out_ours + nat_out_ours)); " +
             $"if [ \"$total\" -eq 0 ] && [ \"$ipt_total\" -eq 0 ]; then echo FREE; " +
             $"elif [ \"$total\" -gt 0 ] && [ \"$total\" -ne \"$ours\" ]; then echo FOREIGN; " +
             $"elif [ \"$ipt_total\" -ne \"$ipt_ours\" ]; then echo FOREIGN; " +
@@ -385,7 +387,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
                     $"{checkIp} is reachable, but the gateway itself couldn't be reached over SSH to confirm " +
                     "whether this is already your own deployment. Try again once the gateway is reachable.");
             }
-            if (!status.IsFullyApplied(mi))
+            if (!status.IsOwnDeployment(mi))
             {
                 var message = mi.AliasIp != null
                     ? $"Alias IP {mi.AliasIp} is already reachable from the Network Optimizer server - pick a different, unused alias."
@@ -638,6 +640,8 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
             verifyProbes +=
                 $"iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {vmark}/{AliasMarkMask} 2>/dev/null && echo AMARK; " +
                 $"iptables -w 5 -t nat -C PREROUTING -m mark --mark {vmark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo ADNAT; " +
+                $"iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {vmark}/{AliasMarkMask} 2>/dev/null && echo AMARK; " +
+                $"iptables -w 5 -t nat -C OUTPUT -m mark --mark {vmark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo ADNAT; " +
                 $"ip rule show 2>/dev/null | grep -qF 'fwmark {vmark}/{AliasMarkMask} lookup {vtable}' && echo ARULE; " +
                 $"ip route show table {vtable} 2>/dev/null | grep -q . && echo ATABLE; ";
         }
@@ -781,12 +785,20 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         public bool DnatRulePresent { get; set; }
 
         /// <summary>
-        /// True when every expected component for the given config is in place. For an
-        /// aliased interface this additionally requires the fwmark/policy-route/DNAT
-        /// signature - a stale or foreign route must not be able to satisfy this check,
-        /// since callers (the Gate 2 "is this already ours" carve-out) trust it completely.
+        /// Alias-only: the mark and DNAT rules are present in OUTPUT too, so the gateway's own
+        /// traffic (an agent on it) reaches the alias. Interfaces deployed before these rules
+        /// existed have only the PREROUTING pair until redeployed.
         /// </summary>
-        public bool IsFullyApplied(MonitoringInterface mi)
+        public bool GatewayOriginRulesPresent { get; set; }
+
+        /// <summary>
+        /// True when this interface's own deployment is on the gateway: every component, plus the
+        /// fwmark/policy-route/DNAT signature for an aliased interface - a stale or foreign route
+        /// must not be able to satisfy this check, since the Gate 2 "is this already ours"
+        /// carve-out trusts it completely. Deliberately excludes the OUTPUT pair: a deployment
+        /// that predates it is still ours, and Gate 2 must let it be redeployed to add them.
+        /// </summary>
+        public bool IsOwnDeployment(MonitoringInterface mi)
         {
             var routeOk = mi.AliasIp == null ? RoutePresent : PolicyRoutePresent;
             var baseline = InterfaceExists && LocalIpAssigned && routeOk &&
@@ -797,6 +809,13 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
 
             return baseline && MarkRulePresent && DnatRulePresent;
         }
+
+        /// <summary>
+        /// True when every expected component for the given config is in place, including the
+        /// OUTPUT pair for an aliased interface.
+        /// </summary>
+        public bool IsFullyApplied(MonitoringInterface mi)
+            => IsOwnDeployment(mi) && (mi.AliasIp == null || GatewayOriginRulesPresent);
     }
 
     /// <summary>
@@ -817,7 +836,9 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
                 $"echo '---POLICYROUTE---'; ip route show table {table} {mi.TargetIp}/32 2>/dev/null | grep -q 'dev {mi.Name}' && " +
                 $"ip route show table {table} {mi.TargetIp}/32 2>/dev/null | grep -q 'src {mi.GatewayLocalIp}' && echo y || echo n; " +
                 $"echo '---MARKRULE---'; iptables -w 5 -t mangle -C PREROUTING -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && echo y || echo n; " +
-                $"echo '---DNATRULE---'; iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n; ";
+                $"echo '---DNATRULE---'; iptables -w 5 -t nat -C PREROUTING -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n; " +
+                $"echo '---OUTPUTRULES---'; iptables -w 5 -t mangle -C OUTPUT -d {mi.AliasIp} -j MARK --set-xmark {mark}/{AliasMarkMask} 2>/dev/null && " +
+                $"iptables -w 5 -t nat -C OUTPUT -m mark --mark {mark}/{AliasMarkMask} -j DNAT --to-destination {mi.TargetIp} 2>/dev/null && echo y || echo n; ";
         }
         // An out-of-range id can never have valid alias artifacts on the gateway (see
         // IsAliasableId) - aliasChecks is left empty above so the section keys below simply
@@ -848,6 +869,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         status.PolicyRoutePresent = mi.AliasIp != null && Yes("POLICYROUTE");
         status.MarkRulePresent = mi.AliasIp != null && Yes("MARKRULE");
         status.DnatRulePresent = mi.AliasIp != null && Yes("DNATRULE");
+        status.GatewayOriginRulesPresent = mi.AliasIp != null && Yes("OUTPUTRULES");
         status.WatchdogCronPresent = Yes("CRON");
         status.BootScriptPresent = Yes("SCRIPT");
         return status;
@@ -947,7 +969,8 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
 # the WAN, via a macvlan on the physical WAN port with a gateway-local IP, a host route to
 # the device, and (optionally) a narrow SNAT for LAN clients. When ALIAS_ENABLED, also
 # provides DNAT + fwmark policy routing so a second device sharing the same TARGET_IP on a
-# different WAN can be reached via ALIAS_IP instead - see the ""Duplicate Reachable IP""
+# different WAN can be reached via ALIAS_IP instead, from LAN clients and from the gateway itself
+# (an agent running on it) - see the ""Duplicate Reachable IP""
 # design doc. Self-installs a cron watchdog so it survives reboots and UniFi reprovisioning.
 # Managed by Network Optimizer - manual edits are overwritten on redeploy.
 
@@ -971,7 +994,7 @@ LOG=""/tmp/netopt-moniface-__IFACE__.log""
 
 log() { echo ""$(date '+%Y-%m-%d %H:%M:%S') $1"" >> ""$LOG"" 2>/dev/null; }
 
-# Remove any previous PREROUTING rules (given table) carrying this interface's mark
+# Remove any previous rules (given table, any chain) carrying this interface's mark
 # signature before re-adding, keyed on the mark/mask (not on remembered IP values) so an
 # edited alias/target IP never leaves an orphaned rule behind. Candidates are captured to a
 # temp file first so the loop reads via ""< file"" redirection instead of a pipe: piping into
@@ -1061,7 +1084,7 @@ fi
 # 3. host route to the modem/ONT. Aliased interfaces skip the main-table route entirely
 # (ambiguous when two WANs share TARGET_IP) and instead route via a private per-interface
 # table, selected by an fwmark set on ALIAS_IP before DNAT rewrites it to TARGET_IP. All
-# four alias artifacts - plus the absence of a stale main-table route left by a pre-alias
+# alias artifacts - plus the absence of a stale main-table route left by a pre-alias
 # deployment of this row - are checked together before touching any of them: tearing down
 # and re-adding on every tick (rather than only when something's actually missing or wrong)
 # would defeat the ""only log when changed"" eMMC guard below AND open a window, every
@@ -1074,8 +1097,10 @@ if [ ""$ALIAS_ENABLED"" = ""1"" ]; then
        ! ip route show ""$TARGET_IP/32"" 2>/dev/null | grep -q ""dev $IFACE"" &&
        ip rule show | grep -qF ""fwmark $MARK/$MASK lookup $TABLE"" &&
        iptables -w 5 -t mangle -C PREROUTING -d ""$ALIAS_IP"" -j MARK --set-xmark ""$MARK/$MASK"" 2>/dev/null &&
-       iptables -w 5 -t nat -C PREROUTING -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" 2>/dev/null; then
-        : # all four alias artifacts present and no stale main-table route - nothing to do this tick
+       iptables -w 5 -t nat -C PREROUTING -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" 2>/dev/null &&
+       iptables -w 5 -t mangle -C OUTPUT -d ""$ALIAS_IP"" -j MARK --set-xmark ""$MARK/$MASK"" 2>/dev/null &&
+       iptables -w 5 -t nat -C OUTPUT -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" 2>/dev/null; then
+        : # all alias artifacts present and no stale main-table route - nothing to do this tick
     else
         cleanup_marked_rules mangle
         cleanup_marked_rules nat
@@ -1094,6 +1119,9 @@ if [ ""$ALIAS_ENABLED"" = ""1"" ]; then
         ip rule add fwmark ""$MARK/$MASK"" lookup ""$TABLE"" && changed=1 || fail=1
         iptables -w 5 -t mangle -A PREROUTING -d ""$ALIAS_IP"" -j MARK --set-xmark ""$MARK/$MASK"" && changed=1 || fail=1
         iptables -w 5 -t nat -A PREROUTING -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" && changed=1 || fail=1
+        # The same pair in OUTPUT: the gateway's own traffic (an agent on it) never passes PREROUTING.
+        iptables -w 5 -t mangle -A OUTPUT -d ""$ALIAS_IP"" -j MARK --set-xmark ""$MARK/$MASK"" && changed=1 || fail=1
+        iptables -w 5 -t nat -A OUTPUT -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" && changed=1 || fail=1
     fi
 elif ! ip route show ""$TARGET_IP/32"" 2>/dev/null | grep -q ""dev $IFACE""; then
     ip route replace ""$TARGET_IP/32"" dev ""$IFACE"" src ""$LOCAL_IP"" && changed=1 || fail=1

@@ -68,8 +68,8 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Sagemcom F3896LG {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(DescribeFailure(ex, context.ConfiguredHost ?? context.Host));
+            _logger.LogWarning(ex, "Error polling Sagemcom F3896LG {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(DescribeFailure(ex, context.Host));
         }
     }
 
@@ -89,7 +89,7 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
         }
         catch (Exception ex)
         {
-            return (false, DescribeFailure(ex, context.ConfiguredHost ?? context.Host));
+            return (false, DescribeFailure(ex, context.Host));
         }
     }
 
@@ -100,7 +100,7 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
             ? DefaultBasePath
             : context.StatusPagePath.TrimEnd('/');
 
-        using var client = CreateClient();
+        using var client = CreateClient(context.Dialer);
 
         var downstreamTask = client.GetStringAsync($"{baseUrl}{basePath}/downstream", cancellationToken);
         var upstreamTask = client.GetStringAsync($"{baseUrl}{basePath}/upstream", cancellationToken);
@@ -175,7 +175,7 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = deviceModel,
         };
@@ -278,13 +278,14 @@ public sealed class SagemcomF3896Provider : ICableModemProvider
         };
     }
 
-    private static HttpClient CreateClient()
+    private static HttpClient CreateClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             // The HTTPS side presents a self-signed certificate.
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
 
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };

@@ -163,7 +163,7 @@ public static class InseegoUbusParser
         var stats = new CellularModemStats
         {
             Timestamp = DateTime.UtcNow,
-            ModemHost = context.ConfiguredHost ?? context.Host,
+            ModemHost = context.Host,
             ModemName = context.Name,
             // get_device_model_name carries the marketed name; get_hardware_info can report a
             // sibling SKU (FX4120 on an FX4100).

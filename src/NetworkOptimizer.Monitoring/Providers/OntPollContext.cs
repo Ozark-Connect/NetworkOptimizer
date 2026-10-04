@@ -26,11 +26,14 @@ public sealed record OntPollContext
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Host or IP for the ONT device. On agent-routed sites this is the tunnel-proxy loopback endpoint, not the device's own address.</summary>
+    /// <summary>Host or IP for the ONT device, as configured. <see cref="Dialer"/> decides how it is reached.</summary>
     public required string Host { get; init; }
 
-    /// <summary>The configured device host before any tunnel-proxy rewrite; use for logs so failures name the real device.</summary>
-    public string? ConfiguredHost { get; init; }
+    /// <summary>
+    /// Opens every connection to the device, directly or through the site's agent. HTTP handlers take it as
+    /// their ConnectCallback (<see cref="DeviceHttp.Via"/>), so redirects are reached the same way.
+    /// </summary>
+    public IDeviceDialer Dialer { get; init; } = DirectDeviceDialer.Instance;
 
     /// <summary>Port; 0 means provider default (typically 80 for HTTP, 22 for SSH).</summary>
     public int Port { get; init; }

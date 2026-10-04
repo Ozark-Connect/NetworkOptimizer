@@ -73,7 +73,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
             var stats = await TryPollAsync(context, cancellationToken);
             if (stats == null)
                 return PollResult<CableModemStats>.Failed(
-                    $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+                    $"No stats could be read from {context.Host}.");
 
             _logger.LogDebug(
                 "Vodafone Station {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
@@ -89,8 +89,8 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         catch (Exception ex)
         {
             _sessions.TryRemove(context.CacheKey, out _);
-            _logger.LogWarning(ex, "Error polling Vodafone Station {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            _logger.LogWarning(ex, "Error polling Vodafone Station {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -119,7 +119,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -165,7 +165,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         var password = context.Password ?? "";
 
         var cookies = new CookieContainer();
-        using var client = CreateClient(cookies, baseUrl, csrfNonce: null);
+        using var client = CreateClient(context.Dialer, cookies, baseUrl, csrfNonce: null);
 
         var loginPage = await client.GetStringAsync(baseUrl + "/", cancellationToken);
 
@@ -268,7 +268,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         var session = new TgSession(csrfNonce, cookies, "ARRIS TG3442DE (Vodafone Station)");
 
         // Later requests need the nonce header, so build a fresh client for the remaining setup.
-        using var authedClient = CreateClient(cookies, baseUrl, csrfNonce);
+        using var authedClient = CreateClient(context.Dialer, cookies, baseUrl, csrfNonce);
 
         // Some firmware only marks the session live once this is posted; failure is not fatal.
         try
@@ -304,7 +304,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         var baseUrl = BuildBaseUrl(context);
         var path = string.IsNullOrWhiteSpace(context.StatusPagePath) ? DefaultDocsisPath : context.StatusPagePath;
 
-        using var client = CreateClient(session.Cookies, baseUrl, session.CsrfNonce);
+        using var client = CreateClient(context.Dialer, session.Cookies, baseUrl, session.CsrfNonce);
 
         try
         {
@@ -332,7 +332,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
             return;
 
         var baseUrl = BuildBaseUrl(context);
-        using var client = CreateClient(session.Cookies, baseUrl, session.CsrfNonce);
+        using var client = CreateClient(context.Dialer, session.Cookies, baseUrl, session.CsrfNonce);
 
         try
         {
@@ -399,7 +399,7 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = deviceModel,
         };
@@ -673,14 +673,15 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         return null;
     }
 
-    private static HttpClient CreateClient(CookieContainer cookies, string baseUrl, string? csrfNonce)
+    private static HttpClient CreateClient(IDeviceDialer dialer, CookieContainer cookies, string baseUrl, string? csrfNonce)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = cookies,
             UseCookies = true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
 
         var client = new HttpClient(handler)

@@ -43,7 +43,7 @@ public sealed class RealtekOntProvider : IOntProvider
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
                 _logger.LogWarning("Realtek ONT {Name}: login failed", context.Name);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var ponHtml = await client.GetStringAsync($"{baseUrl}/status_pon.asp", cancellationToken);
@@ -62,8 +62,8 @@ public sealed class RealtekOntProvider : IOntProvider
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -93,7 +93,7 @@ public sealed class RealtekOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -102,7 +102,7 @@ public sealed class RealtekOntProvider : IOntProvider
     /// to the opposite scheme. All HTTPS uses self-signed cert bypass since these are
     /// local network devices.
     /// </summary>
-    private async Task<(string BaseUrl, HttpClient Client, HttpClientHandler Handler)> ResolveBaseUrlAsync(
+    private async Task<(string BaseUrl, HttpClient Client, SocketsHttpHandler Handler)> ResolveBaseUrlAsync(
         OntPollContext context, CancellationToken ct)
     {
         var port = context.Port > 0 ? context.Port : 80;
@@ -110,7 +110,7 @@ public sealed class RealtekOntProvider : IOntProvider
         var fallbackScheme = primaryScheme == "https" ? "http" : "https";
 
         var primaryUrl = BuildBaseUrl(context.Host, port, primaryScheme);
-        var (handler, client) = CreateHttpClient();
+        var (handler, client) = CreateHttpClient(context.Dialer);
 
         try
         {
@@ -134,12 +134,12 @@ public sealed class RealtekOntProvider : IOntProvider
         handler.Dispose();
 
         var fallbackUrl = BuildBaseUrl(context.Host, port, fallbackScheme);
-        var (handler2, client2) = CreateHttpClient();
+        var (handler2, client2) = CreateHttpClient(context.Dialer);
 
         try
         {
             using var probe = await client2.GetAsync(fallbackUrl, ct);
-            _logger.LogInformation("Realtek ONT {Host} reachable via {Scheme}", context.ConfiguredHost ?? context.Host, fallbackScheme.ToUpperInvariant());
+            _logger.LogInformation("Realtek ONT {Host} reachable via {Scheme}", context.Host, fallbackScheme.ToUpperInvariant());
             return (fallbackUrl, client2, handler2);
         }
         catch
@@ -150,13 +150,14 @@ public sealed class RealtekOntProvider : IOntProvider
         }
     }
 
-    private static (HttpClientHandler Handler, HttpClient Client) CreateHttpClient()
+    private static (SocketsHttpHandler Handler, HttpClient Client) CreateHttpClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = new CookieContainer(),
             UseCookies = true,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         return (handler, client);
@@ -220,7 +221,7 @@ public sealed class RealtekOntProvider : IOntProvider
         var stats = new OntStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "Realtek ONT",
         };

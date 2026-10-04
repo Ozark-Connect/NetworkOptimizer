@@ -90,7 +90,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
                 _logger.LogDebug(
                     "Motorola HNAP {Name}: skipping poll until {Until:HH:mm:ss} UTC after login failure",
                     context.Name, backoffUntil);
-                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             _loginBackoffUntil.TryRemove(context.CacheKey, out _);
@@ -98,13 +98,13 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
         try
         {
-            using var client = CreateHttpClient();
+            using var client = CreateHttpClient(context.Dialer);
 
             var sessionInfo = await EnsureSessionAsync(client, context, cancellationToken);
             if (sessionInfo == null)
             {
-                _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.ConfiguredHost ?? context.Host);
-                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.Host);
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var (session, baseUrl) = sessionInfo.Value;
@@ -120,8 +120,8 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             if (response == null)
             {
                 _sessions.TryRemove(context.CacheKey, out _);
-                _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.ConfiguredHost ?? context.Host);
-                return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.Host);
+                return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             var stats = ParseResponse(response, context);
@@ -139,8 +139,8 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         catch (Exception ex)
         {
             _sessions.TryRemove(context.CacheKey, out _);
-            _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -154,7 +154,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
         try
         {
-            using var client = CreateHttpClient();
+            using var client = CreateHttpClient(context.Dialer);
 
             var sessionInfo = await EnsureSessionAsync(client, context, cancellationToken);
             if (sessionInfo == null)
@@ -186,7 +186,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -475,7 +475,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "Motorola",
         };
@@ -647,13 +647,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", string.Join("; ", cookieValues));
     }
 
-    private HttpClient CreateHttpClient()
+    private HttpClient CreateHttpClient(IDeviceDialer dialer)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             // Accept the modem's self-signed cert when the HTTPS fallback is used.
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             UseCookies = false,
             // Don't follow redirects: a modem that only serves its UI over HTTPS will
             // 301 an HTTP request, and following it would land on the HTTPS path .NET

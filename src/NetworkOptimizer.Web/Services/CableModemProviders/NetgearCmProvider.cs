@@ -139,13 +139,13 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 {
                     _logger.LogWarning(
                         "Netgear CM at {Host} returned empty response (attempt {Attempt}/{Max})",
-                        context.ConfiguredHost ?? context.Host, attempt, MaxRetries);
+                        context.Host, attempt, MaxRetries);
                     if (attempt < MaxRetries)
                     {
                         await Task.Delay(RetryDelay, cancellationToken);
                         continue;
                     }
-                    return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                    return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
                 }
 
                 var stats = ParseDocsisStatus(html, context);
@@ -167,15 +167,15 @@ public sealed class NetgearCmProvider : ICableModemProvider
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error polling Netgear CM {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-                return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+                _logger.LogWarning(ex, "Error polling Netgear CM {Name} at {Host}", context.Name, context.Host);
+                return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
             }
         }
 
         // Every retry is spent. The last attempt's own catch returns before this,
         // so reaching here means each one came back empty rather than throwing.
         return PollResult<CableModemStats>.Failed(
-            $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+            $"No stats could be read from {context.Host}.");
     }
 
     /// <inheritdoc/>
@@ -211,7 +211,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -250,8 +250,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
             try
             {
                 var html = formLogin
-                    ? await FetchViaFormLoginAsync(url, context.Username, context.Password, cancellationToken)
-                    : await FetchPageAsync(url, hasCreds ? context.Username : null, hasCreds ? context.Password : null, cancellationToken);
+                    ? await FetchViaFormLoginAsync(url, context.Dialer, context.Username, context.Password, cancellationToken)
+                    : await FetchPageAsync(url, context.Dialer, hasCreds ? context.Username : null, hasCreds ? context.Password : null, cancellationToken);
 
                 // Accept only a real DocsisStatus page. A wrong extension or auth style can still
                 // return HTTP 200 with a login/index page (notably a Basic GET against a
@@ -375,14 +375,16 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// </summary>
     private async Task<string?> FetchViaFormLoginAsync(
         string statusUrl,
+        IDeviceDialer dialer,
         string? username,
         string? password,
         CancellationToken cancellationToken)
     {
         var baseUrl = new Uri(statusUrl).GetLeftPart(UriPartial.Authority);
 
-        using var handler = new HttpClientHandler
+        using var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
             CookieContainer = new System.Net.CookieContainer(),
             UseCookies = true,
@@ -444,25 +446,26 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// though browsers parse the same bytes fine. There is no in-framework switch to relax that
     /// parsing (the old .NET Framework useUnsafeHeaderParsing has no modern HttpClient/
     /// SocketsHttpHandler equivalent - see dotnet/runtime#29927), so on exactly that failure we
-    /// re-fetch over a TcpClient and parse the headers leniently. Modems that return RFC-compliant
+    /// re-fetch over a raw connection from the dialer and parse the headers leniently. Modems that return RFC-compliant
     /// HTTP never throw it, so they never enter the raw path and are completely unaffected.
     /// </summary>
     private async Task<string?> FetchPageAsync(
         string url,
+        IDeviceDialer dialer,
         string? username,
         string? password,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await FetchViaHttpClientAsync(url, username, password, cancellationToken);
+            return await FetchViaHttpClientAsync(url, dialer, username, password, cancellationToken);
         }
         catch (HttpRequestException ex) when (IsMalformedHttpResponse(ex))
         {
             _logger.LogDebug(
                 ex, "Netgear CM {Url}: HttpClient rejected a malformed HTTP response; retrying via lenient raw-socket reader",
                 url);
-            return await FetchViaRawSocketAsync(url, username, password, cancellationToken);
+            return await FetchViaRawSocketAsync(url, dialer, username, password, cancellationToken);
         }
     }
 
@@ -491,6 +494,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
     private async Task<string?> FetchViaHttpClientAsync(
         string url,
+        IDeviceDialer dialer,
         string? username,
         string? password,
         CancellationToken cancellationToken)
@@ -500,8 +504,9 @@ public sealed class NetgearCmProvider : ICableModemProvider
         // redirect, which breaks single-session modems (e.g. CM600) that 302 every page to
         // MultiLogin.asp when another session is active - the redirected request would 401.
         // The cookie jar keeps the session across the takeover (GET -> POST -> re-GET).
-        using var handler = new HttpClientHandler
+        using var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
             CookieContainer = new System.Net.CookieContainer(),
             UseCookies = true,
@@ -628,7 +633,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Fetch the status page over a raw <see cref="System.Net.Sockets.TcpClient"/> with a tolerant
+    /// Fetch the status page over a raw connection from <paramref name="dialer"/> with a tolerant
     /// reader. Used only as a fallback when HttpClient rejects the modem's malformed HTTP (see
     /// <see cref="FetchPageAsync"/>). Replicates the NET-DK two-step HTTP Basic + anti-CSRF cookie
     /// handshake: the first GET primes the XSRF_TOKEN cookie the modem sets on its 401, and the
@@ -640,6 +645,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// </summary>
     internal async Task<string?> FetchViaRawSocketAsync(
         string url,
+        IDeviceDialer dialer,
         string? username,
         string? password,
         CancellationToken cancellationToken)
@@ -660,7 +666,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         try
         {
             // First request primes the XSRF_TOKEN cookie the NET-DK modem sets alongside its 401.
-            var firstRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie: null, ct);
+            var firstRaw = await RawHttpGetAsync(dialer, host, port, pathAndQuery, authHeader, cookie: null, ct);
             var first = ParseRawHttpResponse(firstRaw, firstRaw.Length);
 
             // Pull the cookie straight from the response header bytes so a corrupted Set-Cookie
@@ -677,7 +683,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
             var resp = first;
             if (cookie != null && first.StatusCode != 200)
             {
-                var secondRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie, ct);
+                var secondRaw = await RawHttpGetAsync(dialer, host, port, pathAndQuery, authHeader, cookie, ct);
                 resp = ParseRawHttpResponse(secondRaw, secondRaw.Length);
             }
 
@@ -711,7 +717,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// so the body comes back uncompressed and plain.
     /// </summary>
     private static async Task<byte[]> RawHttpGetAsync(
-        string host, int port, string pathAndQuery, string? authHeader, string? cookie,
+        IDeviceDialer dialer, string host, int port, string pathAndQuery, string? authHeader, string? cookie,
         CancellationToken cancellationToken)
     {
         var request = new StringBuilder();
@@ -725,9 +731,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         request.Append("Connection: close\r\n");
         request.Append("\r\n");
 
-        using var tcp = new System.Net.Sockets.TcpClient();
-        await tcp.ConnectAsync(host, port, cancellationToken);
-        await using var stream = tcp.GetStream();
+        await using var stream = await dialer.DialAsync(host, port, cancellationToken);
 
         var reqBytes = Encoding.ASCII.GetBytes(request.ToString());
         await stream.WriteAsync(reqBytes, cancellationToken);
@@ -838,7 +842,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "Netgear",
         };

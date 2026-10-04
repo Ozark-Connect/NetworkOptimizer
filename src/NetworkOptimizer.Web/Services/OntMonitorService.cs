@@ -215,7 +215,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{config.Provider}'");
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
         return await provider.TestConnectionAsync(context);
     }
 
@@ -287,7 +287,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
             return null;
         }
 
-        var context = await ToContextAsync(config);
+        var context = ToContext(config);
 
         try
         {
@@ -399,7 +399,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         return null;
     }
 
-    private async Task<OntPollContext> ToContextAsync(OntConfiguration config)
+    private OntPollContext ToContext(OntConfiguration config)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(config.Password))
@@ -408,18 +408,14 @@ public class OntMonitorService : IOntMonitorService, IDisposable
             catch { password = config.Password; }
         }
 
-        // HTTP and SSH scrapes alike reach agent sites through the tunnel proxy
-        // (raw TCP by host:port), so remote ONTs need no VPN routing.
-        var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
-
         return new OntPollContext
         {
             Id = config.Id,
             SiteSlug = _siteSlug,
             Name = config.Name,
-            Host = host,
-            ConfiguredHost = config.Host,
-            Port = port,
+            Host = config.Host,
+            Port = config.Port,
+            Dialer = _tunnelRouting.DialerFor(_siteSlug),
             Username = string.IsNullOrEmpty(config.Username) ? null : config.Username,
             Password = password,
             PrivateKeyPath = string.IsNullOrEmpty(config.PrivateKeyPath) ? null : config.PrivateKeyPath,

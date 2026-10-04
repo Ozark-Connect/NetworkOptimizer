@@ -45,7 +45,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         StarlinkPollContext context,
         CancellationToken cancellationToken = default)
     {
-        var host = context.ConfiguredHost ?? context.Host;
+        var host = context.Host;
         try
         {
             using var channel = CreateChannel(context);
@@ -146,7 +146,7 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Starlink {Name} ({Host}): obstruction map fetch failed",
-                context.Name, context.ConfiguredHost ?? context.Host);
+                context.Name, context.Host);
             return null;
         }
     }
@@ -169,18 +169,28 @@ public class StarlinkGrpcProvider : IStarlinkProvider
         }
         catch (RpcException ex)
         {
-            return (false, DescribeGrpcFailure(ex, context.ConfiguredHost ?? context.Host));
+            return (false, DescribeGrpcFailure(ex, context.Host));
         }
         catch (Exception ex)
         {
-            return (false, DescribeGrpcFailure(ex, context.ConfiguredHost ?? context.Host));
+            return (false, DescribeGrpcFailure(ex, context.Host));
         }
     }
 
     private static GrpcChannel CreateChannel(StarlinkPollContext context)
     {
         var port = context.Port > 0 ? context.Port : DefaultPort;
-        return GrpcChannel.ForAddress($"http://{context.Host}:{port}");
+
+        // gRPC's default handler, dialing through the site like every other device client.
+        return GrpcChannel.ForAddress($"http://{context.Host}:{port}", new GrpcChannelOptions
+        {
+            HttpHandler = new SocketsHttpHandler
+            {
+                ConnectCallback = DeviceHttp.Via(context.Dialer),
+                EnableMultipleHttp2Connections = true,
+            },
+            DisposeHttpClient = true,
+        });
     }
 
     private static async Task<Response?> CallAsync(
