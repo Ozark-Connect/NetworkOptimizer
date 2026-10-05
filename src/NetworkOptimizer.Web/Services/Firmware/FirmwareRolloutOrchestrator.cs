@@ -2411,6 +2411,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         FirmwareCommandResult? sshFirst = null;
         if (pinnedPending && !string.IsNullOrWhiteSpace(planned) && !string.IsNullOrWhiteSpace(observation.IpAddress))
         {
+            // The SSH command holds while the device downloads its image, so the step reads
+            // Starting from the moment it is sent rather than once the session ends.
+            step.State = FirmwareRolloutStepState.Commanded;
+            step.CommandedAt = Now;
+            await PersistStepAsync(step, cancellationToken);
+
             sshFirst = await SshUpgradeAsync(step, observation.IpAddress, planned, cancellationToken);
             if (sshFirst.IsOk)
                 _escalatedAt[step.Id] = Now;
