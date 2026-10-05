@@ -492,6 +492,7 @@ public class RolloutConsoleChannelTests
     public async Task APinnedDeviceImage_NeverFallsBackToTheConsolesOwnBuild()
     {
         using var harness = new RolloutHarness();
+        harness.Commands.SshResult = FirmwareCommandResult.Failed("refused");
         harness.Commands.ExternalResult = FirmwareCommandResult.Failed("404");
         var document = Document(Wave(1, PlanStep(ApMac)));
         document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/pinned.bin", Pinned = true });
@@ -500,13 +501,30 @@ public class RolloutConsoleChannelTests
 
         await harness.TickAsync();
 
+        harness.Commands.SshCommands.Should().NotBeEmpty().And.OnlyContain(c => c.Url == "https://example.test/pinned.bin");
         harness.Commands.ExternalCommands.Should().NotBeEmpty()
             .And.OnlyContain(c => c.Item2 == "https://example.test/pinned.bin");
         harness.Commands.UpgradeCommands.Should().BeEmpty("the console's own upgrade installs its newest build");
     }
 
     [Fact]
-    public async Task APinnedDeviceDowngrade_IsCommandedWithItsOwnImage()
+    public async Task APinnedDeviceUpgrade_GoesOverSshFirstWithItsOwnImage()
+    {
+        using var harness = new RolloutHarness();
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/pinned.bin", Pinned = true });
+        await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.SshCommands.Should().ContainSingle().Which.Url.Should().Be("https://example.test/pinned.bin");
+        harness.Commands.ExternalCommands.Should().BeEmpty();
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task APinnedDeviceDowngrade_GoesOverSshFirstWithItsOwnImage()
     {
         using var harness = new RolloutHarness();
         var document = Document(Wave(1, PlanStep(ApMac)));
@@ -516,8 +534,9 @@ public class RolloutConsoleChannelTests
 
         await harness.TickAsync();
 
-        harness.Commands.ExternalCommands.Should().ContainSingle()
-            .Which.Item2.Should().Be("https://example.test/older.bin");
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://example.test/older.bin");
+        harness.Commands.ExternalCommands.Should().BeEmpty("upgrade-external can cycle a device without flashing an older build");
         (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
     }
 
