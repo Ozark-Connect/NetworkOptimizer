@@ -821,8 +821,18 @@ public class IspHealthOptions
     /// GPON line under full load sawtooths roughly 0.8x to 1.4x, so even its troughs clear the loaded
     /// threshold and a run requirement passes easily). Two samples is deliberately low: it is enough
     /// to reject the singleton, without demanding a transfer longer than a scheduled speed test.
+    /// A run near a recorded WAN speed test is exempt - see <see cref="SpeedTestLoadLeadSeconds"/>.
     /// </summary>
     public int MinLoadedRunSamples { get; set; } = 2;
+
+    /// <summary>
+    /// How far before a WAN speed test's stored time its load may start. A loaded run in
+    /// [test - this, test + <see cref="LoadedLatencySpeedTestMatchSeconds"/>] is never demoted as
+    /// isolated: a test phase lasts about ten seconds, so at a 7 s rate aggregate it often fills one
+    /// bucket, and the recorded test is proof the load was real rather than a counter artifact.
+    /// The stamp is taken at the END of the test, so the span reaches back further than forward.
+    /// </summary>
+    public int SpeedTestLoadLeadSeconds { get; set; } = 90;
 
     /// <summary>
     /// Multiple of the configured plan speed above which a WAN throughput sample is treated as a

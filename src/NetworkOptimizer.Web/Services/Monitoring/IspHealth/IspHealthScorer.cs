@@ -74,7 +74,8 @@ public class IspHealthScorer
         {
             _logger?.LogDebug("ISP Health: excluding {Count} SQM probe and learning sample windows", inputs.LoadExclusionWindows.Count);
         }
-        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger);
+        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger,
+            inputs.WanSpeedTests.Select(t => t.Time).ToList());
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);

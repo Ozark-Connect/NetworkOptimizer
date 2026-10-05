@@ -148,6 +148,44 @@ public class LoadClassifierTests
     }
 
     [Fact]
+    public void Lone_loaded_window_during_a_recorded_speed_test_still_counts()
+    {
+        // A speed test phase lasts about ten seconds, so at a 7 s rate aggregate it often fills one
+        // bucket. The recorded test proves the load was real, so the artifact guard stands aside.
+        // The test is stamped at its end, after the phase.
+        var ws = Options.LoadWindowSeconds;
+        var rates = new List<ThroughputSample>
+        {
+            new(TestSeries.Start, 10_000_000, 1_000_000),
+            new(TestSeries.Start.AddSeconds(ws), 900_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 2), 10_000_000, 1_000_000)
+        };
+        var testEnd = TestSeries.Start.AddSeconds(ws + 20);
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options,
+            speedTestTimes: new[] { testEnd });
+
+        windows[windows.Keys.OrderBy(k => k).ToList()[1]].IsLoadedDown.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Lone_loaded_window_far_from_any_speed_test_is_still_demoted()
+    {
+        var ws = Options.LoadWindowSeconds;
+        var rates = new List<ThroughputSample>
+        {
+            new(TestSeries.Start, 10_000_000, 1_000_000),
+            new(TestSeries.Start.AddSeconds(ws), 900_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 2), 10_000_000, 1_000_000)
+        };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options,
+            speedTestTimes: new[] { TestSeries.Start.AddHours(1) });
+
+        windows[windows.Keys.OrderBy(k => k).ToList()[1]].IsLoadedDown.Should().BeFalse();
+    }
+
+    [Fact]
     public void Sustained_load_across_consecutive_samples_still_counts()
     {
         // The other side of the same rule: real saturation holds across samples, so it survives.
