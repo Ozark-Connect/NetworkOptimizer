@@ -111,10 +111,9 @@ public class IspHealthOptions
     public double LoadedLatencySpeedTestMinPlanFraction { get; set; } = 0.7;
 
     /// <summary>
-    /// How far from a load episode a WAN speed test may sit and still be taken as the measurement
-    /// OF that episode. Only wide enough to bridge the stored instant of a test and the span of
-    /// the load it caused - a test runs for tens of seconds, so anything past that is a different
-    /// event and must not speak for this one.
+    /// How far either side of a WAN speed test's stored instant the probes are read to corroborate
+    /// it. Only wide enough to bridge that instant and the span of the load the test caused - a
+    /// test runs for tens of seconds, so probes past that measured a different event.
     /// </summary>
     public double LoadedLatencySpeedTestMatchSeconds { get; set; } = 30;
 
