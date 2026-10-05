@@ -110,7 +110,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// How long the site has to be out of sight before the rollout says so. A device reboot takes
     /// the console with it for a minute or two, which is the run working rather than stalling.
     /// </summary>
-    public static readonly TimeSpan VisibilityLostAfter = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan VisibilityLostAfter = TimeSpan.FromMinutes(8);
 
     /// <summary>How long a firmware catalog read is reused before the console is asked again.</summary>
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
@@ -2771,7 +2771,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.VisibilityLost,
                 AlertSeverity.Warning,
                 $"Firmware Rollout Cannot See The Site{_siteSuffix}",
-                $"Nothing has answered for {spell.TotalMinutes:0} minutes, so the rollout is holding where it is. Time we cannot watch is not counted against any device.",
+                $"Network Optimizer hasn't been able to reach this site's UniFi Console for {spell.TotalMinutes:0} minutes. The rollout is paused until it comes back online.",
                 null, null, cancellationToken);
             return;
         }
