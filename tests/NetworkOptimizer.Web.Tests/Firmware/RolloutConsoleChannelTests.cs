@@ -505,6 +505,45 @@ public class RolloutConsoleChannelTests
         harness.Commands.UpgradeCommands.Should().BeEmpty("the console's own upgrade installs its newest build");
     }
 
+    [Fact]
+    public async Task APinnedDeviceDowngrade_IsCommandedWithItsOwnImage()
+    {
+        using var harness = new RolloutHarness();
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = FromVersion, Url = "https://example.test/older.bin", Pinned = true });
+        var plan = await harness.SeedRunningPlanAsync(document, DowngradeStep());
+        harness.Observer.Set(ApMac, Online, ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.ExternalCommands.Should().ContainSingle()
+            .Which.Item2.Should().Be("https://example.test/older.bin");
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task AnUnpinnedOlderTarget_IsStillRefused()
+    {
+        using var harness = new RolloutHarness();
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        await harness.SeedRunningPlanAsync(document, DowngradeStep());
+        harness.Observer.Set(ApMac, Online, ToVersion);
+
+        await harness.TickAsync();
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        harness.Commands.ExternalCommands.Should().BeEmpty();
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+    }
+
+    /// <summary>A step from <see cref="ToVersion"/> back to <see cref="FromVersion"/>.</summary>
+    private static FirmwareRolloutStep DowngradeStep()
+    {
+        var step = Step(ApMac, to: FromVersion);
+        step.FromVersion = ToVersion;
+        return step;
+    }
+
     // --- The per-model channel a hand-added device build raised ----------------------------------
 
     private static readonly RolloutBuildPin DevicePin =

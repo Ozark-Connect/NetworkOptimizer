@@ -99,7 +99,7 @@ public static class RolloutPlanComposer
         // Last word on every path, the read-only preview included. It used to run only inside the
         // channel staging above, so the drift check (which previews without staging) kept the
         // console's offer of an older build and Re-plan opened the wizard on a downgrade.
-        DropDowngrades(context);
+        DropDowngrades(context, images);
 
         return new RolloutPlanInputs(
             context,
@@ -113,8 +113,8 @@ public static class RolloutPlanComposer
 
     /// <summary>
     /// Puts a build chosen by hand in place of whatever newer one the console or the shared catalog
-    /// offers. A pin no newer than what runs takes that surface out of the plan rather than letting
-    /// the newest build through. UniFi OS and the Network application need gateway SSH, because
+    /// offers. A device pin older than what runs is a downgrade; a UniFi OS or Network pin no newer
+    /// than what runs takes that surface out of the plan rather than letting the newest build through. UniFi OS and the Network application need gateway SSH, because
     /// the console's own install command only takes its newest build; a cellular modem keeps its
     /// offer, because it can only install the console-cached build.
     /// </summary>
@@ -138,8 +138,9 @@ public static class RolloutPlanComposer
                     if (FirmwareTimingEstimator.Classify(device) == FirmwareDeviceClass.CellularModem) continue;
 
                     images.RemoveAll(i => string.Equals(i.Mac, device.Mac, StringComparison.OrdinalIgnoreCase));
-                    if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pin.Version, device.FromVersion)
-                        || string.IsNullOrWhiteSpace(device.FromVersion))
+                    // Older than what runs is a deliberate downgrade: the link was chosen by hand.
+                    if (string.IsNullOrWhiteSpace(device.FromVersion)
+                        || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pin.Version, device.FromVersion))
                     {
                         device.ToVersion = null;
                         device.Upgradable = false;
@@ -365,20 +366,28 @@ public static class RolloutPlanComposer
     /// Early Access console offered 6.5.87 to a bridge on 6.5.89 and 7.4.1 to a switch on 7.5.9.
     /// Applied to every device, not only ones whose channel was switched - the devices already on
     /// the console's channel are exactly the ones a plan is most likely to contain.
+    /// A build pasted by URL is the one deliberate downgrade, so its pinned image is spared.
     /// TODO: a deliberate fleet-wide downgrade is a separate, opt-in mode. The per-device rollback
     /// already exists; this would be the broad version of it.
     /// </summary>
-    private static void DropDowngrades(RolloutPlanningContext context)
+    private static void DropDowngrades(RolloutPlanningContext context, IReadOnlyList<PlanTargetImage> images)
     {
         foreach (var device in context.Devices.Where(d => d.Upgradable))
         {
-            if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion))
+            if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(device.ToVersion, device.FromVersion)
+                || IsPinnedTarget(images, device.Mac, device.ToVersion))
                 continue;
 
             device.ToVersion = null;
             device.Upgradable = false;
         }
     }
+
+    /// <summary>Whether a device's target is a build chosen by hand, which may be older than what runs.</summary>
+    internal static bool IsPinnedTarget(IEnumerable<PlanTargetImage> images, string? mac, string? version) =>
+        images.Any(i => i.Pinned
+            && string.Equals(i.Mac, mac, StringComparison.OrdinalIgnoreCase)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(i.Version, version));
 
     /// <summary>How long a channel change is given to appear in the catalog.</summary>
     private static readonly TimeSpan CatalogReflectWait = TimeSpan.FromSeconds(12);
