@@ -165,8 +165,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         ISqmDeploymentService sqmDeployment,
-        Licensing.LicenseStateService licenseState)
+        Licensing.LicenseStateService licenseState,
+        Firmware.RolloutSuppressionRegistry suppression)
     {
+        _suppression = suppression;
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _siteDbFactory = siteDbFactory;
@@ -176,6 +178,20 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     }
 
     private readonly Licensing.LicenseStateService _licenseState;
+    private readonly Firmware.RolloutSuppressionRegistry _suppression;
+
+    /// <summary>
+    /// Mutes the site's standard alerts while a step stops UniFi Network, the way Firmware Rollout
+    /// mutes a Network app update. Refreshed every minute until disposed, then left to lapse on its
+    /// own: devices re-inform a minute or two after Network is back.
+    /// </summary>
+    private IDisposable NetworkRestartWindow()
+    {
+        var slug = _siteContext.Slug;
+        _suppression.RefreshConsoleCycle(slug, DateTime.UtcNow);
+        return new System.Threading.Timer(_ => _suppression.RefreshConsoleCycle(slug, DateTime.UtcNow),
+            null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
 
     /// <summary>
     /// Context for the current site's database. Performance Tweaks deployment state
@@ -715,6 +731,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 }
             }
 
+            using var networkRestart = tweakId == "mongodb-ssd" ? NetworkRestartWindow() : null;
             Report($"Running {scriptName}...");
             var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(5));
             if (!runResult.success)
@@ -777,6 +794,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 ? "Could not list the databases in the PostgreSQL cluster. Nothing was changed."
                 : "Shared PostgreSQL cluster: not supported. Nothing was changed.", steps);
 
+        using var networkRestart = NetworkRestartWindow();
         if (status.MongoArtifactsPresent)
         {
             Report("Retiring the MongoDB SSD tweak. UniFi Network stops for about 1 to 2 minutes...");
@@ -943,6 +961,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             {
                 // The decommission script in Remove mode: it aborts while mongod runs or the umount
                 // fails, stages the newest copy before the swap, and keeps the SSD copy and backups.
+                using var networkRestart = NetworkRestartWindow();
                 var decom = await RunDecommissionAsync("--remove");
                 if (!decom.Ok)
                     return (false, $"Remove failed{(decom.Step is { } failedStep ? $" at step {failedStep}" : "")}: {decom.Reason}");
@@ -955,6 +974,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             {
                 if (!await WriteGatewayScriptAsync(PerfTweaksDir, PgRevertScript, PgRevertScriptContent.Replace("\r\n", "\n")))
                     return (false, "Could not write the revert script to the gateway.");
+                using var networkRestart = NetworkRestartWindow();
                 var revert = await RunCommandAsync($"{PerfTweaksDir}/{PgRevertScript} 2>&1", TimeSpan.FromMinutes(10));
                 if (!revert.success || !revert.output.Contains("removed"))
                     return (false, $"Remove failed. If it stopped UniFi Network first, the Network app stays stopped for investigation.\n{Tail(revert.output)}");
