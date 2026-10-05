@@ -524,6 +524,24 @@ public class RolloutConsoleChannelTests
     }
 
     [Fact]
+    public async Task ADroppedSshSessionOnADeviceNowUpgrading_CountsAsAccepted()
+    {
+        // The device closes the session itself once it starts to flash.
+        using var harness = new RolloutHarness();
+        harness.Commands.SshResult = FirmwareCommandResult.Failed("Connection failed: An established connection was aborted by the server.");
+        harness.Commands.DuringSshUpgrade = () => harness.Observer.Set(ApMac, (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Upgrading, FromVersion);
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/pinned.bin", Pinned = true });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.ExternalCommands.Should().BeEmpty("the SSH command already took");
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
     public async Task APinnedDeviceDowngrade_GoesOverSshFirstWithItsOwnImage()
     {
         using var harness = new RolloutHarness();
