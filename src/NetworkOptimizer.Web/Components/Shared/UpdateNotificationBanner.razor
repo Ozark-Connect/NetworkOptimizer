@@ -15,7 +15,7 @@
                 <strong>Module updates available</strong>
                 <span>@Message</span>
             </div>
-            @if (Updates.PerfTweaksUpdateAvailable)
+            @if (Updates.PerfTweaksUpdateAvailable || Updates.PerfTweaksReplacementAvailable)
             {
                 <a href="/perf-tweaks" class="btn">Performance Tweaks</a>
             }
@@ -32,6 +32,10 @@
     {
         get
         {
+            // Wins over a plain Performance Tweaks update: deploying the new tweak also retires the
+            // outdated MongoDB scripts.
+            if (Updates.PerfTweaksReplacementAvailable)
+                return "UniFi Network now uses PostgreSQL. A new Performance Tweak moves it to the SSD and replaces the MongoDB SSD offload.";
             if (Updates.PerfTweaksUpdateAvailable && Updates.WanSteerUpdateAvailable)
                 return "Performance Tweaks and WAN Steering have updates ready - redeploy to pick up the latest.";
             if (Updates.PerfTweaksUpdateAvailable)
