@@ -14,7 +14,8 @@ public static class LoadClassifier
         double? expectedUploadMbps,
         IspHealthOptions options,
         IReadOnlyList<(DateTime Start, DateTime End)>? exclusionWindows = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IReadOnlyList<DateTime>? speedTestTimes = null)
     {
         var result = new Dictionary<DateTime, LoadWindow>();
         if (rates.Count == 0) return result;
@@ -81,7 +82,7 @@ public static class LoadClassifier
         // well above plan, so persistence is the discriminator. Runs are counted over samples in time
         // order rather than adjacent window keys: the rate series is coarser than the window size, so
         // consecutive samples are never in adjacent keys.
-        DemoteIsolated(result, options);
+        DemoteIsolated(result, options, speedTestTimes);
         if (excluded > 0)
             logger?.LogDebug(
                 "ISP Health: excluded {Count} window(s) overlapping SQM probe and learning sample windows, {Loaded} of which would have classified as loaded",
@@ -112,10 +113,17 @@ public static class LoadClassifier
     /// <see cref="IspHealthOptions.MinLoadedRunSamples"/>. Each direction is judged on its own - a
     /// download transfer and an upload one rarely coincide - and a gap longer than a couple of sample
     /// intervals breaks a run, so load either side of a monitoring outage is not stitched into one.
+    /// A run during a recorded WAN speed test is kept: the test proves the load was real.
     /// </summary>
-    private static void DemoteIsolated(Dictionary<DateTime, LoadWindow> windows, IspHealthOptions options)
+    private static void DemoteIsolated(
+        Dictionary<DateTime, LoadWindow> windows, IspHealthOptions options, IReadOnlyList<DateTime>? speedTestTimes)
     {
         if (options.MinLoadedRunSamples <= 1 || windows.Count == 0) return;
+
+        var lead = TimeSpan.FromSeconds(Math.Max(0, options.SpeedTestLoadLeadSeconds));
+        var trail = TimeSpan.FromSeconds(Math.Max(0, options.LoadedLatencySpeedTestMatchSeconds));
+        bool DuringSpeedTest(DateTime key) =>
+            speedTestTimes?.Any(t => key >= t - lead && key <= t + trail) == true;
 
         // Sorted once and reused for both directions: at a long window this list runs to six figures,
         // and sorting it twice was pure waste.
@@ -149,7 +157,7 @@ public static class LoadClassifier
                 // the sampling gap, and is not loaded. A run at the edge of the series, or one whose
                 // neighbors are missing, goes unjudged - absence of evidence is not evidence of a
                 // spike, and treating it as one would discard the only sample a short window has.
-                if (end - start < options.MinLoadedRunSamples)
+                if (end - start < options.MinLoadedRunSamples && !DuringSpeedTest(ordered[start]))
                 {
                     var quietBefore = start > 0
                         && ordered[start] - ordered[start - 1] <= maxGap
