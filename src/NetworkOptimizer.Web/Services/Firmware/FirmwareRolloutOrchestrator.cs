@@ -606,8 +606,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The step settled after its upgrade, so the agent's supervisor has likely redeployed by now.
         await HoldApAgentAsync(step, cancellationToken);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            step.DeviceMac, observation?.IpAddress ?? string.Empty, prior.Url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation?.IpAddress ?? string.Empty, prior.Url, cancellationToken);
         if (!result.IsOk)
             result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, prior.Url, cancellationToken);
 
@@ -1746,8 +1745,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "{Device} on site {Site} did not act on its upgrade command; retrying over SSH",
             step.DeviceName, _siteSlug);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -1794,8 +1792,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // A second flash is still a flash, so the AP Agent hold applies to the retry too.
         await HoldApAgentAsync(step, cancellationToken);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -2414,8 +2411,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         FirmwareCommandResult? sshFirst = null;
         if (pinnedPending && !string.IsNullOrWhiteSpace(planned) && !string.IsNullOrWhiteSpace(observation.IpAddress))
         {
-            sshFirst = await _commands.TriggerSshUpgradeAsync(
-                step.DeviceMac, observation.IpAddress, planned, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+            sshFirst = await SshUpgradeAsync(step, observation.IpAddress, planned, cancellationToken);
             if (sshFirst.IsOk)
                 _escalatedAt[step.Id] = Now;
             else
@@ -2443,8 +2439,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             if (!result.IsOk && url != null && !string.IsNullOrWhiteSpace(observation.IpAddress))
             {
-                result = await _commands.TriggerSshUpgradeAsync(
-                    step.DeviceMac, observation.IpAddress, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+                result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
                 if (result.IsOk)
                     _escalatedAt[step.Id] = Now;
             }
@@ -3104,6 +3099,29 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     // --- Helpers -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Runs the SSH upgrade, reading a dropped session as accepted when UniFi already reports the
+    /// device Upgrading: an AP or switch closes the session itself once it starts to flash.
+    /// </summary>
+    private async Task<FirmwareCommandResult> SshUpgradeAsync(
+        FirmwareRolloutStep step, string host, string url, CancellationToken cancellationToken)
+    {
+        var result = await _commands.TriggerSshUpgradeAsync(
+            step.DeviceMac, host, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        if (result.IsOk || string.IsNullOrWhiteSpace(host))
+            return result;
+
+        var seen = (await _observer.ObserveAsync(cancellationToken))
+            .FirstOrDefault(o => string.Equals(o.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+        if (seen?.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Upgrading)
+            return result;
+
+        _logger.LogInformation(
+            "The SSH session to {Device} on site {Site} ended ({Message}), but UniFi reports it Upgrading; the command took",
+            step.DeviceName, _siteSlug, result.Message);
+        return FirmwareCommandResult.Ok(result.Message);
+    }
 
     /// <summary>
     /// The image an SSH retry installs. A build chosen by hand retries with its own link: the

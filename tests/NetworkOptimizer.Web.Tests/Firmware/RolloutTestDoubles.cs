@@ -134,11 +134,15 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(ExternalResult);
     }
 
+    /// <summary>Runs while an SSH device upgrade is in flight, e.g. to show the device Upgrading.</summary>
+    public Action? DuringSshUpgrade { get; set; }
+
     public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
         string deviceMac, string host, string firmwareUrl, NetworkOptimizer.Core.Enums.DeviceType role, bool isGateway,
         CancellationToken cancellationToken = default)
     {
         SshCommands.Add((host, firmwareUrl, isGateway));
+        DuringSshUpgrade?.Invoke();
         return Task.FromResult(SshResult);
     }
 
