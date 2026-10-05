@@ -620,7 +620,11 @@ internal sealed class RolloutHarness : IDisposable
         NullLogger<FirmwareRolloutOrchestrator>.Instance,
         rebootWitness: Reboots,
         observerLocator: Locator,
-        audit: AuditLog);
+        audit: AuditLog)
+    {
+        // The settle wait runs on the wall clock; tests decide the device state up front.
+        SshDropSettleWindow = TimeSpan.Zero,
+    };
 
     public NetworkOptimizerDbContext NewContext()
     {

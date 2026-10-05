@@ -3100,9 +3100,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     // --- Helpers -------------------------------------------------------------------------------
 
+    /// <summary>How long a failed SSH upgrade waits for UniFi to show the device flashing.</summary>
+    internal TimeSpan SshDropSettleWindow { get; set; } = TimeSpan.FromSeconds(45);
+
     /// <summary>
-    /// Runs the SSH upgrade, reading a dropped session as accepted when UniFi already reports the
-    /// device Upgrading: an AP or switch closes the session itself once it starts to flash.
+    /// Runs the SSH upgrade, reading a dropped session as accepted when UniFi then reports the
+    /// device Upgrading or offline: an AP or switch closes the session itself once it starts to
+    /// flash, and UniFi can take some seconds to say so.
     /// </summary>
     private async Task<FirmwareCommandResult> SshUpgradeAsync(
         FirmwareRolloutStep step, string host, string url, CancellationToken cancellationToken)
@@ -3112,15 +3116,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (result.IsOk || string.IsNullOrWhiteSpace(host))
             return result;
 
-        var seen = (await _observer.ObserveAsync(cancellationToken))
-            .FirstOrDefault(o => string.Equals(o.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
-        if (seen?.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Upgrading)
-            return result;
+        // Wall-clock: this waits on UniFi inside one tick, not across ticks.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var seen = (await _observer.ObserveAsync(cancellationToken))
+                .FirstOrDefault(o => string.Equals(o.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+            if (seen != null && (seen.State == (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Upgrading
+                || UniFiDeviceStateMap.ToStatus(seen.State).Kind == DeviceStatusKind.Offline))
+            {
+                _logger.LogInformation(
+                    "The SSH session to {Device} on site {Site} ended ({Message}), but UniFi reports it {State}; the command took",
+                    step.DeviceName, _siteSlug, result.Message, UniFiDeviceStateMap.ToStatus(seen.State).Label);
+                return FirmwareCommandResult.Ok(result.Message);
+            }
 
-        _logger.LogInformation(
-            "The SSH session to {Device} on site {Site} ended ({Message}), but UniFi reports it Upgrading; the command took",
-            step.DeviceName, _siteSlug, result.Message);
-        return FirmwareCommandResult.Ok(result.Message);
+            if (waited.Elapsed >= SshDropSettleWindow)
+                return result;
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
     }
 
     /// <summary>
