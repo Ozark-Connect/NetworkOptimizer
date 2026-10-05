@@ -135,7 +135,7 @@ else if (_active != null && !_wizardOpen)
                                 <td>@step.DisplayModel</td>
                                 <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
                                 <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
-                                <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State, step.FromVersion, step.ToVersion)</span></td>
                                 <td class="hide-mobile">@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
                                 <td>
                                     <SiteAdminOnly>
@@ -704,7 +704,7 @@ else
                                     <td class="hide-mobile">@(FirmwareVersionFormat.ShortOrNull(step.FromVersion) ?? "-")</td>
                                     <td>@(FirmwareVersionFormat.ShortOrNull(step.ToVersion) ?? "-")</td>
                                     <td>@(step.DowntimeSeconds is int d ? Duration(d) : "-")</td>
-                                    <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State)</span></td>
+                                    <td><span class="firmware-rollout-chip @ChipClass(step.State)">@ChipLabel(step.State, step.FromVersion, step.ToVersion)</span></td>
                                 </tr>
                             }
                         </tbody>
@@ -2017,15 +2017,19 @@ else
         return h > 0 ? $"{h}h {m}m" : $"{m}m";
     }
 
-    private static string ChipLabel(FirmwareRolloutStepState state) => state switch
+    // A step whose target is older than where it started is a downgrade (a pasted build, a rollback).
+    private static string ChipLabel(FirmwareRolloutStepState state, string? fromVersion, string? toVersion) =>
+        ChipLabel(state, FirmwareVersionFormat.IsNewer(fromVersion, toVersion) && !string.IsNullOrWhiteSpace(fromVersion));
+
+    private static string ChipLabel(FirmwareRolloutStepState state, bool downgrade) => state switch
     {
         FirmwareRolloutStepState.Pending => "Queued",
         FirmwareRolloutStepState.Held => "Held for canary",
         FirmwareRolloutStepState.Commanded => "Starting",
-        FirmwareRolloutStepState.Down => "Upgrading",
+        FirmwareRolloutStepState.Down => downgrade ? "Downgrading" : "Upgrading",
         FirmwareRolloutStepState.BackOnline => "Back online",
         FirmwareRolloutStepState.CoolDown => "Cooling down",
-        FirmwareRolloutStepState.LitmusPassed => "Upgraded",
+        FirmwareRolloutStepState.LitmusPassed => downgrade ? "Downgraded" : "Upgraded",
         FirmwareRolloutStepState.RegressionFlagged => "Check resources",
         FirmwareRolloutStepState.Failed => "Failed",
         FirmwareRolloutStepState.SkippedExcluded => "Excluded",
