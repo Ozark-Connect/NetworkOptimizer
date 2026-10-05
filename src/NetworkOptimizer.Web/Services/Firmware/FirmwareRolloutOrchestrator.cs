@@ -2439,11 +2439,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!result.IsOk)
         {
-            var url = planned ?? await ResolveImageUrlAsync(step.Model, cancellationToken);
+            var url = planned ?? await StepImageUrlAsync(document, step, cancellationToken);
             if (url != null)
                 result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, url, cancellationToken);
 
-            if (!result.IsOk && url != null && !string.IsNullOrWhiteSpace(observation.IpAddress))
+            // A pasted build already tried SSH with this link first; a second try only adds a timeout.
+            if (!result.IsOk && url != null && sshFirst == null && !string.IsNullOrWhiteSpace(observation.IpAddress))
             {
                 result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
                 if (result.IsOk)
@@ -3144,21 +3145,26 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
-    /// The image an SSH retry installs. A build chosen by hand retries with its own link: the
-    /// Console's catalog carries its newest build, which would replace the pinned one.
+    /// The image a retry installs: only ever the step's own target. The plan's captured image comes
+    /// first (a pasted build, or a shared build newer than the Console offers), then the Console's
+    /// catalog entry, used only when it names that same version - the catalog lists one build per
+    /// model, which can be older than the target. Null when neither matches.
     /// </summary>
-    private Task<string?> StepImageUrlAsync(
+    private async Task<string?> StepImageUrlAsync(
         RolloutPlanDocument document, FirmwareRolloutStep step, CancellationToken cancellationToken)
     {
-        var pinned = document.TargetImages.FirstOrDefault(i => i.Pinned
-            && string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase)
+        var image = document.TargetImages.FirstOrDefault(i =>
+            string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(i.Url)
             && VersionsMatch(i.Version, step.ToVersion));
-        return !string.IsNullOrWhiteSpace(pinned?.Url)
-            ? Task.FromResult<string?>(pinned.Url)
-            : ResolveImageUrlAsync(step.Model, cancellationToken);
+        if (image != null)
+            return image.Url;
+
+        var entry = await ResolveCatalogEntryAsync(step.Model, cancellationToken);
+        return entry != null && VersionsMatch(entry.Version, step.ToVersion) ? entry.Url : null;
     }
 
-    private async Task<string?> ResolveImageUrlAsync(string model, CancellationToken cancellationToken)
+    private async Task<UniFiFirmwareCatalogEntry?> ResolveCatalogEntryAsync(string model, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(model)) return null;
 
@@ -3166,7 +3172,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var entry = _catalog.FirstOrDefault(e =>
             string.Equals(e.BaseModel, model, StringComparison.OrdinalIgnoreCase)
             || string.Equals(e.Device, model, StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(entry?.Url) ? null : entry.Url;
+        return string.IsNullOrWhiteSpace(entry?.Url) ? null : entry;
     }
 
     private async Task RefreshCatalogAsync(bool force, CancellationToken cancellationToken)
