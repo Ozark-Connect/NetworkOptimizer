@@ -21430,6 +21430,12 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0.5rem;
 }
 
+@media (min-width: 769px) {
+    .firmware-rollout-add-url .action-buttons {
+        justify-content: flex-end;
+    }
+}
+
 .firmware-rollout-muted {
     color: var(--text-muted);
     font-size: 0.8rem;
