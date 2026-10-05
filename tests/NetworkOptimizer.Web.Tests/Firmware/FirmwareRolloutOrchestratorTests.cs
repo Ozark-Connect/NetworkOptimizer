@@ -247,6 +247,59 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task FullCycleOnTheWrongVersion_NeverRetriesWithAnOlderCatalogBuild()
+    {
+        // The Console's catalog lists one build per model, and here it is older than the target:
+        // flashing it would put the device on a build nobody planned.
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = "6.6.50.1000",
+            Url = "https://fw-download.example.net/u6pro-older.bin",
+        });
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().BeEmpty();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+    }
+
+    [Fact]
+    public async Task FullCycleOnTheWrongVersion_RetriesWithThePlansCapturedImage()
+    {
+        // A shared build newer than the Console offers: the plan's image is the target, the catalog's is not.
+        using var harness = new RolloutHarness();
+        harness.Commands.Catalog.Add(new UniFiFirmwareCatalogEntry
+        {
+            BaseModel = "U6PRO",
+            Version = "6.6.50.1000",
+            Url = "https://fw-download.example.net/u6pro-older.bin",
+        });
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/shared.bin" });
+        await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        harness.Commands.SshCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://example.test/shared.bin");
+    }
+
+    [Fact]
     public async Task SecondCycleStillOnTheWrongVersion_FailsAndDropsTheModel()
     {
         using var harness = new RolloutHarness();

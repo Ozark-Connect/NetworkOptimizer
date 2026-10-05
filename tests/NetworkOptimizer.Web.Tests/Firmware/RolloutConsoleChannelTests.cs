@@ -501,7 +501,8 @@ public class RolloutConsoleChannelTests
 
         await harness.TickAsync();
 
-        harness.Commands.SshCommands.Should().NotBeEmpty().And.OnlyContain(c => c.Url == "https://example.test/pinned.bin");
+        harness.Commands.SshCommands.Should().ContainSingle("SSH already had its try with this link")
+            .Which.Url.Should().Be("https://example.test/pinned.bin");
         harness.Commands.ExternalCommands.Should().NotBeEmpty()
             .And.OnlyContain(c => c.Item2 == "https://example.test/pinned.bin");
         harness.Commands.UpgradeCommands.Should().BeEmpty("the console's own upgrade installs its newest build");
