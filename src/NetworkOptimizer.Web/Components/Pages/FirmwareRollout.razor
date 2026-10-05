@@ -1491,10 +1491,16 @@ else
 
     private FirmwareRolloutSettings WorkingSettings()
     {
-        var s = _settings!;
+        // A copy: the landing card reads _settings.Mode as the saved state, so the wizard's radio
+        // must never write into it. AutopilotSettingsJson is [JsonIgnore], so it is carried by hand.
+        var s = System.Text.Json.JsonSerializer.Deserialize<FirmwareRolloutSettings>(
+            System.Text.Json.JsonSerializer.Serialize(_settings!))!;
+        s.Id = _settings!.Id;
+        s.AutopilotSettingsJson = _settings.AutopilotSettingsJson;
         // The preview answers for what the wizard currently shows, not for what is saved: the mode
         // is only written on commit, and every save path sets it again before it writes.
-        s.Mode = _scheduleMode == "autopilot" ? FirmwareRolloutMode.Autopilot : FirmwareRolloutMode.ManualOnly;
+        if (_wizardOpen)
+            s.Mode = _scheduleMode == "autopilot" ? FirmwareRolloutMode.Autopilot : FirmwareRolloutMode.ManualOnly;
         s.ExclusionsJson = System.Text.Json.JsonSerializer.Serialize(new
         {
             macs = _exMacs.ToList(),
