@@ -1465,7 +1465,9 @@ else
         _exTypes.Clear(); foreach (var t in ex.DeviceTypes) _exTypes.Add(t);
         _typeChannels = ParseMap(_settings?.PerDeviceTypeChannelsJson);
         _skuChannels = ParseMap(_settings?.PerSkuChannelsJson);
-        _scheduleMode = _settings?.Mode == FirmwareRolloutMode.Autopilot ? "autopilot" : "once";
+        // With Autopilot already on, its settings are edited on the landing card, so opening the
+        // wizard means a one-off rollout: default to running it now.
+        _scheduleMode = _settings?.Mode == FirmwareRolloutMode.Autopilot ? "now" : "once";
         _savedConfig = ConfigSignature();
     }
 
