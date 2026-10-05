@@ -12,7 +12,7 @@ public class PerfTweaksDeploymentServiceTests
 {
     // CheckAllStatusAsync only depends on IGatewaySshService.
     private static PerfTweaksDeploymentService BuildService(Mock<IGatewaySshService> ssh)
-        => new(Mock.Of<ILogger<PerfTweaksDeploymentService>>(), ssh.Object, null!, null!, null!, null!);
+        => new(Mock.Of<ILogger<PerfTweaksDeploymentService>>(), ssh.Object, null!, null!, null!, null!, new NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry());
 
     private static readonly Regex GatedDevmem = new(
         @"if \[ -f /data/on_boot\.d/[\w.-]*sgmiiplus[\w.-]*\.sh \] \|\| lsmod \| grep -q force_uniphy\d_sgmiiplus; then busybox devmem ",

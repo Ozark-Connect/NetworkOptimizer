@@ -22,6 +22,7 @@ public class PerfTweaksDatabaseDeployTests : IDisposable
     private readonly SiteDbContextFactory _factory;
     private readonly SiteContextService _siteContext;
     private readonly List<string> _commands = new();
+    private readonly NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry _suppression = new();
 
     public PerfTweaksDatabaseDeployTests()
     {
@@ -103,7 +104,7 @@ public class PerfTweaksDatabaseDeployTests : IDisposable
             Mock.Of<IDbContextFactory<NetworkOptimizerDbContext>>(), TimeProvider.System,
             NullLogger<LicenseStateService>.Instance);
         return new PerfTweaksDeploymentService(
-            NullLogger<PerfTweaksDeploymentService>.Instance, ssh.Object, _factory, _siteContext, null!, license);
+            NullLogger<PerfTweaksDeploymentService>.Instance, ssh.Object, _factory, _siteContext, null!, license, _suppression);
     }
 
     private async Task<List<PerfTweakSetting>> SettingsAsync()
@@ -134,6 +135,35 @@ public class PerfTweaksDatabaseDeployTests : IDisposable
         // The status probe names 08 too, so look for the write and the run specifically.
         _commands.Should().NotContain(c => c.Contains("> /data/on_boot.d/08-") || c.StartsWith("/data/on_boot.d/08-"));
         (await SettingsAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Deploy_MutesSiteAlertsWhileNetworkIsStopped()
+    {
+        var service = Build(c =>
+            c.Contains("---UDM_BOOT_CHECK---") ? (true, PostgresProbe)
+            : c.Contains("mongodb-ssd-decommission.sh --decommission")
+                ? (_suppression.IsSiteActiveRollout(_siteContext.Slug, DateTime.UtcNow)
+                    ? (false, "RESULT=error mode=decommission step=3 reason=\"stop\"")
+                    : (false, "alerts were not muted"))
+            : (true, "deployed"));
+
+        var (_, message, _) = await service.DeployTweakAsync("postgresql-ssd");
+
+        message.Should().Contain("step 3");
+    }
+
+    [Fact]
+    public async Task Deploy_RefusedBeforeAnyStop_DoesNotMuteAlerts()
+    {
+        var service = Build(c => c.Contains("---UDM_BOOT_CHECK---")
+            ? (true, PostgresProbe.Replace("---PG_OTHER_DBS---", "---PG_OTHER_DBS---\n2\n---IGNORED---"))
+            : (true, "deployed"));
+
+        var (success, _, _) = await service.DeployTweakAsync("postgresql-ssd");
+
+        success.Should().BeFalse();
+        _suppression.IsSiteActiveRollout(_siteContext.Slug, DateTime.UtcNow).Should().BeFalse();
     }
 
     [Fact]
