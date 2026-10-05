@@ -403,15 +403,18 @@ else if (_wizardOpen)
                         <div class="firmware-rollout-wave">
                             <span class="firmware-rollout-wave-no">@wave.Number</span>
                             <span class="firmware-rollout-wave-eta">T+@Duration(wave.StartOffsetSeconds)</span>
-                            <span class="firmware-rollout-wave-devices">
+                            <span class="firmware-rollout-wave-devices firmware-rollout-wave-devices-rows">
                                 @foreach (var step in wave.Steps)
                                 {
-                                    <span class="firmware-rollout-wave-device">
-                                        @step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")
-                                        @if (step.ToVersion != null)
-                                        {
-                                            <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
-                                        }
+                                    <span class="firmware-rollout-wave-device firmware-rollout-wave-device-row">
+                                        <span>
+                                            @step.Name@(step.IsCanary ? " (canary)" : "")@(step.HeldForCanary ? " (held)" : "")
+                                            @if (step.ToVersion != null)
+                                            {
+                                                <span class="firmware-rollout-chip chip-muted firmware-rollout-version-badge">@VersionChange(step.FromVersion, step.ToVersion)</span>
+                                            }
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-contrast" data-tooltip="Leave this device out of the rollout" disabled="@_busy" @onclick="() => ExcludeFromPreviewAsync(step.Mac)">Exclude</button>
                                     </span>
                                 }
                             </span>
@@ -1141,6 +1144,13 @@ else
         {
             _busy = false;
         }
+    }
+
+    /// <summary>Excludes one device straight from the preview and re-plans without it.</summary>
+    private async Task ExcludeFromPreviewAsync(string mac)
+    {
+        _exMacs.Add(mac);
+        await GoToPreviewAsync();
     }
 
     // ---- Add firmware by URL ----

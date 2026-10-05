@@ -21566,6 +21566,28 @@ body.kiosk-mode .status-indicators {
     font-size: 0.85rem;
 }
 
+/* Device waves: one device per line, its Exclude button on the right. */
+.firmware-rollout-wave-devices-rows {
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.firmware-rollout-wave-device-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.firmware-rollout-wave-device-row > span {
+    min-width: 0;
+}
+
+.firmware-rollout-wave-device-row > .btn {
+    flex-shrink: 0;
+}
+
 .firmware-rollout-version-badge {
     margin-left: 0.4rem;
     text-decoration: none;
