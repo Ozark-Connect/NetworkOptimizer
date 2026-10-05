@@ -2418,6 +2418,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 step.DeviceMac, observation.IpAddress, planned, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
             if (sshFirst.IsOk)
                 _escalatedAt[step.Id] = Now;
+            else
+                _logger.LogWarning(
+                    "SSH install of the pasted build on {Device} on site {Site} failed ({Message}); trying the Console with the same link",
+                    step.DeviceName, _siteSlug, sshFirst.Message);
         }
 
         var result = sshFirst is { IsOk: true }

@@ -133,8 +133,12 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
         try
         {
-            // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool.
-            var command = isGateway ? $"ubnt-systool fwupdate '{firmwareUrl}'" : $"upgrade '{firmwareUrl}'";
+            // UniFi OS gateways have no `upgrade` shell command; theirs is ubnt-systool. On an AP
+            // `upgrade` is only an /etc/profile alias for `mca-cli-op upgrade`, which a
+            // non-interactive SSH command never loads (exit 127), so the target is called directly.
+            var command = isGateway
+                ? $"ubnt-systool fwupdate '{firmwareUrl}'"
+                : $"if command -v mca-cli-op >/dev/null 2>&1; then mca-cli-op upgrade '{firmwareUrl}'; else upgrade '{firmwareUrl}'; fi";
             var timeout = TimeSpan.FromMinutes(5);
             // A gateway step is a standalone UXG / USG (a Cloud Gateway never becomes a device step):
             // an adopted device, so Device SSH is its login. Never route it through Gateway SSH,
