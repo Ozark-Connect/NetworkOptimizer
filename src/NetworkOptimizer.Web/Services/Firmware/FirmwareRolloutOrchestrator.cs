@@ -2379,9 +2379,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // whatever the plan says, and firmware does not come back on its own. The exception is a
         // build pasted by URL: that downgrade was chosen by hand.
         // TODO: a deliberate fleet-wide downgrade is the separate opt-in mode, as for the console.
-        var pinnedDowngrade = RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
+        var pinnedPending = RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
             && !VersionsMatch(observation.Firmware, step.ToVersion);
-        if (!pinnedDowngrade
+        if (!pinnedPending
             && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
         {
             _logger.LogWarning(
@@ -2409,9 +2409,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // the CDN download runs on the device itself). Console-cached first for them, always.
         var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
 
-        var result = string.IsNullOrWhiteSpace(planned) || preferConsoleCached
-            ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
-            : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
+        // A build pasted by URL installs over SSH first, as a rollback does: upgrade-external has
+        // cycled a device without flashing an older build. The SSH path is then spent.
+        FirmwareCommandResult? sshFirst = null;
+        if (pinnedPending && !string.IsNullOrWhiteSpace(planned) && !string.IsNullOrWhiteSpace(observation.IpAddress))
+        {
+            sshFirst = await _commands.TriggerSshUpgradeAsync(
+                step.DeviceMac, observation.IpAddress, planned, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+            if (sshFirst.IsOk)
+                _escalatedAt[step.Id] = Now;
+        }
+
+        var result = sshFirst is { IsOk: true }
+            ? sshFirst
+            : string.IsNullOrWhiteSpace(planned) || preferConsoleCached
+                ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
+                : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
         // Not for a build chosen by hand: the console would install its newest one instead.
