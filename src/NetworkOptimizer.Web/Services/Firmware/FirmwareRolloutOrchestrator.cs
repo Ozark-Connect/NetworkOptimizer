@@ -883,6 +883,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 continue;
             }
 
+            // A pinned downgrade is behind what runs by design; only reaching it is done.
+            if (RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
+                && !VersionsMatch(seen.Firmware, step.ToVersion))
+            {
+                continue;
+            }
+
             var running = ShortVersion(seen.Firmware);
             step.State = FirmwareRolloutStepState.SkippedExcluded;
             step.Error = $"Already on {running}, updated outside this rollout.";
@@ -1718,7 +1725,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         RolloutDeviceObservation observation,
         CancellationToken cancellationToken)
     {
-        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        var url = await StepImageUrlAsync(document, step, cancellationToken);
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
@@ -1765,7 +1772,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         var cameBack = $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}";
 
-        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        var url = await StepImageUrlAsync(document, step, cancellationToken);
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
@@ -2350,7 +2357,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The console has to have staged this device's build before there is anything to command.
         // After the wait it is commanded anyway: some models report nothing here even when ready.
+        // A pinned image installs by URL, and the Console never stages a build older than it runs.
         if (!string.IsNullOrWhiteSpace(step.ToVersion)
+            && !RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
             && !VersionsMatch(observation.UpgradeToFirmware, step.ToVersion)
             && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
@@ -2367,9 +2376,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // Last gate before this device reboots. The plan can be hours old and the console restages
         // on its own, so what it runs NOW decides - a target that is not ahead of it is a downgrade
-        // whatever the plan says, and firmware does not come back on its own.
-        // TODO: a deliberate downgrade is the separate opt-in mode, as for the console.
-        if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
+        // whatever the plan says, and firmware does not come back on its own. The exception is a
+        // build pasted by URL: that downgrade was chosen by hand.
+        // TODO: a deliberate fleet-wide downgrade is the separate opt-in mode, as for the console.
+        var pinnedDowngrade = RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
+            && !VersionsMatch(observation.Firmware, step.ToVersion);
+        if (!pinnedDowngrade
+            && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
         {
             _logger.LogWarning(
                 "Refusing to command {Device} on site {Site}: {Target} is not newer than the installed {Installed}",
@@ -3074,6 +3087,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     // --- Helpers -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The image an SSH retry installs. A build chosen by hand retries with its own link: the
+    /// Console's catalog carries its newest build, which would replace the pinned one.
+    /// </summary>
+    private Task<string?> StepImageUrlAsync(
+        RolloutPlanDocument document, FirmwareRolloutStep step, CancellationToken cancellationToken)
+    {
+        var pinned = document.TargetImages.FirstOrDefault(i => i.Pinned
+            && string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && VersionsMatch(i.Version, step.ToVersion));
+        return !string.IsNullOrWhiteSpace(pinned?.Url)
+            ? Task.FromResult<string?>(pinned.Url)
+            : ResolveImageUrlAsync(step.Model, cancellationToken);
+    }
 
     private async Task<string?> ResolveImageUrlAsync(string model, CancellationToken cancellationToken)
     {

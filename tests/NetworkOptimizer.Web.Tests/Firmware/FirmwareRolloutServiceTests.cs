@@ -241,7 +241,7 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
-    public async Task BuildPreviewAsync_APinnedDeviceBuildNoNewerThanInstalledPlansNothingForThatModel()
+    public async Task BuildPreviewAsync_APinnedDeviceBuildAlreadyInstalledPlansNothingForThatModel()
     {
         using var harness = HarnessWithTwoAps();
         var pin = new RolloutBuildPin(FirmwareUrlKind.Device, "SKU-AP1", "1.0.0", "https://example.test/SKU-AP1-1.0.0.bin");
@@ -249,6 +249,18 @@ public class FirmwareRolloutServiceTests
         var preview = await harness.Service.BuildPreviewAsync(Settings(), pin: pin);
 
         LiveMacs(preview).Should().BeEmpty("the newest build must not stand in for the one that was chosen");
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedDeviceBuildOlderThanInstalledPlansADowngrade()
+    {
+        using var harness = HarnessWithTwoAps();
+        var pin = new RolloutBuildPin(FirmwareUrlKind.Device, "SKU-AP1", "0.9.8", "https://example.test/SKU-AP1-0.9.8.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(), pin: pin);
+
+        preview.Plan.Waves.SelectMany(w => w.Steps).Select(s => s.ToVersion).Should().HaveCount(2).And.AllBe("0.9.8");
+        preview.Plan.TargetImages.Should().HaveCount(2).And.OnlyContain(i => i.Pinned && i.Url == pin.Url);
     }
 
     [Fact]
@@ -274,6 +286,19 @@ public class FirmwareRolloutServiceTests
         using var harness = CloudGatewayHarness();
         harness.Commands.GatewaySshConfigured = false;
         var pin = new RolloutBuildPin(FirmwareUrlKind.UniFiOs, Platform, "6.0.8", "https://example.test/unifi-dream/UCGF-6.0.8.bin");
+
+        var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs(), pin: pin);
+
+        preview.Plan.IncludesUniFiOsUpdate.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BuildPreviewAsync_APinnedUniFiOsBuildOlderThanInstalledIsNeverADowngrade()
+    {
+        // Only device firmware downgrades by URL; the Console runs 6.0.7.
+        using var harness = CloudGatewayHarness();
+        await SeedSharedOsBuildAsync(harness);
+        var pin = new RolloutBuildPin(FirmwareUrlKind.UniFiOs, Platform, "6.0.6", "https://example.test/unifi-dream/UCGF-6.0.6.bin");
 
         var preview = await harness.Service.BuildPreviewAsync(EarlyAccessOs(), pin: pin);
 
