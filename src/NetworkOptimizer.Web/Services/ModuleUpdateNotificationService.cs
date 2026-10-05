@@ -23,6 +23,9 @@ public sealed class ModuleUpdateNotificationService
     /// <summary>True when the deployed WAN Steering binary is older than the embedded version.</summary>
     public bool WanSteerUpdateAvailable => _state.WanSteerUpdateAvailable;
 
+    /// <summary>True when the PostgreSQL SSD tweak should replace a deployed MongoDB SSD tweak.</summary>
+    public bool PerfTweaksReplacementAvailable => _state.PerfTweaksReplacementAvailable;
+
     // TODO: Adaptive SQM update detection. SqmDeploymentService has no deployed-vs-embedded
     // version/hash comparison yet. The SQM scripts have been stable, so we are deferring the
     // versioning work to avoid opening that can of worms. Once SqmDeploymentService tracks a
@@ -30,7 +33,7 @@ public sealed class ModuleUpdateNotificationService
     // alongside Performance Tweaks and WAN Steering.
 
     /// <summary>True when any tracked module has an update available.</summary>
-    public bool AnyUpdateAvailable => PerfTweaksUpdateAvailable || WanSteerUpdateAvailable;
+    public bool AnyUpdateAvailable => PerfTweaksUpdateAvailable || WanSteerUpdateAvailable || PerfTweaksReplacementAvailable;
 
     public ModuleUpdateNotificationService(ModuleUpdateRegistry registry, SiteContextService siteContext)
     {

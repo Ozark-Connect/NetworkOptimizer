@@ -21,25 +21,33 @@ public sealed class SiteModuleUpdateState
     public bool WanSteerUpdateAvailable { get; private set; }
 
     /// <summary>
+    /// True when the gateway runs on PostgreSQL with the MongoDB SSD tweak still deployed, so the
+    /// PostgreSQL SSD tweak should replace it.
+    /// </summary>
+    public bool PerfTweaksReplacementAvailable { get; private set; }
+
+    /// <summary>
     /// Updates the Performance Tweaks state from a freshly fetched status. Callers should pass a
     /// successfully-read status (Error == null).
     /// </summary>
     public void NotifyPerfTweaksStatus(PerfTweaksStatus status) =>
-        Set(status.Tweaks.Values.Any(t => t.ScriptOutdated), WanSteerUpdateAvailable);
+        Set(status.Tweaks.Values.Any(t => t.ScriptOutdated), WanSteerUpdateAvailable, status.PostgresReplacementAvailable);
 
     /// <summary>
     /// Updates the WAN Steering state from a freshly fetched status. Callers should pass a status
     /// whose binary was actually read (BinaryDeployed) so a transient SSH failure doesn't clear it.
     /// </summary>
     public void NotifyWanSteerStatus(WanSteerStatus status) =>
-        Set(PerfTweaksUpdateAvailable, WanSteerDeploymentService.IsBinaryOutdated(status));
+        Set(PerfTweaksUpdateAvailable, WanSteerDeploymentService.IsBinaryOutdated(status), PerfTweaksReplacementAvailable);
 
-    internal void Set(bool perfTweaks, bool wanSteer)
+    internal void Set(bool perfTweaks, bool wanSteer, bool perfTweaksReplacement)
     {
-        if (perfTweaks == PerfTweaksUpdateAvailable && wanSteer == WanSteerUpdateAvailable)
+        if (perfTweaks == PerfTweaksUpdateAvailable && wanSteer == WanSteerUpdateAvailable
+            && perfTweaksReplacement == PerfTweaksReplacementAvailable)
             return;
         PerfTweaksUpdateAvailable = perfTweaks;
         WanSteerUpdateAvailable = wanSteer;
+        PerfTweaksReplacementAvailable = perfTweaksReplacement;
         OnStateChanged?.Invoke();
     }
 }
@@ -230,7 +238,8 @@ public class ModuleUpdateRegistry : BackgroundService, ISiteScopedRegistry
         var wanStatus = await wan.GetStatusAsync();
         GetFor(slug).Set(
             perfStatus.Tweaks.Values.Any(x => x.ScriptOutdated),
-            WanSteerDeploymentService.IsBinaryOutdated(wanStatus));
+            WanSteerDeploymentService.IsBinaryOutdated(wanStatus),
+            perfStatus.PostgresReplacementAvailable);
         return true;
     }
 }

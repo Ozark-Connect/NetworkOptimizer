@@ -4,7 +4,7 @@
 # Run before building to pick up the latest scripts:
 #   pwsh scripts/sync-perf-tweaks.ps1
 #
-# Source repo: https://github.com/tvancott42/unifi-perf-tweaks (private)
+# Source repo: https://github.com/Ozark-Connect/unifi-perf-tweaks
 
 param(
     [string]$SourceRepo = "$env:USERPROFILE\OneDrive\PersonalProjects\OpenSource\unifi-perf-tweaks"
@@ -24,10 +24,13 @@ if (-not (Test-Path $DestDir)) {
 $scripts = @(
     "scripts/06-mongodb-ssd-offload.sh",
     "scripts/07-mongodb-ssd-backup.sh",
+    "scripts/08-postgresql-ssd-offload.sh",
+    "scripts/09-postgresql-ssd-backup.sh",
     "scripts/10-journald-volatile.sh",
     "scripts/15-fan-control-tuning.sh",
     "scripts/19-sfp-sgmiiplus-eth5.sh",
-    "scripts/20-sfp-sgmiiplus.sh"
+    "scripts/20-sfp-sgmiiplus.sh",
+    "scripts/maintenance/mongodb-ssd-decommission.sh"
 )
 
 $binaries = @(
