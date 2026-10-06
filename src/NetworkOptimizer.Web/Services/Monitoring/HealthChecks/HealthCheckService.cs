@@ -98,7 +98,7 @@ public class HealthCheckService : IHealthCheckService
     public async Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(string deviceMac, DeviceType fallbackType)
     {
         var device = await FindDeviceAsync(deviceMac);
-        // Hardware type, not role: an Express adopted as an AP is still a UniFi OS console.
+        // Hardware type, not role: an Express (UX, UX7) adopted as an AP is still a UniFi OS console.
         var type = device == null ? fallbackType : HealthCheckRunner.EffectiveType(device);
         return _templates.GetTemplates()
             .Where(t => t.Fits(type, device?.Model, device?.Shortname))

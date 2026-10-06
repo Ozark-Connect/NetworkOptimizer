@@ -79,13 +79,13 @@ public interface IFirmwareCommandClient
     /// A gateway step here is always a standalone gateway (UXG, USG): a Cloud Gateway updates as
     /// UniFi OS and never becomes a device step. A standalone gateway is an adopted device, so it
     /// takes Device SSH. Every other role goes through <see cref="Ssh.DeviceSshRouter"/>, which
-    /// covers an Express adopted as an AP.
+    /// covers an Express (UX, UX7) adopted as an AP.
     /// </summary>
     /// <param name="deviceMac">Device MAC, which the SSH router keys its credential route on.</param>
     /// <param name="host">Device address.</param>
     /// <param name="firmwareUrl">Direct firmware image URL.</param>
     /// <param name="role">The step's device role.</param>
-    /// <param name="isGateway">True for a UniFi OS gateway, including an Express adopted as an AP;
+    /// <param name="isGateway">True for a UniFi OS gateway, including an Express (UX, UX7) adopted as an AP;
     /// legacy USG models count as false.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<FirmwareCommandResult> TriggerSshUpgradeAsync(

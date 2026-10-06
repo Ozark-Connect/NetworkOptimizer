@@ -185,7 +185,7 @@ public class FirmwareRolloutOrchestratorTests
 
     [Theory]
     [InlineData("U6PRO", false)]
-    // An Express adopted as an AP is still a UniFi OS gateway, so it takes the UniFi OS command.
+    // An Express (UX, UX7) adopted as an AP is still a UniFi OS gateway, so it takes the UniFi OS command.
     [InlineData("UDMA69B", true)]
     public async Task TheSshRetry_sends_the_UniFi_OS_command_to_a_UniFi_OS_gateway_in_any_role(string model, bool uniFiOs)
     {

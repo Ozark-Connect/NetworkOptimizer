@@ -127,7 +127,7 @@ public class ProbeExecutorFactory
             }
             else
             {
-                // The router picks the device's credentials, so an Express adopted as an AP falls
+                // The router picks the device's credentials, so an Express (UX, UX7) adopted as an AP falls
                 // back to Gateway SSH when it refuses Device SSH. Settled first: this builds a
                 // connection rather than running a command. The router also tunnel-routes it.
                 var router = _sshRouters.GetFor(_siteContext.Slug);

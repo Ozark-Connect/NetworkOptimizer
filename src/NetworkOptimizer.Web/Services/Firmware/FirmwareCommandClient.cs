@@ -146,7 +146,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             var (success, output) = role == DeviceType.Gateway
                 ? await _ssh.RunCommandAsync(host, command, null, timeout, cancellationToken)
                 : await _router.RunAsync(
-                    // Off a non-gateway step, isGateway marks an Express adopted as an AP: gateway
+                    // Off a non-gateway step, isGateway marks an Express (UX, UX7) adopted as an AP: gateway
                     // hardware. Passed rather than looked up, since the console may be mid-update.
                     new DeviceSshTarget(deviceMac, host, role, isGateway ? DeviceType.Gateway : role),
                     command, timeout, cancellationToken);

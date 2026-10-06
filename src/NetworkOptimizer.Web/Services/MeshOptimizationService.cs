@@ -68,12 +68,12 @@ public class MeshOptimizationService : IMeshOptimizationService
         if (string.IsNullOrWhiteSpace(host))
             return MeshOptimizationResult.NoOp(iface, "This AP has no reachable address.");
 
-        // The router picks the credentials, so an Express adopted as an AP that refuses Device SSH
+        // The router picks the credentials, so an Express (UX, UX7) adopted as an AP that refuses Device SSH
         // falls back to Gateway SSH. A mesh child is always an access point.
         var target = new Ssh.DeviceSshTarget(apMac ?? "", host, NetworkOptimizer.Core.Enums.DeviceType.AccessPoint);
 
         // Without Device SSH every wpa_cli call fails with a generic error, so point the user at
-        // where to set it up. Checked after settling the route: an Express adopted as an AP is still
+        // where to set it up. Checked after settling the route: an Express (UX, UX7) adopted as an AP is still
         // a console, so it takes the console's root login (Gateway SSH) and needs no Device SSH.
         var route = await _sshRouters.GetFor(_siteContext.Slug).SettleAsync(target, cancellationToken);
         var sshSettings = await _ssh.GetSettingsAsync();

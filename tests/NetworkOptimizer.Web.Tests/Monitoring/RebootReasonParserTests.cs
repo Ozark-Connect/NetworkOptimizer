@@ -642,7 +642,7 @@ public class RebootReasonParserTests
     [Fact]
     public void ConsoleRebootLog_UpgradeEntry_WithFirmwareKnownUnchanged_IsStale()
     {
-        // A power pull on an Express adopted as an AP left this weeks-old entry in place, and a wrong
+        // A power pull on an Express (UX, UX7) adopted as an AP left this weeks-old entry in place, and a wrong
         // device clock let it pass the age check. Same firmware either side of the boot rules it out.
         Assert.True(RebootReasonParser.ConsoleRebootLogIsStale(UpgradeEntry, logAgeVsBootSeconds: 301, firmwareKnownUnchanged: true));
     }
