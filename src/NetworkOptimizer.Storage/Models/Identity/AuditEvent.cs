@@ -161,6 +161,7 @@ public static class AuditActions
     public const string FirmwareRolloutAborted = "firmware_rollout.aborted";
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
     public const string FirmwareRolloutRescheduled = "firmware_rollout.rescheduled";
+    public const string FirmwareRolloutSoakEnded = "firmware_rollout.soak_ended";
     public const string FirmwareRolloutUniFiAutoUpdateDisabled = "firmware_rollout.unifi_auto_update.disabled";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
     public const string FirmwareSharedBuildAdded = "firmware_rollout.shared_build.added";

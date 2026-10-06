@@ -2668,6 +2668,53 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (measured.Count == 0 && ConsoleSurfaceUpdated(document) && Now - completedAt < ResourceWindowFor(settings))
             return;
 
+        await BuildSoakReportAsync(plan, steps, document, settings, measured, announce: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ends a soak before its window closes: the report is built from whatever comparisons are in,
+    /// and the plan becomes Reported, which frees the site to plan again.
+    /// </summary>
+    /// <param name="planId">The soaking plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Why the soak could not end, or null when it ended.</returns>
+    public async Task<string?> EndSoakAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.SoakWait } || !string.IsNullOrEmpty(plan.ReportJson))
+                return "Only a rollout that is soaking can end its soak early.";
+
+            var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+            if (steps.Any(IsInFlight))
+                return "A rollback is still running. The soak can end once it finishes.";
+
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
+                or FirmwareRolloutStepState.RegressionFlagged).ToList();
+
+            // No Report Ready alert: the person who ended it is looking at the report.
+            await BuildSoakReportAsync(plan, steps, ParseDocument(plan), settings, measured, announce: false, cancellationToken);
+            _logger.LogInformation("Firmware rollout {Id} on site {Site}: soak ended early", plan.Id, _siteSlug);
+            return null;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    private async Task BuildSoakReportAsync(
+        FirmwareRolloutPlan plan,
+        List<FirmwareRolloutStep> steps,
+        RolloutPlanDocument document,
+        FirmwareRolloutSettings settings,
+        List<FirmwareRolloutStep> measured,
+        bool announce,
+        CancellationToken cancellationToken)
+    {
         if (await NameConsoleFromSiteAsync(document, cancellationToken))
             plan.PlanJson = JsonSerializer.Serialize(document);
         var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
@@ -2676,6 +2723,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.ReportJson = JsonSerializer.Serialize(report);
         plan.Status = FirmwareRolloutStatus.Reported;
         await PersistPlanAsync(plan, cancellationToken);
+
+        _logger.LogInformation(
+            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
+            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
+
+        if (!announce) return;
 
         var issues = report.Issues.Count switch
         {
@@ -2699,10 +2752,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                   + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
                   + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
-
-        _logger.LogInformation(
-            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
-            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
     }
 
     /// <summary>

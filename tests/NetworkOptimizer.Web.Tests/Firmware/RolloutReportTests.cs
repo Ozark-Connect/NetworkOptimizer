@@ -68,6 +68,51 @@ public class RolloutReportTests
     }
 
     [Fact]
+    public async Task EndSoakEarly_ReportsNowWithoutTheReadyAlert()
+    {
+        using var harness = new RolloutHarness();
+        await harness.WithSettingsAsync(s => s.SoakHours = 24);
+        var start = harness.Time.GetUtcNow().UtcDateTime;
+        var plan = await harness.SeedSoakingPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            start.AddHours(-1),
+            start,
+            Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start, pre: Stats(10, 40)));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().BeNull();
+
+        var reported = await harness.PlanAsync(plan.Id);
+        reported!.Status.Should().Be(FirmwareRolloutStatus.Reported);
+        RolloutReport.Parse(reported.ReportJson).Should().NotBeNull();
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.ReportReady);
+    }
+
+    [Fact]
+    public async Task EndSoakEarly_WaitsForARollbackStillRunning()
+    {
+        using var harness = new RolloutHarness();
+        var start = harness.Time.GetUtcNow().UtcDateTime;
+        var plan = await harness.SeedSoakingPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            start.AddHours(-1),
+            start,
+            Settled(ApMac, FirmwareRolloutStepState.Commanded));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().NotBeNull();
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+    }
+
+    [Fact]
+    public async Task EndSoakEarly_RefusesAPlanThatIsNotSoaking()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().NotBeNull();
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+    }
+
+    [Fact]
     public async Task Report_CountsEveryOutcomeAndAveragesThePairedWindows()
     {
         using var harness = new RolloutHarness();

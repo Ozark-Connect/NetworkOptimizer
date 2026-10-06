@@ -171,6 +171,24 @@ public interface IFirmwareRolloutService
     Task RescheduleAsync(int planId, DateTime startAtUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ends a soaking rollout's soak now: the report is built from the comparisons already in, and
+    /// the site can plan again.
+    /// </summary>
+    /// <param name="planId">The soaking plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutSoakEnded, TargetType = "firmware_rollout")]
+    Task EndSoakAsync(int planId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every build this site's devices could take from what the install already knows (the shared
+    /// catalog and the console's own offers), one row per device and build, for Deploy Known Firmware.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    Task<List<KnownFirmwareOption>> GetKnownFirmwareAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Turns off UniFi's own auto-update for the given layers, so it cannot run alongside a rollout.
     /// Each layer is written separately; a failure on one leaves the others turned off.
     /// </summary>

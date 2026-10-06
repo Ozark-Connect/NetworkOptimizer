@@ -432,6 +432,48 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public async Task EndSoakAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var refused = await _orchestrator.EndSoakAsync(planId, cancellationToken);
+        if (refused != null)
+            throw new InvalidOperationException(refused);
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId });
+    }
+
+    /// <inheritdoc />
+    public async Task<List<KnownFirmwareOption>> GetKnownFirmwareAsync(CancellationToken cancellationToken = default)
+    {
+        var context = await _planning.GetContextAsync(cancellationToken);
+        var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+
+        KnownFirmwareConsole? console = null;
+        if (RolloutPlanComposer.ConsoleReachable(info))
+        {
+            var offeredOs = info!.Firmware?.LatestByChannel.Values
+                .Where(r => !string.IsNullOrWhiteSpace(r.Version) && !string.IsNullOrWhiteSpace(r.Links?.Data?.Href))
+                .Select(r => (r.Version!, r.Links!.Data!.Href!))
+                .ToList() ?? [];
+            console = new KnownFirmwareConsole(
+                info.Hardware?.Shortname,
+                info.InstalledOsVersion,
+                info.NetworkApplication?.Version,
+                info.IsStandaloneConsole,
+                offeredOs,
+                info.NetworkApplication?.UpdateAvailable);
+        }
+
+        return KnownFirmwareOptions.Build(
+            context.Devices,
+            console,
+            await _sharedCatalog.ListDeviceBuildsAsync(cancellationToken),
+            await _sharedCatalog.ListUniFiOsBuildsAsync(cancellationToken),
+            await _sharedCatalog.ListNetworkAppBuildsAsync(cancellationToken));
+    }
+
+    /// <inheritdoc />
     public async Task RescheduleAsync(int planId, DateTime startAtUtc, CancellationToken cancellationToken = default)
     {
         await RequireActiveAsync(planId, cancellationToken);

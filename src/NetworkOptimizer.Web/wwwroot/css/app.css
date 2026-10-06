@@ -21517,6 +21517,32 @@ body.kiosk-mode .status-indicators {
     }
 }
 
+.firmware-rollout-known .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.firmware-rollout-known .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-known .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .firmware-rollout-known .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
+.firmware-rollout-known option.firmware-rollout-known-older {
+    color: var(--text-muted);
+}
+
 .firmware-rollout-muted {
     color: var(--text-muted);
     font-size: 0.8rem;

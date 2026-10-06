@@ -75,6 +75,10 @@ else if (_active != null && !_wizardOpen)
                     {
                         <button class="btn btn-sm btn-danger" @onclick="AbortAsync" disabled="@_busy">Abort</button>
                     }
+                    else
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="EndSoakAsync" disabled="@_busy">End Soak Early</button>
+                    }
                 </SiteAdminOnly>
             </div>
         </div>
@@ -208,6 +212,7 @@ else if (_active != null && !_wizardOpen)
         @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
         {
             @AddFirmwareSection
+            @KnownFirmwareSection
         }
     </div>
 }
@@ -572,6 +577,7 @@ else
             </SiteAdminOnly>
         </div>
         @AddFirmwareSection
+        @KnownFirmwareSection
         @if (_settings?.Mode == FirmwareRolloutMode.Autopilot)
         {
             <SiteAdminOnly>
@@ -1252,6 +1258,178 @@ else
         </div>
     </SiteAdminOnly>;
 
+    // ---- Deploy Known Firmware ----
+
+    /// <summary>
+    /// The builds this install already knows, picked by device, model, and build instead of pasted.
+    /// Each select lists only what fits the other two, and the pick opens the wizard with the same
+    /// pin a pasted link would.
+    /// </summary>
+    private RenderFragment KnownFirmwareSection => @<SiteAdminOnly>
+        <div class="card-body firmware-rollout-add-url firmware-rollout-known">
+            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-known" @ontoggle="LoadKnownFirmwareAsync">
+                <summary>Deploy Known Firmware</summary>
+                <div class="setup-guide-content">
+                    @if (_knownLoading)
+                    {
+                        <div class="loading-container"><span class="spinner spinner-sm"></span> <span>Reading known builds...</span></div>
+                    }
+                    else if (_knownError != null)
+                    {
+                        <div class="alert alert-danger">@_knownError</div>
+                    }
+                    else if (_known is { Count: 0 })
+                    {
+                        <p class="firmware-rollout-muted">No known build applies to this site's devices yet.</p>
+                    }
+                    else if (_known != null)
+                    {
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Device</label>
+                                <select class="form-control" value="@(_knownDevice ?? "")" @onchange="e => _knownDevice = NullIfEmpty(e.Value)">
+                                    <option value="">Any device</option>
+                                    @foreach (var device in KnownDevices)
+                                    {
+                                        <option value="@device.Mac">@device.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Model</label>
+                                <select class="form-control" value="@(_knownModel ?? "")" @onchange="e => _knownModel = NullIfEmpty(e.Value)">
+                                    <option value="">Any model</option>
+                                    @foreach (var device in KnownModels)
+                                    {
+                                        <option value="@device.Model">@device.DisplayModel</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Build</label>
+                                <select class="form-control" value="@(_knownBuild ?? "")" @onchange="e => _knownBuild = NullIfEmpty(e.Value)">
+                                    <option value="">Any build</option>
+                                    @foreach (var (build, older) in KnownBuilds)
+                                    {
+                                        <option value="@build.Key" class="@(older ? "firmware-rollout-known-older" : null)">@build.Label</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" @onclick="PlanKnownBuildAsync" disabled="@(_busy || SelectedKnownBuild == null)">Plan Rollout Now</button>
+                        </div>
+                    }
+                </div>
+            </details>
+        </div>
+    </SiteAdminOnly>;
+
+    private List<KnownFirmwareOption>? _known;
+    private bool _knownLoading;
+    private string? _knownError;
+    private string? _knownDevice;
+    private string? _knownModel;
+    private string? _knownBuild;
+
+    private static string? NullIfEmpty(object? value) => value is string s && s.Length > 0 ? s : null;
+
+    /// <summary>Rows that fit every selection except the one being listed.</summary>
+    private IEnumerable<KnownFirmwareOption> KnownMatching(bool device = true, bool model = true, bool build = true) =>
+        (_known ?? []).Where(o =>
+            (!device || _knownDevice == null || string.Equals(o.Device.Mac, _knownDevice, StringComparison.OrdinalIgnoreCase))
+            && (!model || _knownModel == null || string.Equals(o.Device.Model, _knownModel, StringComparison.OrdinalIgnoreCase))
+            && (!build || _knownBuild == null || o.Build.Key == _knownBuild));
+
+    private IEnumerable<KnownFirmwareDevice> KnownDevices => KnownMatching(device: false)
+        .Select(o => o.Device)
+        .DistinctBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(d => d.Label, StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<KnownFirmwareDevice> KnownModels => KnownMatching(model: false)
+        .Select(o => o.Device)
+        .DistinctBy(d => d.Model, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(d => d.DisplayModel, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Builds newest first within each surface and model. A build is muted when every device the
+    /// selection leaves would be downgraded by it.
+    /// </summary>
+    private List<(KnownFirmwareBuild Build, bool Older)> KnownBuilds
+    {
+        get
+        {
+            var builds = KnownMatching(build: false)
+                .GroupBy(o => o.Build.Key)
+                .Select(g => (Build: KnownBuildLabeled(g.ToList()), Older: g.All(o => o.Older)))
+                .ToList();
+            builds.Sort((a, b) =>
+            {
+                var surface = a.Build.Kind.CompareTo(b.Build.Kind);
+                if (surface != 0) return surface;
+                var family = string.Compare(KnownBuildFamily(a.Build), KnownBuildFamily(b.Build), StringComparison.OrdinalIgnoreCase);
+                if (family != 0) return family;
+                if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(a.Build.Version, b.Build.Version)) return -1;
+                if (NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(b.Build.Version, a.Build.Version)) return 1;
+                return 0;
+            });
+            return builds;
+        }
+    }
+
+    /// <summary>
+    /// One image can serve several models on the site (a family); its entry names every one of
+    /// them rather than whichever model happened to come first.
+    /// </summary>
+    private static KnownFirmwareBuild KnownBuildLabeled(List<KnownFirmwareOption> rows)
+    {
+        var build = rows[0].Build;
+        var models = rows.Select(o => o.Device.DisplayModel).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        if (build.Kind != FirmwareUrlKind.Device || models.Count < 2) return build;
+
+        var version = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(build.Version) ?? build.Version;
+        return build with { Label = $"{string.Join(", ", models)} firmware {version}" };
+    }
+
+    /// <summary>The label without its version, so one model's builds sort together.</summary>
+    private static string KnownBuildFamily(KnownFirmwareBuild build)
+    {
+        var at = build.Label.LastIndexOf(' ');
+        return at > 0 ? build.Label[..at] : build.Label;
+    }
+
+    private KnownFirmwareBuild? SelectedKnownBuild =>
+        _knownBuild == null ? null : _known?.FirstOrDefault(o => o.Build.Key == _knownBuild)?.Build;
+
+    /// <summary>Reads the known builds the first time the section opens: it costs a console round trip.</summary>
+    private async Task LoadKnownFirmwareAsync()
+    {
+        if (_known != null || _knownLoading) return;
+        _knownLoading = true;
+        _knownError = null;
+        try
+        {
+            _known = await RolloutService.GetKnownFirmwareAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Reading the known firmware builds failed");
+            _knownError = "Could not read the known builds. Check the UniFi Console Connection in Settings and try again.";
+        }
+        finally
+        {
+            _knownLoading = false;
+        }
+    }
+
+    private Task PlanKnownBuildAsync() => OpenWizardForPinAsync(SelectedKnownBuild?.Pin);
+
+    private void ResetKnownFirmware()
+    {
+        _known = null;
+        _knownDevice = _knownModel = _knownBuild = null;
+    }
+
     private string? _addUrl;
     private FirmwareUrlAddResult? _addResult;
 
@@ -1296,8 +1474,15 @@ else
     /// configuration, or the console's own when there is none, and only the added build's surface
     /// moves to Early Access. The plan installs exactly that build.
     /// </summary>
-    private async Task OpenWizardForAddedBuildAsync(FirmwareUrlAddResult added)
+    private Task OpenWizardForAddedBuildAsync(FirmwareUrlAddResult added) => OpenWizardForPinAsync(added.ToPin());
+
+    /// <summary>
+    /// Opens the wizard on a hand-picked build: pasted by URL or picked in Deploy Known Firmware.
+    /// Both reach here with the same pin, so the two plan identically.
+    /// </summary>
+    private async Task OpenWizardForPinAsync(RolloutBuildPin? pin)
     {
+        if (pin == null) return;
         _busy = true;
         _wizardError = null;
         StateHasChanged();
@@ -1306,7 +1491,7 @@ else
             _replacesPlanId = _active?.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced
                 ? _active.Id
                 : null;
-            _wizardPin = added.ToPin();
+            _wizardPin = pin;
             _settings = await RolloutService.GetSettingsAsync();
             var standing = AutopilotSettingsSnapshot.Deserialize(_settings.AutopilotSettingsJson);
             if (standing != null)
@@ -1323,7 +1508,7 @@ else
                 _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), readOnly: true);
                 SeedChannelsFromConsole();
             }
-            switch (added.Kind)
+            switch (pin.Kind)
             {
                 case FirmwareUrlKind.UniFiOs:
                     _settings.IncludeUniFiOs = true;
@@ -1342,13 +1527,14 @@ else
             _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), pin: _wizardPin);
             _showBackupNotice = await UiHints.ShouldShowAsync(UiHintKeys.FirmwareBackupNotice);
             _addResult = null;
+            ResetKnownFirmware();
             _wizardOpen = true;
             _step = 3;
             _vizMode = null;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Rollout wizard failed to open for an added firmware build");
+            Logger.LogError(ex, "Rollout wizard failed to open for a hand-picked firmware build");
             _wizardError = "Could not read the Console. Check the UniFi Console Connection in Settings and try again.";
             _wizardOpen = true;
             _step = 1;
@@ -2038,6 +2224,19 @@ else
         _confirmDeployNow = false;
         await ControlAsync(RolloutService.DeployNowAsync);
     }
+
+    /// <summary>Ends the soak now; a refusal (a rollback still running) is shown, not just logged.</summary>
+    private Task EndSoakAsync() => ControlAsync(async (id, ct) =>
+    {
+        try
+        {
+            await RolloutService.EndSoakAsync(id, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _controlNotice = ex.Message;
+        }
+    });
 
     private Task AbortAsync() => ControlAsync(async (id, ct) =>
     {

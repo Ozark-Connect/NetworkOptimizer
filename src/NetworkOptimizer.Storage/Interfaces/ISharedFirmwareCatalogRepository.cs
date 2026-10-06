@@ -71,4 +71,8 @@ public interface ISharedFirmwareCatalogRepository
     /// <summary>Every known UniFi OS build. Empty when the catalog cannot be read.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<List<SharedUniFiOsBuild>> ListUniFiOsBuildsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Every known UniFi Network build. Empty when the catalog cannot be read.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<List<SharedNetworkAppBuild>> ListNetworkAppBuildsAsync(CancellationToken cancellationToken = default);
 }

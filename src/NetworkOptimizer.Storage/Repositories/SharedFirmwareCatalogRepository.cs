@@ -220,6 +220,21 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
     }
 
     /// <inheritdoc />
+    public async Task<List<SharedNetworkAppBuild>> ListNetworkAppBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedNetworkAppBuilds.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi Network builds");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<SharedFirmwareBuild?> FindNewerDeviceBuildAsync(
         string model, string channel, string? thanVersion, CancellationToken cancellationToken = default)
     {
