@@ -146,6 +146,17 @@ public class UniFiDeviceResponse
     [JsonPropertyName("state")]
     public int State { get; set; }
 
+    /// <summary>The config version UniFi Network wants the device on; a config write changes it.</summary>
+    [JsonPropertyName("cfgversion")]
+    public string? CfgVersion { get; set; }
+
+    /// <summary>
+    /// The config version the device reports running. Equal to <see cref="CfgVersion"/> once a write
+    /// has been applied, well before the live radio stats catch up.
+    /// </summary>
+    [JsonPropertyName("known_cfgversion")]
+    public string? KnownCfgVersion { get; set; }
+
     [JsonPropertyName("uptime")]
     public long Uptime { get; set; }
 

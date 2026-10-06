@@ -12902,6 +12902,62 @@ a.path-hop.hop-clickable:hover {
     color: var(--warning-color);
 }
 
+/* Apply Recommended Channels: button row and the progress / results panel. Sizes come from
+   .recommendation-notice; spacing from .recommendation-view's gap. */
+.recommendation-view .channel-apply-actions {
+    justify-content: flex-end;
+}
+
+.recommendation-view .channel-apply-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-view .channel-apply-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.recommendation-view .channel-apply-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.recommendation-view .channel-apply-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+}
+
+.recommendation-view .channel-apply-ap {
+    min-width: 10rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.recommendation-view .channel-apply-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+@media (max-width: 768px) {
+    .recommendation-view .channel-apply-actions .btn {
+        flex: 1 1 100%;
+    }
+
+    .recommendation-view .channel-apply-ap {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+}
+
 /* DFS preference toggle */
 .dfs-toggle { margin: 0; }
 
