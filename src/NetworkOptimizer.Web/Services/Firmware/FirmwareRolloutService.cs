@@ -736,7 +736,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 "Your UniFi Console isn't responding. What you're seeing here might be stale, and you " +
                 "can't start a rollout until it's back.");
 
-        if (preview.UpgradableCount == 0)
+        // A plan that only updates the Console (UniFi Network or UniFi OS, picked or offered) has
+        // no upgradable device and is still not up to date.
+        if (preview.UpgradableCount == 0
+            && !preview.Plan.IncludesUniFiNetworkUpdate && !preview.Plan.IncludesUniFiOsUpdate)
         {
             // Naming a surface the rollout was not asked to cover would promise something Autopilot
             // will not do, so the console half is named only when it is actually included.
