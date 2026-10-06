@@ -180,6 +180,9 @@ public static class AuditActions
     public const string WiFiRadioKept = "wifi.radio.kept";
     public const string WiFiRadioReleased = "wifi.radio.released";
 
+    /// <summary>Recommended channels were written to access points in UniFi Network.</summary>
+    public const string WiFiChannelPlanApplied = "wifi.channel_plan.applied";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 

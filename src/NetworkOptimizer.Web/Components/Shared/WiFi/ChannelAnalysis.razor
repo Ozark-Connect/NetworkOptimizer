@@ -2,11 +2,13 @@
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.WiFi.Services
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ISystemSettingsService SettingsService
 @inject IWiFiRadioKeepService RadioKeep
+@inject IChannelPlanApplyService ChannelApply
 @implements IDisposable
 
 <div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
@@ -30,7 +32,7 @@
             {
                 <span class="channel-plan-age">Last computed: @TimeFormatHelper.FormatRelativeTimeShort(computedAt)</span>
             }
-            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@(_loading || _applying)">
                 @if (_loading)
                 {
                     <span class="spinner-sm"></span>
@@ -112,7 +114,7 @@
             <div class="recommendation-view">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
-                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans = new(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
+                    <button class="btn btn-sm btn-ghost" disabled="@_applying" @onclick="() => { _showRecommendations = false; _channelPlans = new(); CloseApply(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
                 </div>
 
                 @* Auto-hide once every scannable radio has a measurement (no gaps): the rec is then
@@ -299,7 +301,7 @@
                                     @if (!rec.IsMeshConstrained)
                                     {
                                         <SiteAdminOnly>
-                                            <button class="rec-pin-btn @(rec.IsKept ? "pinned" : "")" disabled="@_keepBusy"
+                                            <button class="rec-pin-btn @(rec.IsKept ? "pinned" : "")" disabled="@(_keepBusy || _applying)"
                                                     data-tooltip="@(rec.IsKept ? "Unpin Channel - let Channel Recommendation move this radio again" : "Pin Channel - Channel Recommendation will leave this radio where it is")"
                                                     aria-label="@(rec.IsKept ? "Unpin Channel" : "Pin Channel")"
                                                     @onclick="() => ToggleKeepAsync(rec)">
@@ -360,6 +362,61 @@
                             </div>
                         }
                     </div>
+
+                    <SiteAdminOnly>
+                        @{
+                            var (applyItems, applyNotApplied) = ChannelPlanApply.FromPlan(plan);
+                            var run = _applyRun is { } r && r.Band == _selectedBand ? r : default;
+                        }
+                        @if (run.Items != null)
+                        {
+                            <div class="recommendation-notice channel-apply-panel">
+                                <div class="channel-apply-title">@(_applying ? "Applying channel changes" : "Channel changes")</div>
+                                @RenderApplyList(run.Items, run.NotApplied)
+                                @if (_applyError != null)
+                                {
+                                    <div class="alert-danger">@_applyError</div>
+                                }
+                                <div class="action-buttons channel-apply-actions">
+                                    <button class="btn btn-contrast" @onclick="CloseApply" disabled="@_applying">
+                                        @if (_applying)
+                                        {
+                                            <span class="spinner-sm"></span> <span>Applying @(Math.Min(_applyOutcomes.Count + 1, run.Items.Count)) of @run.Items.Count</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Done</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else if (_applyConfirmBand == _selectedBand && applyItems.Count > 0)
+                        {
+                            <div class="recommendation-notice channel-apply-panel">
+                                <div class="channel-apply-title">Move these radios to their recommended channels?</div>
+                                @RenderApplyList(applyItems, applyNotApplied)
+                                <p>
+                                    Each access point moves in turn, and its clients on this band reconnect within a few seconds.
+                                    The channel is then set by hand in UniFi Network, so Channel AI no longer moves these radios.
+                                    @if (applyItems.Any(i => i.IsDfs))
+                                    {
+                                        <text> A DFS channel can stay silent for up to a minute while the access point checks for radar.</text>
+                                    }
+                                </p>
+                                <div class="action-buttons channel-apply-actions">
+                                    <button class="btn btn-contrast" @onclick="CloseApply">Cancel</button>
+                                    <button class="btn btn-primary" @onclick="() => ApplyChannelsAsync(plan)">Apply</button>
+                                </div>
+                            </div>
+                        }
+                        else if (applyItems.Count > 0)
+                        {
+                            <div class="action-buttons channel-apply-actions">
+                                <button class="btn btn-primary" data-tour="apply-channels" @onclick="OpenApplyConfirm" disabled="@(_keepBusy || _loading)">Apply Recommended Channels</button>
+                            </div>
+                        }
+                    </SiteAdminOnly>
 
                     <!-- Notices -->
                     @if (!plan.HasBuildingData)
@@ -731,7 +788,12 @@
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
-    public void Dispose() => _ageTimer?.Dispose();
+    public void Dispose()
+    {
+        _ageTimer?.Dispose();
+        _applyCts?.Cancel();
+        _applyCts?.Dispose();
+    }
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
     private bool _keepBusy;
@@ -759,6 +821,125 @@
             _keepBusy = false;
         }
     }
+    // Apply Recommended Channels: the band whose confirm panel is open, then the run it started.
+    private RadioBand? _applyConfirmBand;
+    private (List<ChannelApplyItem> Items, List<ChannelApplyOutcome> NotApplied, RadioBand Band)? _applyRun;
+    private List<ChannelApplyOutcome> _applyOutcomes = new();
+    private bool _applying;
+    private string? _applyError;
+    private CancellationTokenSource? _applyCts;
+
+    private void OpenApplyConfirm()
+    {
+        _applyRun = null;
+        _applyError = null;
+        _applyConfirmBand = _selectedBand;
+    }
+
+    private void CloseApply()
+    {
+        if (_applying) return;
+        _applyConfirmBand = null;
+        _applyRun = null;
+        _applyOutcomes = new();
+        _applyError = null;
+    }
+
+    /// <summary>
+    /// Applies the rows the user confirmed, captured now so the recompute afterwards cannot change
+    /// what the results list describes.
+    /// </summary>
+    private async Task ApplyChannelsAsync(ChannelPlan plan)
+    {
+        if (_applying) return;
+        var (items, notApplied) = ChannelPlanApply.FromPlan(plan);
+        if (items.Count == 0) return;
+
+        _applyRun = (items, notApplied, plan.Band);
+        _applyOutcomes = new();
+        _applyError = null;
+        _applying = true;
+        _applyCts?.Dispose();
+        _applyCts = new CancellationTokenSource();
+        // A late progress post must not re-add an outcome after the returned list replaced it.
+        var progress = new Progress<ChannelApplyOutcome>(o =>
+        {
+            if (_applying && !_applyOutcomes.Contains(o)) _applyOutcomes.Add(o);
+            StateHasChanged();
+        });
+        try
+        {
+            _applyOutcomes = await ChannelApply.ApplyAsync(plan.Band, items, progress, _applyCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _applyError = ex.Message;
+        }
+        finally
+        {
+            _applying = false;
+            _applyConfirmBand = null;
+        }
+
+        if (_applyOutcomes.Any(o => o.Status is ChannelApplyStatus.Applied or ChannelApplyStatus.Unconfirmed))
+            await RefreshData();
+    }
+
+    private RenderFragment RenderApplyList(List<ChannelApplyItem> items, List<ChannelApplyOutcome> notApplied) => @<ul class="channel-apply-list">
+        @for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            var outcome = _applyOutcomes.FirstOrDefault(o => o.Item == item);
+            <li>
+                <span class="channel-apply-ap">@item.ApName</span>
+                <span class="channel-apply-change">
+                    <span>Ch @item.CurrentChannel / @(item.CurrentWidth) MHz</span>
+                    <span class="channel-change-arrow"><svg width="20" height="14" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1L19 7L12 13M19 7H1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <span class="rec-changed">Ch @item.Channel / @(item.Width) MHz</span>
+                    @if (item.IsDfs)
+                    {
+                        <span class="dfs-badge">DFS</span>
+                    }
+                </span>
+                @if (outcome != null)
+                {
+                    <span class="@ApplyStatusClass(outcome.Status)">@ApplyStatusText(outcome)</span>
+                }
+                else if (_applying && _applyRun != null && i == _applyOutcomes.Count)
+                {
+                    <span class="spinner-sm"></span>
+                }
+            </li>
+        }
+        @foreach (var skipped in notApplied)
+        {
+            <li>
+                <span class="channel-apply-ap">@skipped.Item.ApName</span>
+                <span class="text-muted">@skipped.Reason</span>
+            </li>
+        }
+    </ul>;
+
+    private static string ApplyStatusClass(ChannelApplyStatus status) => status switch
+    {
+        ChannelApplyStatus.Applied => "score-excellent",
+        ChannelApplyStatus.Unconfirmed => "score-fair",
+        ChannelApplyStatus.Failed => "score-poor",
+        _ => "text-muted"
+    };
+
+    private static string ApplyStatusText(ChannelApplyOutcome outcome) => outcome.Status switch
+    {
+        ChannelApplyStatus.Applied => "Applied",
+        ChannelApplyStatus.Unconfirmed => $"Not confirmed: {outcome.Reason}",
+        ChannelApplyStatus.Failed => $"Failed: {outcome.Reason}",
+        _ => $"Skipped: {outcome.Reason}"
+    };
+
     private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
     private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 

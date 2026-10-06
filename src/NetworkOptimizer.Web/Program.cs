@@ -930,6 +930,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepos
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
+builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

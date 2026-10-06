@@ -858,7 +858,8 @@ public class UniFiApiClient : IDisposable
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
         CancellationToken cancellationToken = default,
-        bool throwOnPermissionError = false) where T : class
+        bool throwOnPermissionError = false,
+        string? permissionErrorMessage = null) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -877,7 +878,7 @@ public class UniFiApiClient : IDisposable
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (body.Contains("api.err.NoPermission", StringComparison.OrdinalIgnoreCase))
-                    throw new UniFiPermissionException(
+                    throw new UniFiPermissionException(permissionErrorMessage ??
                         "The UniFi account lacks permission to run RF spectrum scans. In UniFi Network, " +
                         "give this account the Network: Site Admin role, then try again.");
             }
@@ -1029,6 +1030,47 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Device {Mac} not found", mac);
         return null;
+    }
+
+    /// <summary>
+    /// PUT rest/device/{id} - set the channel and width of one or more of a device's radios. Sends
+    /// only those radios (see <see cref="RadioChannelUpdate.ToRequestJson"/>); the console provisions
+    /// the device, which moves within seconds and briefly drops the clients on each moved radio.
+    /// Writing a channel number turns Channel AI off for that radio.
+    /// </summary>
+    /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
+    /// <param name="radios">The radios to move.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change device settings.</exception>
+    [VendorSpecific("UniFi", "rest/device PUT; GET on rest/device returns 404, so reads go through stat/device")]
+    public async Task<bool> UpdateDeviceRadioChannelsAsync(
+        string deviceId,
+        IReadOnlyList<RadioChannelUpdate> radios,
+        CancellationToken cancellationToken = default)
+    {
+        if (radios.Count == 0) return true;
+
+        var json = RadioChannelUpdate.ToRequestJson(radios);
+        _logger.LogDebug("Updating radio channels on device {DeviceId}: {Body}", deviceId, json);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiDeviceResponse>>(
+            () => _httpClient!.PutAsync(
+                BuildApiPath($"rest/device/{deviceId}"),
+                new StringContent(json, Encoding.UTF8, "application/json"),
+                cancellationToken),
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: "The UniFi account lacks permission to change device settings. In UniFi Network, " +
+                "give this account the Network: Site Admin role, then try again.");
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Updated radio channels on device {DeviceId}", deviceId);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to update radio channels on device {DeviceId}", deviceId);
+        return false;
     }
 
     /// <summary>
