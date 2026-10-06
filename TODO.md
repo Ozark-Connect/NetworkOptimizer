@@ -1398,7 +1398,7 @@ the reference doc's "no internet" path for APs/switches.
 
 ## Gateway-class AP classification when its uplink is offline
 
-`SnmpDeviceRules.IsSiteGateway` treats a gateway-class console (UX, UX7, UDR) as an AP only while
+`SnmpDeviceRules.IsSiteGateway` treats a gateway-class console (an Express: UX, UX7) as an AP only while
 its uplink device is in the monitorable (online) list. If that uplink drops while the console stays
 up, it reads as the gateway and its poll address and fabric target flip to the gateway LAN IP until
 the uplink returns (#1244). Accepted for now: the UniFi Console is usually down in that case too,

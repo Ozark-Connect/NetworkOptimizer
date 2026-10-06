@@ -24,7 +24,7 @@ public static class SnmpDeviceRules
 
     /// <summary>
     /// Whether the device is the site's gateway. A gateway-class console that uplinks to another
-    /// UniFi device (an Express or Dream Router adopted as an AP) reports type "udm" but is not
+    /// UniFi device (an Express adopted as an AP) reports type "udm" but is not
     /// the gateway - the same rule discovery uses (issue #1244).
     /// </summary>
     public static bool IsSiteGateway(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices) =>

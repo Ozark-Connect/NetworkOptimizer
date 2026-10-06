@@ -523,8 +523,8 @@ public class PortSecurityAnalyzer
 
     /// <summary>
     /// Determine the effective device role using uplink-based detection.
-    /// Gateway-class devices (UDR, UX, UDM, etc.) that uplink to another UniFi device
-    /// are mesh APs, not gateways. UDR/UX devices have integrated APs.
+    /// A gateway-class device that uplinks to another UniFi device is an Express (UX, UX7)
+    /// adopted as an AP, not the gateway.
     /// </summary>
     /// <remarks>
     /// This logic parallels UniFiDiscovery.DetermineDeviceType but works with raw JSON.
