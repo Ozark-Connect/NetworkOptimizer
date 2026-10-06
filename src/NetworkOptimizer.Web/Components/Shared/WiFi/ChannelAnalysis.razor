@@ -365,7 +365,7 @@
 
                     <SiteAdminOnly>
                         @{
-                            var (applyItems, applyNotApplied) = ChannelPlanApply.FromPlan(plan);
+                            var (applyItems, _) = ChannelPlanApply.FromPlan(plan);
                             var run = _applyRun is { } r && r.Band == _selectedBand ? r : default;
                         }
                         @if (run.Items != null)
@@ -391,29 +391,10 @@
                                 </div>
                             </div>
                         }
-                        else if (_applyConfirmBand == _selectedBand && applyItems.Count > 0)
-                        {
-                            <div class="recommendation-notice channel-apply-panel">
-                                <div class="channel-apply-title">Move these radios to their recommended channels?</div>
-                                @RenderApplyList(applyItems, applyNotApplied)
-                                <p>
-                                    Each access point moves in turn, and its clients on this band reconnect within a few seconds.
-                                    The channel is then set by hand in UniFi Network, so Channel AI no longer moves these radios.
-                                    @if (applyItems.Any(i => i.IsDfs))
-                                    {
-                                        <text> A DFS channel can stay silent for up to a minute while the access point checks for radar.</text>
-                                    }
-                                </p>
-                                <div class="action-buttons channel-apply-actions">
-                                    <button class="btn btn-contrast" @onclick="CloseApply">Cancel</button>
-                                    <button class="btn btn-primary" @onclick="() => ApplyChannelsAsync(plan)">Apply</button>
-                                </div>
-                            </div>
-                        }
                         else if (applyItems.Count > 0)
                         {
                             <div class="action-buttons channel-apply-actions">
-                                <button class="btn btn-primary" data-tour="apply-channels" @onclick="OpenApplyConfirm" disabled="@(_keepBusy || _loading)">Apply Recommended Channels</button>
+                                <button class="btn btn-primary" data-tour="apply-channels" @onclick="() => ApplyChannelsAsync(plan)" disabled="@(_keepBusy || _loading)">Apply Recommended Channels</button>
                             </div>
                         }
                     </SiteAdminOnly>
@@ -821,33 +802,24 @@
             _keepBusy = false;
         }
     }
-    // Apply Recommended Channels: the band whose confirm panel is open, then the run it started.
-    private RadioBand? _applyConfirmBand;
+    // Apply Recommended Channels: the run in progress or just finished, shown until Done.
     private (List<ChannelApplyItem> Items, List<ChannelApplyOutcome> NotApplied, RadioBand Band)? _applyRun;
     private List<ChannelApplyOutcome> _applyOutcomes = new();
     private bool _applying;
     private string? _applyError;
     private CancellationTokenSource? _applyCts;
 
-    private void OpenApplyConfirm()
-    {
-        _applyRun = null;
-        _applyError = null;
-        _applyConfirmBand = _selectedBand;
-    }
-
     private void CloseApply()
     {
         if (_applying) return;
-        _applyConfirmBand = null;
         _applyRun = null;
         _applyOutcomes = new();
         _applyError = null;
     }
 
     /// <summary>
-    /// Applies the rows the user confirmed, captured now so the recompute afterwards cannot change
-    /// what the results list describes.
+    /// Applies the plan's rows, captured now so the recompute afterwards cannot change what the
+    /// results list describes.
     /// </summary>
     private async Task ApplyChannelsAsync(ChannelPlan plan)
     {
@@ -882,7 +854,6 @@
         finally
         {
             _applying = false;
-            _applyConfirmBand = null;
         }
 
         if (_applyOutcomes.Any(o => o.Status is ChannelApplyStatus.Applied or ChannelApplyStatus.Unconfirmed))

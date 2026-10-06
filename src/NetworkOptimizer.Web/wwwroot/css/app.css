@@ -12902,7 +12902,7 @@ a.path-hop.hop-clickable:hover {
     color: var(--warning-color);
 }
 
-/* Apply Recommended Channels: button row and the confirm / results panel. Sizes come from
+/* Apply Recommended Channels: button row and the progress / results panel. Sizes come from
    .recommendation-notice; spacing from .recommendation-view's gap. */
 .recommendation-view .channel-apply-actions {
     justify-content: flex-end;
@@ -12912,10 +12912,6 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-}
-
-.recommendation-view .channel-apply-panel p {
-    margin: 0;
 }
 
 .recommendation-view .channel-apply-title {
