@@ -2,17 +2,29 @@
   "id": "2.9.2",
   "kind": "whats-new",
   "title": "What's new in v2.9.2",
-  "summary": "Roll out a UniFi OS, device, or UniFi Network build as soon as any of your Consoles is offered it, or paste its download link yourself.",
+  "summary": "Roll out a UniFi OS, device, or UniFi Network build as soon as any of your Consoles is offered it, and move your access points to the recommended channels.",
   "steps": [
     {
       "id": "firmware-add-url",
       "level": "minor",
       "url": "/firmware-rollout",
-      "selector": "[data-tour=\"firmware-add-url\"]",
-      "title": "Deploy Firmware by URL",
+      "selector": "[data-tour=\"firmware-known\"]",
+      "alsoSelectors": ["[data-tour=\"firmware-add-url\"]"],
+      "title": "Deploy Known Firmware",
       "listLabel": "Roll out a build before your Consoles are offered it",
-      "body": "Paste a Ubiquiti download link for device firmware, UniFi OS, or the UniFi Network application. Network Optimizer works out what it is for and offers it to every site on Early Access.\n\n**Plan Rollout Now** takes you straight to the preview of a rollout that starts now.",
+      "body": "**Deploy Known Firmware** picks from every build your sites have seen, by device, model, or build, including an Early Access build going to a site that isn't on Early Access. **Deploy Firmware by URL** takes a Ubiquiti download link for device firmware, UniFi OS, or the UniFi Network application.\n\n**Plan Rollout Now** takes you straight to the preview of a rollout that starts now.",
       "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "apply-channels",
+      "level": "major",
+      "url": "/wifi-optimizer?tab=channels&recommend=true",
+      "selector": "[data-tour=\"channel-recommendation\"]",
+      "alsoSelectors": ["[data-tour=\"apply-channels\"]"],
+      "title": "Apply Recommended Channels",
+      "listLabel": "Move your access points to the recommended channels",
+      "body": "**Apply Recommended Channels** moves your access points to the plan, never two that hear each other at the same time, and fixes each channel in UniFi Network so Channel AI leaves that radio alone.\n\nThe button shows when the plan moves at least one radio. It needs a UniFi account with the Network Site Admin role, as spectrum scans do.",
       "optional": true
     }
   ]
