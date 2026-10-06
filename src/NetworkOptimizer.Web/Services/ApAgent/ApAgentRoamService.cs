@@ -188,6 +188,16 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         return await HasRoamedBeforeAsync(clientMac.Trim().ToLowerInvariant(), ct);
     }
 
+    /// <summary>
+    /// The agent probe that steering depends on: hostapd's control objects on ubus. An agent that
+    /// gains another steering path must report it, and this gate must follow.
+    /// </summary>
+    public const string SteeringProbe = "ubus";
+
+    /// <inheritdoc />
+    public Task<IReadOnlyCollection<string>> GetApsWithoutSteeringAsync(CancellationToken ct = default)
+        => Task.FromResult(_directory.ApsWithoutSteering(_siteSlug));
+
     /// <inheritdoc />
     public async Task<bool> CanChangeBandAsync(string clientMac, string? currentBand, CancellationToken ct = default)
     {
