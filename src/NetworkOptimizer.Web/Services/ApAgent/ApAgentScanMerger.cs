@@ -122,11 +122,16 @@ public static class ApAgentScanMerger
                 : result.Band == RadioBand.Band5GHz && s.Channel is >= 52 and <= 144,
             DfsState = consoleDfs.TryGetValue(s.Channel, out var state) ? state.DfsState : null,
         }).ToList();
+        // The AP's own mca-dump reports spectrum_table_time as a small counter, not Unix time (the
+        // console's copy is Unix time), so the agent forwards it as a 1970 date. That age is unknown,
+        // not decades stale: a stale age raises a re-scan banner that no re-scan can clear.
         result.SpectrumTableTime = source.SpectrumAt is { } at
-            ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc))
+            ? (at < PlausibleSpectrumTime ? null : new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)))
             : readAt;
         return true;
     }
+
+    private static readonly DateTime PlausibleSpectrumTime = new(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     /// <summary>The agent's band token, as the Go side's bandForRadio emits it.</summary>
     private static RadioBand BandOf(string? token) => (token ?? "").Trim() switch
