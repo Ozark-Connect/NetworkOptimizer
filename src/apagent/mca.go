@@ -335,6 +335,8 @@ func parseMcaFull(data []byte, now time.Time) (McaSnapshot, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return McaSnapshot{}, fmt.Errorf("parse mca-dump JSON: %w", err)
 	}
+	// Expected now and then on every model: mca-dump briefly omits radio_table, often on several APs
+	// in the same second, and the next tick succeeds. Not a bug to chase; one slow sample is lost.
 	if raw.RadioTable == nil {
 		return McaSnapshot{}, fmt.Errorf("mca-dump JSON has no radio_table")
 	}
