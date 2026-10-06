@@ -38,6 +38,12 @@ public class DeviceRebootTracker
     /// </summary>
     private static readonly TimeSpan ProvisionalRetryDelay = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// How long after a boot a provisional reason keeps being re-probed. A console writes its own
+    /// entry within minutes; past this the answer from the other sources is final.
+    /// </summary>
+    private static readonly TimeSpan ProvisionalWindow = TimeSpan.FromMinutes(30);
+
     private readonly ConcurrentDictionary<string, DeviceBootRecord> _records = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -230,6 +236,11 @@ public class DeviceRebootTracker
         var firmwareChanged = known != null &&
             RebootReasonParser.NamesADifferentImage(known.FirmwareVersion, firmwareVersion);
 
+        // Not the negation of the above: that is also false when there is no baseline to compare.
+        var firmwareKnownUnchanged = known != null &&
+            !string.IsNullOrWhiteSpace(known.FirmwareVersion) && !string.IsNullOrWhiteSpace(firmwareVersion) &&
+            !firmwareChanged;
+
         var sameBoot = known != null && IsSameBoot(known.BootedAt, known.FirmwareVersion, bootedAt, firmwareVersion);
 
         if (sameBoot)
@@ -283,7 +294,7 @@ public class DeviceRebootTracker
                 _storedBootAt.TryRemove(mac, out _);
         }
 
-        _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged,
+        _ = ResolveInBackgroundAsync(mac, deviceName, deviceType, host, bootedAt, firmwareChanged, firmwareKnownUnchanged,
             previousFirmware: known?.FirmwareVersion, currentFirmware: firmwareVersion,
             model: model);
     }
@@ -446,6 +457,7 @@ public class DeviceRebootTracker
         string? host,
         DateTime bootedAt,
         bool firmwareChanged,
+        bool firmwareKnownUnchanged,
         string? previousFirmware,
         string? currentFirmware,
         string? model = null)
@@ -495,7 +507,19 @@ public class DeviceRebootTracker
                 "Probing {Device} ({Mac}, {DeviceType}) at {Host} for the reason behind its boot at {BootedAt:u}",
                 deviceName ?? "unknown", mac, deviceType, host, bootedAt);
 
-            var probed = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged);
+            var pastWindow = DateTime.UtcNow - bootedAt >= ProvisionalWindow;
+            var probed = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged, firmwareKnownUnchanged,
+                trustDeviceClock: pastWindow);
+
+            // A console that never writes this boot's entry (an Express adopted as an AP) would be
+            // re-probed every couple of minutes for its whole uptime. Past the window, settle.
+            if (probed is { Provisional: true } && pastWindow)
+            {
+                _logger.LogDebug(
+                    "Reboot reason for {Device} ({Mac}) settled as {Category}: the console's reason log gave nothing for this boot within {Window}",
+                    deviceName ?? "unknown", mac, probed.Category, ProvisionalWindow);
+                probed = probed with { Provisional = false };
+            }
 
             // Name the versions from the UniFi device data. An AP's console ring proves a flash
             // happened but never says which image, and that detail is what the tooltip shows.
