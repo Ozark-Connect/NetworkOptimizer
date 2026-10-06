@@ -93,6 +93,22 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
         => _sites.TryGetValue(siteSlug, out var cache) ? cache.ApCount : 0;
 
     /// <summary>
+    /// Records whether an access point's agent can send a steer, from its latest health. Kept out
+    /// of the target list's TTL: it only changes when the agent's probes do.
+    /// </summary>
+    public void RecordSteering(string siteSlug, string deviceMac, bool canSteer)
+    {
+        var cache = _sites.GetOrAdd(siteSlug, _ => new SiteCache());
+        var mac = ApAgentWifiFieldMapper.NormalizeMac(deviceMac);
+        if (canSteer) cache.NoSteering.TryRemove(mac, out _);
+        else cache.NoSteering[mac] = 0;
+    }
+
+    /// <summary>Access points whose agent last reported it cannot send a steer, by normalized MAC.</summary>
+    public IReadOnlyCollection<string> ApsWithoutSteering(string siteSlug)
+        => _sites.TryGetValue(siteSlug, out var cache) ? cache.NoSteering.Keys.ToList() : Array.Empty<string>();
+
+    /// <summary>
     /// Holds one access point out of the target list until the returned handle is disposed. Its
     /// agent is stopped and its token rewritten during a deploy, so every request in that window
     /// can only fail.
@@ -198,6 +214,7 @@ public sealed class ApAgentTargetDirectory : ISiteScopedRegistry
         public int ApCount;
         public DateTime TargetsAt = DateTime.MinValue;
         public readonly ConcurrentDictionary<string, byte> Deploying = new(StringComparer.OrdinalIgnoreCase);
+        public readonly ConcurrentDictionary<string, byte> NoSteering = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class DeployHold(ConcurrentDictionary<string, byte> set, string mac) : IDisposable
