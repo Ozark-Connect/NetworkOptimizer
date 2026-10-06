@@ -111,7 +111,7 @@
 
         @if (_showRecommendations)
         {
-            <div class="recommendation-view">
+            <div class="recommendation-view" data-tour="channel-recommendation">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
                     <button class="btn btn-sm btn-ghost" disabled="@_applying" @onclick="() => { _showRecommendations = false; _channelPlans = new(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
