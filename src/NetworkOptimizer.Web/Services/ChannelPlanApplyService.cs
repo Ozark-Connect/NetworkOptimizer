@@ -1,5 +1,4 @@
 using NetworkOptimizer.Storage.Models.Identity;
-using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Services;
@@ -14,152 +13,92 @@ namespace NetworkOptimizer.Web.Services;
 public interface IChannelPlanApplyService
 {
     /// <summary>
-    /// Moves each radio in turn, waiting for the AP to report the new channel before the next, so
-    /// only one AP is mid-move at a time. Reports each outcome as it lands.
+    /// Starts applying on the server and returns at once. APs that hear each other move in
+    /// different waves, and each wave finishes before the next starts. False when a run is
+    /// already in progress on this site.
     /// </summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.WiFiChannelPlanApplied, Category = AuditCategories.Action, TargetType = "channel_plan")]
-    Task<List<ChannelApplyOutcome>> ApplyAsync(
+    Task<bool> StartAsync(
         RadioBand band,
         IReadOnlyList<ChannelApplyItem> items,
-        IProgress<ChannelApplyOutcome>? progress = null,
-        CancellationToken cancellationToken = default);
+        IReadOnlyList<ChannelApplyOutcome> notApplied,
+        IReadOnlyDictionary<string, HashSet<string>>? hearingNeighbors);
+
+    /// <summary>This site's current or most recent run, or null.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<ChannelApplyRunSnapshot?> GetRunAsync();
+
+    /// <summary>Closes a finished run's results. A running one is kept.</summary>
+    [RequireRole(Roles.Admin)]
+    Task DismissAsync();
 }
 
 /// <inheritdoc cref="IChannelPlanApplyService" />
 public class ChannelPlanApplyService : IChannelPlanApplyService
 {
-    /// <summary>The console takes a moment to start provisioning; a read before then still shows the old channel.</summary>
-    private static readonly TimeSpan FirstCheckAfter = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(3);
-
-    /// <summary>Covers a 60 s DFS channel availability check plus provisioning.</summary>
-    private static readonly TimeSpan ArrivalDeadline = TimeSpan.FromSeconds(90);
-
-    private readonly UniFiConnectionService _connectionService;
+    private readonly ChannelPlanApplyRunner _runner;
     private readonly IAuditContext _auditContext;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly string _siteSlug;
-    private readonly ILogger<ChannelPlanApplyService> _logger;
 
-    /// <param name="connectionService">This site's UniFi Network connection.</param>
-    /// <param name="auditContext">Carries the per-radio outcomes into the audit entry.</param>
+    /// <param name="runner">Runs applies on the server, per site.</param>
+    /// <param name="auditContext">Carries the planned moves into the audit entry.</param>
     /// <param name="licenseState">Writes are refused on a site whose license is not operational.</param>
     /// <param name="siteContext">The site this scope serves.</param>
-    /// <param name="logger">Logger.</param>
     public ChannelPlanApplyService(
-        UniFiConnectionService connectionService,
+        ChannelPlanApplyRunner runner,
         IAuditContext auditContext,
         Licensing.LicenseStateService licenseState,
-        SiteContextService siteContext,
-        ILogger<ChannelPlanApplyService> logger)
+        SiteContextService siteContext)
     {
-        _connectionService = connectionService;
+        _runner = runner;
         _auditContext = auditContext;
         _licenseState = licenseState;
         _siteSlug = siteContext.Slug;
-        _logger = logger;
     }
 
     /// <inheritdoc />
-    public async Task<List<ChannelApplyOutcome>> ApplyAsync(
+    public Task<bool> StartAsync(
         RadioBand band,
         IReadOnlyList<ChannelApplyItem> items,
-        IProgress<ChannelApplyOutcome>? progress = null,
-        CancellationToken cancellationToken = default)
+        IReadOnlyList<ChannelApplyOutcome> notApplied,
+        IReadOnlyDictionary<string, HashSet<string>>? hearingNeighbors)
     {
         Licensing.LicenseGuard.EnsureOperational(_licenseState, _siteSlug);
 
-        var outcomes = new List<ChannelApplyOutcome>();
-        var client = _connectionService.IsConnected ? _connectionService.Client : null;
-        string? stopReason = client == null ? "Not connected to UniFi Network" : null;
-
-        foreach (var item in items.Where(i => i.Band == band))
+        var bandItems = items.Where(i => i.Band == band).ToList();
+        var waves = ChannelPlanApply.Waves(bandItems, hearingNeighbors);
+        if (bandItems.Count == 0 || !_runner.TryStart(_siteSlug, band, waves, notApplied.ToList()))
         {
-            ChannelApplyOutcome outcome;
-            if (stopReason != null || cancellationToken.IsCancellationRequested)
-                outcome = new(item, ChannelApplyStatus.Skipped, stopReason ?? "Canceled");
-            else
-            {
-                try
-                {
-                    outcome = await ApplyOneAsync(client!, item, cancellationToken);
-                }
-                catch (UniFiPermissionException ex)
-                {
-                    // The account cannot write at all, so every remaining radio would fail the same way.
-                    outcome = new(item, ChannelApplyStatus.Failed, ex.Message);
-                    stopReason = "Not attempted";
-                }
-                catch (OperationCanceledException)
-                {
-                    outcome = new(item, ChannelApplyStatus.Skipped, "Canceled");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Channel apply failed for {Ap} {Band}", item.ApMac, band);
-                    outcome = new(item, ChannelApplyStatus.Failed, "UniFi Network could not be reached");
-                }
-            }
-
-            outcomes.Add(outcome);
-            progress?.Report(outcome);
+            _auditContext.SuppressNoChange();
+            return Task.FromResult(false);
         }
 
-        _auditContext.SetTarget($"{outcomes.Count(o => o.Status is ChannelApplyStatus.Applied or ChannelApplyStatus.Unconfirmed)} radio(s)",
-            band.ToDisplayString());
+        _auditContext.SetTarget($"{bandItems.Count} radio(s)", band.ToDisplayString());
         _auditContext.SetDetails(new
         {
             Band = band.ToDisplayString(),
-            Radios = outcomes.Select(o => new
+            Waves = waves.Count,
+            Radios = waves.SelectMany((w, i) => w.Select(item => new
             {
-                Ap = o.Item.ApName,
-                o.Item.ApMac,
-                From = $"Ch {o.Item.CurrentChannel} / {o.Item.CurrentWidth} MHz",
-                To = $"Ch {o.Item.Channel} / {o.Item.Width} MHz",
-                Status = o.Status.ToString(),
-                o.Reason
-            }).ToList()
+                Ap = item.ApName,
+                item.ApMac,
+                From = $"Ch {item.CurrentChannel} / {item.CurrentWidth} MHz",
+                To = $"Ch {item.Channel} / {item.Width} MHz",
+                Wave = i + 1
+            })).ToList()
         });
-        return outcomes;
+        return Task.FromResult(true);
     }
 
-    private async Task<ChannelApplyOutcome> ApplyOneAsync(UniFiApiClient client, ChannelApplyItem item, CancellationToken ct)
+    /// <inheritdoc />
+    public Task<ChannelApplyRunSnapshot?> GetRunAsync() => Task.FromResult(_runner.Get(_siteSlug));
+
+    /// <inheritdoc />
+    public Task DismissAsync()
     {
-        var device = await client.GetDeviceAsync(item.ApMac, ct);
-        var (update, stop) = ChannelPlanApply.Preflight(item, device);
-        if (stop != null) return stop;
-
-        if (!await client.UpdateDeviceRadioChannelsAsync(device!.Id, [update!], ct))
-            return new(item, ChannelApplyStatus.Failed, "UniFi Network refused the change");
-
-        _logger.LogInformation("Channel apply: {Ap} {Band} Ch {From}/{FromW} -> Ch {To}/{ToW} (site {Site})",
-            item.ApName, item.Band, item.CurrentChannel, item.CurrentWidth, item.Channel, item.Width, _siteSlug);
-
-        // The change is saved from here on, so a cancel or a failed read while waiting is Unconfirmed,
-        // never Skipped or Failed.
-        try
-        {
-            await Task.Delay(FirstCheckAfter, ct);
-            var deadline = DateTime.UtcNow + ArrivalDeadline;
-            while (true)
-            {
-                if (ChannelPlanApply.HasArrived(item, await client.GetDeviceAsync(item.ApMac, ct)))
-                    return new(item, ChannelApplyStatus.Applied);
-                if (DateTime.UtcNow >= deadline)
-                    return new(item, ChannelApplyStatus.Unconfirmed,
-                        $"Saved in UniFi Network; the AP had not reported the new channel after {ArrivalDeadline.TotalSeconds:0} seconds");
-                await Task.Delay(CheckEvery, ct);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            return new(item, ChannelApplyStatus.Unconfirmed, "Saved in UniFi Network; stopped waiting for the AP");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Channel apply: could not read {Ap} back after the change", item.ApMac);
-            return new(item, ChannelApplyStatus.Unconfirmed, "Saved in UniFi Network; could not read the AP back");
-        }
+        _runner.Dismiss(_siteSlug);
+        return Task.CompletedTask;
     }
 }

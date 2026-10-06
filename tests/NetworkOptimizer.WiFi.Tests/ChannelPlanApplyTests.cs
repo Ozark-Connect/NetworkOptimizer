@@ -78,6 +78,77 @@ public class ChannelPlanApplyTests
             ChannelApplyStatus.Skipped, "Follows its mesh parent"));
     }
 
+    private static ChannelApplyItem Move(string mac, string name) =>
+        new(mac, name, RadioBand.Band2_4GHz, 6, 20, 11, 20, false);
+
+    private static Dictionary<string, HashSet<string>> Hearing(params (string A, string B)[] pairs)
+    {
+        var map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (a, b) in pairs)
+        {
+            map.TryAdd(a, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            map.TryAdd(b, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            map[a].Add(b);
+            map[b].Add(a);
+        }
+        return map;
+    }
+
+    [Fact]
+    public void Waves_NoHearingMap_MovesOneApAtATime()
+    {
+        var items = new[] { Move("aa:bb:cc:dd:ee:01", "A"), Move("aa:bb:cc:dd:ee:02", "B") };
+
+        ChannelPlanApply.Waves(items, null).Should().HaveCount(2).And.OnlyContain(w => w.Count == 1);
+    }
+
+    [Fact]
+    public void Waves_ApsThatHearEachOtherNeverShareAWave()
+    {
+        // Four APs: Back Yard hears the other three, Main Kitchen and Front Yard hear each other,
+        // and Tiny Home hears only Back Yard.
+        var by = Move("aa:bb:cc:dd:ee:01", "Back Yard");
+        var fy = Move("aa:bb:cc:dd:ee:02", "Front Yard");
+        var mk = Move("aa:bb:cc:dd:ee:03", "Main Kitchen");
+        var th = Move("aa:bb:cc:dd:ee:04", "Tiny Home");
+        var hearing = Hearing((th.ApMac, by.ApMac), (mk.ApMac, fy.ApMac), (by.ApMac, fy.ApMac), (mk.ApMac, by.ApMac));
+
+        var waves = ChannelPlanApply.Waves([th, mk, fy, by], hearing);
+
+        waves.Should().HaveCount(3);
+        waves[0].Should().Equal(by);
+        waves[1].Should().BeEquivalentTo([fy, th]);
+        waves[2].Should().Equal(mk);
+    }
+
+    [Fact]
+    public void Waves_AnApMissingFromTheMap_MovesAlone()
+    {
+        var known = Move("aa:bb:cc:dd:ee:01", "Known");
+        var other = Move("aa:bb:cc:dd:ee:02", "Other");
+        var unknown = Move("aa:bb:cc:dd:ee:09", "Unknown");
+        var hearing = Hearing();
+        hearing[known.ApMac] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        hearing[other.ApMac] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var waves = ChannelPlanApply.Waves([known, other, unknown], hearing);
+
+        waves.Should().HaveCount(2);
+        waves.Should().ContainSingle(w => w.Count == 1 && w[0] == unknown);
+        waves.Should().ContainSingle(w => w.Count == 2);
+    }
+
+    [Fact]
+    public void Waves_ApsThatHearNoOne_AreCappedPerWave()
+    {
+        var items = Enumerable.Range(1, 12).Select(i => Move($"aa:bb:cc:dd:ee:{i:x2}", $"AP{i:00}")).ToList();
+        var hearing = items.ToDictionary(i => i.ApMac, _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        var waves = ChannelPlanApply.Waves(items, hearing);
+
+        waves.Select(w => w.Count).Should().Equal(ChannelPlanApply.MaxWaveSize, 12 - ChannelPlanApply.MaxWaveSize);
+    }
+
     [Fact]
     public void Preflight_MatchingDevice_TargetsTheBandsRadioByName()
     {

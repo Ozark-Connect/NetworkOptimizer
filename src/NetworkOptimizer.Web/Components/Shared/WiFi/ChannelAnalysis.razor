@@ -114,7 +114,7 @@
             <div class="recommendation-view">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
-                    <button class="btn btn-sm btn-ghost" disabled="@_applying" @onclick="() => { _showRecommendations = false; _channelPlans = new(); CloseApply(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
+                    <button class="btn btn-sm btn-ghost" disabled="@_applying" @onclick="() => { _showRecommendations = false; _channelPlans = new(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
                 </div>
 
                 @* Auto-hide once every scannable radio has a measurement (no gaps): the rec is then
@@ -366,22 +366,18 @@
                     <SiteAdminOnly>
                         @{
                             var (applyItems, _) = ChannelPlanApply.FromPlan(plan);
-                            var run = _applyRun is { } r && r.Band == _selectedBand ? r : default;
+                            var run = _applyRun is { } r && r.Band == _selectedBand ? r : null;
                         }
-                        @if (run.Items != null)
+                        @if (run != null)
                         {
                             <div class="recommendation-notice channel-apply-panel">
-                                <div class="channel-apply-title">@(_applying ? "Applying channel changes" : "Channel changes")</div>
-                                @RenderApplyList(run.Items, run.NotApplied)
-                                @if (_applyError != null)
-                                {
-                                    <div class="alert-danger">@_applyError</div>
-                                }
+                                <div class="channel-apply-title">@(run.Running ? "Applying channel changes" : "Channel changes")</div>
+                                @RenderApplyList(run)
                                 <div class="action-buttons channel-apply-actions">
-                                    <button class="btn btn-contrast" @onclick="CloseApply" disabled="@_applying">
-                                        @if (_applying)
+                                    <button class="btn btn-contrast" @onclick="CloseApply" disabled="@run.Running">
+                                        @if (run.Running)
                                         {
-                                            <span class="spinner-sm"></span> <span>Applying @(Math.Min(_applyOutcomes.Count + 1, run.Items.Count)) of @run.Items.Count</span>
+                                            <span class="spinner-sm"></span> <span>Applying wave @(run.CurrentWave + 1) of @run.WaveCount</span>
                                         }
                                         else
                                         {
@@ -394,8 +390,12 @@
                         else if (applyItems.Count > 0)
                         {
                             <div class="action-buttons channel-apply-actions">
-                                <button class="btn btn-primary" data-tour="apply-channels" @onclick="() => ApplyChannelsAsync(plan)" disabled="@(_keepBusy || _loading)">Apply Recommended Channels</button>
+                                <button class="btn btn-primary" data-tour="apply-channels" @onclick="() => ApplyChannelsAsync(plan)" disabled="@(_keepBusy || _loading || _applying)">Apply Recommended Channels</button>
                             </div>
+                        }
+                        @if (_applyError != null)
+                        {
+                            <div class="alert-danger">@_applyError</div>
                         }
                     </SiteAdminOnly>
 
@@ -772,8 +772,7 @@
     public void Dispose()
     {
         _ageTimer?.Dispose();
-        _applyCts?.Cancel();
-        _applyCts?.Dispose();
+        _applyPoll?.Dispose();
     }
     private bool _loadingRecommendations;
     private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
@@ -802,69 +801,94 @@
             _keepBusy = false;
         }
     }
-    // Apply Recommended Channels: the run in progress or just finished, shown until Done.
-    private (List<ChannelApplyItem> Items, List<ChannelApplyOutcome> NotApplied, RadioBand Band)? _applyRun;
-    private List<ChannelApplyOutcome> _applyOutcomes = new();
-    private bool _applying;
+    // Apply Recommended Channels: the site's run, which lives on the server and is polled while it runs.
+    private ChannelApplyRunSnapshot? _applyRun;
     private string? _applyError;
-    private CancellationTokenSource? _applyCts;
-
-    private void CloseApply()
-    {
-        if (_applying) return;
-        _applyRun = null;
-        _applyOutcomes = new();
-        _applyError = null;
-    }
+    private System.Threading.Timer? _applyPoll;
+    private bool _applying => _applyRun?.Running == true;
 
     /// <summary>
-    /// Applies the plan's rows, captured now so the recompute afterwards cannot change what the
-    /// results list describes.
+    /// Picks up a run started earlier, from this page or another. A run still going opens its band's
+    /// plan and is followed; a finished one only shows once that plan is open.
     /// </summary>
+    private async Task LoadApplyRunAsync()
+    {
+        try
+        {
+            _applyRun = await ChannelApply.GetRunAsync();
+        }
+        catch
+        {
+            _applyRun = null; // a role that cannot read it simply sees no panel
+        }
+        if (_applyRun is not { Running: true }) return;
+        if (!_showRecommendations) await RunRecommendation();
+        _selectedBand = _applyRun.Band;
+        _bandManuallySelected = true;
+        StartApplyPolling();
+    }
+
+    private void StartApplyPolling()
+    {
+        _applyPoll?.Dispose();
+        _applyPoll = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(PollApplyRunAsync); }
+            catch { /* a dead circuit must not kill the timer callback */ }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task PollApplyRunAsync()
+    {
+        var wasRunning = _applying;
+        _applyRun = await ChannelApply.GetRunAsync();
+        if (_applying)
+        {
+            StateHasChanged();
+            return;
+        }
+        _applyPoll?.Dispose();
+        _applyPoll = null;
+        StateHasChanged();
+        // The radios moved, so the plan and the current channels both need a fresh read.
+        if (wasRunning) await RefreshData();
+    }
+
+    private async Task CloseApply()
+    {
+        if (_applying) return;
+        _applyError = null;
+        if (_applyRun == null) return;
+        _applyRun = null;
+        await ChannelApply.DismissAsync();
+    }
+
+    /// <summary>Starts the run on the server; the panel follows it from there.</summary>
     private async Task ApplyChannelsAsync(ChannelPlan plan)
     {
         if (_applying) return;
         var (items, notApplied) = ChannelPlanApply.FromPlan(plan);
         if (items.Count == 0) return;
 
-        _applyRun = (items, notApplied, plan.Band);
-        _applyOutcomes = new();
         _applyError = null;
-        _applying = true;
-        _applyCts?.Dispose();
-        _applyCts = new CancellationTokenSource();
-        // A late progress post must not re-add an outcome after the returned list replaced it.
-        var progress = new Progress<ChannelApplyOutcome>(o =>
-        {
-            if (_applying && !_applyOutcomes.Contains(o)) _applyOutcomes.Add(o);
-            StateHasChanged();
-        });
         try
         {
-            _applyOutcomes = await ChannelApply.ApplyAsync(plan.Band, items, progress, _applyCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
+            if (!await ChannelApply.StartAsync(plan.Band, items, notApplied, plan.HearingNeighbors))
+                _applyError = "Channels are already being applied on this site.";
+            _applyRun = await ChannelApply.GetRunAsync();
+            if (_applying) StartApplyPolling();
         }
         catch (Exception ex)
         {
             _applyError = ex.Message;
         }
-        finally
-        {
-            _applying = false;
-        }
-
-        if (_applyOutcomes.Any(o => o.Status is ChannelApplyStatus.Applied or ChannelApplyStatus.Unconfirmed))
-            await RefreshData();
     }
 
-    private RenderFragment RenderApplyList(List<ChannelApplyItem> items, List<ChannelApplyOutcome> notApplied) => @<ul class="channel-apply-list">
-        @for (var i = 0; i < items.Count; i++)
+    private RenderFragment RenderApplyList(ChannelApplyRunSnapshot run) => @<ul class="channel-apply-list">
+        @for (var i = 0; i < run.Items.Count; i++)
         {
-            var item = items[i];
-            var outcome = _applyOutcomes.FirstOrDefault(o => o.Item == item);
+            var item = run.Items[i];
+            var outcome = run.Outcomes.FirstOrDefault(o => o.Item == item);
             <li>
                 <span class="channel-apply-ap">@item.ApName</span>
                 <span class="channel-apply-change">
@@ -880,13 +904,13 @@
                 {
                     <span class="@ApplyStatusClass(outcome.Status)">@ApplyStatusText(outcome)</span>
                 }
-                else if (_applying && _applyRun != null && i == _applyOutcomes.Count)
+                else if (run.Running && run.ItemWaves[i] == run.CurrentWave)
                 {
                     <span class="spinner-sm"></span>
                 }
             </li>
         }
-        @foreach (var skipped in notApplied)
+        @foreach (var skipped in run.NotApplied)
         {
             <li>
                 <span class="channel-apply-ap">@skipped.Item.ApName</span>
@@ -961,6 +985,8 @@
 
         if (AutoRunRecommendation)
             await RunRecommendation();
+
+        await LoadApplyRunAsync();
     }
 
     private async Task LoadDataAsync()

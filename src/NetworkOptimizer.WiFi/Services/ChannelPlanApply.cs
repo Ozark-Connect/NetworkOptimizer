@@ -40,6 +40,42 @@ public sealed record ChannelApplyOutcome(ChannelApplyItem Item, ChannelApplyStat
 /// </summary>
 public static class ChannelPlanApply
 {
+    /// <summary>Most radios moved at once, so the console never takes dozens of changes in one instant.</summary>
+    public const int MaxWaveSize = 10;
+
+    /// <summary>
+    /// Groups the radios into waves that move together. Two APs that hear each other never share a
+    /// wave, so a client on a moving AP still has an unmoved neighbor to roam to. An AP missing from
+    /// the map moves alone, and with no map at all every AP does.
+    /// </summary>
+    public static List<List<ChannelApplyItem>> Waves(
+        IReadOnlyList<ChannelApplyItem> items, IReadOnlyDictionary<string, HashSet<string>>? hearing)
+    {
+        if (hearing == null) return items.Select(i => new List<ChannelApplyItem> { i }).ToList();
+
+        bool Known(ChannelApplyItem i) => hearing.ContainsKey(i.ApMac.ToLowerInvariant());
+        bool Hears(ChannelApplyItem a, ChannelApplyItem b) =>
+            (hearing.TryGetValue(a.ApMac.ToLowerInvariant(), out var ah) && ah.Contains(b.ApMac)) ||
+            (hearing.TryGetValue(b.ApMac.ToLowerInvariant(), out var bh) && bh.Contains(a.ApMac));
+
+        // Most-connected first: they are the hardest to place, so they take the early waves.
+        var ordered = items
+            .OrderByDescending(i => items.Count(o => !ReferenceEquals(o, i) && Hears(i, o)))
+            .ThenBy(i => i.ApName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var waves = new List<List<ChannelApplyItem>>();
+        foreach (var item in ordered)
+        {
+            var wave = Known(item)
+                ? waves.FirstOrDefault(w => w.Count < MaxWaveSize && w.All(o => Known(o) && !Hears(item, o)))
+                : null;
+            if (wave == null) waves.Add(new List<ChannelApplyItem> { item });
+            else wave.Add(item);
+        }
+        return waves;
+    }
+
     /// <summary>
     /// Splits a band plan's changed rows into the radios to move and the ones left alone. Pinned rows
     /// never change, so they are never listed. A mesh child is left alone: its radio follows its
