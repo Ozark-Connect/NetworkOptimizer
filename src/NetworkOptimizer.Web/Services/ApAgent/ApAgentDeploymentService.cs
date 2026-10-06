@@ -541,7 +541,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         lock (_lastAssessment) _lastAssessment[record.DeviceMac] = assessment;
 
-        // Steering goes through hostapd on ubus. Firmware without it (an Express adopted as an AP)
+        // Steering goes through hostapd on ubus. Firmware without it (an Express (UX, UX7) adopted as an AP)
         // reports the probe unavailable, and a steer sent there can only fail.
         if (observation.Health is { } reported)
             _directory.RecordSteering(_siteSlug, record.DeviceMac,

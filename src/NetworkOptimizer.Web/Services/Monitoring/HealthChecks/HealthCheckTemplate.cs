@@ -67,7 +67,7 @@ public class HealthCheckTemplate
     /// scoped to either is withheld from it: offering a UniFi OS check on a box that may not run
     /// UniFi OS is the wrong default.
     /// </summary>
-    /// <param name="type">Hardware type (an Express adopted as an AP is still gateway hardware).</param>
+    /// <param name="type">Hardware type (an Express (UX, UX7) adopted as an AP is still gateway hardware).</param>
     /// <param name="model">Model code from the UniFi API, when known.</param>
     /// <param name="shortname">Shortname from the UniFi API, when known.</param>
     public bool Fits(DeviceType type, string? model = null, string? shortname = null)

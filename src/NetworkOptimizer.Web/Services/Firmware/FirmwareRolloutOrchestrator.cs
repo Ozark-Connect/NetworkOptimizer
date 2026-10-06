@@ -3421,7 +3421,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// UniFi OS and upgrade with <c>upgrade</c> like an AP.
     /// </summary>
     /// <summary>
-    /// Whether the SSH upgrade treats the device as a UniFi OS gateway. An Express adopted as an AP
+    /// Whether the SSH upgrade treats the device as a UniFi OS gateway. An Express (UX, UX7) adopted as an AP
     /// is still one, so it takes firmware as it does when it is the gateway.
     /// </summary>
     private static bool SshUpgradesAsGateway(FirmwareRolloutStep step) =>

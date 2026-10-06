@@ -511,7 +511,7 @@ public class DeviceRebootTracker
             var probed = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged, firmwareKnownUnchanged,
                 trustDeviceClock: pastWindow);
 
-            // A console that never writes this boot's entry (an Express adopted as an AP) would be
+            // A console that never writes this boot's entry (an Express (UX, UX7) adopted as an AP) would be
             // re-probed every couple of minutes for its whole uptime. Past the window, settle.
             if (probed is { Provisional: true } && pastWindow)
             {

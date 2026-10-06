@@ -63,7 +63,7 @@ public interface IApAgentRoamService
 
     /// <summary>
     /// Access points whose agent cannot send a steer, by lower-case MAC: their firmware has no
-    /// hostapd control on ubus (an Express adopted as an AP). A client on one is not offered a move.
+    /// hostapd control on ubus (an Express (UX, UX7) adopted as an AP). A client on one is not offered a move.
     /// Taken from the supervisor's last health read, so it is empty until each agent is first assessed.
     /// </summary>
     [RequireRole(Roles.Viewer)]
