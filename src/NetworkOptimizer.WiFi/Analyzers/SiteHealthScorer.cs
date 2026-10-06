@@ -85,7 +85,7 @@ public class SiteHealthScorer
 
         if (clients.Any())
         {
-            var satisfactions = clients.Where(c => c.Satisfaction.HasValue).Select(c => c.Satisfaction!.Value);
+            var satisfactions = clients.Where(c => c.Satisfaction is >= 0).Select(c => c.Satisfaction!.Value);
             stats.AvgSatisfaction = satisfactions.Any() ? satisfactions.Average() : 0;
 
             var signals = clients.Where(c => c.Signal.HasValue).Select(c => c.Signal!.Value);
@@ -366,14 +366,15 @@ public class SiteHealthScorer
             Weight = _options.ClientSatisfactionWeight
         };
 
-        // Use UniFi's satisfaction scores where available
+        // Use UniFi's satisfaction scores where available. UniFi reports -1 for "no score" (an AP
+        // with no clients), which is absent data, not a score.
         var clientSatisfactions = clients
-            .Where(c => c.Satisfaction.HasValue)
+            .Where(c => c.Satisfaction is >= 0)
             .Select(c => c.Satisfaction!.Value)
             .ToList();
 
         var apSatisfactions = aps
-            .Where(a => a.Satisfaction.HasValue)
+            .Where(a => a.Satisfaction is >= 0)
             .Select(a => a.Satisfaction!.Value)
             .ToList();
 
