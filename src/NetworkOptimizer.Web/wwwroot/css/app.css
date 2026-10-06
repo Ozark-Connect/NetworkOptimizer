@@ -21517,6 +21517,11 @@ body.kiosk-mode .status-indicators {
     }
 }
 
+/* Deploy Known Firmware sits right under it. */
+.firmware-rollout-add-url:not(.firmware-rollout-known) {
+    padding-bottom: 8px;
+}
+
 .firmware-rollout-known .form-row {
     display: flex;
     gap: 1rem;
