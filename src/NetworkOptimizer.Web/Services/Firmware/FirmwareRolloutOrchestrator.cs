@@ -200,6 +200,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Where the console and the probe vantages sit on the uplink tree. Null places the console at
     /// the tree's root (a Cloud Gateway) and no vantage at all.
     /// </param>
+    private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? _sharedCatalog;
+
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
         IFirmwareCommandClient commands,
@@ -219,9 +221,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         ApAgent.ApAgentRegistry? apAgents = null,
         IRolloutRebootWitness? rebootWitness = null,
         IRolloutObserverLocator? observerLocator = null,
-        Auditing.IAuditLogger? audit = null)
+        Auditing.IAuditLogger? audit = null,
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null)
     {
         _audit = audit;
+        _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
         _rebootWitness = rebootWitness;
@@ -1156,17 +1160,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var application = console?.NetworkApplication;
 
-        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
-        if (state.Pinned)
+        // A build chosen by hand installs by URL, since the API installs the console's newest. When the
+        // console's newest IS the chosen build, the API is used: an Early Access package is not
+        // published at the URL derived from its version, so SSH by URL would 404.
+        var consoleOffersPin = state.Pinned
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(application?.UpdateAvailable, state.TargetVersion);
+        if (state.Pinned && !consoleOffersPin)
         {
             var pinnedNewer = console?.IsStandaloneConsole != true
                 && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
             if (pinnedNewer && !string.IsNullOrWhiteSpace(state.Url))
             {
-                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
                 if (pinnedSsh.IsOk)
                 {
                     state.Triggered = true;
+                    state.ViaSsh = true;
                     state.TriggeredAt = Now;
                     _logger.LogInformation(
                         "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
@@ -1175,6 +1184,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _logger.LogWarning(
                     "SSH install of the chosen UniFi Network {Version} failed on site {Site}: {Reason}",
                     state.TargetVersion, _siteSlug, pinnedSsh.Message);
+                state.Error = ConsoleStepError(pinnedSsh.Message);
+            }
+            else if (pinnedNewer)
+            {
+                state.Error = "No download link is known for this build.";
             }
 
             state.Settled = true;
@@ -1199,6 +1213,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
 
             _logger.LogWarning("API trigger refused the Network app update on site {Site}", _siteSlug);
+            if (state.Pinned) state.Error = "The Console did not accept the update command.";
         }
         else
         {
@@ -1210,6 +1225,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The console may not see an update because the channel switch failed, but the plan
         // captured the URL at planning time when the channel was still right. Not on a standalone
         // console: its Network app runs on the UOS Server host, not the gateway this SSH reaches.
+        var sshAttempted = false;
         var installedApp = application?.Version;
         var plannedApp = state.TargetVersion;
         if (console?.IsStandaloneConsole != true
@@ -1218,24 +1234,84 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && !string.IsNullOrWhiteSpace(installedApp)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp))
         {
+            sshAttempted = true;
             _logger.LogInformation(
                 "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
-            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
             if (ssh.IsOk)
             {
                 state.Triggered = true;
+                state.ViaSsh = true;
                 state.TriggeredAt = Now;
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
             }
             _logger.LogWarning(
                 "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            state.Error = ConsoleStepError(ssh.Message);
         }
 
+        // A chosen build, or an SSH install that was tried and failed, is a refusal, not nothing to do:
+        // the report and the history must not read it as a clean run. The console's API declining an
+        // unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted;
         state.Settled = true;
-        state.Outcome = "nothing-to-update";
-        _logger.LogInformation(
-            "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+        state.Outcome = refused ? "refused" : "nothing-to-update";
+        if (refused)
+            _logger.LogWarning(
+                "UniFi Network {Version} could not be installed on site {Site}; going on to the devices", state.TargetVersion, _siteSlug);
+        else
+            _logger.LogInformation(
+                "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+    }
+
+    private static readonly TimeSpan InstallLogReadInterval = TimeSpan.FromMinutes(1);
+    private DateTime _lastInstallLogRead = DateTime.MinValue;
+
+    private Task<NetworkInstallLog?> ReadInstallLogAsync(CancellationToken cancellationToken)
+    {
+        _lastInstallLogRead = Now;
+        return _commands.ReadSshNetworkInstallLogAsync(cancellationToken);
+    }
+
+    /// <summary>The packages the Network package at <paramref name="url"/> was released with, from the catalog.</summary>
+    private async Task<IReadOnlyList<string>?> NetworkCompanionsAsync(string? url, CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null || string.IsNullOrWhiteSpace(url)) return null;
+        var package = (await _sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken))
+            .FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(package?.CompanionUrlsJson)) return null;
+        try { return JsonSerializer.Deserialize<List<string>>(package.CompanionUrlsJson); }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// Records the package a Network install just downloaded, with its real URL, so other sites of
+    /// the same platform can install it. A fresh read: the console's log only now holds it.
+    /// </summary>
+    private async Task RecordNetworkPackagesAsync(CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null) return;
+        try
+        {
+            var read = await _commands.ReadConsoleNetworkPackagesAsync(fresh: true, cancellationToken);
+            if (read is { Downloaded.Count: > 0 })
+                await _sharedCatalog.UpsertNetworkAppPackagesAsync(read.Downloaded, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record the Network packages on site {Site}", _siteSlug);
+        }
+    }
+
+    /// <summary>The last line of a failed install's output, capped: enough to say why, short enough for a report.</summary>
+    internal static string? ConsoleStepError(string? output)
+    {
+        // apt names an unmet dependency on a "Depends:" line and ends on solver detail ("[no choices]").
+        var lines = (output ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var line = lines.FirstOrDefault(l => l.Contains(" Depends: ", StringComparison.Ordinal)) ?? lines.LastOrDefault();
+        if (string.IsNullOrEmpty(line)) return null;
+        return line.Length <= 200 ? line : line[..200] + "...";
     }
 
     /// <summary>
@@ -1264,6 +1340,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (ElapsedReachable(triggeredAt) < NetworkAppJudgeDelay)
             return false;
 
+        // An SSH install runs detached on the console; one that ended on a failure (a package that
+        // would not download or install) has nothing left to wait for, and its log says why. Read
+        // once a minute: the install takes minutes, and every read is an SSH session.
+        if (state.ViaSsh && !consoleDark && Now - _lastInstallLogRead >= InstallLogReadInterval
+            && await ReadInstallLogAsync(cancellationToken) is { ExitCode: > 0 } failedInstall)
+        {
+            state.Settled = true;
+            state.Outcome = "refused";
+            state.Error = ConsoleStepError(failedInstall.Output);
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogWarning(
+                "SSH install of UniFi Network {Version} failed on site {Site}: {Reason}", state.TargetVersion, _siteSlug, state.Error);
+            return true;
+        }
+
         string? installed = null;
         var standalone = false;
         var failed = false;
@@ -1286,6 +1377,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _logger.LogInformation(
                     "The UniFi Network application on site {Site} is answering again on {Version}",
                     _siteSlug, installed ?? "an unreported version");
+                await RecordNetworkPackagesAsync(cancellationToken);
                 return true;
             }
         }
@@ -1343,10 +1435,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             failed ? "reports the install failed" : $"is still on {installed} after {NetworkAppUpdateBudget}",
             state.Url);
 
-        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
         state.SshRetriedAt = Now;
         if (ssh.IsOk)
+        {
             state.TriggeredAt = Now;
+            state.ViaSsh = true;
+        }
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (ssh.IsOk)
@@ -2668,6 +2763,53 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (measured.Count == 0 && ConsoleSurfaceUpdated(document) && Now - completedAt < ResourceWindowFor(settings))
             return;
 
+        await BuildSoakReportAsync(plan, steps, document, settings, measured, announce: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ends a soak before its window closes: the report is built from whatever comparisons are in,
+    /// and the plan becomes Reported, which frees the site to plan again.
+    /// </summary>
+    /// <param name="planId">The soaking plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Why the soak could not end, or null when it ended.</returns>
+    public async Task<string?> EndSoakAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.SoakWait } || !string.IsNullOrEmpty(plan.ReportJson))
+                return "Only a rollout that is soaking can end its soak early.";
+
+            var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+            if (steps.Any(IsInFlight))
+                return "A rollback is still running. The soak can end once it finishes.";
+
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
+                or FirmwareRolloutStepState.RegressionFlagged).ToList();
+
+            // No Report Ready alert: the person who ended it is looking at the report.
+            await BuildSoakReportAsync(plan, steps, ParseDocument(plan), settings, measured, announce: false, cancellationToken);
+            _logger.LogInformation("Firmware rollout {Id} on site {Site}: soak ended early", plan.Id, _siteSlug);
+            return null;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    private async Task BuildSoakReportAsync(
+        FirmwareRolloutPlan plan,
+        List<FirmwareRolloutStep> steps,
+        RolloutPlanDocument document,
+        FirmwareRolloutSettings settings,
+        List<FirmwareRolloutStep> measured,
+        bool announce,
+        CancellationToken cancellationToken)
+    {
         if (await NameConsoleFromSiteAsync(document, cancellationToken))
             plan.PlanJson = JsonSerializer.Serialize(document);
         var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
@@ -2676,6 +2818,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.ReportJson = JsonSerializer.Serialize(report);
         plan.Status = FirmwareRolloutStatus.Reported;
         await PersistPlanAsync(plan, cancellationToken);
+
+        _logger.LogInformation(
+            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
+            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
+
+        if (!announce) return;
 
         var issues = report.Issues.Count switch
         {
@@ -2699,10 +2847,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                   + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
                   + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
-
-        _logger.LogInformation(
-            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
-            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
     }
 
     /// <summary>
