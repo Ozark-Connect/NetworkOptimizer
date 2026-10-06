@@ -87,7 +87,7 @@ public static class RolloutPlanComposer
         if (sharedCatalog != null)
         {
             // The real Network package URLs, Early Access included, are only in the console's own log.
-            packages = await commands.ReadConsoleNetworkPackagesAsync(cancellationToken);
+            packages = await commands.ReadConsoleNetworkPackagesAsync(cancellationToken: cancellationToken);
             if (packages is { Downloaded.Count: > 0 })
                 await sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
 

@@ -96,6 +96,58 @@ public class FirmwareUrlParserTests
     }
 
     [Fact]
+    public void ConsoleLog_RecordsThePackagesANetworkBuildWasInstalledWith()
+    {
+        // 11.0.81 depends on unifi-matter-controller 0.0.9, which the console installs in the same batch.
+        const string network = "https://fw-download.ubnt.com/data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-0b745a73-fc68-4f54-8b2d-49fd446e2957.deb";
+        const string matter = "https://fw-download.ubnt.com/data/unifi-matter-controller/972d-uos-deb13-arm64-0.0.9-c725ee11-02d1-4805-ac4a-60728fdcd085.deb";
+        var output = "PLATFORM uos-deb13-arm64\n"
+            + $"url={matter}\n"
+            + $"url={network}\n"
+            + "package_paths={\"/data/uos/downloads/unifi-matter-controller_972d-uos-deb13-arm64-0.0.9-c725ee11-02d1-4805-ac4a-60728fdcd085.deb\", "
+            + "\"/data/uos/downloads/unifi-native_8530-uos-deb13-arm64-11.0.81-37038-1-0b745a73-fc68-4f54-8b2d-49fd446e2957.deb\"}\n";
+
+        var package = FirmwareCommandClient.ParseConsoleNetworkPackages(output).Downloaded.Should().ContainSingle().Subject;
+
+        System.Text.Json.JsonSerializer.Deserialize<List<string>>(package.CompanionUrlsJson!).Should().Equal(matter);
+    }
+
+    [Fact]
+    public void NetworkInstall_FetchesOnlyTheCompanionsItsDependsNames()
+    {
+        const string network = "https://fw-download.ubnt.com/data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-0b745a73.deb";
+        const string matter = "https://fw-download.ubnt.com/data/unifi-matter-controller/972d-uos-deb13-arm64-0.0.9-c725ee11.deb";
+
+        var command = FirmwareCommandClient.NetworkInstallCommand(network, [matter, "https://evil.example/x'; rm -rf /.deb"]);
+
+        command.Should().Contain("dpkg-deb -f /tmp/netopt-network/unifi.deb Depends");
+        command.Should().Contain("grep -qE '(^|[ ,])unifi-matter-controller( |,|$)'");
+        command.Should().Contain(matter);
+        command.Should().NotContain("evil.example");
+        command.Should().EndWith("apt-get install -y /tmp/netopt-network/*.deb; rc=$?; rm -rf /tmp/netopt-network; exit $rc");
+    }
+
+    [Fact]
+    public void NetworkInstallError_NamesTheUnmetDependency()
+    {
+        const string apt = "The following packages have unmet dependencies:\n"
+            + " unifi-native : Depends: unifi-matter-controller (= 0.0.9) but it is not installable\n"
+            + "E: Unable to correct problems, you have held broken packages.\n      [no choices]";
+
+        FirmwareRolloutOrchestrator.ConsoleStepError(apt).Should()
+            .Be("unifi-native : Depends: unifi-matter-controller (= 0.0.9) but it is not installable");
+    }
+
+    [Fact]
+    public void Parse_ReadsACommunityReleaseNoteLink()
+    {
+        var parsed = FirmwareUrlParser.Parse("https://dl.ui.com/unifi/10.6.106-3x6351w4vz/unifi-native_sysvinit.deb", out _);
+
+        parsed!.Kind.Should().Be(FirmwareUrlKind.NetworkApp);
+        parsed.Version.Should().Be("10.6.106");
+    }
+
+    [Fact]
     public void Parse_LeavesAnUnknownDirectoryForTheCatalogToMatch()
     {
         var parsed = FirmwareUrlParser.Parse(

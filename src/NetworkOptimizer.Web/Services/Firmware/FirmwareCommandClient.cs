@@ -507,14 +507,16 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(
-        string debUrl, CancellationToken cancellationToken = default)
+        string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(debUrl))
             return FirmwareCommandResult.Failed("No .deb URL for the SSH Network app update.");
+        if (!IsPlainPackageUrl(debUrl))
+            return FirmwareCommandResult.Failed("The Network package URL is not a usable https link.");
 
         try
         {
-            var command = $"curl -fsSo /tmp/unifi-update.deb '{debUrl}' && apt-get install -y /tmp/unifi-update.deb && rm -f /tmp/unifi-update.deb";
+            var command = NetworkInstallCommand(debUrl, companionUrls);
             var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
             if (success)
                 return FirmwareCommandResult.Ok(output);
@@ -528,6 +530,44 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             return FirmwareCommandResult.Failed($"The SSH Network app update failed: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// The Network install, with the companions it was released with. Network 11.x depends on exact
+    /// versions of packages that ship beside it (unifi-matter-controller 0.0.9 for 11.0.81), which a
+    /// console installs in the same batch; apt cannot fetch them on its own. Only the companions the
+    /// package's own Depends names are fetched, so another app updated in that batch never is.
+    /// </summary>
+    internal static string NetworkInstallCommand(string debUrl, IReadOnlyList<string>? companionUrls)
+    {
+        const string dir = "/tmp/netopt-network";
+        var command = new System.Text.StringBuilder();
+        command.Append($"rm -rf {dir}; mkdir -p {dir} && curl -fsSo {dir}/unifi.deb '{debUrl}' || exit 1; ");
+
+        var companions = (companionUrls ?? [])
+            .Select(u => (Url: u, Name: CompanionName(u)))
+            .Where(c => c.Name != null && IsPlainPackageUrl(c.Url))
+            .ToList();
+        if (companions.Count > 0)
+        {
+            command.Append($"deps=$(dpkg-deb -f {dir}/unifi.deb Depends); ");
+            foreach (var (url, name) in companions)
+                command.Append($"echo \"$deps\" | grep -qE '(^|[ ,]){name}( |,|$)' && {{ curl -fsSo {dir}/{name}.deb '{url}' || exit 1; }}; ");
+        }
+
+        command.Append($"apt-get install -y {dir}/*.deb; rc=$?; rm -rf {dir}; exit $rc");
+        return command.ToString();
+    }
+
+    /// <summary>The package name a console package URL is filed under (<c>/data/&lt;name&gt;/...</c>).</summary>
+    private static string? CompanionName(string url)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(url, @"^https://fw-download\.ubnt\.com/data/([a-z0-9-]+)/[^/]+\.deb$");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>An https package URL with nothing a shell could read as anything but the URL.</summary>
+    private static bool IsPlainPackageUrl(string url) =>
+        System.Text.RegularExpressions.Regex.IsMatch(url, @"^https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/+-]+\.deb$");
 
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(
@@ -576,15 +616,18 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
     private static readonly TimeSpan NetworkPackageReadWindow = TimeSpan.FromMinutes(10);
 
-    // uos.log records each download as "Downloading runnable package_name=unifi-native url=<url>".
+    // uos.log records each download as "Downloading runnable package_name=<name> url=<url>", and each
+    // install as "Install downloaded packages package_paths={".../<name>_<file>.deb", ...}": the batch
+    // is what says which packages a Network build was installed with.
     private const string NetworkPackagesCommand =
         ". /etc/os-release; echo \"PLATFORM uos-deb${VERSION_ID%%.*}-$(dpkg --print-architecture)\"; "
-        + "grep -hoE 'url=https://fw-download\\.ubnt\\.com/data/unifi(-native)?/[^ ]+\\.deb' /data/unifi-core/logs/uos.log* 2>/dev/null | tail -100";
+        + "grep -hoE 'url=https://fw-download\\.ubnt\\.com/data/[a-z0-9-]+/[^ ]+\\.deb|package_paths=\\{[^}]*\\}' "
+        + "/data/unifi-core/logs/uos.log* 2>/dev/null | tail -400";
 
     /// <inheritdoc />
-    public async Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default)
+    public async Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default)
     {
-        if (NetworkPackageReads.TryGetValue(_siteSlug, out var cached) && DateTime.UtcNow - cached.At < NetworkPackageReadWindow)
+        if (!fresh && NetworkPackageReads.TryGetValue(_siteSlug, out var cached) && DateTime.UtcNow - cached.At < NetworkPackageReadWindow)
             return cached.Read;
         if (!await HasGatewaySshAsync(cancellationToken))
             return null;
@@ -610,7 +653,8 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     internal static ConsoleNetworkPackages ParseConsoleNetworkPackages(string? output)
     {
         string? platform = null;
-        var downloaded = new List<NetworkOptimizer.Storage.Models.SharedNetworkAppPackage>();
+        var urlByFile = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var batches = new List<List<string>>();
         foreach (var raw in (output ?? string.Empty).Split('\n'))
         {
             var line = raw.Trim();
@@ -618,16 +662,37 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             {
                 var value = line["PLATFORM ".Length..].Trim().ToLowerInvariant();
                 platform = System.Text.RegularExpressions.Regex.IsMatch(value, @"^uos-deb\d+-(amd64|arm64)$") ? value : null;
-                continue;
             }
-            if (!line.StartsWith("url=", StringComparison.Ordinal)) continue;
+            else if (line.StartsWith("url=", StringComparison.Ordinal))
+            {
+                var url = line["url=".Length..];
+                if (NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHttpUrl(url)) urlByFile[url[(url.LastIndexOf('/') + 1)..]] = url;
+            }
+            else if (line.StartsWith("package_paths=", StringComparison.Ordinal))
+            {
+                // Downloaded as "<name>_<file>"; the file is the URL's last segment.
+                batches.Add(System.Text.RegularExpressions.Regex.Matches(line, "\"[^\"]*/([a-z0-9-]+)_([^\"/]+\\.deb)\"")
+                    .Select(m => m.Groups[2].Value).ToList());
+            }
+        }
 
-            var url = line["url=".Length..];
-            if (FirmwareUrlParser.NetworkPackage(url) is { } package)
-                downloaded.Add(new NetworkOptimizer.Storage.Models.SharedNetworkAppPackage
-                {
-                    Platform = package.Platform, Version = package.Version, Url = url,
-                });
+        var downloaded = new List<NetworkOptimizer.Storage.Models.SharedNetworkAppPackage>();
+        foreach (var url in urlByFile.Values)
+        {
+            if (FirmwareUrlParser.NetworkPackage(url) is not { } package) continue;
+
+            var file = url[(url.LastIndexOf('/') + 1)..];
+            var companions = batches.LastOrDefault(b => b.Contains(file, StringComparer.OrdinalIgnoreCase))?
+                .Where(f => !string.Equals(f, file, StringComparison.OrdinalIgnoreCase) && urlByFile.ContainsKey(f))
+                .Select(f => urlByFile[f])
+                .ToList();
+            downloaded.Add(new NetworkOptimizer.Storage.Models.SharedNetworkAppPackage
+            {
+                Platform = package.Platform,
+                Version = package.Version,
+                Url = url,
+                CompanionUrlsJson = companions is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(companions) : null,
+            });
         }
         return new ConsoleNetworkPackages(platform, downloaded);
     }

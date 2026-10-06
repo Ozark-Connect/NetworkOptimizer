@@ -266,7 +266,8 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public FirmwareCommandResult SshNetworkAppResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult SshUniFiOsResult { get; set; } = FirmwareCommandResult.Ok();
 
-    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default)
+    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(
+        string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-network-app-update");
         return Task.FromResult(SshNetworkAppResult);
@@ -290,7 +291,7 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     /// <summary>What the console's own log reports; null reads as no gateway SSH.</summary>
     public ConsoleNetworkPackages? NetworkPackages { get; set; }
 
-    public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default) =>
+    public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
         Task.FromResult(NetworkPackages);
 }
 

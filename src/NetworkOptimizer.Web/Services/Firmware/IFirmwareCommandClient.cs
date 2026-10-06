@@ -198,7 +198,7 @@ public interface IFirmwareCommandClient
     /// SSH fallback: install a UniFi Network application .deb on the gateway via
     /// <c>curl</c> + <c>apt-get install</c>. The gateway host is resolved from the controller URL.
     /// </summary>
-    Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default);
+    Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// SSH fallback: install a UniFi OS firmware image on the gateway via
@@ -217,7 +217,7 @@ public interface IFirmwareCommandClient
     /// Network package its own log shows it downloading, with the real URL. Early Access packages
     /// are only discoverable this way. Null without gateway SSH, or when the console did not answer.
     /// </summary>
-    Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default);
+    Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A console's Network package platform and the packages it has downloaded.</summary>

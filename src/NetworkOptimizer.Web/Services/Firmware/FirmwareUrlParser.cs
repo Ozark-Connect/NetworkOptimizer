@@ -53,9 +53,10 @@ public static class FirmwareUrlParser
         @"^/unifi/firmware/(?<token>[A-Za-z0-9]+)/(?<version>\d+\.\d+\.\d+(?:\.\d+)?)/[A-Za-z0-9._+-]+\.bin$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // /unifi/<version>/<package>.deb
+    // /unifi/<version>/<package>.deb, or /unifi/<version>-<token>/<package>.deb as Ubiquiti's
+    // community release notes link an Early Access build (the token is not derivable).
     private static readonly Regex NetworkAppPath = new(
-        @"^/unifi/(?<version>\d+\.\d+\.\d+)/(unifi-native_sysvinit|unifi_sysvinit_all)\.deb$",
+        @"^/unifi/(?<version>\d+\.\d+\.\d+)(-[A-Za-z0-9]+)?/(unifi-native_sysvinit|unifi_sysvinit_all)\.deb$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // What a UniFi OS console really installs, Early Access included: one package per Debian release

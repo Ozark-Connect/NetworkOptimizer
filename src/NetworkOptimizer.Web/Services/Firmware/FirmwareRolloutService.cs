@@ -450,7 +450,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
 
         // This console's own downloads join the catalog first: they are how Early Access packages are found.
-        var packages = await _commands.ReadConsoleNetworkPackagesAsync(cancellationToken);
+        var packages = await _commands.ReadConsoleNetworkPackagesAsync(cancellationToken: cancellationToken);
         if (packages is { Downloaded.Count: > 0 })
             await _sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
 

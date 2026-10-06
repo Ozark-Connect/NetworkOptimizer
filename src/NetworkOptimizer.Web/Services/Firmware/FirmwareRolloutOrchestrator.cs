@@ -200,6 +200,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Where the console and the probe vantages sit on the uplink tree. Null places the console at
     /// the tree's root (a Cloud Gateway) and no vantage at all.
     /// </param>
+    private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? _sharedCatalog;
+
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
         IFirmwareCommandClient commands,
@@ -219,9 +221,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         ApAgent.ApAgentRegistry? apAgents = null,
         IRolloutRebootWitness? rebootWitness = null,
         IRolloutObserverLocator? observerLocator = null,
-        Auditing.IAuditLogger? audit = null)
+        Auditing.IAuditLogger? audit = null,
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null)
     {
         _audit = audit;
+        _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
         _rebootWitness = rebootWitness;
@@ -1167,7 +1171,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
             if (pinnedNewer && !string.IsNullOrWhiteSpace(state.Url))
             {
-                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
                 if (pinnedSsh.IsOk)
                 {
                     state.Triggered = true;
@@ -1232,7 +1236,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             sshAttempted = true;
             _logger.LogInformation(
                 "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
-            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
             if (ssh.IsOk)
             {
                 state.Triggered = true;
@@ -1259,11 +1263,42 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
     }
 
+    /// <summary>The packages the Network package at <paramref name="url"/> was released with, from the catalog.</summary>
+    private async Task<IReadOnlyList<string>?> NetworkCompanionsAsync(string? url, CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null || string.IsNullOrWhiteSpace(url)) return null;
+        var package = (await _sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken))
+            .FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(package?.CompanionUrlsJson)) return null;
+        try { return JsonSerializer.Deserialize<List<string>>(package.CompanionUrlsJson); }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// Records the package a Network install just downloaded, with its real URL, so other sites of
+    /// the same platform can install it. A fresh read: the console's log only now holds it.
+    /// </summary>
+    private async Task RecordNetworkPackagesAsync(CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null) return;
+        try
+        {
+            var read = await _commands.ReadConsoleNetworkPackagesAsync(fresh: true, cancellationToken);
+            if (read is { Downloaded.Count: > 0 })
+                await _sharedCatalog.UpsertNetworkAppPackagesAsync(read.Downloaded, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record the Network packages on site {Site}", _siteSlug);
+        }
+    }
+
     /// <summary>The last line of a failed install's output, capped: enough to say why, short enough for a report.</summary>
     internal static string? ConsoleStepError(string? output)
     {
-        var line = (output ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .LastOrDefault();
+        // apt names an unmet dependency on a "Depends:" line and ends on solver detail ("[no choices]").
+        var lines = (output ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var line = lines.FirstOrDefault(l => l.Contains(" Depends: ", StringComparison.Ordinal)) ?? lines.LastOrDefault();
         if (string.IsNullOrEmpty(line)) return null;
         return line.Length <= 200 ? line : line[..200] + "...";
     }
@@ -1316,6 +1351,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _logger.LogInformation(
                     "The UniFi Network application on site {Site} is answering again on {Version}",
                     _siteSlug, installed ?? "an unreported version");
+                await RecordNetworkPackagesAsync(cancellationToken);
                 return true;
             }
         }
@@ -1373,7 +1409,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             failed ? "reports the install failed" : $"is still on {installed} after {NetworkAppUpdateBudget}",
             state.Url);
 
-        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
         state.SshRetriedAt = Now;
         if (ssh.IsOk)
             state.TriggeredAt = Now;

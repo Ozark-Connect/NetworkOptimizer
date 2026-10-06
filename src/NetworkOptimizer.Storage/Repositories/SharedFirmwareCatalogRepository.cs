@@ -260,6 +260,7 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
                         Platform = platform,
                         Version = package.Version,
                         Url = package.Url,
+                        CompanionUrlsJson = package.CompanionUrlsJson,
                         FirstSeenUtc = now,
                         LastSeenUtc = now,
                     });
@@ -267,6 +268,8 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
                 else
                 {
                     existing.Url = package.Url;
+                    if (!string.IsNullOrWhiteSpace(package.CompanionUrlsJson))
+                        existing.CompanionUrlsJson = package.CompanionUrlsJson;
                     existing.LastSeenUtc = now;
                 }
             }

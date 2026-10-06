@@ -22,6 +22,13 @@ public class SharedNetworkAppPackage
     [MaxLength(512)]
     public string Url { get; set; } = string.Empty;
 
+    /// <summary>
+    /// JSON array of the package URLs the console installed in the same batch (Network 11.0.81 ships
+    /// with unifi-matter-controller 0.0.9 and depends on that exact version). The install takes only
+    /// the ones the Network package depends on. Null when none were seen.
+    /// </summary>
+    public string? CompanionUrlsJson { get; set; }
+
     /// <summary>When any site first reported this package.</summary>
     public DateTime FirstSeenUtc { get; set; }
 
