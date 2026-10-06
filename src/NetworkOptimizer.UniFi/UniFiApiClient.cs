@@ -880,7 +880,7 @@ public class UniFiApiClient : IDisposable
                 if (body.Contains("api.err.NoPermission", StringComparison.OrdinalIgnoreCase))
                     throw new UniFiPermissionException(permissionErrorMessage ??
                         "The UniFi account lacks permission to run RF spectrum scans. In UniFi Network, " +
-                        "give this account the Network: Site Admin role, then try again.");
+                        "give this account Network: Full (Site Admin in older versions), then try again.");
             }
 
             // Handle authentication failures
@@ -1036,7 +1036,6 @@ public class UniFiApiClient : IDisposable
     /// PUT rest/device/{id} - set the channel and width of one or more of a device's radios. Sends
     /// only those radios (see <see cref="RadioChannelUpdate.ToRequestJson"/>); the console provisions
     /// the device, which moves within seconds and briefly drops the clients on each moved radio.
-    /// Writing a channel number turns Channel AI off for that radio.
     /// </summary>
     /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
     /// <param name="radios">The radios to move.</param>
@@ -1062,7 +1061,7 @@ public class UniFiApiClient : IDisposable
             cancellationToken,
             throwOnPermissionError: true,
             permissionErrorMessage: "The UniFi account lacks permission to change device settings. In UniFi Network, " +
-                "give this account the Network: Site Admin role, then try again.");
+                "give this account Network: Full (Site Admin in older versions), then try again.");
 
         if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
         {

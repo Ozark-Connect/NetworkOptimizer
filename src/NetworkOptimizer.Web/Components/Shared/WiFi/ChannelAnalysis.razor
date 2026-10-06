@@ -1294,7 +1294,7 @@
     // "Scanning… X/N bands" label so a multi-minute serial scan reads as working, not hung.
     private int _scanCompletedBands;
     private int _scanTotalBands;
-    // Set when a scan fails because the UniFi account lacks the Site Admin role.
+    // Set when a scan fails because the UniFi account lacks Network: Full (Site Admin in older versions).
     private string? _scanError;
 
     private string ScanProgressLabel() =>
