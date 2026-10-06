@@ -635,4 +635,48 @@ public class RebootReasonParserTests
 
         Assert.Equal(RebootCategory.PowerLoss, reason!.Category);
     }
+
+    private const string UpgradeEntry = "2026-09-15T11:43:30-0500 Experience an upgrade reboot from " +
+        "UX7.ipq5322.v5.1.9 to UX7.ipq5322.v5.2.10, and takes 203.943s (0:03:23.943)";
+
+    [Fact]
+    public void ConsoleRebootLog_UpgradeEntry_WithFirmwareKnownUnchanged_IsStale()
+    {
+        // A power pull on an Express adopted as an AP left this weeks-old entry in place, and a wrong
+        // device clock let it pass the age check. Same firmware either side of the boot rules it out.
+        Assert.True(RebootReasonParser.ConsoleRebootLogIsStale(UpgradeEntry, logAgeVsBootSeconds: 301, firmwareKnownUnchanged: true));
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_UpgradeEntry_WithNoFirmwareBaseline_IsNotStale()
+    {
+        Assert.False(RebootReasonParser.ConsoleRebootLogIsStale(UpgradeEntry, logAgeVsBootSeconds: 301, firmwareKnownUnchanged: false));
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_PowerLossEntry_IsNotStaleOnUnchangedFirmware()
+    {
+        // Only an upgrade claim contradicts unchanged firmware; a power loss changes nothing.
+        const string log = "2026-10-05T08:59:40-0500 Experience an improper shutdown(Power on Reset [0x20])";
+
+        Assert.False(RebootReasonParser.ConsoleRebootLogIsStale(log, logAgeVsBootSeconds: 30, firmwareKnownUnchanged: true));
+    }
+
+    [Fact]
+    public void ConsoleRebootLog_PredatingEntry_IsStaleWhateverTheFirmware()
+    {
+        Assert.True(RebootReasonParser.ConsoleRebootLogIsStale(UpgradeEntry, logAgeVsBootSeconds: -434_000, firmwareKnownUnchanged: false));
+    }
+
+    [Theory]
+    [InlineData("1759676400", 1759676400L, 0L)]
+    [InlineData("1759676400\n", 1759677000L, 600L)]
+    [InlineData("1757951010", 1759676400L, 1725390L)]
+    [InlineData("", 1759676400L, 0L)]
+    [InlineData(null, 1759676400L, 0L)]
+    [InlineData("not-a-number", 1759676400L, 0L)]
+    public void ClockSkew_IsTheDistanceFromTheServerClock_OrZeroWhenUnreported(string? section, long serverNow, long expected)
+    {
+        Assert.Equal(expected, DeviceRebootProbe.ClockSkewSeconds(section, serverNow));
+    }
 }
