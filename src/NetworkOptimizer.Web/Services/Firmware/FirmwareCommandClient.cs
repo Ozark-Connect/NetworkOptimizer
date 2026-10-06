@@ -318,6 +318,40 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     }
 
     /// <inheritdoc />
+    public async Task<bool> DisableDeviceAutoUpgradeAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await ConnectedClientAsync(cancellationToken);
+        if (client == null) return false;
+
+        try
+        {
+            return await client.SetDeviceAutoUpgradeAsync(false, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Turning off device auto-upgrade failed for site {Site}", _siteSlug);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    {
+        var client = await ConnectedClientAsync(cancellationToken);
+        if (client == null) return false;
+
+        try
+        {
+            return await client.DisableConsoleAutoUpdateAsync(scheduleKey, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Turning off the {Schedule} auto-update failed for site {Site}", scheduleKey, _siteSlug);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
         var client = await ConnectedClientAsync(cancellationToken);

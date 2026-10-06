@@ -135,6 +135,17 @@ public interface IFirmwareCommandClient
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Turns off UniFi's own nightly device auto-upgrade.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the console accepted it.</returns>
+    Task<bool> DisableDeviceAutoUpgradeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Turns off one console auto-update schedule: UniFi OS or the UniFi Network application.</summary>
+    /// <param name="scheduleKey">A <see cref="UniFiConsoleAutoUpdateRequest"/> schedule key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the console accepted it.</returns>
+    Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default);
+
     /// <summary>Sets the release channel UniFi devices follow.</summary>
     /// <param name="channel">"release", "release-candidate", or "beta".</param>
     /// <param name="cancellationToken">Cancellation token.</param>

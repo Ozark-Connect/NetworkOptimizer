@@ -49,6 +49,26 @@ else if (_active != null && !_wizardOpen)
                     }
                     @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
                     {
+                        @if (CanAdvance)
+                        {
+                            <button class="btn btn-sm btn-secondary" @onclick="AdvanceAsync" disabled="@_busy">Advance 24h</button>
+                        }
+                        <div class="firmware-rollout-set-time">
+                            <button class="btn btn-sm btn-secondary" @onclick="ToggleSetTime" disabled="@_busy">Set Time</button>
+                            <div class="custom-range-popover @(_showSetTime ? "open" : "")">
+                                <div class="custom-range-form">
+                                    <div class="custom-range-title">Start Time</div>
+                                    <div class="custom-range-field">
+                                        <label>Start</label>
+                                        <input type="datetime-local" class="custom-range-input" min="@MinSetTime" @bind="_setTimeLocal" @bind:event="oninput" />
+                                    </div>
+                                    <div class="custom-range-actions">
+                                        <button class="btn btn-sm btn-secondary" @onclick="() => _showSetTime = false">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" @onclick="ApplySetTimeAsync" disabled="@(_busy || !SetTimeValid)">Apply</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <button class="btn btn-sm btn-secondary" @onclick="PostponeAsync" disabled="@_busy">Postpone 24h</button>
                     }
                     @if (_active.Status is not FirmwareRolloutStatus.SoakWait)
@@ -226,6 +246,7 @@ else if (_wizardOpen)
                 {
                     <div class="alert alert-warning firmware-rollout-note">@warning</div>
                 }
+                @AutoUpdateWarning
                 @foreach (var notice in _preview?.Notices ?? [])
                 {
                     <div class="alert alert-info firmware-rollout-note">@notice</div>
@@ -258,7 +279,8 @@ else if (_wizardOpen)
                     SkuExcluded="SkuExcluded"
                     DerivedExclusion="DerivedExclusion"
                     UpdateTooltip="UpdateTooltip"
-                    ToggleSku="ToggleSku">
+                    ToggleSku="ToggleSku"
+                    OnChanged="StateHasChanged">
                     <ChannelHelpText>
                         Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.EarlyAccessAvailable
                             ? " Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it."
@@ -298,14 +320,44 @@ else if (_wizardOpen)
                 @if (_scheduleMode == "autopilot")
                 {
                     <p class="firmware-rollout-note">Autopilot plans a rollout whenever updates are waiting, books it into the site's quietest window, and tells you <strong>@_settings.NotifyHoursAhead hours</strong> ahead so you can postpone with one click.</p>
-                    @if (AutoUpdaterList() is string autoUpdaters)
-                    {
-                        <div class="alert alert-warning firmware-rollout-note">UniFi still updates @autoUpdaters on its own schedule. Turn that off first so two updaters never run at once.</div>
-                    }
+                    @AutoUpdateWarning
                     <div class="form-group firmware-rollout-inline">
                         <label class="form-label">Heads-up hours</label>
                         <input type="number" class="form-control firmware-rollout-num" min="1" max="168" @bind="_settings.NotifyHoursAhead" />
                     </div>
+                    <div class="form-group firmware-rollout-inline">
+                        <label class="form-label">Preferred day</label>
+                        <select class="form-control firmware-rollout-select" value="@(PreferredDay?.ToString() ?? "")" @onchange="SetPreferredDay">
+                            <option value="">Quietest window</option>
+                            @for (var d = 0; d < 7; d++)
+                            {
+                                <option value="@d">@((DayOfWeek)d)</option>
+                            }
+                        </select>
+                    </div>
+                    @if (PreferredDay != null)
+                    {
+                        <div class="form-group firmware-rollout-inline">
+                            <label class="form-label">Preferred hour</label>
+                            <select class="form-control firmware-rollout-select" value="@_settings.FixedHour" @onchange="SetPreferredHour">
+                                @for (var h = 0; h < 24; h++)
+                                {
+                                    <option value="@h">@HourLabel(h)</option>
+                                }
+                            </select>
+                            @if (SiteZoneDiffers)
+                            {
+                                <small class="form-help">In the site's own time zone.</small>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_settings.FixedWindowFlexible" />
+                                <span>Flexible</span>
+                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Autopilot can start up to 3 hours before or after this time when a nearby hour is quieter.">?</span>
+                            </label>
+                        </div>
+                    }
                 }
 
                 <div class="form-group">
@@ -371,6 +423,7 @@ else if (_wizardOpen)
                 {
                     <div class="alert alert-warning firmware-rollout-note">@warning</div>
                 }
+                @AutoUpdateWarning
                 @foreach (var notice in _preview.Notices)
                 {
                     <div class="alert alert-info firmware-rollout-note">@notice</div>
@@ -907,7 +960,17 @@ else
         {
             await InvokeAsync(async () =>
             {
-                if (_settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
+                // An open wizard re-reads too: what the Console exposes depends on how it is
+                // connected (an API key cannot read UniFi OS or the Network app), so a switch
+                // made while the wizard is open would otherwise leave it on the old answer.
+                if (_wizardOpen && _settings != null && !_busy)
+                {
+                    _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), pin: _wizardPin);
+                    _wizardError = null;
+                    if (_step == 3) _vizMode = null;
+                    StateHasChanged();
+                }
+                else if (!_wizardOpen && _settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
                 {
                     _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
                     StateHasChanged();
@@ -1084,6 +1147,7 @@ else
         _wizardError = null;
         _wizardPin = null;
         _replacesPlanId = null;
+        _autoUpdateNotice = null;
         StateHasChanged();
         try
         {
@@ -1301,22 +1365,128 @@ else
         _ = DisposeVizAsync();
     }
 
-    /// <summary>The UniFi auto-updaters that are on, or null when none are.</summary>
-    private string? AutoUpdaterList()
-    {
-        var on = new List<string>();
-        if (_preview?.ConsoleAutoUpgradeEnabled == true) on.Add("devices");
-        if (_preview?.ConsoleAppsAutoUpdateEnabled == true) on.Add("the UniFi Network application");
-        if (_preview?.ConsoleOsAutoUpdateEnabled == true) on.Add("UniFi OS");
+    // ---- UniFi auto-update ----
 
-        return on.Count switch
+    /// <summary>Set after a turn-off, naming what was turned off; cleared when the wizard opens.</summary>
+    private string? _autoUpdateNotice;
+
+    /// <summary>
+    /// The warning about UniFi's own auto-updates, identical in every wizard step. It names only
+    /// the layers this rollout covers, as the wizard currently shows them.
+    /// </summary>
+    private RenderFragment AutoUpdateWarning => __builder =>
+    {
+        if (_autoUpdateNotice != null)
         {
-            0 => null,
-            1 => on[0],
-            2 => $"{on[0]} and {on[1]}",
-            _ => $"{string.Join(", ", on.Take(on.Count - 1))}, and {on[^1]}",
+            <div class="alert alert-success firmware-rollout-note">@_autoUpdateNotice</div>
+        }
+        var on = InScopeAutoUpdaters();
+        if (on != UniFiAutoUpdateLayers.None)
+        {
+            <div class="alert alert-warning firmware-rollout-note firmware-rollout-drift-note">
+                <span>UniFi also updates @LayerList(on) on its own schedule, which can collide with a rollout.</span>
+                <SiteAdminOnly>
+                    <button class="btn btn-sm btn-primary" @onclick="TurnOffAutoUpdateAsync" disabled="@_busy">Turn Off</button>
+                </SiteAdminOnly>
+            </div>
+        }
+    };
+
+    /// <summary>The UniFi auto-update layers that are on and that this rollout covers.</summary>
+    private UniFiAutoUpdateLayers InScopeAutoUpdaters()
+    {
+        if (_preview == null || _settings == null) return UniFiAutoUpdateLayers.None;
+
+        var on = UniFiAutoUpdateLayers.None;
+        if (_preview.ConsoleAutoUpgradeEnabled && _preview.Devices.Any(d => !IsExcluded(d)))
+            on |= UniFiAutoUpdateLayers.Devices;
+        if (_preview.ConsoleAppsAutoUpdateEnabled && _settings.IncludeUniFiNetwork)
+            on |= UniFiAutoUpdateLayers.NetworkApplication;
+        if (_preview.ConsoleOsAutoUpdateEnabled && _settings.IncludeUniFiOs && _preview.HasCloudGateway)
+            on |= UniFiAutoUpdateLayers.UniFiOs;
+        return on;
+    }
+
+    private static string LayerList(UniFiAutoUpdateLayers layers)
+    {
+        var names = new List<string>();
+        if (layers.HasFlag(UniFiAutoUpdateLayers.Devices)) names.Add("devices");
+        if (layers.HasFlag(UniFiAutoUpdateLayers.NetworkApplication)) names.Add("the UniFi Network application");
+        if (layers.HasFlag(UniFiAutoUpdateLayers.UniFiOs)) names.Add("UniFi OS");
+
+        return names.Count switch
+        {
+            1 => names[0],
+            2 => $"{names[0]} and {names[1]}",
+            _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
         };
     }
+
+    private async Task TurnOffAutoUpdateAsync()
+    {
+        var requested = InScopeAutoUpdaters();
+        if (requested == UniFiAutoUpdateLayers.None || _preview == null) return;
+
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var off = await RolloutService.TurnOffUniFiAutoUpdateAsync(requested);
+
+            // What turned off stops being warned about; a layer that failed keeps its warning.
+            if (off.HasFlag(UniFiAutoUpdateLayers.Devices)) _preview.ConsoleAutoUpgradeEnabled = false;
+            if (off.HasFlag(UniFiAutoUpdateLayers.NetworkApplication)) _preview.ConsoleAppsAutoUpdateEnabled = false;
+            if (off.HasFlag(UniFiAutoUpdateLayers.UniFiOs)) _preview.ConsoleOsAutoUpdateEnabled = false;
+            if (off != UniFiAutoUpdateLayers.None)
+                _autoUpdateNotice = $"Turned off UniFi auto-update for {LayerList(off)}.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Turning off UniFi auto-update failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Preferred time ----
+
+    /// <summary>The preferred day, or null when Autopilot picks the quietest window itself.</summary>
+    private int? PreferredDay =>
+        _settings?.AutopilotWindowMode == FirmwareAutopilotWindowMode.Fixed ? _settings.FixedDayOfWeek : null;
+
+    private void SetPreferredDay(ChangeEventArgs e)
+    {
+        if (_settings == null) return;
+
+        if (int.TryParse(e.Value?.ToString(), out var day) && day is >= 0 and <= 6)
+        {
+            _settings.AutopilotWindowMode = FirmwareAutopilotWindowMode.Fixed;
+            _settings.FixedDayOfWeek = day;
+            _settings.FixedHour ??= DefaultPreferredHour;
+            return;
+        }
+
+        _settings.AutopilotWindowMode = FirmwareAutopilotWindowMode.Auto;
+        _settings.FixedDayOfWeek = null;
+        _settings.FixedHour = null;
+        _settings.FixedWindowFlexible = false;
+    }
+
+    private void SetPreferredHour(ChangeEventArgs e)
+    {
+        if (_settings != null && int.TryParse(e.Value?.ToString(), out var hour) && hour is >= 0 and <= 23)
+            _settings.FixedHour = hour;
+    }
+
+    /// <summary>Where the hour starts when a day is first picked: the small hours, like the defaults.</summary>
+    private const int DefaultPreferredHour = 2;
+
+    private static string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString("h tt");
+
+    /// <summary>Whether the site keeps different hours from this server, so a site-local hour needs saying.</summary>
+    private bool SiteZoneDiffers => SiteAside(DateTime.UtcNow).Length > 0;
 
     private string CommitLabel => _scheduleMode switch
     {
@@ -1346,8 +1516,9 @@ else
                     await RolloutService.StartNowAsync(settings, overrideHealthGate: true, pin: _wizardPin);
                     break;
                 case "autopilot":
-                    settings.Mode = FirmwareRolloutMode.Autopilot;
-                    await RolloutService.SaveSettingsAsync(settings);
+                    // The capturing save: Autopilot plans from the snapshot, so a plain save would
+                    // leave a site that ran Autopilot before planning from its old configuration.
+                    await RolloutService.SaveAutopilotSettingsAsync(settings);
                     break;
                 default:
                     settings.Mode = FirmwareRolloutMode.ManualOnly;
@@ -1799,11 +1970,47 @@ else
     /// Postpone moves a start time by a fixed step and says nothing on its own, so a click that
     /// worked and a click that did nothing look identical - which is how one turns into several.
     /// </summary>
-    private async Task PostponeAsync()
+    private Task PostponeAsync() => MoveStartAsync(RolloutService.PostponeAsync, "Postponed");
+
+    /// <summary>Advance is offered only while moving a day earlier still leaves the start in the future.</summary>
+    private bool CanAdvance => _active?.ScheduledStartAt is { } at && at - DateTime.UtcNow > TimeSpan.FromHours(24);
+
+    private Task AdvanceAsync() => MoveStartAsync(RolloutService.AdvanceAsync, "Moved earlier");
+
+    /// <summary>
+    /// Runs a start-time change and says where the start landed. Silent when it did not move: the
+    /// control failed or was refused, and a notice would claim otherwise.
+    /// </summary>
+    private async Task MoveStartAsync(Func<int, CancellationToken, Task> action, string done)
     {
-        await ControlAsync(RolloutService.PostponeAsync);
-        if (_active?.ScheduledStartAt is { } at)
-            _controlNotice = $"Postponed. The rollout now starts {LocalTime(at)}.";
+        _showSetTime = false;
+        var before = _active?.ScheduledStartAt;
+        await ControlAsync(action);
+        if (_active?.ScheduledStartAt is { } at && at != before)
+            _controlNotice = $"{done}. The rollout now starts {LocalTime(at)}.";
+    }
+
+    private bool _showSetTime;
+
+    /// <summary>The picked start, in this server's clock like every time shown on the page.</summary>
+    private DateTime _setTimeLocal;
+
+    private string MinSetTime => DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+
+    private bool SetTimeValid => _setTimeLocal > DateTime.Now;
+
+    private void ToggleSetTime()
+    {
+        _showSetTime = !_showSetTime;
+        if (_showSetTime && _active?.ScheduledStartAt is { } at)
+            _setTimeLocal = DateTime.SpecifyKind(at, DateTimeKind.Utc).ToLocalTime();
+    }
+
+    private Task ApplySetTimeAsync()
+    {
+        if (!SetTimeValid) return Task.CompletedTask;
+        var startUtc = DateTime.SpecifyKind(_setTimeLocal, DateTimeKind.Local).ToUniversalTime();
+        return MoveStartAsync((id, ct) => RolloutService.RescheduleAsync(id, startUtc, ct), "Rescheduled");
     }
 
     private async Task ControlAsync(Func<int, CancellationToken, Task> action)

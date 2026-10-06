@@ -74,6 +74,7 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
                 existing.AutopilotWindowMode = settings.AutopilotWindowMode;
                 existing.FixedDayOfWeek = settings.FixedDayOfWeek;
                 existing.FixedHour = settings.FixedHour;
+                existing.FixedWindowFlexible = settings.FixedWindowFlexible;
                 existing.NotifyHoursAhead = settings.NotifyHoursAhead;
                 existing.SoakHours = settings.SoakHours;
                 existing.MinReleaseAgeDays = settings.MinReleaseAgeDays;

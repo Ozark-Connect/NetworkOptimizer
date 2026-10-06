@@ -900,6 +900,34 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task MovingTheStart_UsesTheNewTimeAndSkipsTheReminderForIt()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(7), Step(ApMac));
+        await harness.BookedAtAsync(plan.Id, RolloutHarness.Start);
+        var moved = RolloutHarness.Start.AddDays(3);
+
+        (await harness.Orchestrator.MoveStartAsync(plan.Id, _ => moved)).Should().Be(moved);
+
+        // The user picked this start, so nothing reminds them of it.
+        await harness.TickAsync(TimeSpan.FromDays(3).Subtract(TimeSpan.FromMinutes(30)));
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.StartingSoon);
+    }
+
+    [Fact]
+    public async Task MovingTheStart_IntoThePast_IsRefused()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddHours(10), Step(ApMac));
+
+        var moved = await harness.Orchestrator.MoveStartAsync(plan.Id, current => current.AddHours(-24));
+
+        moved.Should().BeNull();
+    }
+
+    [Fact]
     public async Task PostponingARemindedPlan_RemindsAgainBeforeTheNewStart()
     {
         using var harness = new RolloutHarness();
