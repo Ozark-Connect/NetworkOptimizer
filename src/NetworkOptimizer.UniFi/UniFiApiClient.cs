@@ -59,6 +59,18 @@ public class UniFiApiClient : IDisposable
     private bool _isAuthenticated = false;
     private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
     private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>When the Console last rejected this client's password (401/403 on the login), or MinValue.</summary>
+    private DateTime _passwordRejectedAt = DateTime.MinValue;
+
+    /// <summary>
+    /// How often a rejected password is tried again. Sized to stay far under a Console's failed-login
+    /// lockout, so a changed password never locks the account before the new one is saved.
+    /// </summary>
+    public static readonly TimeSpan RejectedPasswordRetryInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether this client's last login was refused because of its password.</summary>
+    public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -416,6 +428,15 @@ public class UniFiApiClient : IDisposable
                 }
             }
 
+            // Every call that finds the session gone signs in again. With a password the Console has
+            // rejected, that is a failed login per call, which locks the account and then refuses the
+            // new password too. A rejected password is retried once per interval instead.
+            if (DateTime.UtcNow - _passwordRejectedAt < RejectedPasswordRetryInterval)
+            {
+                _logger.LogDebug("Skipping login to {Url}: its password was rejected at {RejectedAt:u}", _controllerUrl, _passwordRejectedAt);
+                return false;
+            }
+
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
 
             // Reset client to clear old cookies
@@ -458,9 +479,13 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    _passwordRejectedAt = DateTime.UtcNow;
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
+
+            _passwordRejectedAt = DateTime.MinValue;
 
             // Extract CSRF token from response headers
             if (response.Headers.TryGetValues("X-Csrf-Token", out var csrfTokens))
@@ -2935,7 +2960,7 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// GET rest/setting - whether UniFi's own nightly device auto-upgrade is on. Null when it
-    /// cannot be read. Read only: the `mgmt` section carries SSH credentials and is never written.
+    /// cannot be read.
     /// </summary>
     [VendorSpecific("UniFi", "rest/setting mgmt section")]
     public async Task<bool?> GetDeviceAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
@@ -2948,6 +2973,34 @@ public class UniFiApiClient : IDisposable
         }
 
         return UniFiMgmtSettings.FromSettingsResponse(settings)?.AutoUpgrade;
+    }
+
+    /// <summary>
+    /// POST set/setting/mgmt - turns UniFi's own nightly device auto-upgrade on or off. The body
+    /// names only `auto_upgrade`, never the rest of the section, which carries SSH credentials.
+    /// </summary>
+    /// <param name="enabled">Whether UniFi upgrades devices on its own schedule.</param>
+    [VendorSpecific("UniFi", "set/setting/mgmt auto_upgrade-only partial write")]
+    public async Task<bool> SetDeviceAutoUpgradeAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        var body = UniFiMgmtSettings.BuildAutoUpgradeWriteBody(enabled);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath($"set/setting/{UniFiMgmtSettings.SettingKey}"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Set device auto-upgrade for site {Site} to {Enabled}", _site, enabled);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to set device auto-upgrade for site {Site} to {Enabled}", _site, enabled);
+        return false;
     }
 
     /// <summary>
@@ -3194,6 +3247,59 @@ public class UniFiApiClient : IDisposable
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to set console update channels: {StatusCode} - {Error}",
                 response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// PATCH /api/system - turns off one console auto-update schedule: UniFi OS or the UniFi
+    /// Network application. Console-level, so it does NOT go through /proxy/network, and an API-key
+    /// connection cannot reach it.
+    /// </summary>
+    /// <param name="scheduleKey"><see cref="UniFiConsoleAutoUpdateRequest.UniFiOs"/> or <see cref="UniFiConsoleAutoUpdateRequest.NetworkApplication"/>.</param>
+    [VendorSpecific("UniFi", "console-level PATCH /api/system autoUpdates")]
+    public async Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scheduleKey);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/system";
+        var payload = JsonSerializer.Serialize(UniFiConsoleAutoUpdateRequest.BuildDisable(scheduleKey));
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PatchAsync(
+                url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} turning off the {Schedule} auto-update, re-authenticating...",
+                    response.StatusCode, scheduleKey);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while turning off the {Schedule} auto-update", scheduleKey);
+                    return false;
+                }
+
+                response = await _httpClient!.PatchAsync(
+                    url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Turned off the console's {Schedule} auto-update", scheduleKey);
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to turn off the console's {Schedule} auto-update: {StatusCode} - {Error}",
+                scheduleKey, response.StatusCode, error);
             return false;
         });
     }

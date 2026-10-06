@@ -174,6 +174,24 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(AutoUpgradeEnabled);
 
+    /// <summary>Whether each auto-update turn-off is accepted, keyed by "devices" or the schedule key.</summary>
+    public Dictionary<string, bool> AutoUpdateDisableAccepted { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Auto-update turn-offs, in order: "devices" or the console schedule key.</summary>
+    public List<string> AutoUpdateDisables { get; } = [];
+
+    public Task<bool> DisableDeviceAutoUpgradeAsync(CancellationToken cancellationToken = default)
+    {
+        AutoUpdateDisables.Add("devices");
+        return Task.FromResult(AutoUpdateDisableAccepted.GetValueOrDefault("devices", true));
+    }
+
+    public Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    {
+        AutoUpdateDisables.Add(scheduleKey);
+        return Task.FromResult(AutoUpdateDisableAccepted.GetValueOrDefault(scheduleKey, true));
+    }
+
     public Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
         ChannelWrites.Add(channel);

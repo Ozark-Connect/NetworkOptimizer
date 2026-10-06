@@ -252,7 +252,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
-        // The wizard's "Autopilot on" lands here, not in SaveAutopilotSettingsAsync.
+        // Any save that leaves the site on Autopilot gets a fresh look, not only the capturing one.
         if (settings.Mode == FirmwareRolloutMode.Autopilot)
             await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
@@ -419,6 +419,52 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
         _audit.SetDetails(new { planId, startAt = plan?.ScheduledStartAt });
     }
+
+    /// <inheritdoc />
+    public async Task AdvanceAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var start = await _orchestrator.MoveStartAsync(planId, current => current - AdvanceStep, cancellationToken)
+            ?? throw new InvalidOperationException("Only a rollout starting more than 24 hours from now can be moved a day earlier.");
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId, startAt = start, advanced = true });
+    }
+
+    /// <inheritdoc />
+    public async Task RescheduleAsync(int planId, DateTime startAtUtc, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var requested = DateTime.SpecifyKind(startAtUtc, DateTimeKind.Utc);
+        var start = await _orchestrator.MoveStartAsync(planId, _ => requested, cancellationToken)
+            ?? throw new InvalidOperationException("Pick a time in the future for a rollout that has not started yet.");
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId, startAt = start });
+    }
+
+    /// <inheritdoc />
+    public async Task<UniFiAutoUpdateLayers> TurnOffUniFiAutoUpdateAsync(
+        UniFiAutoUpdateLayers layers, CancellationToken cancellationToken = default)
+    {
+        var off = UniFiAutoUpdateLayers.None;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.Devices)
+            && await _commands.DisableDeviceAutoUpgradeAsync(cancellationToken))
+            off |= UniFiAutoUpdateLayers.Devices;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.NetworkApplication)
+            && await _commands.DisableConsoleAutoUpdateAsync(UniFiConsoleAutoUpdateRequest.NetworkApplication, cancellationToken))
+            off |= UniFiAutoUpdateLayers.NetworkApplication;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.UniFiOs)
+            && await _commands.DisableConsoleAutoUpdateAsync(UniFiConsoleAutoUpdateRequest.UniFiOs, cancellationToken))
+            off |= UniFiAutoUpdateLayers.UniFiOs;
+
+        _audit.SetTarget("unifi_auto_update", "UniFi auto-update");
+        _audit.SetDetails(new { requested = layers.ToString(), turnedOff = off.ToString() });
+        return off;
+    }
+
+    /// <summary>How far Advance moves a start: one day, the mirror of Postpone.</summary>
+    private static readonly TimeSpan AdvanceStep = TimeSpan.FromHours(24);
 
     /// <inheritdoc />
     public async Task<bool> RollbackStepAsync(int stepId, CancellationToken cancellationToken = default)
@@ -655,23 +701,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 : $"You're all up to date. Turn on Autopilot in the Schedule step to have it manage {covers} automatically.");
         }
 
-        // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
-        var autoUpdaters = new List<string>();
-        if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("devices");
-        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the UniFi Network application");
-        if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("UniFi OS");
-        if (autoUpdaters.Count > 0)
-        {
-            var list = autoUpdaters.Count switch
-            {
-                1 => autoUpdaters[0],
-                2 => $"{autoUpdaters[0]} and {autoUpdaters[1]}",
-                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))}, and {autoUpdaters[^1]}",
-            };
-            preview.Warnings.Add(
-                $"UniFi updates {list} on its own schedule. Rollouts still run; turning that off rules " +
-                "out the rare case where both update at once.");
-        }
+        // The UniFi auto-update warning is not added here: it names only the layers in the scope
+        // the wizard currently shows, which changes on the page without a new preview.
 
         if (!preview.ConsoleApiAvailable)
         {

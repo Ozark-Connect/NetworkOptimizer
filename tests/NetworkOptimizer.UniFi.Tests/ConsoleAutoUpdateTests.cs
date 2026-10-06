@@ -65,4 +65,21 @@ public class ConsoleAutoUpdateTests
         Parse("""{"firmware":{"autoUpdate":{"schedule":null}}}""")
             .Firmware!.AutoUpdate!.IsScheduled.Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData(UniFiConsoleAutoUpdateRequest.UniFiOs)]
+    [InlineData(UniFiConsoleAutoUpdateRequest.NetworkApplication)]
+    public void TurningOffASchedule_SendsTheConsoleUisOwnShape(string scheduleKey)
+    {
+        JsonSerializer.Serialize(UniFiConsoleAutoUpdateRequest.BuildDisable(scheduleKey)).Should().Be(
+            "{\"autoUpdates\":{\"useApplicationSchedules\":true,\"schedules\":{\"" + scheduleKey + "\":null}}}");
+    }
+
+    [Fact]
+    public void TurningOffDeviceAutoUpgrade_NamesOnlyThatField()
+    {
+        // The mgmt section carries SSH credentials; the body must never grow past this.
+        JsonSerializer.Serialize(UniFiMgmtSettings.BuildAutoUpgradeWriteBody(false))
+            .Should().Be("""{"key":"mgmt","auto_upgrade":false}""");
+    }
 }

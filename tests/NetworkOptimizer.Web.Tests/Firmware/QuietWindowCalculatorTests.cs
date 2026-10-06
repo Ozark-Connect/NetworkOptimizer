@@ -160,11 +160,95 @@ public class QuietWindowCalculatorTests
     {
         var proposal = QuietWindowCalculator.Fallback(SiteUsageProfile.Business, MondayNoon, TimeSpan.Zero);
 
-        proposal.Day.Should().Be(DayOfWeek.Sunday);
+        proposal.Day.Should().Be(DayOfWeek.Saturday);
         proposal.Hour.Should().Be(4);
         proposal.UsedFallback.Should().BeTrue();
         proposal.Basis.Should().Contain("business-profile");
-        proposal.StartLocal.Should().Be(new DateTime(2026, 8, 23, 4, 0, 0, DateTimeKind.Unspecified));
+        proposal.StartLocal.Should().Be(new DateTime(2026, 8, 22, 4, 0, 0, DateTimeKind.Unspecified));
+    }
+
+    [Theory]
+    [InlineData(DayOfWeek.Sunday, 15, 4, false)]   // finishes 7 PM: the grace covers it
+    [InlineData(DayOfWeek.Sunday, 15, 5, true)]    // still running at 8 PM
+    [InlineData(DayOfWeek.Sunday, 16, 2, false)]
+    [InlineData(DayOfWeek.Sunday, 17, 1, true)]    // starts inside the window
+    [InlineData(DayOfWeek.Monday, 8, 1, true)]
+    [InlineData(DayOfWeek.Monday, 9, 1, false)]    // the window has ended
+    [InlineData(DayOfWeek.Saturday, 4, 39, false)] // finishes Sunday 7 PM
+    [InlineData(DayOfWeek.Saturday, 4, 40, true)]  // runs into the next week's Sunday evening
+    [InlineData(DayOfWeek.Saturday, 23, 1, false)]
+    public void HitsMondayGuard_BlocksStartsInTheWindowAndRunsPastSundaySeven(
+        DayOfWeek day, int hour, int durationHours, bool expected)
+    {
+        QuietWindowCalculator.HitsMondayGuard(Bucket(day, hour), durationHours * 3600).Should().Be(expected);
+    }
+
+    [Fact]
+    public void FindBest_MondayGuard_SkipsTheQuietestHourWhenItIsSundayNight()
+    {
+        var busy = Uniform(0.5);
+        busy[Bucket(DayOfWeek.Sunday, 22)] = 0.0;
+        busy[Bucket(DayOfWeek.Wednesday, 3)] = 0.1;
+
+        QuietWindowCalculator.FindBest(busy, 3600, MondayNoon, TimeSpan.Zero)
+            .Should().Match<QuietWindowProposal>(p => p.Day == DayOfWeek.Sunday && p.Hour == 22);
+
+        var guarded = QuietWindowCalculator.FindBest(busy, 3600, MondayNoon, TimeSpan.Zero, avoidMondayMorning: true);
+        guarded.Day.Should().Be(DayOfWeek.Wednesday);
+        guarded.Hour.Should().Be(3);
+    }
+
+    [Fact]
+    public void FindBest_MondayGuard_StillProposesWhenEveryStartIsBlocked()
+    {
+        // A rollout this long reaches a Sunday evening from any start.
+        var proposal = QuietWindowCalculator.FindBest(Uniform(0.0), 170 * 3600, MondayNoon, TimeSpan.Zero, avoidMondayMorning: true);
+
+        proposal.StartLocal.Should().NotBe(default);
+    }
+
+    [Fact]
+    public void FindNear_PicksTheQuietestHourWithinThreeHours()
+    {
+        var busy = Uniform(0.5);
+        busy[Bucket(DayOfWeek.Tuesday, 4)] = 0.0;  // inside the band
+        busy[Bucket(DayOfWeek.Tuesday, 9)] = 0.0;  // quieter-equal, but outside it
+
+        var proposal = QuietWindowCalculator.FindNear(busy, 3600, DayOfWeek.Tuesday, 2, MondayNoon, TimeSpan.Zero, avoidMondayMorning: false);
+
+        proposal.Day.Should().Be(DayOfWeek.Tuesday);
+        proposal.Hour.Should().Be(4);
+        proposal.Basis.Should().Contain("moved");
+    }
+
+    [Fact]
+    public void FindNear_EvenBand_KeepsThePreferredHour()
+    {
+        var proposal = QuietWindowCalculator.FindNear(Uniform(0.3), 3600, DayOfWeek.Tuesday, 2, MondayNoon, TimeSpan.Zero, avoidMondayMorning: false);
+
+        proposal.Hour.Should().Be(2);
+        proposal.Basis.Should().Be("your preferred time");
+    }
+
+    [Fact]
+    public void FindNear_StaysOutOfTheMondayGuard()
+    {
+        var busy = Uniform(0.5);
+        busy[Bucket(DayOfWeek.Sunday, 17)] = 0.0;
+
+        var proposal = QuietWindowCalculator.FindNear(busy, 3600, DayOfWeek.Sunday, 14, MondayNoon, TimeSpan.Zero, avoidMondayMorning: true);
+
+        proposal.Day.Should().Be(DayOfWeek.Sunday);
+        proposal.Hour.Should().BeLessThan(17);
+    }
+
+    [Fact]
+    public void FindNear_WholeBandBlocked_UsesThePreferredTimeAsSet()
+    {
+        var proposal = QuietWindowCalculator.FindNear(Uniform(0.0), 3600, DayOfWeek.Sunday, 21, MondayNoon, TimeSpan.Zero, avoidMondayMorning: true);
+
+        proposal.Day.Should().Be(DayOfWeek.Sunday);
+        proposal.Hour.Should().Be(21);
     }
 
     [Fact]
