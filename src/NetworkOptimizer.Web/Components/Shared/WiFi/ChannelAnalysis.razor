@@ -220,10 +220,21 @@
                         }
                         else if (!plan.Recommendations.Any(r => r.IsChanged))
                         {
-                            <div class="channel-stat-card">
-                                <div class="channel-stat-value score-excellent">Optimal</div>
-                                <div class="channel-stat-label">No changes needed</div>
-                            </div>
+                            @* A soaking radio is held where it is, so "Optimal" would claim what is not measured yet. *@
+                            @if (plan.Recommendations.Any(r => r.IsSoaking))
+                            {
+                                <div class="channel-stat-card">
+                                    <div class="channel-stat-value">Soaking</div>
+                                    <div class="channel-stat-label">Judging recent moves</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="channel-stat-card">
+                                    <div class="channel-stat-value score-excellent">Optimal</div>
+                                    <div class="channel-stat-label">No changes needed</div>
+                                </div>
+                            }
                         }
                     </div>
 
