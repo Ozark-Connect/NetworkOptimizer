@@ -13015,9 +13015,18 @@ a.path-hop.hop-clickable:hover {
 
 .rec-channels-col {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
+}
+
+/* A width reason or a move's measurement sits on its own line under the channels. */
+.rec-channels-col .rec-move-note {
+    flex-basis: 100%;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
 }
 
 /* Responsive Channel Analysis */
