@@ -641,7 +641,7 @@
             function safeReload() {
                 if (reloading) return;
                 reloading = true;
-                location.reload();
+                window.scrollRestoration.reload();
             }
 
             // Endless-spinner safety hatch. Blazor can sit in the "reconnecting" state
@@ -781,7 +781,7 @@
                 if (blazorHandlingDrop()) {
                     while (Date.now() < deadline) {
                         if (!blazorHandlingDrop()) break;
-                        if (await serverIsUp()) { location.reload(); return; }
+                        if (await serverIsUp()) { window.scrollRestoration.reload(); return; }
                         await new Promise(r => setTimeout(r, 1000));
                     }
                     return;
@@ -792,7 +792,7 @@
                 // on a circuit that's about to work.
                 while (Date.now() < deadline) {
                     if (blazorHandlingDrop()) {
-                        if (await serverIsUp()) location.reload();
+                        if (await serverIsUp()) window.scrollRestoration.reload();
                         return;
                     }
                     if (await circuitAlive()) return;
@@ -800,7 +800,7 @@
                 }
                 // Still no circuit and no modal - server may be down. Reload
                 // only if it answers; otherwise we'd strand on a blank page.
-                if (await serverIsUp()) location.reload();
+                if (await serverIsUp()) window.scrollRestoration.reload();
             });
         })();
     </script>
