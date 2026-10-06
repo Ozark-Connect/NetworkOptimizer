@@ -879,7 +879,7 @@ public class UniFiDiscovery
         }
 
         // If the gateway-class device has an uplink to another UniFi device,
-        // it's acting as a mesh AP, not the network gateway (UDR/UX have integrated APs)
+        // it's adopted as an AP, not the network gateway (an Express: UX, UX7)
         if (hasUplinkToUniFiDevice)
         {
             logger.LogInformation(
@@ -894,7 +894,7 @@ public class UniFiDiscovery
     /// <summary>
     /// Gets the effective device type for a device, considering uplink topology.
     /// Use this when you have a list of devices and need to determine the correct
-    /// type for each (e.g., UDR/UX devices with integrated APs acting as mesh APs).
+    /// type for each (e.g., an Express (UX, UX7) adopted as an AP).
     ///
     /// DEPRECATED: Prefer using GetDiscoveredDevicesAsync() which returns DiscoveredDevice
     /// with Type already set to the effective type.
@@ -973,7 +973,7 @@ public class DiscoveredDevice
 
     /// <summary>
     /// The effective device type considering network topology.
-    /// For UDR/UX devices with integrated APs acting as mesh APs, this will be AccessPoint.
+    /// For an Express (UX, UX7) adopted as an AP, this will be AccessPoint.
     /// </summary>
     public DeviceType Type { get; set; }
 
