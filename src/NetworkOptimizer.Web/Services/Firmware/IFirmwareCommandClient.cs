@@ -195,9 +195,14 @@ public interface IFirmwareCommandClient
     bool UsesApiKey { get; }
 
     /// <summary>
-    /// SSH fallback: install a UniFi Network application .deb on the gateway via
-    /// <c>curl</c> + <c>apt-get install</c>. The gateway host is resolved from the controller URL.
+    /// SSH: starts a detached install of a UniFi Network application .deb on the gateway (<c>curl</c>,
+    /// the companions its Depends names, then <c>apt-get install</c>) and returns once it is running.
+    /// <see cref="ReadSshNetworkInstallLogAsync"/> says how it ended. The gateway host is resolved
+    /// from the controller URL.
     /// </summary>
+    /// <param name="debUrl">The Network package.</param>
+    /// <param name="companionUrls">Packages it was released with; only those its Depends names are fetched.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default);
 
     /// <summary>

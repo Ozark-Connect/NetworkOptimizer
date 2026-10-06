@@ -1188,7 +1188,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
             else if (pinnedNewer)
             {
-                state.Error = "No download link for this build.";
+                state.Error = "No download link is known for this build.";
             }
 
             state.Settled = true;
@@ -1213,7 +1213,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
 
             _logger.LogWarning("API trigger refused the Network app update on site {Site}", _siteSlug);
-            if (state.Pinned) state.Error = "The Console refused its own update.";
+            if (state.Pinned) state.Error = "The Console did not accept the update command.";
         }
         else
         {
@@ -1263,6 +1263,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         else
             _logger.LogInformation(
                 "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+    }
+
+    private static readonly TimeSpan InstallLogReadInterval = TimeSpan.FromMinutes(1);
+    private DateTime _lastInstallLogRead = DateTime.MinValue;
+
+    private Task<NetworkInstallLog?> ReadInstallLogAsync(CancellationToken cancellationToken)
+    {
+        _lastInstallLogRead = Now;
+        return _commands.ReadSshNetworkInstallLogAsync(cancellationToken);
     }
 
     /// <summary>The packages the Network package at <paramref name="url"/> was released with, from the catalog.</summary>
@@ -1332,9 +1341,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return false;
 
         // An SSH install runs detached on the console; one that ended on a failure (a package that
-        // would not download or install) has nothing left to wait for, and its log says why.
-        if (state.ViaSsh && !consoleDark
-            && await _commands.ReadSshNetworkInstallLogAsync(cancellationToken) is { ExitCode: > 0 } failedInstall)
+        // would not download or install) has nothing left to wait for, and its log says why. Read
+        // once a minute: the install takes minutes, and every read is an SSH session.
+        if (state.ViaSsh && !consoleDark && Now - _lastInstallLogRead >= InstallLogReadInterval
+            && await ReadInstallLogAsync(cancellationToken) is { ExitCode: > 0 } failedInstall)
         {
             state.Settled = true;
             state.Outcome = "refused";
