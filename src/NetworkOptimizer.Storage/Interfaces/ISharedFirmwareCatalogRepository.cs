@@ -71,4 +71,20 @@ public interface ISharedFirmwareCatalogRepository
     /// <summary>Every known UniFi OS build. Empty when the catalog cannot be read.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<List<SharedUniFiOsBuild>> ListUniFiOsBuildsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Every known UniFi Network build. Empty when the catalog cannot be read.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<List<SharedNetworkAppBuild>> ListNetworkAppBuildsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records Network packages with their real URLs, one per platform and version. A row already
+    /// known keeps its first-seen time and takes the newer URL.
+    /// </summary>
+    /// <param name="packages">Packages seen.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task UpsertNetworkAppPackagesAsync(IReadOnlyList<SharedNetworkAppPackage> packages, CancellationToken cancellationToken = default);
+
+    /// <summary>Every known Network package. Empty when the catalog cannot be read.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<List<SharedNetworkAppPackage>> ListNetworkAppPackagesAsync(CancellationToken cancellationToken = default);
 }

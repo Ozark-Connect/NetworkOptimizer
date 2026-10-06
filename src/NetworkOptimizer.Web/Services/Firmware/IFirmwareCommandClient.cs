@@ -195,10 +195,15 @@ public interface IFirmwareCommandClient
     bool UsesApiKey { get; }
 
     /// <summary>
-    /// SSH fallback: install a UniFi Network application .deb on the gateway via
-    /// <c>curl</c> + <c>apt-get install</c>. The gateway host is resolved from the controller URL.
+    /// SSH: starts a detached install of a UniFi Network application .deb on the gateway (<c>curl</c>,
+    /// the companions its Depends names, then <c>apt-get install</c>) and returns once it is running.
+    /// <see cref="ReadSshNetworkInstallLogAsync"/> says how it ended. The gateway host is resolved
+    /// from the controller URL.
     /// </summary>
-    Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default);
+    /// <param name="debUrl">The Network package.</param>
+    /// <param name="companionUrls">Packages it was released with; only those its Depends names are fetched.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// SSH fallback: install a UniFi OS firmware image on the gateway via
@@ -211,4 +216,27 @@ public interface IFirmwareCommandClient
     /// the console has not staged itself.
     /// </summary>
     Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: the console's Network package platform (<c>uos-deb13-arm64</c>) and every
+    /// Network package its own log shows it downloading, with the real URL. Early Access packages
+    /// are only discoverable this way. Null without gateway SSH, or when the console did not answer.
+    /// </summary>
+    Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: where the detached Network install that
+    /// <see cref="TriggerSshNetworkAppUpdateAsync"/> started stands. Null when it cannot be read.
+    /// </summary>
+    Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>Where a detached SSH Network install stands.</summary>
+/// <param name="ExitCode">The install script's exit code; null while it is still running.</param>
+/// <param name="Output">What it printed (curl and apt-get), for the reason when it failed.</param>
+public sealed record NetworkInstallLog(int? ExitCode, string Output);
+
+/// <summary>A console's Network package platform and the packages it has downloaded.</summary>
+/// <param name="Platform">Debian release and architecture, e.g. <c>uos-deb13-arm64</c>; null when unreadable.</param>
+/// <param name="Downloaded">Packages the console's log shows it downloading, platform and version from the URL.</param>
+public sealed record ConsoleNetworkPackages(string? Platform, IReadOnlyList<NetworkOptimizer.Storage.Models.SharedNetworkAppPackage> Downloaded);

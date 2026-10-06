@@ -220,6 +220,84 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
     }
 
     /// <inheritdoc />
+    public async Task<List<SharedNetworkAppBuild>> ListNetworkAppBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedNetworkAppBuilds.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi Network builds");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task UpsertNetworkAppPackagesAsync(
+        IReadOnlyList<SharedNetworkAppPackage> packages, CancellationToken cancellationToken = default)
+    {
+        var usable = packages
+            .Where(p => !string.IsNullOrWhiteSpace(p.Platform) && !string.IsNullOrWhiteSpace(p.Version) && !string.IsNullOrWhiteSpace(p.Url))
+            .GroupBy(p => (p.Platform.ToLowerInvariant(), p.Version))
+            .Select(g => g.Last())
+            .ToList();
+        if (usable.Count == 0) return;
+
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            var now = DateTime.UtcNow;
+            foreach (var package in usable)
+            {
+                var platform = package.Platform.ToLowerInvariant();
+                var existing = await db.SharedNetworkAppPackages.FindAsync([platform, package.Version], cancellationToken);
+                if (existing == null)
+                {
+                    db.SharedNetworkAppPackages.Add(new SharedNetworkAppPackage
+                    {
+                        Platform = platform,
+                        Version = package.Version,
+                        Url = package.Url,
+                        CompanionUrlsJson = package.CompanionUrlsJson,
+                        FirstSeenUtc = now,
+                        LastSeenUtc = now,
+                    });
+                }
+                else
+                {
+                    existing.Url = package.Url;
+                    if (!string.IsNullOrWhiteSpace(package.CompanionUrlsJson))
+                        existing.CompanionUrlsJson = package.CompanionUrlsJson;
+                    existing.LastSeenUtc = now;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record shared UniFi Network packages");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SharedNetworkAppPackage>> ListNetworkAppPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedNetworkAppPackages.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi Network packages");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<SharedFirmwareBuild?> FindNewerDeviceBuildAsync(
         string model, string channel, string? thanVersion, CancellationToken cancellationToken = default)
     {

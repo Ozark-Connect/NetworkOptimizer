@@ -266,7 +266,8 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public FirmwareCommandResult SshNetworkAppResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult SshUniFiOsResult { get; set; } = FirmwareCommandResult.Ok();
 
-    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default)
+    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(
+        string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-network-app-update");
         return Task.FromResult(SshNetworkAppResult);
@@ -286,6 +287,18 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(GatewaySshConfigured);
+
+    /// <summary>What the console's own log reports; null reads as no gateway SSH.</summary>
+    public ConsoleNetworkPackages? NetworkPackages { get; set; }
+
+    /// <summary>The detached SSH Network install's log; null reads as unreadable.</summary>
+    public NetworkInstallLog? SshNetworkInstallLog { get; set; }
+
+    public Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(SshNetworkInstallLog);
+
+    public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
+        Task.FromResult(NetworkPackages);
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>
