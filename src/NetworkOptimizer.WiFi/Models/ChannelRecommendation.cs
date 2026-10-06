@@ -170,6 +170,12 @@ public class ChannelPlan
     /// (e.g. 160 MHz where all bonding groups include DFS channels).
     /// </summary>
     public bool DfsAvoidanceNotPossible { get; set; }
+
+    /// <summary>
+    /// For each AP on the band (lowercase MAC), the APs that hear it. Null when the plan was not
+    /// built by the engine, in which case applying moves one AP at a time.
+    /// </summary>
+    public Dictionary<string, HashSet<string>>? HearingNeighbors { get; set; }
 }
 
 /// <summary>

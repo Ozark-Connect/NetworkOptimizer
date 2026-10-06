@@ -178,11 +178,12 @@ width-provenance rules so an unprovable width is recorded as unknown rather than
 half-life, where measured data wins over inferred wherever both exist. One deliberate ordering rule
 inside that: a resident sibling's LIVE read outranks stale own-outcome memory.
 
-Known ceiling, following from applying being out of scope (see "Applying a channel plan to UniFi"):
-the collector sees the resulting live channel and width, but nothing ties an observed state back to a
-specific recommendation - so the loop cannot tell a followed recommendation from a change the user
-made for their own reasons. Outcomes are still attributed correctly; only the "did our advice help"
-question stays out of reach.
+Known ceiling: the collector sees the resulting live channel and width, but nothing ties an observed
+state back to a specific recommendation, so the loop cannot tell a followed recommendation from a
+change the user made for their own reasons. Apply Recommended Channels (see "Applying a channel plan
+to UniFi") now makes some moves ours and audits them as `wifi.channel_plan.applied`; joining those
+moves to their outcomes is not wired. Outcomes are still attributed correctly; only the "did our
+advice help" question stays out of reach.
 
 Remaining:
 
@@ -254,38 +255,39 @@ stale reading actually being material and uncorroborated. **Do not re-implement 
     `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
     worth checking on large sites before they bite.
 
-## Applying a channel plan to UniFi (considered, deliberately out of scope for now)
+## Applying a channel plan to UniFi (shipped for radio channels; the rule still holds elsewhere)
 
-The recommendation ends at a plan the user applies by hand. That is a decision, not an oversight, and
-the reasoning generalises to any mutative config operation against UniFi Network - so it is recorded
-here rather than re-argued each time the question comes up.
+The recommendation used to end at a plan the user applied by hand, on purpose. The reasoning
+generalises to any mutative config operation against UniFi Network, so it stays recorded here:
 
-- **UniFi Network has no PATCH.** Every change is a full-config PUT/POST, so writing one field means
-  writing back the entire object - including the ~90% we have no intention of touching. Get any of
-  that wrong, or have the console change it concurrently, and the site's configuration is damaged.
-- **Their REST API has a history of bugs and loose form.** Parsing is not necessarily strict, and a
-  release can reinterpret or break a payload shape. On read-only calls that is harmless; on a
-  mutative call the same surprise can wipe an AP's configuration.
-- **The blast radius is the customer's network**, which is exactly the thing this tool exists to keep
-  healthy. Analysis that is wrong costs a bad recommendation; a write that is wrong costs an outage.
+- **Full-object writes.** A PUT that carries the whole object writes back the ~90% we never meant to
+  touch. Get any of that wrong, or have the console change it concurrently, and the site's
+  configuration is damaged.
+- **Their REST API has a history of bugs and loose form.** A release can reinterpret or break a
+  payload shape. On a read that is harmless; on a write it can wipe an AP's configuration.
+- **The blast radius is the customer's network.** A wrong analysis costs a bad recommendation; a
+  wrong write costs an outage.
 
-So today the only mutative controller operation reachable from the app is the RF quick scan
-(`POST .../cmd/devmgr`) - transient and self-contained rather than a config write, though note there
-is no cancel for a scan already running. No reachable feature rewrites a UniFi device or site
-configuration object.
+**Revisited 2026-10-06 for radio channels, which now ship as Apply Recommended Channels.** The first
+objection does not hold for `rest/device`: the console merges a PUT into the stored document, top-level
+keys by name and `radio_table` entries by radio `name`, and keeps every field not sent. Verified on a
+U7 Pro XGS with partial-body probes and a live channel move. So the write is
+`{"radio_table":[{"name","radio","channel","ht"}]}` for the radios being moved and nothing else:
+nothing read earlier is written back, which also means an edit made in UniFi Network between our read
+and our PUT survives. Each AP is re-read first and skipped if it is no longer on the plan's current
+channel. `GET rest/device` is a 404, so reads go through `stat/device`.
 
-Two full-object PUT helpers do exist on the client and are currently called by nothing:
-`UpdateNetworkConfigAsync` (`rest/networkconf`) and `UpdateTrafficRouteAsync` (`v2 trafficroutes`).
-Wiring either one up is exactly the step this section argues against, so it should be a deliberate
-decision rather than something that happens because a helper was already sitting there.
+Still open from that work: the PUT is verified on one model; API-key Console connections are untested
+for writes; a mesh child is not written (it follows its parent on the uplink band), which is untested
+on a real mesh pair.
 
-Everything else we change goes through our own SSH-deployed components, where we control the format
-and the rollback.
-
-Not a permanent no. Revisit when there is a safe path - e.g. read-modify-write with a verified
-round-trip, a diff against the fetched object before sending, and a way to detect concurrent
-modification. Until then, treat "we compute it, the user applies it" as the intended shape of any
-feature that would otherwise write to the controller.
+The rule still holds for every other object. The quick scan (`POST .../cmd/devmgr`) and the radio
+channel PUT are the only controller writes reachable from the app. Two full-object PUT helpers exist
+and are called by nothing: `UpdateNetworkConfigAsync` (`rest/networkconf`) and
+`UpdateTrafficRouteAsync` (`v2 trafficroutes`). Neither has been shown to merge a partial body, so
+wiring one up needs the same proof first: a partial-body probe that shows the console keeps what is
+not sent, then a body that carries only the fields being changed. Everything else we change goes
+through our own SSH-deployed components, where we control the format and the rollback.
 
 ## Wi-Fi Optimizer
 
