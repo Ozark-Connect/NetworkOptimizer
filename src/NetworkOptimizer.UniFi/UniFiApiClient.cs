@@ -59,6 +59,18 @@ public class UniFiApiClient : IDisposable
     private bool _isAuthenticated = false;
     private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
     private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>When the Console last rejected this client's password (401/403 on the login), or MinValue.</summary>
+    private DateTime _passwordRejectedAt = DateTime.MinValue;
+
+    /// <summary>
+    /// How often a rejected password is tried again. Sized to stay far under a Console's failed-login
+    /// lockout, so a changed password never locks the account before the new one is saved.
+    /// </summary>
+    public static readonly TimeSpan RejectedPasswordRetryInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether this client's last login was refused because of its password.</summary>
+    public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -416,6 +428,15 @@ public class UniFiApiClient : IDisposable
                 }
             }
 
+            // Every call that finds the session gone signs in again. With a password the Console has
+            // rejected, that is a failed login per call, which locks the account and then refuses the
+            // new password too. A rejected password is retried once per interval instead.
+            if (DateTime.UtcNow - _passwordRejectedAt < RejectedPasswordRetryInterval)
+            {
+                _logger.LogDebug("Skipping login to {Url}: its password was rejected at {RejectedAt:u}", _controllerUrl, _passwordRejectedAt);
+                return false;
+            }
+
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
 
             // Reset client to clear old cookies
@@ -458,9 +479,13 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    _passwordRejectedAt = DateTime.UtcNow;
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
+
+            _passwordRejectedAt = DateTime.MinValue;
 
             // Extract CSRF token from response headers
             if (response.Headers.TryGetValues("X-Csrf-Token", out var csrfTokens))

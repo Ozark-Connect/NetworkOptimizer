@@ -627,6 +627,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     private bool _awaitingAgent;
 
+    /// <summary>The saved username and password ciphertext the Console last rejected, or null.</summary>
+    private string? _rejectedSavedLogin;
+    private DateTime _rejectedSavedLoginAt;
+
     /// <summary>
     /// True when this site's console is reached through its agent tunnel and that tunnel
     /// isn't up yet - a transient "waiting for the agent" state, not a misconfiguration.
@@ -828,6 +832,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _lastError = null;
                 _consoleUnresponsive = false;
                 _lastConnectedAt = DateTime.UtcNow;
+                _rejectedSavedLogin = null;
 
                 // Save configuration to database
                 await SaveSettingsAsync(config);
@@ -898,6 +903,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             settings = await GetSettingsAsync();
             if (!settings.HasCredentials) return false;
 
+            // The automatic reconnects build a new client each time, so the client's own hold on a
+            // rejected password does not carry over; the same saved password waits here instead.
+            // A Save goes through ConnectAsync and is never held.
+            var savedLogin = settings.HasApiKey ? null : $"{settings.Username}|{settings.Password}";
+            if (savedLogin != null && savedLogin == _rejectedSavedLogin
+                && DateTime.UtcNow - _rejectedSavedLoginAt < UniFiApiClient.RejectedPasswordRetryInterval)
+            {
+                _logger.LogDebug("Not reconnecting site {Slug}: its saved password was rejected at {RejectedAt:u}", SiteSlug, _rejectedSavedLoginAt);
+                return false;
+            }
+
             // Decrypt credentials
             string? decryptedPassword = null;
             string? decryptedApiKey = null;
@@ -962,8 +978,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             var success = await _client.LoginAsync(cts.Token);
 
+            if (!success && _client.PasswordRejected)
+            {
+                _rejectedSavedLogin = savedLogin;
+                _rejectedSavedLoginAt = DateTime.UtcNow;
+            }
+
             if (success)
             {
+                _rejectedSavedLogin = null;
+
                 // Validate the site ID by making a site-specific call
                 var (siteValid, siteError) = await _client.ValidateSiteAsync(cts.Token);
                 if (!siteValid)
