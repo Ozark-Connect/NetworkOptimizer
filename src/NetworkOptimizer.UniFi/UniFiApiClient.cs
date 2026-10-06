@@ -1041,14 +1041,15 @@ public class UniFiApiClient : IDisposable
     /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
     /// <param name="radios">The radios to move.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The device as stored after the write (its <c>cfgversion</c> is the one written), or null when refused.</returns>
     /// <exception cref="UniFiPermissionException">The UniFi account cannot change device settings.</exception>
     [VendorSpecific("UniFi", "rest/device PUT; GET on rest/device returns 404, so reads go through stat/device")]
-    public async Task<bool> UpdateDeviceRadioChannelsAsync(
+    public async Task<UniFiDeviceResponse?> UpdateDeviceRadioChannelsAsync(
         string deviceId,
         IReadOnlyList<RadioChannelUpdate> radios,
         CancellationToken cancellationToken = default)
     {
-        if (radios.Count == 0) return true;
+        if (radios.Count == 0) return null;
 
         var json = RadioChannelUpdate.ToRequestJson(radios);
         _logger.LogDebug("Updating radio channels on device {DeviceId}: {Body}", deviceId, json);
@@ -1063,14 +1064,15 @@ public class UniFiApiClient : IDisposable
             permissionErrorMessage: "The UniFi account lacks permission to change device settings. In UniFi Network, " +
                 "give this account the Network: Site Admin role, then try again.");
 
-        if (response?.Meta.Rc == "ok")
+        if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
         {
-            _logger.LogInformation("Updated radio channels on device {DeviceId}", deviceId);
-            return true;
+            _logger.LogInformation("Updated radio channels on device {DeviceId} (cfgversion {CfgVersion})",
+                deviceId, response.Data[0].CfgVersion);
+            return response.Data[0];
         }
 
         _logger.LogWarning("Failed to update radio channels on device {DeviceId}", deviceId);
-        return false;
+        return null;
     }
 
     /// <summary>

@@ -126,11 +126,17 @@ public static class ChannelPlanApply
         return (new RadioChannelUpdate(radio.Name, bandCode, item.Channel, item.Width), null);
     }
 
-    /// <summary>True once the AP is connected and its radio reports the target channel and width.</summary>
-    [VendorSpecific("UniFi", "stat/device radio_table_stats live channel / bw")]
-    public static bool HasArrived(ChannelApplyItem item, UniFiDeviceResponse? device)
+    /// <summary>
+    /// True once the AP is connected and either reports running the config we wrote
+    /// (<paramref name="writtenCfgVersion"/>) or its radio reports the target channel and width. The
+    /// config version lands seconds after the write; the console's live radio stats can lag it by a
+    /// minute.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/device known_cfgversion; radio_table_stats live channel / bw")]
+    public static bool HasArrived(ChannelApplyItem item, UniFiDeviceResponse? device, string? writtenCfgVersion = null)
     {
         if (device is not { State: 1 }) return false;
+        if (!string.IsNullOrEmpty(writtenCfgVersion) && device.KnownCfgVersion == writtenCfgVersion) return true;
         var bandCode = item.Band.ToUniFiCode();
         var name = device.RadioTable?.FirstOrDefault(r => string.Equals(r.Radio, bandCode, StringComparison.OrdinalIgnoreCase))?.Name;
         var live = LiveRadio(device, name, bandCode);

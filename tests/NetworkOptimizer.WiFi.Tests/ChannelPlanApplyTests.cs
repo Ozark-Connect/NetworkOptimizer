@@ -206,4 +206,18 @@ public class ChannelPlanApplyTests
         ChannelPlanApply.HasArrived(Item(), Device(sixGhzChannel: 133)).Should().BeTrue();
         ChannelPlanApply.HasArrived(Item(), Device(state: 5, sixGhzChannel: 133)).Should().BeFalse();
     }
+
+    [Fact]
+    public void HasArrived_TheWrittenConfigVersion_CountsBeforeTheLiveStatsCatchUp()
+    {
+        // The console's live radio stats lag the AP by up to a minute; known_cfgversion lands in seconds.
+        var device = Device(sixGhzChannel: 101);
+        device.CfgVersion = "e2b88e58343d3316";
+        device.KnownCfgVersion = "e2b88e58343d3316";
+
+        ChannelPlanApply.HasArrived(Item(), device, "e2b88e58343d3316").Should().BeTrue();
+        ChannelPlanApply.HasArrived(Item(), device, "77864cf970f04dd8").Should().BeFalse("the AP still runs an older config");
+        device.State = 5;
+        ChannelPlanApply.HasArrived(Item(), device, "e2b88e58343d3316").Should().BeFalse("provisioning is not arrival");
+    }
 }

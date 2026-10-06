@@ -26,9 +26,9 @@ public sealed record ChannelApplyRunSnapshot(
 /// </summary>
 public sealed class ChannelPlanApplyRunner
 {
-    /// <summary>The console takes a moment to start provisioning; a read before then still shows the old channel.</summary>
-    private static readonly TimeSpan FirstCheckAfter = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(3);
+    /// <summary>An AP reports the written config about 7 s after the PUT (measured on a U7).</summary>
+    private static readonly TimeSpan FirstCheckAfter = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(2);
 
     /// <summary>Covers a 60 s DFS channel availability check plus provisioning.</summary>
     private static readonly TimeSpan ArrivalDeadline = TimeSpan.FromSeconds(90);
@@ -167,16 +167,19 @@ public sealed class ChannelPlanApplyRunner
                 Record(run, new(item, ChannelApplyStatus.Failed, "UniFi Network could not be reached"));
             return "UniFi Network could not be reached";
         }
-        var pending = new List<ChannelApplyItem>();
+        // Each written radio, with the config version its write produced, until the AP reports it.
+        var pending = new Dictionary<ChannelApplyItem, string?>();
         foreach (var item in wave)
         {
             var device = devices.GetValueOrDefault(item.ApMac.ToLowerInvariant());
             var (update, stop) = ChannelPlanApply.Preflight(item, device);
             if (stop != null) { Record(run, stop); continue; }
 
+            UniFiDeviceResponse? written;
             try
             {
-                if (!await client.UpdateDeviceRadioChannelsAsync(device!.Id, [update!], ct))
+                written = await client.UpdateDeviceRadioChannelsAsync(device!.Id, [update!], ct);
+                if (written == null)
                 {
                     Record(run, new(item, ChannelApplyStatus.Failed, "UniFi Network refused the change"));
                     continue;
@@ -200,7 +203,7 @@ public sealed class ChannelPlanApplyRunner
 
             _logger.LogInformation("Channel apply: {Ap} {Band} Ch {From}/{FromW} -> Ch {To}/{ToW} (site {Site})",
                 item.ApName, item.Band, item.CurrentChannel, item.CurrentWidth, item.Channel, item.Width, siteSlug);
-            pending.Add(item);
+            pending[item] = written.CfgVersion;
         }
 
         // Every change in the wave is saved from here, so a stop or a failed read is Unconfirmed,
@@ -212,16 +215,16 @@ public sealed class ChannelPlanApplyRunner
             while (pending.Count > 0)
             {
                 devices = await ReadDevicesAsync(client, ct);
-                foreach (var item in pending.ToList())
+                foreach (var (item, cfgVersion) in pending.ToList())
                 {
-                    if (!ChannelPlanApply.HasArrived(item, devices.GetValueOrDefault(item.ApMac.ToLowerInvariant()))) continue;
+                    if (!ChannelPlanApply.HasArrived(item, devices.GetValueOrDefault(item.ApMac.ToLowerInvariant()), cfgVersion)) continue;
                     Record(run, new(item, ChannelApplyStatus.Applied));
                     pending.Remove(item);
                 }
                 if (pending.Count == 0) break;
                 if (DateTime.UtcNow >= deadline)
                 {
-                    foreach (var item in pending)
+                    foreach (var item in pending.Keys)
                         Record(run, new(item, ChannelApplyStatus.Unconfirmed,
                             $"Saved in UniFi Network; the AP had not reported the new channel after {ArrivalDeadline.TotalSeconds:0} seconds"));
                     break;
@@ -231,14 +234,14 @@ public sealed class ChannelPlanApplyRunner
         }
         catch (OperationCanceledException)
         {
-            foreach (var item in pending)
+            foreach (var item in pending.Keys)
                 Record(run, new(item, ChannelApplyStatus.Unconfirmed, "Saved in UniFi Network; stopped waiting for the AP"));
             return "Network Optimizer restarted";
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Channel apply: could not read the wave back (site {Site})", siteSlug);
-            foreach (var item in pending)
+            foreach (var item in pending.Keys)
                 Record(run, new(item, ChannelApplyStatus.Unconfirmed, "Saved in UniFi Network; could not read the AP back"));
         }
         return null;
