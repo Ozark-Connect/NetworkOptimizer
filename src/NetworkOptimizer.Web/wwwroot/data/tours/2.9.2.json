@@ -24,7 +24,7 @@
       "alsoSelectors": ["[data-tour=\"apply-channels\"]"],
       "title": "Apply Recommended Channels",
       "listLabel": "Move your access points to the recommended channels",
-      "body": "**Apply Recommended Channels** moves your access points to the plan, never two that hear each other at the same time.\n\nThe button shows when the plan moves at least one radio. Like spectrum scans, it needs **Network: Full** (**Site Admin** in older versions) on the UniFi account Network Optimizer signs in with.",
+      "body": "**Apply Recommended Channels** moves your access points to the plan, never two that hear each other at the same time.\n\nThe button shows when the plan moves at least one radio. Like spectrum scans, it needs **Network: Full** (**Site Admin** in older versions) on the UniFi account Network Optimizer signs in with or an API Key.",
       "optional": true
     }
   ]
