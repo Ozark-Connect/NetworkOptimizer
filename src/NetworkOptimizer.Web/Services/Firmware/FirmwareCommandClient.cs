@@ -516,13 +516,18 @@ public class FirmwareCommandClient : IFirmwareCommandClient
 
         try
         {
-            var command = NetworkInstallCommand(debUrl, companionUrls);
-            var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
-            if (success)
+            // Detached: the download and install take minutes, and nothing should wait on them (the
+            // wizard's Start Now did). The rollout's own step watches the version, and reads the log
+            // for the reason when the script ends on a failure.
+            var script = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(NetworkInstallCommand(debUrl, companionUrls)));
+            var command = $"echo {script} | base64 -d > {NetworkInstallScript} && "
+                + $"nohup sh {NetworkInstallScript} > {NetworkInstallLog} 2>&1 < /dev/null & echo started";
+            var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
+            if (success && output.Contains("started", StringComparison.Ordinal))
                 return FirmwareCommandResult.Ok(output);
 
             return FirmwareCommandResult.Failed(
-                string.IsNullOrWhiteSpace(output) ? "The SSH Network app update failed." : output.Trim());
+                string.IsNullOrWhiteSpace(output) ? "The SSH Network app update could not be started." : output.Trim());
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -540,8 +545,9 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     internal static string NetworkInstallCommand(string debUrl, IReadOnlyList<string>? companionUrls)
     {
         const string dir = "/tmp/netopt-network";
+        const string fail = "{ echo \"NETOPT_EXIT 1\"; exit 1; }";
         var command = new System.Text.StringBuilder();
-        command.Append($"rm -rf {dir}; mkdir -p {dir} && curl -fsSo {dir}/unifi.deb '{debUrl}' || exit 1; ");
+        command.Append($"rm -rf {dir}; mkdir -p {dir} && curl -fsSo {dir}/unifi.deb '{debUrl}' || {fail}; ");
 
         var companions = (companionUrls ?? [])
             .Select(u => (Url: u, Name: CompanionName(u)))
@@ -551,11 +557,38 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         {
             command.Append($"deps=$(dpkg-deb -f {dir}/unifi.deb Depends); ");
             foreach (var (url, name) in companions)
-                command.Append($"echo \"$deps\" | grep -qE '(^|[ ,]){name}( |,|$)' && {{ curl -fsSo {dir}/{name}.deb '{url}' || exit 1; }}; ");
+                command.Append($"echo \"$deps\" | grep -qE '(^|[ ,]){name}( |,|$)' && {{ curl -fsSo {dir}/{name}.deb '{url}' || {fail}; }}; ");
         }
 
-        command.Append($"apt-get install -y {dir}/*.deb; rc=$?; rm -rf {dir}; exit $rc");
+        command.Append($"apt-get install -y {dir}/*.deb; rc=$?; rm -rf {dir}; echo \"NETOPT_EXIT $rc\"; exit $rc");
         return command.ToString();
+    }
+
+    private const string NetworkInstallScript = "/tmp/netopt-network.sh";
+    private const string NetworkInstallLog = "/tmp/netopt-network.log";
+
+    /// <inheritdoc />
+    public async Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                $"tail -c 4000 {NetworkInstallLog} 2>/dev/null", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success ? ParseNetworkInstallLog(output) : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the Network install log on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>The script's exit code, once it has written one, and the output before it.</summary>
+    internal static NetworkInstallLog ParseNetworkInstallLog(string? output)
+    {
+        var text = output ?? string.Empty;
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"NETOPT_EXIT (\d+)");
+        return new NetworkInstallLog(match.Success ? int.Parse(match.Groups[1].Value) : null, text[..(match.Success ? match.Index : text.Length)]);
     }
 
     /// <summary>The package name a console package URL is filed under (<c>/data/&lt;name&gt;/...</c>).</summary>

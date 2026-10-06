@@ -291,6 +291,12 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     /// <summary>What the console's own log reports; null reads as no gateway SSH.</summary>
     public ConsoleNetworkPackages? NetworkPackages { get; set; }
 
+    /// <summary>The detached SSH Network install's log; null reads as unreadable.</summary>
+    public NetworkInstallLog? SshNetworkInstallLog { get; set; }
+
+    public Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(SshNetworkInstallLog);
+
     public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
         Task.FromResult(NetworkPackages);
 }

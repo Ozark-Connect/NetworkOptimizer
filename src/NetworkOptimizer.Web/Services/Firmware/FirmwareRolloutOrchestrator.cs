@@ -1175,6 +1175,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 if (pinnedSsh.IsOk)
                 {
                     state.Triggered = true;
+                    state.ViaSsh = true;
                     state.TriggeredAt = Now;
                     _logger.LogInformation(
                         "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
@@ -1240,6 +1241,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (ssh.IsOk)
             {
                 state.Triggered = true;
+                state.ViaSsh = true;
                 state.TriggeredAt = Now;
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
@@ -1329,6 +1331,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (ElapsedReachable(triggeredAt) < NetworkAppJudgeDelay)
             return false;
 
+        // An SSH install runs detached on the console; one that ended on a failure (a package that
+        // would not download or install) has nothing left to wait for, and its log says why.
+        if (state.ViaSsh && !consoleDark
+            && await _commands.ReadSshNetworkInstallLogAsync(cancellationToken) is { ExitCode: > 0 } failedInstall)
+        {
+            state.Settled = true;
+            state.Outcome = "refused";
+            state.Error = ConsoleStepError(failedInstall.Output);
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogWarning(
+                "SSH install of UniFi Network {Version} failed on site {Site}: {Reason}", state.TargetVersion, _siteSlug, state.Error);
+            return true;
+        }
+
         string? installed = null;
         var standalone = false;
         var failed = false;
@@ -1412,7 +1428,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
         state.SshRetriedAt = Now;
         if (ssh.IsOk)
+        {
             state.TriggeredAt = Now;
+            state.ViaSsh = true;
+        }
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (ssh.IsOk)

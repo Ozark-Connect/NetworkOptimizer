@@ -548,6 +548,9 @@ public class RolloutConsoleStepState
     /// <summary>Why the install did not go ahead, when it was tried and refused; shown in the report.</summary>
     public string? Error { get; set; }
 
+    /// <summary>True when the install was started over SSH, so its log on the console says how it ended.</summary>
+    public bool ViaSsh { get; set; }
+
     /// <summary>
     /// Publish date of <see cref="TargetVersion"/>, captured at plan time. The console's own
     /// pending build can be a different one when the target came from another site's console.

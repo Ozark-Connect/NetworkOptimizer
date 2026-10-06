@@ -124,7 +124,20 @@ public class FirmwareUrlParserTests
         command.Should().Contain("grep -qE '(^|[ ,])unifi-matter-controller( |,|$)'");
         command.Should().Contain(matter);
         command.Should().NotContain("evil.example");
-        command.Should().EndWith("apt-get install -y /tmp/netopt-network/*.deb; rc=$?; rm -rf /tmp/netopt-network; exit $rc");
+        command.Should().EndWith("apt-get install -y /tmp/netopt-network/*.deb; rc=$?; rm -rf /tmp/netopt-network; echo \"NETOPT_EXIT $rc\"; exit $rc");
+    }
+
+    [Theory]
+    [InlineData("Reading package lists...\n unifi-native : Depends: unifi-matter-controller (= 0.0.9) but it is not installable\nNETOPT_EXIT 100\n", 100)]
+    [InlineData("Unpacking unifi-native (11.0.81-37038-1)...\nNETOPT_EXIT 0\n", 0)]
+    [InlineData("Unpacking unifi-native (11.0.81-37038-1)...\n", null)]
+    public void NetworkInstallLog_ReadsTheExitCodeOnlyOnceTheScriptHasEnded(string log, int? exitCode)
+    {
+        // The install runs detached; a log with no exit line is an install still running.
+        var parsed = FirmwareCommandClient.ParseNetworkInstallLog(log);
+
+        parsed.ExitCode.Should().Be(exitCode);
+        parsed.Output.Should().NotContain("NETOPT_EXIT");
     }
 
     [Fact]
