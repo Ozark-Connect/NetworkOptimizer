@@ -519,7 +519,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             // Detached: the download and install take minutes, and nothing should wait on them (the
             // wizard's Start Now did). The rollout's own step watches the version, and reads the log
             // for the reason when the script ends on a failure.
-            var script = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(NetworkInstallCommand(debUrl, companionUrls)));
+            var script = NetworkOptimizer.Core.Helpers.GatewayFile.ToBase64(NetworkInstallCommand(debUrl, companionUrls));
             var command = $"echo {script} | base64 -d > {NetworkInstallScript} && "
                 + $"nohup sh {NetworkInstallScript} > {NetworkInstallLog} 2>&1 < /dev/null & echo started";
             var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
