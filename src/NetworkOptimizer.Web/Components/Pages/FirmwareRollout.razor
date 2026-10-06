@@ -960,7 +960,17 @@ else
         {
             await InvokeAsync(async () =>
             {
-                if (_settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
+                // An open wizard re-reads too: what the Console exposes depends on how it is
+                // connected (an API key cannot read UniFi OS or the Network app), so a switch
+                // made while the wizard is open would otherwise leave it on the old answer.
+                if (_wizardOpen && _settings != null && !_busy)
+                {
+                    _preview = await RolloutService.BuildPreviewAsync(WorkingSettings(), pin: _wizardPin);
+                    _wizardError = null;
+                    if (_step == 3) _vizMode = null;
+                    StateHasChanged();
+                }
+                else if (!_wizardOpen && _settings?.Mode == FirmwareRolloutMode.Autopilot && _active == null)
                 {
                     _preview = await RolloutService.BuildPreviewAsync(WorkingSettings());
                     StateHasChanged();
