@@ -53,7 +53,7 @@ public class ChannelPlanApplyTests
     };
 
     [Fact]
-    public void FromPlan_ListsChangedRows_AndLeavesMeshChildrenAnd320ForUniFi()
+    public void FromPlan_ListsChangedRows_AndLeavesMeshChildrenToTheirParent()
     {
         var plan = new ChannelPlan
         {
@@ -70,10 +70,12 @@ public class ChannelPlanApplyTests
 
         var (toApply, notApplied) = ChannelPlanApply.FromPlan(plan);
 
-        toApply.Should().ContainSingle().Which.Should().Be(
-            new ChannelApplyItem("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:01", RadioBand.Band6GHz, 101, 160, 133, 160, false));
-        notApplied.Select(o => o.Item.ApMac).Should().Equal("aa:bb:cc:dd:ee:03", "aa:bb:cc:dd:ee:04");
-        notApplied.Should().OnlyContain(o => o.Status == ChannelApplyStatus.Skipped);
+        toApply.Should().Equal(
+            new ChannelApplyItem("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:01", RadioBand.Band6GHz, 101, 160, 133, 160, false),
+            new ChannelApplyItem("aa:bb:cc:dd:ee:04", "aa:bb:cc:dd:ee:04", RadioBand.Band6GHz, 5, 160, 69, 320, false));
+        notApplied.Should().ContainSingle().Which.Should().Be(new ChannelApplyOutcome(
+            new ChannelApplyItem("aa:bb:cc:dd:ee:03", "aa:bb:cc:dd:ee:03", RadioBand.Band6GHz, 101, 160, 133, 160, false),
+            ChannelApplyStatus.Skipped, "Follows its mesh parent"));
     }
 
     [Fact]

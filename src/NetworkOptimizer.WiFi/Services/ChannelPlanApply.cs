@@ -41,15 +41,10 @@ public sealed record ChannelApplyOutcome(ChannelApplyItem Item, ChannelApplyStat
 public static class ChannelPlanApply
 {
     /// <summary>
-    /// The 320 MHz block is chosen by UniFi from the primary, not by us, so a 320 MHz target is left
-    /// for UniFi Network rather than written and landing in a block the plan did not score.
-    /// </summary>
-    public const int UnappliedWidthMhz = 320;
-
-    /// <summary>
     /// Splits a band plan's changed rows into the radios to move and the ones left alone. Pinned rows
     /// never change, so they are never listed. A mesh child is left alone: its radio follows its
-    /// parent on the uplink band, and the parent is in the list.
+    /// parent on the uplink band, and the parent is in the list. A 320 MHz target is written like any
+    /// other: the AP picks the block from the primary, exactly as when it is set in UniFi Network.
     /// </summary>
     public static (List<ChannelApplyItem> ToApply, List<ChannelApplyOutcome> NotApplied) FromPlan(ChannelPlan plan)
     {
@@ -62,8 +57,6 @@ public static class ChannelPlanApply
                 rec.IsRecommendedDfsChannel);
             if (rec.IsMeshConstrained)
                 notApplied.Add(new(item, ChannelApplyStatus.Skipped, "Follows its mesh parent"));
-            else if (rec.RecommendedWidth >= UnappliedWidthMhz)
-                notApplied.Add(new(item, ChannelApplyStatus.Skipped, "UniFi picks the 320 MHz block, so set this one in UniFi Network"));
             else
                 toApply.Add(item);
         }
