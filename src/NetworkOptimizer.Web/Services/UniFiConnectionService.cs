@@ -893,6 +893,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         try
         {
+            // Read again under the gate. A caller that fetched settings before queueing behind a
+            // Save's connect would otherwise reconnect with the credentials that Save just replaced.
+            settings = await GetSettingsAsync();
+            if (!settings.HasCredentials) return false;
+
             // Decrypt credentials
             string? decryptedPassword = null;
             string? decryptedApiKey = null;
