@@ -21280,6 +21280,22 @@ body.kiosk-mode .status-indicators {
     flex-wrap: wrap;
 }
 
+/* Anchors the Set Time popover (the shared Custom Range popover) under its button. */
+.firmware-rollout-set-time {
+    position: relative;
+}
+
+/* Narrow screens: under the button it would run off the left edge, so it hangs from the row's right. */
+@media (max-width: 768px) {
+    .firmware-rollout-controls:has(.firmware-rollout-set-time) {
+        position: relative;
+    }
+
+    .firmware-rollout-set-time {
+        position: static;
+    }
+}
+
 .firmware-rollout-deploy-now {
     display: flex;
     gap: 0.5rem;

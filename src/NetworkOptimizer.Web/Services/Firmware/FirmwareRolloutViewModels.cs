@@ -2,6 +2,19 @@ using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
 
+/// <summary>The UniFi auto-update layers that can race a rollout.</summary>
+[Flags]
+public enum UniFiAutoUpdateLayers
+{
+    None = 0,
+    /// <summary>UniFi's own nightly device auto-upgrade.</summary>
+    Devices = 1,
+    /// <summary>The UniFi Network application's update schedule.</summary>
+    NetworkApplication = 2,
+    /// <summary>The console's UniFi OS update schedule.</summary>
+    UniFiOs = 4,
+}
+
 /// <summary>
 /// Channel options the console offers, and the one devices follow today. An empty options list
 /// means they could not be read, never that the console has none.

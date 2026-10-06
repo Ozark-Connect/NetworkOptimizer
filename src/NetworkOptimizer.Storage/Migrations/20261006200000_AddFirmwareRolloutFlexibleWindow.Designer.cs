@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006200000_AddFirmwareRolloutFlexibleWindow")]
+    partial class AddFirmwareRolloutFlexibleWindow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -1216,28 +1219,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("DeviceSshConfigurations", (string)null);
                 });
 
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.DeviceSshRoute", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("DeviceMac")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DeviceMac")
-                        .IsUnique();
-
-                    b.ToTable("DeviceSshRoutes", (string)null);
-                });
-
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.DismissedIssue", b =>
                 {
                     b.Property<int>("Id")
@@ -1846,7 +1827,59 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.HasKey("RowKey");
 
-                    b.ToTable("HogRowBaselines");
+                    b.ToTable("HogRowBaselines", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiIssueAcknowledgment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("AcknowledgedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IssueKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IssueKey")
+                        .IsUnique();
+
+                    b.ToTable("WiFiIssueAcknowledgments", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiRadioPreference", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("KeepChannelSince")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApMac", "Band")
+                        .IsUnique();
+
+                    b.ToTable("WiFiRadioPreferences", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.InterfaceNameMap", b =>
@@ -2444,9 +2477,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("GatewayTempHighC")
                         .HasColumnType("REAL");
 
-                    b.Property<bool>("IgnoreSfpDdmSpikes")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("InfluxDbBucket")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -2461,6 +2491,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("IgnoreSfpDdmSpikes")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool?>("InfluxDbReachable")
                         .HasColumnType("INTEGER");
@@ -2925,38 +2958,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("Channel", "Version");
 
                     b.ToTable("SharedNetworkAppBuilds", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SharedUniFiOsBuild", b =>
-                {
-                    b.Property<string>("Platform")
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Channel")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Version")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("FirstSeenUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("LastSeenUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("PublishedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Platform", "Channel", "Version");
-
-                    b.ToTable("SharedUniFiOsBuilds", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.Site", b =>
@@ -4110,58 +4111,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("SortOrder");
 
                     b.ToTable("WanSteerTrafficClasses", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiIssueAcknowledgment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("AcknowledgedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("IssueKey")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IssueKey")
-                        .IsUnique();
-
-                    b.ToTable("WiFiIssueAcknowledgments", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WiFiRadioPreference", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ApMac")
-                        .IsRequired()
-                        .HasMaxLength(17)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Band")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("KeepChannelSince")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApMac", "Band")
-                        .IsUnique();
-
-                    b.ToTable("WiFiRadioPreferences", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Threats.Models.CrowdSecReputation", b =>

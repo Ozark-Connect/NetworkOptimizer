@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Firmware;
 using Xunit;
 
@@ -512,15 +513,41 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
-    public async Task BuildPreviewAsync_WarnsWhenTheConsoleUpgradesDevicesItself()
+    public async Task BuildPreviewAsync_ReportsWhenTheConsoleUpgradesDevicesItself()
     {
         using var harness = HarnessWithTwoAps();
         harness.Commands.AutoUpgradeEnabled = true;
 
         var preview = await harness.Service.BuildPreviewAsync(Settings());
 
+        // The page words the warning from the current scope, so the preview only reports the flag.
         preview.ConsoleAutoUpgradeEnabled.Should().BeTrue();
-        preview.Warnings.Should().Contain(w => w.Contains("UniFi updates devices on its own schedule"));
+        preview.Warnings.Should().NotContain(w => w.Contains("own schedule"));
+    }
+
+    [Fact]
+    public async Task TurnOffUniFiAutoUpdateAsync_ReportsOnlyTheLayersThatTurnedOff()
+    {
+        using var harness = HarnessWithTwoAps();
+        harness.Commands.AutoUpdateDisableAccepted[UniFiConsoleAutoUpdateRequest.NetworkApplication] = false;
+
+        var off = await harness.Service.TurnOffUniFiAutoUpdateAsync(
+            UniFiAutoUpdateLayers.Devices | UniFiAutoUpdateLayers.NetworkApplication | UniFiAutoUpdateLayers.UniFiOs);
+
+        off.Should().Be(UniFiAutoUpdateLayers.Devices | UniFiAutoUpdateLayers.UniFiOs);
+        harness.Commands.AutoUpdateDisables.Should().Equal(
+            "devices", UniFiConsoleAutoUpdateRequest.NetworkApplication, UniFiConsoleAutoUpdateRequest.UniFiOs);
+    }
+
+    [Fact]
+    public async Task TurnOffUniFiAutoUpdateAsync_TouchesOnlyTheLayersAskedFor()
+    {
+        using var harness = HarnessWithTwoAps();
+
+        var off = await harness.Service.TurnOffUniFiAutoUpdateAsync(UniFiAutoUpdateLayers.Devices);
+
+        off.Should().Be(UniFiAutoUpdateLayers.Devices);
+        harness.Commands.AutoUpdateDisables.Should().Equal("devices");
     }
 
     [Fact]

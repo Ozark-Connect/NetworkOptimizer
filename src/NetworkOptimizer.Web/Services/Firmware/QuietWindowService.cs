@@ -90,10 +90,17 @@ public class QuietWindowService
     }
 
     /// <summary>
-    /// Proposes a start window for a rollout of the given estimated duration. Pinned
-    /// (Fixed) mode bypasses history; otherwise history is used when it spans at least
-    /// <see cref="MinHistoryHours"/>, and the home/business heuristic fills in when not.
+    /// Proposes a start window for a rollout of the given estimated duration. A pinned (Fixed)
+    /// time stands as set; a flexible one may move to a quieter hour nearby. Otherwise history is
+    /// used when it spans at least <see cref="MinHistoryHours"/>, and the home/business heuristic
+    /// fills in when not.
     /// </summary>
+    /// <param name="devices">Every device on the site; its count also decides the Monday guard.</param>
+    /// <param name="rolloutDurationSeconds">Estimated rollout length.</param>
+    /// <param name="settings">Settings carrying the window mode and any preferred time.</param>
+    /// <param name="clientCount">Client count, for the home/business heuristic.</param>
+    /// <param name="minLead">Least notice the window must leave.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<QuietWindowProposal> ProposeAsync(
         IReadOnlyList<PlannerDevice> devices,
         int rolloutDurationSeconds,
@@ -103,11 +110,14 @@ public class QuietWindowService
         CancellationToken ct = default)
     {
         var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _timeZone);
+        var avoidMondayMorning = devices.Count >= QuietWindowCalculator.MondayGuardMinDevices;
 
-        if (settings.AutopilotWindowMode == FirmwareAutopilotWindowMode.Fixed &&
-            settings.FixedDayOfWeek is >= 0 and <= 6 && settings.FixedHour is >= 0 and <= 23)
+        var pinned = settings.AutopilotWindowMode == FirmwareAutopilotWindowMode.Fixed &&
+            settings.FixedDayOfWeek is >= 0 and <= 6 && settings.FixedHour is >= 0 and <= 23;
+        // A preferred time the user did not mark flexible is theirs to keep, Monday guard or not.
+        if (pinned && !settings.FixedWindowFlexible)
         {
-            return Stamp(QuietWindowCalculator.Fixed((DayOfWeek)settings.FixedDayOfWeek.Value, settings.FixedHour.Value, nowLocal, minLead));
+            return Stamp(QuietWindowCalculator.Fixed((DayOfWeek)settings.FixedDayOfWeek!.Value, settings.FixedHour!.Value, nowLocal, minLead));
         }
 
         double[]? fingerprint = null;
@@ -126,9 +136,19 @@ public class QuietWindowService
             _logger.LogDebug(ex, "Quiet-window fingerprint failed; falling back to profile heuristic");
         }
 
+        if (pinned)
+        {
+            var day = (DayOfWeek)settings.FixedDayOfWeek!.Value;
+            var hour = settings.FixedHour!.Value;
+            // Nothing to compare nearby hours on, so the preference stands as set.
+            return Stamp(fingerprint == null
+                ? QuietWindowCalculator.Fixed(day, hour, nowLocal, minLead)
+                : QuietWindowCalculator.FindNear(fingerprint, rolloutDurationSeconds, day, hour, nowLocal, minLead, avoidMondayMorning));
+        }
+
         if (fingerprint != null)
         {
-            return Stamp(QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead));
+            return Stamp(QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead, avoidMondayMorning));
         }
 
         var apCount = devices.Count(d => d.Type == DeviceType.AccessPoint);

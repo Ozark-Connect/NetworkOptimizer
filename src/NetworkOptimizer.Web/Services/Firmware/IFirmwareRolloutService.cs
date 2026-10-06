@@ -155,6 +155,32 @@ public interface IFirmwareRolloutService
     [AuditAction(AuditActions.FirmwareRolloutPostponed, TargetType = "firmware_rollout")]
     Task PostponeAsync(int planId, CancellationToken cancellationToken = default);
 
+    /// <summary>Moves an announced or scheduled rollout 24 hours earlier, when that is still in the future.</summary>
+    /// <param name="planId">The waiting plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutRescheduled, TargetType = "firmware_rollout")]
+    Task AdvanceAsync(int planId, CancellationToken cancellationToken = default);
+
+    /// <summary>Moves an announced or scheduled rollout to a start time the user picked.</summary>
+    /// <param name="planId">The waiting plan.</param>
+    /// <param name="startAtUtc">The new start; must be in the future.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutRescheduled, TargetType = "firmware_rollout")]
+    Task RescheduleAsync(int planId, DateTime startAtUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns off UniFi's own auto-update for the given layers, so it cannot run alongside a rollout.
+    /// Each layer is written separately; a failure on one leaves the others turned off.
+    /// </summary>
+    /// <param name="layers">The layers to turn off.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The layers that were turned off.</returns>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.FirmwareRolloutUniFiAutoUpdateDisabled, TargetType = "firmware_rollout")]
+    Task<UniFiAutoUpdateLayers> TurnOffUniFiAutoUpdateAsync(UniFiAutoUpdateLayers layers, CancellationToken cancellationToken = default);
+
     /// <summary>Puts one device back on the firmware it was running before the rollout.</summary>
     /// <param name="stepId">The step to roll back.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

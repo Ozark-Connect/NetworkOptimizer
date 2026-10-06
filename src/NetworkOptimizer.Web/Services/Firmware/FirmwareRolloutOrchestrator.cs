@@ -490,6 +490,44 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Moves the start of a rollout that has not started yet to a time the user chose. The
+    /// starting-soon reminder is marked sent for the new start: the user just picked it.
+    /// </summary>
+    /// <param name="planId">Plan to move.</param>
+    /// <param name="target">The new start from the current one, or null to refuse the move.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The new start, or null when the plan was not moved.</returns>
+    public async Task<DateTime?> MoveStartAsync(
+        int planId, Func<DateTime, DateTime?> target, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
+                return null;
+
+            if (target(plan.ScheduledStartAt ?? Now) is not DateTime start || start <= Now)
+                return null;
+
+            var document = ParseDocument(plan);
+            document.ReminderSentForStartAt = start;
+            plan.PlanJson = JsonSerializer.Serialize(document);
+            plan.ScheduledStartAt = start;
+            plan.Status = FirmwareRolloutStatus.Scheduled;
+            await PersistPlanAsync(plan, cancellationToken);
+
+            _logger.LogInformation(
+                "Firmware rollout {Id} on site {Site} moved to {When}", plan.Id, _siteSlug, start);
+            return start;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Stops a rollout for good, puts the console channels back, and drops every device that had
     /// not started. Devices already mid-cycle are left to finish - nothing can call them back.
     /// </summary>
