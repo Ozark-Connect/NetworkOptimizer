@@ -449,6 +449,11 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         var context = await _planning.GetContextAsync(cancellationToken);
         var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
 
+        // This console's own downloads join the catalog first: they are how Early Access packages are found.
+        var packages = await _commands.ReadConsoleNetworkPackagesAsync(cancellationToken);
+        if (packages is { Downloaded.Count: > 0 })
+            await _sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
+
         KnownFirmwareConsole? console = null;
         if (RolloutPlanComposer.ConsoleReachable(info))
         {
@@ -462,7 +467,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 info.NetworkApplication?.Version,
                 info.IsStandaloneConsole,
                 offeredOs,
-                info.NetworkApplication?.UpdateAvailable);
+                info.NetworkApplication?.UpdateAvailable,
+                packages?.Platform);
         }
 
         return KnownFirmwareOptions.Build(
@@ -470,7 +476,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
             console,
             await _sharedCatalog.ListDeviceBuildsAsync(cancellationToken),
             await _sharedCatalog.ListUniFiOsBuildsAsync(cancellationToken),
-            await _sharedCatalog.ListNetworkAppBuildsAsync(cancellationToken));
+            await _sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken));
     }
 
     /// <inheritdoc />

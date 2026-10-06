@@ -17,7 +17,8 @@ public sealed record RolloutPlanInputs(
     NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console = null,
     IReadOnlyList<PlanTargetImage>? TargetImages = null,
     bool UniFiOsPinned = false,
-    bool NetworkAppPinned = false);
+    bool NetworkAppPinned = false,
+    string? NetworkAppPackageUrl = null);
 
 /// <summary>
 /// The one path a plan is built through, wizard and autopilot alike: refresh the catalog, freeze
@@ -82,8 +83,14 @@ public static class RolloutPlanComposer
                 await PatchStaleGaFromFeedAsync(console, feed, logger, cancellationToken);
         }
 
+        ConsoleNetworkPackages? packages = null;
         if (sharedCatalog != null)
         {
+            // The real Network package URLs, Early Access included, are only in the console's own log.
+            packages = await commands.ReadConsoleNetworkPackagesAsync(cancellationToken);
+            if (packages is { Downloaded.Count: > 0 })
+                await sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
+
             await RecordSharedNetworkAppAsync(sharedCatalog, console, cancellationToken);
             await RecordSharedUniFiOsAsync(sharedCatalog, console, cancellationToken);
             await AdoptSharedBuildsAsync(
@@ -94,7 +101,7 @@ public static class RolloutPlanComposer
 
         var (osPinned, appPinned) = pin == null
             ? (false, false)
-            : await ApplyPinAsync(pin, commands, context, console, settings, images, logger, cancellationToken);
+            : await ApplyPinAsync(pin, commands, context, console, settings, images, logger, packages?.Platform, cancellationToken);
 
         // Last word on every path, the read-only preview included. It used to run only inside the
         // channel staging above, so the drift check (which previews without staging) kept the
@@ -108,7 +115,29 @@ public static class RolloutPlanComposer
             console,
             images,
             osPinned,
-            appPinned);
+            appPinned,
+            appPinned ? pin!.Url : await KnownNetworkPackageUrlAsync(sharedCatalog, packages?.Platform, console, cancellationToken));
+    }
+
+    /// <summary>
+    /// The real package URL for the Network update this console is about to take, when some console
+    /// of the same platform has already downloaded that version. Null leaves the derived URL, which
+    /// holds for public releases only.
+    /// </summary>
+    private static async Task<string?> KnownNetworkPackageUrlAsync(
+        ISharedFirmwareCatalogRepository? sharedCatalog,
+        string? platform,
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        CancellationToken cancellationToken)
+    {
+        var version = console?.NetworkApplication?.UpdateAvailable;
+        if (sharedCatalog == null || string.IsNullOrWhiteSpace(platform) || string.IsNullOrWhiteSpace(version))
+            return null;
+
+        return (await sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken))
+            .FirstOrDefault(p => string.Equals(p.Platform, platform, StringComparison.OrdinalIgnoreCase)
+                                 && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(p.Version, version))
+            ?.Url;
     }
 
     /// <summary>
@@ -127,6 +156,7 @@ public static class RolloutPlanComposer
         FirmwareRolloutSettings? settings,
         List<PlanTargetImage> images,
         ILogger? logger,
+        string? networkPackagePlatform,
         CancellationToken cancellationToken)
     {
         switch (pin.Kind)
@@ -195,6 +225,18 @@ public static class RolloutPlanComposer
                 if (!ConsoleReachable(console) || console!.IsStandaloneConsole
                     || console.NetworkApplication is not { } app)
                     return (false, false);
+
+                // A console package is built for one Debian release and architecture; another platform's
+                // would not install. A pin with no platform (a public /unifi/<version>/ link) fits any.
+                if (!string.IsNullOrWhiteSpace(pin.Target) && !string.IsNullOrWhiteSpace(networkPackagePlatform)
+                    && !string.Equals(pin.Target, networkPackagePlatform, StringComparison.OrdinalIgnoreCase))
+                {
+                    app.UpdateAvailable = null;
+                    logger?.LogInformation(
+                        "Not planning UniFi Network {Version}: the package is for {PinPlatform}, this console is {Platform}",
+                        pin.Version, pin.Target, networkPackagePlatform);
+                    return (false, false);
+                }
 
                 if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(pin.Version, app.Version)
                     || !await commands.HasGatewaySshAsync(cancellationToken))
@@ -504,8 +546,10 @@ public static class RolloutPlanComposer
             return Task.CompletedTask;
         }
 
+        // No URL: the one derivable from the version exists only for public releases, so storing it
+        // would record a 404 for every Early Access build. Real URLs come from the console's log.
         return sharedCatalog.UpsertNetworkAppBuildAsync(
-            app.ReleaseChannel, app.UpdateAvailable, NetworkAppDebUrl(console), cancellationToken);
+            app.ReleaseChannel, app.UpdateAvailable, null, cancellationToken);
     }
 
     /// <summary>
@@ -759,7 +803,9 @@ public static class RolloutPlanComposer
             NetworkAppToVersion = inputs.Console?.NetworkApplication?.UpdateAvailable,
             UniFiOsFromVersion = inputs.Console?.InstalledOsVersion,
             UniFiOsToVersion = OfferedUniFiOsVersion(inputs.Console, settings.EffectiveUniFiOsChannel),
-            NetworkAppDownloadUrl = NetworkAppDebUrl(inputs.Console),
+            // A pinned build installs from the URL it was picked or pasted with. The derived one only
+            // exists for public releases, so an Early Access pin would 404 on it.
+            NetworkAppDownloadUrl = inputs.NetworkAppPackageUrl ?? NetworkAppDebUrl(inputs.Console),
             UniFiOsDownloadUrl = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.DownloadUrl,
             UniFiOsPublishedAt = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.Created,
             IsStandaloneConsole = inputs.Console?.IsStandaloneConsole ?? false,

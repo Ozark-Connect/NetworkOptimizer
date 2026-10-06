@@ -545,6 +545,9 @@ public class RolloutConsoleStepState
     /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
     public string? Url { get; set; }
 
+    /// <summary>Why the install did not go ahead, when it was tried and refused; shown in the report.</summary>
+    public string? Error { get; set; }
+
     /// <summary>
     /// Publish date of <see cref="TargetVersion"/>, captured at plan time. The console's own
     /// pending build can be a different one when the target came from another site's console.

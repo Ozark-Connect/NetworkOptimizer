@@ -88,6 +88,25 @@ public class RolloutReportTests
     }
 
     [Fact]
+    public void ANetworkInstallThatWasRefused_IsAFailureWithItsReason()
+    {
+        // A tried-and-refused install must not read as a clean run in the report or the history.
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.IncludesUniFiNetworkUpdate = true;
+        document.ConsoleMac = GatewayMac;
+        document.NetworkAppUpdate.Settled = true;
+        document.NetworkAppUpdate.Outcome = "refused";
+        document.NetworkAppUpdate.TargetVersion = "11.0.81";
+        document.NetworkAppUpdate.Error = "curl: (22) The requested URL returned error: 404";
+        var plan = new FirmwareRolloutPlan { Id = 1, PlanJson = JsonSerializer.Serialize(document) };
+
+        var report = RolloutReportBuilder.Build(plan, document, [], DateTime.UtcNow, new Dictionary<string, string?>());
+
+        report.DevicesFailed.Should().Be(1);
+        report.Issues.Should().Contain(i => i.Contains("11.0.81") && i.Contains("404"));
+    }
+
+    [Fact]
     public async Task EndSoakEarly_WaitsForARollbackStillRunning()
     {
         using var harness = new RolloutHarness();

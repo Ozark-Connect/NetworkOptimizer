@@ -67,6 +67,34 @@ public class FirmwareUrlParserTests
         parsed.Token.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("https://fw-download.ubnt.com/data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-0b745a73-fc68-4f54-8b2d-49fd446e2957.deb", "uos-deb13-arm64", "11.0.81")]
+    [InlineData("https://fw-download.ubnt.com/data/unifi/f1ba-uos-deb11-amd64-10.6.106-36011-1-7934d626-5d73-42c9-afaa-7a6a3c1315fa.deb", "uos-deb11-amd64", "10.6.106")]
+    public void Parse_ReadsAConsoleNetworkPackage_WithItsPlatform(string url, string platform, string version)
+    {
+        // What a console really installs, Early Access included: the platform rides in the token.
+        var parsed = FirmwareUrlParser.Parse(url, out _);
+
+        parsed!.Kind.Should().Be(FirmwareUrlKind.NetworkApp);
+        parsed.Token.Should().Be(platform);
+        parsed.Version.Should().Be(version);
+    }
+
+    [Fact]
+    public void ConsoleLog_YieldsPlatformAndRealPackageUrls()
+    {
+        const string output = "PLATFORM uos-deb13-arm64\n"
+            + "url=https://fw-download.ubnt.com/data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-0b745a73-fc68-4f54-8b2d-49fd446e2957.deb\n"
+            + "url=https://fw-download.ubnt.com/data/unifi-matter-controller/972d-uos-deb13-arm64-0.0.9-c725ee11.deb\n";
+
+        var read = FirmwareCommandClient.ParseConsoleNetworkPackages(output);
+
+        read.Platform.Should().Be("uos-deb13-arm64");
+        var package = read.Downloaded.Should().ContainSingle().Subject;
+        package.Version.Should().Be("11.0.81");
+        package.Platform.Should().Be("uos-deb13-arm64");
+    }
+
     [Fact]
     public void Parse_LeavesAnUnknownDirectoryForTheCatalogToMatch()
     {

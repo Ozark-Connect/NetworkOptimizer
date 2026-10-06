@@ -58,6 +58,24 @@ public static class FirmwareUrlParser
         @"^/unifi/(?<version>\d+\.\d+\.\d+)/(unifi-native_sysvinit|unifi_sysvinit_all)\.deb$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    // What a UniFi OS console really installs, Early Access included: one package per Debian release
+    // and architecture, e.g. /data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-<uuid>.deb.
+    private static readonly Regex NetworkPackagePath = new(
+        @"^/data/(unifi-native|unifi)/[0-9a-f]+-(?<platform>uos-deb\d+-(amd64|arm64))-(?<version>\d+\.\d+\.\d+)-\d+-\d+-[0-9a-f-]+\.deb$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The platform (<c>uos-deb13-arm64</c>) and version a console's Network package URL is for, or
+    /// null when the URL is not one. Only these URLs are real for an Early Access build: the
+    /// <c>/unifi/&lt;version&gt;/</c> path holds public releases only.
+    /// </summary>
+    public static (string Platform, string Version)? NetworkPackage(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var match = NetworkPackagePath.Match(uri.AbsolutePath);
+        return match.Success ? (match.Groups["platform"].Value.ToLowerInvariant(), match.Groups["version"].Value) : null;
+    }
+
     /// <summary>
     /// Parses a URL. Returns null with a reason when the URL is not one this app can install;
     /// a URL on an allowed host whose layout no rule knows comes back as <see cref="FirmwareUrlKind.Unknown"/>
@@ -94,6 +112,10 @@ public static class FirmwareUrlParser
         var app = NetworkAppPath.Match(path);
         if (app.Success)
             return new ParsedFirmwareUrl(FirmwareUrlKind.NetworkApp, null, app.Groups["version"].Value, DirectoryOf(path), url);
+
+        // The platform rides in the token: the package installs only on a console of that platform.
+        if (NetworkPackage(url) is { } package)
+            return new ParsedFirmwareUrl(FirmwareUrlKind.NetworkApp, package.Platform, package.Version, DirectoryOf(path), url);
 
         // The model is a folder here, not part of the file name, so no catalog match is needed for it.
         var download = DeviceDownloadPath.Match(path);

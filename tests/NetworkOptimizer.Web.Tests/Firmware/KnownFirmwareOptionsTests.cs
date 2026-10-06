@@ -15,6 +15,10 @@ public class KnownFirmwareOptionsTests
     private const string GatewayMac = "aa:bb:cc:dd:ee:01";
     private const string ApMac = "aa:bb:cc:dd:ee:02";
     private const string PeerMac = "aa:bb:cc:dd:ee:03";
+    private const string Deb13 = "uos-deb13-arm64";
+
+    private static SharedNetworkAppPackage Package(string version, string platform = Deb13) =>
+        new() { Platform = platform, Version = version, Url = $"https://fw-download.ubnt.com/data/unifi-native/8530-{platform}-{version}-37038-1-0b745a73.deb" };
 
     private static PlannerDevice Device(string mac, DeviceType type, string model, string? version, string name = "Device") =>
         new() { Mac = mac, Name = name, Model = model, Type = type, FromVersion = version };
@@ -22,7 +26,7 @@ public class KnownFirmwareOptionsTests
     private static KnownFirmwareConsole Console(
         string os = "6.0.10", string network = "10.6.106", string? offeredNetwork = null,
         params (string Version, string Url)[] offeredOs) =>
-        new("UCGF", os, network, false, offeredOs, offeredNetwork);
+        new("UCGF", os, network, false, offeredOs, offeredNetwork, Deb13);
 
     private static SharedFirmwareBuild DeviceBuild(string model, string version, string md5, string? url = null) =>
         new() { Model = model, Channel = "beta", Version = version, Md5Sum = md5, Url = url ?? $"https://fw-download.ubnt.com/data/unifi-firmware/{model}-{version}.bin" };
@@ -78,12 +82,12 @@ public class KnownFirmwareOptionsTests
             Console(),
             [DeviceBuild("UCGF", "5.0.0.1", "gw")],
             [new SharedUniFiOsBuild { Platform = "UCGF", Channel = "beta", Version = "6.0.11", Url = "https://fw-download.ubnt.com/data/unifi-dream/UCGF-6.0.11.bin" }],
-            [new SharedNetworkAppBuild { Channel = "beta", Version = "11.0.81" }]);
+            [Package("11.0.81")]);
 
         options.Select(o => o.Build.Label).Should().BeEquivalentTo(["UniFi OS 6.0.11", "UniFi Network 11.0.81"]);
         options.Should().OnlyContain(o => o.Device.Label == "[Gateway] My Gateway");
         options.Single(o => o.Build.Kind == FirmwareUrlKind.NetworkApp).Build.Pin.Url
-            .Should().Be("https://dl.ui.com/unifi/11.0.81/unifi-native_sysvinit.deb");
+            .Should().Be(Package("11.0.81").Url);
     }
 
     [Fact]
@@ -94,7 +98,7 @@ public class KnownFirmwareOptionsTests
             Console(os: "6.0.11", network: "11.0.81"),
             [],
             [new SharedUniFiOsBuild { Platform = "UCGF", Channel = "release", Version = "6.0.7", Url = "https://fw-download.ubnt.com/a.bin" }],
-            [new SharedNetworkAppBuild { Channel = "release", Version = "10.6.106" }, new SharedNetworkAppBuild { Channel = "beta", Version = "11.0.81" }]);
+            [Package("10.6.106"), Package("11.0.81")]);
 
         options.Should().BeEmpty();
     }
@@ -125,6 +129,33 @@ public class KnownFirmwareOptionsTests
             [], [], []);
 
         options.Select(o => o.Build.Label).Should().BeEquivalentTo(["UniFi OS 6.0.12", "UniFi Network 10.7.1"]);
+    }
+
+    [Fact]
+    public void NetworkPackage_ForAnotherPlatform_IsNotOffered()
+    {
+        // An Early Access package is only real for the platform a console downloaded it on.
+        var options = KnownFirmwareOptions.Build(
+            [Device(GatewayMac, DeviceType.Gateway, "UCGF", "4.4.1")],
+            Console(),
+            [], [],
+            [Package("11.0.81", "uos-deb11-arm64")]);
+
+        options.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NetworkPackage_PinCarriesThePlatformAndTheRealUrl()
+    {
+        var options = KnownFirmwareOptions.Build(
+            [Device(GatewayMac, DeviceType.Gateway, "UCGF", "4.4.1")],
+            Console(),
+            [], [],
+            [Package("11.0.81")]);
+
+        var pin = options.Should().ContainSingle().Which.Build.Pin;
+        pin.Target.Should().Be(Deb13);
+        pin.Url.Should().StartWith("https://fw-download.ubnt.com/data/unifi-native/");
     }
 
     [Fact]

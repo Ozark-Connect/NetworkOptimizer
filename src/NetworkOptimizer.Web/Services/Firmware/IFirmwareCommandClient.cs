@@ -211,4 +211,16 @@ public interface IFirmwareCommandClient
     /// the console has not staged itself.
     /// </summary>
     Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: the console's Network package platform (<c>uos-deb13-arm64</c>) and every
+    /// Network package its own log shows it downloading, with the real URL. Early Access packages
+    /// are only discoverable this way. Null without gateway SSH, or when the console did not answer.
+    /// </summary>
+    Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>A console's Network package platform and the packages it has downloaded.</summary>
+/// <param name="Platform">Debian release and architecture, e.g. <c>uos-deb13-arm64</c>; null when unreadable.</param>
+/// <param name="Downloaded">Packages the console's log shows it downloading, platform and version from the URL.</param>
+public sealed record ConsoleNetworkPackages(string? Platform, IReadOnlyList<NetworkOptimizer.Storage.Models.SharedNetworkAppPackage> Downloaded);

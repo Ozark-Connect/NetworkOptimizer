@@ -1156,8 +1156,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var application = console?.NetworkApplication;
 
-        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
-        if (state.Pinned)
+        // A build chosen by hand installs by URL, since the API installs the console's newest. When the
+        // console's newest IS the chosen build, the API is used: an Early Access package is not
+        // published at the URL derived from its version, so SSH by URL would 404.
+        var consoleOffersPin = state.Pinned
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(application?.UpdateAvailable, state.TargetVersion);
+        if (state.Pinned && !consoleOffersPin)
         {
             var pinnedNewer = console?.IsStandaloneConsole != true
                 && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
@@ -1175,6 +1179,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _logger.LogWarning(
                     "SSH install of the chosen UniFi Network {Version} failed on site {Site}: {Reason}",
                     state.TargetVersion, _siteSlug, pinnedSsh.Message);
+                state.Error = ConsoleStepError(pinnedSsh.Message);
+            }
+            else if (pinnedNewer)
+            {
+                state.Error = "No download link for this build.";
             }
 
             state.Settled = true;
@@ -1199,6 +1208,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
 
             _logger.LogWarning("API trigger refused the Network app update on site {Site}", _siteSlug);
+            if (state.Pinned) state.Error = "The Console refused its own update.";
         }
         else
         {
@@ -1210,6 +1220,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The console may not see an update because the channel switch failed, but the plan
         // captured the URL at planning time when the channel was still right. Not on a standalone
         // console: its Network app runs on the UOS Server host, not the gateway this SSH reaches.
+        var sshAttempted = false;
         var installedApp = application?.Version;
         var plannedApp = state.TargetVersion;
         if (console?.IsStandaloneConsole != true
@@ -1218,6 +1229,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && !string.IsNullOrWhiteSpace(installedApp)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp))
         {
+            sshAttempted = true;
             _logger.LogInformation(
                 "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
             var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
@@ -1230,12 +1242,30 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
             _logger.LogWarning(
                 "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            state.Error = ConsoleStepError(ssh.Message);
         }
 
+        // A chosen build, or an SSH install that was tried and failed, is a refusal, not nothing to do:
+        // the report and the history must not read it as a clean run. The console's API declining an
+        // unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted;
         state.Settled = true;
-        state.Outcome = "nothing-to-update";
-        _logger.LogInformation(
-            "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+        state.Outcome = refused ? "refused" : "nothing-to-update";
+        if (refused)
+            _logger.LogWarning(
+                "UniFi Network {Version} could not be installed on site {Site}; going on to the devices", state.TargetVersion, _siteSlug);
+        else
+            _logger.LogInformation(
+                "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+    }
+
+    /// <summary>The last line of a failed install's output, capped: enough to say why, short enough for a report.</summary>
+    internal static string? ConsoleStepError(string? output)
+    {
+        var line = (output ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault();
+        if (string.IsNullOrEmpty(line)) return null;
+        return line.Length <= 200 ? line : line[..200] + "...";
     }
 
     /// <summary>

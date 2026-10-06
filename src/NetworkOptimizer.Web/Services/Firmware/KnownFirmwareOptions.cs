@@ -33,13 +33,15 @@ public sealed record KnownFirmwareOption(KnownFirmwareDevice Device, KnownFirmwa
 /// <param name="StandaloneConsole">True for UniFi OS Server, which takes the generic Network package and no UniFi OS image.</param>
 /// <param name="OfferedOs">UniFi OS builds the console itself offers, with their links.</param>
 /// <param name="OfferedNetworkVersion">The UniFi Network update the console offers, if any.</param>
+/// <param name="PackagePlatform">The console's Network package platform (<c>uos-deb13-arm64</c>); null when unknown.</param>
 public sealed record KnownFirmwareConsole(
     string? Platform,
     string? OsVersion,
     string? NetworkVersion,
     bool StandaloneConsole,
     IReadOnlyList<(string Version, string Url)> OfferedOs,
-    string? OfferedNetworkVersion);
+    string? OfferedNetworkVersion,
+    string? PackagePlatform = null);
 
 /// <summary>
 /// Builds the device-by-build options behind Deploy Known Firmware. Each pick resolves to the same
@@ -56,13 +58,13 @@ public static class KnownFirmwareOptions
     /// <param name="console">The console, or null when it did not answer.</param>
     /// <param name="deviceBuilds">The shared catalog's device builds.</param>
     /// <param name="osBuilds">The shared catalog's UniFi OS builds.</param>
-    /// <param name="networkBuilds">The shared catalog's UniFi Network builds.</param>
+    /// <param name="networkPackages">Network packages with real URLs, per console platform.</param>
     public static List<KnownFirmwareOption> Build(
         IReadOnlyList<PlannerDevice> devices,
         KnownFirmwareConsole? console,
         IReadOnlyList<SharedFirmwareBuild> deviceBuilds,
         IReadOnlyList<SharedUniFiOsBuild> osBuilds,
-        IReadOnlyList<SharedNetworkAppBuild> networkBuilds)
+        IReadOnlyList<SharedNetworkAppPackage> networkPackages)
     {
         var options = new List<KnownFirmwareOption>();
 
@@ -95,7 +97,7 @@ public static class KnownFirmwareOptions
                 foreach (var build in UniFiOsBuilds(console, osBuilds))
                     options.Add(new KnownFirmwareOption(entry, build, false));
             }
-            foreach (var build in NetworkBuilds(console, networkBuilds))
+            foreach (var build in NetworkBuilds(console, networkPackages))
                 options.Add(new KnownFirmwareOption(entry, build, false));
         }
 
@@ -181,26 +183,36 @@ public static class KnownFirmwareOptions
     }
 
     /// <summary>
-    /// UniFi Network builds newer than what runs: the catalog's, and the console's own offer. The
-    /// package URL follows from the version, as the planner derives it, so one entry per version.
+    /// UniFi Network builds newer than what runs that this console can actually install: a package
+    /// some console of the same platform really downloaded (its real URL), or the console's own
+    /// offer, which its own update installs. A version known only by number is left out: the URL
+    /// derivable from it exists for public releases only.
     /// </summary>
-    private static IEnumerable<KnownFirmwareBuild> NetworkBuilds(KnownFirmwareConsole console, IReadOnlyList<SharedNetworkAppBuild> rows)
+    private static IEnumerable<KnownFirmwareBuild> NetworkBuilds(KnownFirmwareConsole console, IReadOnlyList<SharedNetworkAppPackage> packages)
     {
-        var versions = rows.Select(r => r.Version)
-            .Append(console.OfferedNetworkVersion)
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v!)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var urls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!console.StandaloneConsole && !string.IsNullOrWhiteSpace(console.PackagePlatform))
+        {
+            foreach (var package in packages.Where(p =>
+                         string.Equals(p.Platform, console.PackagePlatform, StringComparison.OrdinalIgnoreCase)))
+                urls[package.Version] = package.Url;
+        }
 
-        foreach (var version in versions)
+        var offered = console.OfferedNetworkVersion;
+        if (!string.IsNullOrWhiteSpace(offered) && !urls.Keys.Any(v => FirmwareVersionFormat.SameBuild(v, offered)))
+        {
+            // Installed by the console's own update, which takes its offer; the URL is only a fallback.
+            var file = console.StandaloneConsole ? "unifi_sysvinit_all" : "unifi-native_sysvinit";
+            urls[offered] = $"https://dl.ui.com/unifi/{offered}/{file}.deb";
+        }
+
+        foreach (var (version, url) in urls)
         {
             if (!FirmwareVersionFormat.IsNewer(version, console.NetworkVersion)) continue;
 
-            var package = console.StandaloneConsole ? "unifi_sysvinit_all" : "unifi-native_sysvinit";
-            var url = $"https://dl.ui.com/unifi/{version}/{package}.deb";
             yield return new KnownFirmwareBuild(
                 $"network:{version}", $"UniFi Network {version}", FirmwareUrlKind.NetworkApp, version,
-                new RolloutBuildPin(FirmwareUrlKind.NetworkApp, null, version, url));
+                new RolloutBuildPin(FirmwareUrlKind.NetworkApp, console.PackagePlatform, version, url));
         }
     }
 }

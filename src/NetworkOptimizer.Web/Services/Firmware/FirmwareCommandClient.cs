@@ -569,4 +569,66 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             return false;
         }
     }
+
+    /// <summary>One read per site per window: every preview and Deploy Known Firmware asks for it.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, ConsoleNetworkPackages Read)> NetworkPackageReads =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly TimeSpan NetworkPackageReadWindow = TimeSpan.FromMinutes(10);
+
+    // uos.log records each download as "Downloading runnable package_name=unifi-native url=<url>".
+    private const string NetworkPackagesCommand =
+        ". /etc/os-release; echo \"PLATFORM uos-deb${VERSION_ID%%.*}-$(dpkg --print-architecture)\"; "
+        + "grep -hoE 'url=https://fw-download\\.ubnt\\.com/data/unifi(-native)?/[^ ]+\\.deb' /data/unifi-core/logs/uos.log* 2>/dev/null | tail -100";
+
+    /// <inheritdoc />
+    public async Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        if (NetworkPackageReads.TryGetValue(_siteSlug, out var cached) && DateTime.UtcNow - cached.At < NetworkPackageReadWindow)
+            return cached.Read;
+        if (!await HasGatewaySshAsync(cancellationToken))
+            return null;
+
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                NetworkPackagesCommand, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            if (!success) return null;
+
+            var read = ParseConsoleNetworkPackages(output);
+            NetworkPackageReads[_siteSlug] = (DateTime.UtcNow, read);
+            return read;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the console's Network packages on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>Parses <see cref="NetworkPackagesCommand"/>'s output.</summary>
+    internal static ConsoleNetworkPackages ParseConsoleNetworkPackages(string? output)
+    {
+        string? platform = null;
+        var downloaded = new List<NetworkOptimizer.Storage.Models.SharedNetworkAppPackage>();
+        foreach (var raw in (output ?? string.Empty).Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("PLATFORM ", StringComparison.Ordinal))
+            {
+                var value = line["PLATFORM ".Length..].Trim().ToLowerInvariant();
+                platform = System.Text.RegularExpressions.Regex.IsMatch(value, @"^uos-deb\d+-(amd64|arm64)$") ? value : null;
+                continue;
+            }
+            if (!line.StartsWith("url=", StringComparison.Ordinal)) continue;
+
+            var url = line["url=".Length..];
+            if (FirmwareUrlParser.NetworkPackage(url) is { } package)
+                downloaded.Add(new NetworkOptimizer.Storage.Models.SharedNetworkAppPackage
+                {
+                    Platform = package.Platform, Version = package.Version, Url = url,
+                });
+        }
+        return new ConsoleNetworkPackages(platform, downloaded);
+    }
 }

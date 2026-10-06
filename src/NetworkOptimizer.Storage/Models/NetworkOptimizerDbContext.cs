@@ -118,6 +118,9 @@ public class NetworkOptimizerDbContext : DbContext
     /// <inheritdoc cref="SharedFirmwareBuilds"/>
     public DbSet<SharedNetworkAppBuild> SharedNetworkAppBuilds { get; set; }
 
+    /// <inheritdoc cref="SharedNetworkAppPackage"/>
+    public DbSet<SharedNetworkAppPackage> SharedNetworkAppPackages { get; set; }
+
     /// <inheritdoc cref="SharedFirmwareBuilds"/>
     public DbSet<SharedUniFiOsBuild> SharedUniFiOsBuilds { get; set; }
 
@@ -743,6 +746,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SharedNetworkAppBuilds");
             entity.HasKey(e => new { e.Channel, e.Version });
+        });
+
+        modelBuilder.Entity<SharedNetworkAppPackage>(entity =>
+        {
+            entity.ToTable("SharedNetworkAppPackages");
+            entity.HasKey(e => new { e.Platform, e.Version });
         });
 
         modelBuilder.Entity<SharedUniFiOsBuild>(entity =>

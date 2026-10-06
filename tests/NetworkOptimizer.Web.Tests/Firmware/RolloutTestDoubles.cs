@@ -286,6 +286,12 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(GatewaySshConfigured);
+
+    /// <summary>What the console's own log reports; null reads as no gateway SSH.</summary>
+    public ConsoleNetworkPackages? NetworkPackages { get; set; }
+
+    public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(NetworkPackages);
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>
