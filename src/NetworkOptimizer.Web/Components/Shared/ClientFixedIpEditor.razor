@@ -1,18 +1,22 @@
 @using NetworkOptimizer.Web.Services
 @inject IClientSettingsService ClientSettings
 @inject ILogger<ClientFixedIpEditor> Logger
+@implements IDisposable
 
 @* Inline fixed IP (DHCP reservation) for a client, beside the IP on a meta line. The field opens
    on the reserved address, read from the Console; blank removes the reservation. *@
 <InlineEditField Class="@("inline-edit-compact " + Class)" EditClass="inline-edit-compact"
                  Tooltip="Set fixed IP in UniFi Network" Placeholder="No fixed IP"
-                 Load="LoadAsync" Save="SaveAsync">
+                 Notice="@_notice" Load="LoadAsync" Save="SaveAsync">
     @ChildContent
 </InlineEditField>
 
 @code {
     /// <summary>The client's MAC address.</summary>
     [Parameter, EditorRequired] public string Mac { get; set; } = "";
+
+    /// <summary>The IP the page shows (the client's current lease).</summary>
+    [Parameter] public string? CurrentIp { get; set; }
 
     /// <summary>Extra class on the wrapper around the IP and the pencil.</summary>
     [Parameter] public string? Class { get; set; }
@@ -21,11 +25,17 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     private string? _current;
+    private string? _notice;
+    private CancellationTokenSource? _noticeCts;
+
+    /// <summary>How long the after-save note stays up.</summary>
+    private static readonly TimeSpan NoticeLife = TimeSpan.FromSeconds(10);
 
     private async Task<string> LoadAsync()
     {
         try
         {
+            ClearNotice();
             _current = await ClientSettings.GetFixedIpAsync(Mac);
             return _current ?? "";
         }
@@ -42,6 +52,11 @@
         try
         {
             _current = await ClientSettings.SetFixedIpAsync(Mac, ip);
+            // The page shows the current lease, which only moves to the reservation on renewal.
+            _notice = _current != null && _current != CurrentIp ? "Saved. Takes effect when the client renews its DHCP lease." : null;
+            // Save is a plain delegate, not an EventCallback, so this component re-renders itself.
+            StateHasChanged();
+            if (_notice != null) _ = ExpireNoticeAsync();
             return null;
         }
         catch (Exception ex)
@@ -50,4 +65,28 @@
             return ClientSettingsService.Describe(ex, "Could not change the fixed IP in UniFi Network.");
         }
     }
+
+    private void ClearNotice()
+    {
+        _noticeCts?.Cancel();
+        _noticeCts = null;
+        if (_notice == null) return;
+        _notice = null;
+        StateHasChanged();
+    }
+
+    private async Task ExpireNoticeAsync()
+    {
+        _noticeCts?.Cancel();
+        var cts = _noticeCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(NoticeLife, cts.Token);
+            await InvokeAsync(ClearNotice);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _noticeCts?.Cancel();
 }

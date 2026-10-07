@@ -20349,7 +20349,9 @@ body.kiosk-mode .status-indicators {
 }
 
 /* Sits on the edited value's line, sized off its text, not as a block under it. */
-.form-error.inline-edit-error {
+.form-error.inline-edit-error,
+.form-help.inline-edit-notice {
+    display: inline;
     margin: 0;
     font-size: 0.85em;
     align-self: center;
