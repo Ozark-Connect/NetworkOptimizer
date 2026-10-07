@@ -218,7 +218,10 @@
                     }
                     else
                     {
-                        <h2 class="identity-name">@_client.DisplayName</h2>
+                        <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname"
+                                          OnRenamed="OnClientRenamed">
+                            <h2 class="identity-name">@_client.DisplayName</h2>
+                        </ClientNameEditor>
                         <div class="identity-meta">
                             <span>@_client.Mac</span>
                             <span class="meta-sep">·</span>
@@ -1219,6 +1222,11 @@
     private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
+
+    private void OnClientRenamed((string Alias, string Shown) renamed)
+    {
+        if (_client != null) _client.Name = renamed.Shown;
+    }
     private WiredPortStats? _portStats;
     private bool _liveViewLinkEnabled;
     private bool _seenOnline;

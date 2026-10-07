@@ -932,6 +932,7 @@ builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAc
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 builder.Services.AddSingleton<ChannelPlanApplyRunner>();
 builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();
+builder.Services.AddMutatingService<IClientRenameService, ClientRenameService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

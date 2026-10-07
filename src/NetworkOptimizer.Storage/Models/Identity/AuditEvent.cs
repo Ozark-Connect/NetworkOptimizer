@@ -184,6 +184,9 @@ public static class AuditActions
     /// <summary>Recommended channels were written to access points in UniFi Network.</summary>
     public const string WiFiChannelPlanApplied = "wifi.channel_plan.applied";
 
+    /// <summary>A client's alias was set or cleared in UniFi Network.</summary>
+    public const string ClientRenamed = "client.renamed";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 
