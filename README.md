@@ -11,7 +11,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
 [![License](https://img.shields.io/badge/license-BSL_1.1-green)](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/LICENSE)
 
-**[Website](https://ozarkconnect.net/network-optimizer)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)**
+**[Website](https://ozarkconnect.net/network-optimizer)** • **[Everything It Can Do](FEATURES.md)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)**
 
 ## THANK YOU to all of my Sponsors
 
@@ -219,7 +219,7 @@ Run speed tests and security audits on a schedule, and get told when something g
 
 ## Requirements
 
-- UniFi Console (aka Controller) - UDM, UCG, UDR, CloudKey, or self-hosted UniFi Network Server
+- UniFi Console (aka Controller) - UDM, UCG, UDR, UniFi Express, EFG, CloudKey, or self-hosted UniFi OS Server (or the legacy UniFi Network Server)
 - Network access to your UniFi Console API (HTTPS)
 - A box (bare metal, container(s), VM/LXC) to host Network Optimizer, see Installation section below for options. [Deployment Guide](docker/DEPLOYMENT.md) lists general hardware requirements. Do not attempt to install NO on the UniFi Gateway or Console itself unless it's UDM-Beast, EFG, or EF-Core class.
 - A box to host InfluxDB if you want to run Time-Series Monitoring features. This is the one that needs a little more horsepower, so I recommend putting it on your most capable local server.
