@@ -52,7 +52,8 @@
         {
             ClearNotice();
             _current = await ClientSettings.GetFixedIpAsync(Mac);
-            return _current ?? "";
+            // No reservation yet: start from the address the client has now, the usual one to pin.
+            return _current ?? CurrentIp ?? "";
         }
         catch (Exception ex)
         {
