@@ -373,6 +373,102 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     // ---- Schema-aligned write helpers (Gate 1) ----
 
+    /// <summary>Export a saved speed test to the existing long-term bucket.</summary>
+    public Task WriteSpeedTestResultAsync(Iperf3Result result)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        Enqueue(BuildSpeedTestPoint(result), longterm: true);
+        return Task.CompletedTask;
+    }
+
+    internal static PointData BuildSpeedTestPoint(Iperf3Result result)
+    {
+        var point = BuildSpeedTestIdentity(result, out var isWan)
+            .Field("result_id", result.Id)
+            .Field("success", result.Success)
+            .Field("download_bps", result.DownloadBitsPerSecond)
+            .Field("upload_bps", result.UploadBitsPerSecond)
+            .Field("duration_s", result.DurationSeconds)
+            .Field("parallel_streams", result.ParallelStreams);
+
+        if (isWan)
+        {
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+            {
+                if (!string.IsNullOrWhiteSpace(result.ExternalServerName))
+                    point = point.Field("external_server_name", result.ExternalServerName);
+            }
+            else if (!string.IsNullOrWhiteSpace(result.DeviceHost))
+            {
+                point = point.Field("server_host", result.DeviceHost);
+            }
+            if (!string.IsNullOrEmpty(result.WanName)) point = point.Field("wan_name", result.WanName);
+        }
+
+        point = AddSpeedTestMetadata(point, result);
+        if (result.PingMs.HasValue) point = point.Field("ping_ms", result.PingMs.Value);
+        if (result.JitterMs.HasValue) point = point.Field("jitter_ms", result.JitterMs.Value);
+        if (result.DownloadLatencyMs.HasValue) point = point.Field("download_latency_ms", result.DownloadLatencyMs.Value);
+        if (result.DownloadJitterMs.HasValue) point = point.Field("download_jitter_ms", result.DownloadJitterMs.Value);
+        if (result.UploadLatencyMs.HasValue) point = point.Field("upload_latency_ms", result.UploadLatencyMs.Value);
+        if (result.UploadJitterMs.HasValue) point = point.Field("upload_jitter_ms", result.UploadJitterMs.Value);
+        return point;
+    }
+
+    public Task WriteSpeedTestMetadataAsync(Iperf3Result result)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = BuildSpeedTestMetadataPoint(result);
+        if (point != null) Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    internal static PointData? BuildSpeedTestMetadataPoint(Iperf3Result result)
+    {
+        if (string.IsNullOrWhiteSpace(result.DeviceName) && string.IsNullOrWhiteSpace(result.DeviceType))
+            return null;
+        return AddSpeedTestMetadata(BuildSpeedTestIdentity(result, out _), result);
+    }
+
+    private static PointData AddSpeedTestMetadata(PointData point, Iperf3Result result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.DeviceName)) point = point.Field("target_name", result.DeviceName);
+        if (!string.IsNullOrWhiteSpace(result.DeviceType)) point = point.Field("target_type", result.DeviceType);
+        return point;
+    }
+
+    private static PointData BuildSpeedTestIdentity(Iperf3Result result, out bool isWan)
+    {
+        isWan = result.Direction switch
+        {
+            SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
+                or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway
+                or SpeedTestDirection.OpenSpeedTestWan => true,
+            SpeedTestDirection.ServerToDevice or SpeedTestDirection.ClientToServer
+                or SpeedTestDirection.BrowserToServer => false,
+            _ => throw new ArgumentOutOfRangeException(nameof(result), result.Direction,
+                "Unsupported speed test direction.")
+        };
+        // SQLite reads UTC timestamps back with Unspecified kind.
+        var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
+        var point = PointData.Measurement("speed_test")
+            .Tag("test_type", isWan ? "wan" : "lan")
+            .Tag("direction", result.Direction.ToString())
+            .Timestamp(timestamp, WritePrecision.Ns);
+
+        if (isWan)
+        {
+            point = point.Tag("wan_network_group", result.WanNetworkGroup ?? "unknown");
+        }
+        else
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(result.DeviceHost);
+            point = point.Tag("target_host", result.DeviceHost);
+        }
+
+        return point;
+    }
+
     public Task WriteInterfaceCountersAsync(
         string deviceMac,
         string ifName,

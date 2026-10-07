@@ -33,6 +33,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly AgentIperf3Service _agentIperf3;
     private readonly IAlertEventBus? _alertEventBus;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
@@ -66,7 +67,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         AgentIperf3Service agentIperf3,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        MonitoringInfluxRegistry? influxRegistry = null)
     {
         _licenseState = licenseState;
         _logger = logger;
@@ -84,6 +86,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _tunnelRouting = tunnelRouting;
         _agentIperf3 = agentIperf3;
         _alertEventBus = alertEventBus;
+        _influxRegistry = influxRegistry;
     }
 
     /// <summary>
@@ -706,6 +709,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
             await repository.SaveIperf3ResultAsync(result);
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
         }
         catch (Exception ex)
         {

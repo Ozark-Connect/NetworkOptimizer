@@ -27,6 +27,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly ApAgent.ApAgentTargetDirectory? _apAgents;
     private readonly Licensing.LicenseStateService? _licenseState;
     private readonly Monitoring.SiteVantageDnsResolver? _dnsResolver;
@@ -78,6 +79,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _alertEventBus = alertEventBus;
         _siteDbFactory = siteDbFactory;
         _influx = influxRegistry?.GetFor(_siteSlug);
+        _influxRegistry = influxRegistry;
         _apAgents = apAgents;
         _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
     }
@@ -265,6 +267,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
         var resultId = result.Id;
+        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
 
         _logger.LogInformation(
             "Recorded OpenSpeedTest{Wan} result (site {Site}): {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
@@ -358,6 +361,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _snapshotService.RemoveSnapshot(_siteSlug, clientIp);
 
             await db.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, recentResult, _logger);
 
             _logger.LogInformation(
                 "Merged iperf3 result: {ClientIp} ({ClientName}) - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -390,6 +394,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
         var resultId = result.Id;
+        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
 
         _logger.LogInformation(
             "Recorded iperf3 client result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -1066,6 +1071,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _snapshotService.RemoveSnapshot(_siteSlug, result.DeviceHost);
 
             await db.SaveChangesAsync();
+
+            await SpeedTestInfluxExporter.ExportMetadataAsync(_influxRegistry, _siteSlug, result, _logger);
 
             _logger.LogDebug("Background enrichment complete for result {Id}: {DeviceName}",
                 resultId, result.DeviceName ?? result.DeviceHost);
