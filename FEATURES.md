@@ -209,7 +209,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Detects your own device, or pick any client from the client selector
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
-- VPN clients (Tailscale, Teleport, UniFi remote-user VPN) get a simplified view
+- VPN clients (Tailscale, Teleport, One-Click and remote-user VPN, site-to-site) get a simplified view with speed tests and path traces
 - Jump to the client on the Live View; its own Speed Map and Signal Map are built in
 - Rename a client and set or clear its **Fixed IP** in place
 - MLO links, AP Lock, channel, and width
