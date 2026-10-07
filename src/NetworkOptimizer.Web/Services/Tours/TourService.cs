@@ -68,7 +68,9 @@ public class TourService
                 && !snapshot.DismissedTourIds.Contains(t.Id)
                 && IsStillOfferable(snapshot, t.Id, current))
             .ToList();
-        var highlightsPossible = firstSeen != null && tours.Any(t => t.IsHighlights);
+        // New installs (they have a FirstSeenVersion) are offered Highlights once,
+        // and never what's-new for releases that predate them.
+        var highlights = firstSeen != null ? PickHighlightsTour(tours, snapshot, current) : null;
 
         _logger.LogDebug("Tour eligibility: version={Current}, firstSeen={FirstSeen}, tours={Tours}, eligible={Eligible}, seenSteps={Seen}, dismissed={Dismissed}, offers={Offers}",
             current, firstSeen?.ToString() ?? "(null)", tours.Count, eligible.Count,
@@ -76,15 +78,13 @@ public class TourService
 
         // Predicate resolution reads gateway settings per site; skip it entirely in the
         // common nothing-due case, which runs on every Dashboard visit.
-        if (eligible.Count == 0 && !highlightsPossible)
+        if (eligible.Count == 0 && highlights == null)
             return null;
-        var ctx = await _predicates.ResolveAsync();
+        var ctx = await _predicates.ResolveAsync(DueOfferNeeds(eligible, highlights, snapshot.SeenStepIds));
 
-        // New installs (they have a FirstSeenVersion) are offered Highlights once,
-        // and never what's-new for releases that predate them.
-        if (highlightsPossible)
+        if (highlights != null)
         {
-            var highlightsOffer = await BuildHighlightsOffer(tours, snapshot, current, ctx);
+            var highlightsOffer = await BuildHighlightsOffer(highlights, snapshot, ctx);
             if (highlightsOffer != null)
                 return highlightsOffer;
         }
@@ -93,7 +93,7 @@ public class TourService
             return null;
 
         var plan = TourMergePlanner.Build(eligible, (tour, step) =>
-            !snapshot.SeenStepIds.Contains(step.Id)
+            IsUnseen(step, snapshot.SeenStepIds)
             && ctx.Satisfies(step.Requires, _siteContext.Slug, out _));
         if (plan.Steps.Count == 0)
         {
@@ -142,7 +142,7 @@ public class TourService
         if (tour == null)
             return null;
 
-        var ctx = await _predicates.ResolveAsync();
+        var ctx = await _predicates.ResolveAsync(RequiresOf(CandidateSteps(tour)));
         var eligible = EligibleSteps(tour, ctx).ToList();
         var tokens = await _tokens.ResolveAsync(eligible.Select(s => s.Url), _siteContext.Slug);
         var steps = eligible.Select(s => Resolve(tour, s, ctx, tokens)).OfType<ResolvedTourStep>().ToList();
@@ -164,10 +164,11 @@ public class TourService
     public async Task<List<TourStatusInfo>> GetTourStatusesAsync()
     {
         var snapshot = await _state.GetSnapshotAsync();
-        var ctx = await _predicates.ResolveAsync();
+        var tours = _definitions.GetTours();
+        var ctx = await _predicates.ResolveAsync(RequiresOf(tours.SelectMany(CandidateSteps)));
 
         var result = new List<TourStatusInfo>();
-        foreach (var tour in _definitions.GetTours().OrderByDescending(t => t.ParsedVersion))
+        foreach (var tour in tours.OrderByDescending(t => t.ParsedVersion))
         {
             var eligible = EligibleSteps(tour, ctx).ToList();
             var seen = eligible.Count(s => snapshot.SeenStepIds.Contains(s.Id));
@@ -205,11 +206,11 @@ public class TourService
 
     public Task ResetAsync() => _state.ResetAsync();
 
-    private async Task<TourOffer?> BuildHighlightsOffer(
+    /// <summary>The Highlights tour to offer automatically, or null when none is due.</summary>
+    private static TourDefinition? PickHighlightsTour(
         IReadOnlyList<TourDefinition> tours,
         TourStateService.Snapshot snapshot,
-        Version current,
-        TourPredicateResolver.PredicateContext ctx)
+        Version current)
     {
         var highlights = tours.Where(t => t.IsHighlights).ToList();
         if (highlights.Count == 0)
@@ -220,12 +221,17 @@ public class TourService
         if (highlights.Any(t => snapshot.Offers.ContainsKey(t.Id) || snapshot.DismissedTourIds.Contains(t.Id)))
             return null;
 
-        var tour = highlights.Where(t => t.ParsedVersion <= current).OrderBy(t => t.ParsedVersion).LastOrDefault();
-        if (tour == null)
-            return null;
+        return highlights.Where(t => t.ParsedVersion <= current).OrderBy(t => t.ParsedVersion).LastOrDefault();
+    }
 
-        var unseen = EligibleSteps(tour, ctx)
-            .Where(s => !snapshot.SeenStepIds.Contains(s.Id))
+    private async Task<TourOffer?> BuildHighlightsOffer(
+        TourDefinition tour,
+        TourStateService.Snapshot snapshot,
+        TourPredicateResolver.PredicateContext ctx)
+    {
+        // Unseen first: DueOfferNeeds covers only unseen steps, so Satisfies must not see the rest.
+        var unseen = CandidateSteps(tour)
+            .Where(s => IsUnseen(s, snapshot.SeenStepIds) && ctx.Satisfies(s.Requires, _siteContext.Slug, out _))
             .ToList();
         var tokens = await _tokens.ResolveAsync(unseen.Select(s => s.Url), _siteContext.Slug);
         var steps = unseen.Select(s => Resolve(tour, s, ctx, tokens)).OfType<ResolvedTourStep>().ToList();
@@ -243,18 +249,29 @@ public class TourService
         };
     }
 
-    /// <summary>Level rules plus predicates. Highlights tours only ever render major steps.</summary>
-    private IEnumerable<TourStep> EligibleSteps(TourDefinition tour, TourPredicateResolver.PredicateContext ctx)
-    {
-        foreach (var step in tour.Steps)
-        {
-            if (tour.IsHighlights && !step.IsMajor)
-                continue;
-            if (!ctx.Satisfies(step.Requires, _siteContext.Slug, out _))
-                continue;
-            yield return step;
-        }
-    }
+    /// <summary>Level rules plus predicates.</summary>
+    private IEnumerable<TourStep> EligibleSteps(TourDefinition tour, TourPredicateResolver.PredicateContext ctx) =>
+        CandidateSteps(tour).Where(s => ctx.Satisfies(s.Requires, _siteContext.Slug, out _));
+
+    /// <summary>Level rules only: Highlights tours only ever render major steps.</summary>
+    internal static IEnumerable<TourStep> CandidateSteps(TourDefinition tour) =>
+        tour.IsHighlights ? tour.Steps.Where(s => s.IsMajor) : tour.Steps;
+
+    private static bool IsUnseen(TourStep step, IReadOnlySet<string> seenStepIds) => !seenStepIds.Contains(step.Id);
+
+    /// <summary>
+    /// The predicates the automatic offer tests: unseen steps of the eligible what's-new tours, plus
+    /// the unseen candidate steps of the Highlights tour when one is due.
+    /// </summary>
+    internal static IReadOnlySet<string> DueOfferNeeds(
+        IEnumerable<TourDefinition> eligible, TourDefinition? highlights, IReadOnlySet<string> seenStepIds) =>
+        RequiresOf(eligible.SelectMany(t => t.Steps)
+            .Concat(highlights == null ? [] : CandidateSteps(highlights))
+            .Where(s => IsUnseen(s, seenStepIds)));
+
+    /// <summary>The union of <see cref="TourStep.Requires"/> over <paramref name="steps"/>.</summary>
+    internal static IReadOnlySet<string> RequiresOf(IEnumerable<TourStep> steps) =>
+        steps.SelectMany(s => s.Requires).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private ResolvedTourStep? Resolve(
         TourDefinition tour, TourStep step, TourPredicateResolver.PredicateContext ctx,

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Tours;
 
@@ -10,7 +11,8 @@ namespace NetworkOptimizer.Web.Services.Tours;
 /// it, and judging only the active site would permanently hide those features. A step
 /// qualifies when some visible site satisfies all its predicates, and the driver stamps
 /// that site onto the step URL.
-/// Adding a predicate is one entry in <see cref="EvaluateSiteAsync"/> or the globals below.
+/// Only the predicates a caller asks for are evaluated. Adding a database-backed predicate is
+/// one entry in <see cref="SiteDbPredicates"/>.
 /// </summary>
 public class TourPredicateResolver
 {
@@ -99,6 +101,17 @@ public class TourPredicateResolver
         _logger = logger;
     }
 
+    /// <summary>Predicates answered from the site's own database, all from one context per site.</summary>
+    private static readonly (string Name, Func<NetworkOptimizerDbContext, Task<bool>> Holds)[] SiteDbPredicates =
+    {
+        (IspHealth, HasIspHealthAsync),
+        (HasTargets, HasMonitoringTargetsAsync),
+        (SqmEnabled, HasSqmEnabledAsync),
+        (Starlink, HasStarlinkAsync),
+        (Cellular, HasCellularAsync),
+        (CableModem, HasCableModemAsync),
+    };
+
     public class PredicateContext
     {
         public required bool MultiSiteEnabled { get; init; }
@@ -107,9 +120,17 @@ public class TourPredicateResolver
         public required Dictionary<string, HashSet<string>> QualifyingSites { get; init; }
 
         /// <summary>
+        /// The predicates this context was asked to evaluate. Absence from
+        /// <see cref="QualifyingSites"/> means "holds nowhere" only for these.
+        /// </summary>
+        public required IReadOnlySet<string> Evaluated { get; init; }
+
+        /// <summary>
         /// True when some visible site satisfies every predicate in <paramref name="requires"/>.
         /// <paramref name="siteSlug"/> is a site where they all hold, preferring
         /// <paramref name="preferredSlug"/> (the active site) when it qualifies.
+        /// Throws for a predicate outside <see cref="Evaluated"/>: reading it as "holds nowhere"
+        /// would silently drop the step when a caller's needed set is incomplete.
         /// </summary>
         public bool Satisfies(IReadOnlyList<string> requires, string preferredSlug, out string siteSlug)
         {
@@ -120,6 +141,8 @@ public class TourPredicateResolver
             HashSet<string>? intersection = null;
             foreach (var name in requires)
             {
+                if (!Evaluated.Contains(name))
+                    throw new InvalidOperationException($"Tour predicate '{name}' was not evaluated for this context");
                 if (!QualifyingSites.TryGetValue(name, out var slugs))
                     return false;
                 intersection = intersection == null
@@ -136,8 +159,14 @@ public class TourPredicateResolver
         }
     }
 
-    public async Task<PredicateContext> ResolveAsync()
+    /// <summary>
+    /// Evaluates the predicates in <paramref name="needed"/> on every visible site, and nothing else.
+    /// <see cref="PredicateContext.Sites"/> and <see cref="MultiSite"/> are always filled, since step
+    /// URL stamping needs them whatever the steps require.
+    /// </summary>
+    public virtual async Task<PredicateContext> ResolveAsync(IReadOnlySet<string> needed)
     {
+        var evaluated = new HashSet<string>(needed, StringComparer.OrdinalIgnoreCase) { MultiSite };
         var multiSite = await _siteManagement.IsMultiSiteEnabledAsync();
         var sites = multiSite
             ? await _siteManagement.GetSitesAsync()
@@ -149,148 +178,123 @@ public class TourPredicateResolver
         // Global predicates: hold everywhere or nowhere.
         if (multiSite && sites.Count > 1)
             qualifying[MultiSite] = allSlugs;
-        try
+        if (evaluated.Contains(HasAgent))
         {
-            var agents = await _agentEnrollment.GetAllAgentsAsync();
-            if (agents.Any(a => a.EnrolledAt != null))
-                qualifying[HasAgent] = allSlugs;
+            try
+            {
+                var agents = await ReadAgentsAsync();
+                if (agents.Any(a => a.EnrolledAt != null))
+                    qualifying[HasAgent] = allSlugs;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed", HasAgent);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed", HasAgent);
-        }
+
+        var dbPredicates = SiteDbPredicates.Where(p => evaluated.Contains(p.Name)).ToList();
+        var needsWans = evaluated.Contains(MultiWan) || evaluated.Contains(SmartQueues);
 
         // Per-site predicates. Each is evaluated on its own, so one throwing cannot take the
         // others down with it - a site whose database is unreachable simply qualifies for neither.
-        var gatewaySshSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var ispHealthSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var hasTargetsSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sqmSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var smartQueuesSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var multiWanSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var starlinkSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var cellularSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var cableModemSites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var site in sites)
         {
-            try
+            if (evaluated.Contains(GatewaySsh))
+                await TryAddAsync(qualifying, GatewaySsh, site.Slug, () => HasGatewaySshAsync(site.Slug));
+
+            if (dbPredicates.Count > 0)
             {
-                if (await EvaluateSiteAsync(site.Slug))
-                    gatewaySshSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", GatewaySsh, site.Slug);
+                NetworkOptimizerDbContext? db = null;
+                try
+                {
+                    db = OpenSiteDb(site);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Tour predicates could not open the database for site {Slug}", site.Slug);
+                }
+                if (db != null)
+                {
+                    using (db)
+                    {
+                        foreach (var (name, holds) in dbPredicates)
+                            await TryAddAsync(qualifying, name, site.Slug, () => holds(db));
+                    }
+                }
             }
 
-            try
+            if (needsWans)
             {
-                if (await HasIspHealthAsync(site.Slug, site.IsDefault))
-                    ispHealthSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", IspHealth, site.Slug);
-            }
-
-            try
-            {
-                if (await HasMonitoringTargetsAsync(site.Slug, site.IsDefault))
-                    hasTargetsSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", HasTargets, site.Slug);
-            }
-
-            try
-            {
-                if (await HasSqmEnabledAsync(site.Slug, site.IsDefault))
-                    sqmSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SqmEnabled, site.Slug);
-            }
-
-            try
-            {
-                if (await HasSmartQueuesAsync(site.Slug))
-                    smartQueuesSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", SmartQueues, site.Slug);
-            }
-
-            try
-            {
-                if (await HasMultipleWansAsync(site.Slug))
-                    multiWanSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", MultiWan, site.Slug);
-            }
-
-            try
-            {
-                if (await HasStarlinkAsync(site.Slug, site.IsDefault))
-                    starlinkSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Starlink, site.Slug);
-            }
-
-            try
-            {
-                if (await HasCellularAsync(site.Slug, site.IsDefault))
-                    cellularSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", Cellular, site.Slug);
-            }
-
-            try
-            {
-                if (await HasCableModemAsync(site.Slug, site.IsDefault))
-                    cableModemSites.Add(site.Slug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", CableModem, site.Slug);
+                // One fetch serves both WAN predicates; a failed one qualifies the site for neither.
+                List<UniFiNetworkConfig>? wans = null;
+                try
+                {
+                    wans = await ReadWanConfigsAsync(site.Slug);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Tour predicates could not read the WAN configs for site {Slug}", site.Slug);
+                }
+                if (wans != null)
+                {
+                    if (evaluated.Contains(MultiWan) && HasMultipleWans(wans))
+                        Add(qualifying, MultiWan, site.Slug);
+                    if (evaluated.Contains(SmartQueues) && HasSmartQueues(wans))
+                        Add(qualifying, SmartQueues, site.Slug);
+                }
             }
         }
-        if (gatewaySshSites.Count > 0)
-            qualifying[GatewaySsh] = gatewaySshSites;
-        if (ispHealthSites.Count > 0)
-            qualifying[IspHealth] = ispHealthSites;
-        if (hasTargetsSites.Count > 0)
-            qualifying[HasTargets] = hasTargetsSites;
-        if (sqmSites.Count > 0)
-            qualifying[SqmEnabled] = sqmSites;
-        if (smartQueuesSites.Count > 0)
-            qualifying[SmartQueues] = smartQueuesSites;
-        if (multiWanSites.Count > 0)
-            qualifying[MultiWan] = multiWanSites;
-        if (starlinkSites.Count > 0)
-            qualifying[Starlink] = starlinkSites;
-        if (cellularSites.Count > 0)
-            qualifying[Cellular] = cellularSites;
-        if (cableModemSites.Count > 0)
-            qualifying[CableModem] = cableModemSites;
 
         return new PredicateContext
         {
             MultiSiteEnabled = multiSite,
             Sites = sites,
             QualifyingSites = qualifying,
+            Evaluated = evaluated,
         };
     }
 
-    private async Task<bool> EvaluateSiteAsync(string slug)
+    private async Task TryAddAsync(Dictionary<string, HashSet<string>> qualifying, string name, string slug, Func<Task<bool>> holds)
+    {
+        try
+        {
+            if (await holds())
+                Add(qualifying, name, slug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Tour predicate {Predicate} evaluation failed for site {Slug}", name, slug);
+        }
+    }
+
+    private static void Add(Dictionary<string, HashSet<string>> qualifying, string name, string slug)
+    {
+        if (!qualifying.TryGetValue(name, out var slugs))
+            qualifying[name] = slugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        slugs.Add(slug);
+    }
+
+    /// <summary>Every agent on a site the caller can see. Virtual so tests can count the reads.</summary>
+    protected virtual Task<List<SiteAgent>> ReadAgentsAsync() => _agentEnrollment.GetAllAgentsAsync();
+
+    /// <summary>The site's own database. Virtual so tests can count the opens.</summary>
+    protected virtual NetworkOptimizerDbContext OpenSiteDb(Site site) =>
+        _siteDbFactory.CreateForSite(site.Slug, site.IsDefault);
+
+    /// <summary>
+    /// The site's WAN configs from its UniFi Console, or null when the site is not connected.
+    /// Virtual so tests can stand in for the console.
+    /// </summary>
+    protected virtual async Task<List<UniFiNetworkConfig>?> ReadWanConfigsAsync(string slug)
+    {
+        var connection = _siteConnections.GetFor(slug);
+        if (!connection.IsConnected || connection.Client == null)
+            return null;
+        return await connection.Client.GetWanConfigsAsync();
+    }
+
+    /// <summary>Whether the site's gateway SSH is set up and on. Virtual so tests can stand in for the settings.</summary>
+    protected virtual async Task<bool> HasGatewaySshAsync(string slug)
     {
         var settings = await _gatewaySshRegistry.GetFor(slug).GetSettingsAsync();
         return settings != null && !string.IsNullOrEmpty(settings.Host) && settings.HasCredentials && settings.Enabled;
@@ -301,21 +305,17 @@ public class TourPredicateResolver
     /// asking IspHealthService: a report is computed on demand and computing one to decide whether
     /// to offer a tour step would be an expensive answer to a cheap question.
     /// </summary>
-    private async Task<bool> HasIspHealthAsync(string slug, bool isDefault)
-    {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
-        return await db.MonitoringTargets.AsNoTracking()
+    private static Task<bool> HasIspHealthAsync(NetworkOptimizerDbContext db) =>
+        db.MonitoringTargets.AsNoTracking()
             .AnyAsync(t => t.Enabled && t.TargetType == MonitoringTargetType.AccessIsp);
-    }
 
     /// <summary>
     /// Whether the site is monitoring anything: the feature switched on, and at least one enabled
     /// target of any type. Both halves matter - targets left behind by a site that has since turned
     /// monitoring off would otherwise qualify it for steps whose tab is a setup prompt.
     /// </summary>
-    private async Task<bool> HasMonitoringTargetsAsync(string slug, bool isDefault)
+    private static async Task<bool> HasMonitoringTargetsAsync(NetworkOptimizerDbContext db)
     {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
         var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
         if (settings?.Enabled != true) return false;
         return await db.MonitoringTargets.AsNoTracking().AnyAsync(t => t.Enabled);
@@ -327,11 +327,8 @@ public class TourPredicateResolver
     /// feature configured, and reaching a gateway over SSH to answer it would put a network round
     /// trip on a path that runs on every Dashboard visit.
     /// </summary>
-    private async Task<bool> HasSqmEnabledAsync(string slug, bool isDefault)
-    {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
-        return await db.SqmWanConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
-    }
+    private static Task<bool> HasSqmEnabledAsync(NetworkOptimizerDbContext db) =>
+        db.SqmWanConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
 
     /// <summary>
     /// Whether the site has more than one enabled WAN. Asked of the console, because that is what
@@ -342,45 +339,28 @@ public class TourPredicateResolver
     /// Affordable for the same reason the Smart Queues check is: predicates resolve only for a tour
     /// that is actually due. A site that is not connected does not qualify.
     /// </summary>
-    private async Task<bool> HasMultipleWansAsync(string slug)
-    {
-        var connection = _siteConnections.GetFor(slug);
-        if (!connection.IsConnected || connection.Client == null)
-            return false;
-
-        var wans = await connection.Client.GetWanConfigsAsync();
-        return wans.Count(w => w.Enabled) > 1;
-    }
+    private static bool HasMultipleWans(List<UniFiNetworkConfig> wans) => wans.Count(w => w.Enabled) > 1;
 
     /// <summary>
     /// Whether the site has an enabled Starlink terminal. A disabled one is a dish the user has
     /// stopped monitoring, and its alerts would describe hardware they are no longer watching.
     /// </summary>
-    private async Task<bool> HasStarlinkAsync(string slug, bool isDefault)
-    {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
-        return await db.StarlinkConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
-    }
+    private static Task<bool> HasStarlinkAsync(NetworkOptimizerDbContext db) =>
+        db.StarlinkConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
 
     /// <summary>
     /// Whether the site has an enabled cellular modem. A disabled one is a modem the user has but
     /// is not watching, and its card carries no live state to point at.
     /// </summary>
-    private async Task<bool> HasCellularAsync(string slug, bool isDefault)
-    {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
-        return await db.ModemConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
-    }
+    private static Task<bool> HasCellularAsync(NetworkOptimizerDbContext db) =>
+        db.ModemConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
 
     /// <summary>
     /// Whether the site has an enabled cable modem. A disabled one is not polled, so CM Stats has
     /// no channel data for it to point at.
     /// </summary>
-    private async Task<bool> HasCableModemAsync(string slug, bool isDefault)
-    {
-        using var db = _siteDbFactory.CreateForSite(slug, isDefault);
-        return await db.CmConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
-    }
+    private static Task<bool> HasCableModemAsync(NetworkOptimizerDbContext db) =>
+        db.CmConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
 
     /// <summary>
     /// Whether the site has UniFi's Smart Queues turned on for at least one enabled WAN. This one
@@ -388,13 +368,5 @@ public class TourPredicateResolver
     /// only because predicates resolve just for a tour that is actually due, never on the ordinary
     /// Dashboard visit. A site that isn't connected simply does not qualify.
     /// </summary>
-    private async Task<bool> HasSmartQueuesAsync(string slug)
-    {
-        var connection = _siteConnections.GetFor(slug);
-        if (!connection.IsConnected || connection.Client == null)
-            return false;
-
-        var wans = await connection.Client.GetWanConfigsAsync();
-        return wans.Any(w => w.Enabled && w.WanSmartqEnabled);
-    }
+    private static bool HasSmartQueues(List<UniFiNetworkConfig> wans) => wans.Any(w => w.Enabled && w.WanSmartqEnabled);
 }
