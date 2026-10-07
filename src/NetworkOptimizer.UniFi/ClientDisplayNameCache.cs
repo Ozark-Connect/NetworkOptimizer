@@ -29,6 +29,12 @@ public static class ClientDisplayNameCache
 
     private static readonly ConditionalWeakTable<UniFiApiClient, Entry> Cache = new();
 
+    /// <summary>Marks the connection's names stale, so the next read refetches. Call after renaming a client.</summary>
+    public static void Invalidate(UniFiApiClient client)
+    {
+        if (Cache.TryGetValue(client, out var entry)) entry.FetchedUtc = DateTime.MinValue;
+    }
+
     /// <summary>
     /// Returns a lower-cased-MAC -> <c>display_name</c> lookup for the given connection, refreshing
     /// from the v2 active-clients endpoint at most once per 5 minutes. Clients without a display name

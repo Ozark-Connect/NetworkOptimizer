@@ -1217,6 +1217,84 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET stat/user/{mac} - a client's stored record (its <c>_id</c>, alias, and fixed IP),
+    /// online or not. <c>rest/user?mac=</c> ignores the filter, so this is the lookup by MAC.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/user/{mac}; rest/user ignores a mac query parameter")]
+    public async Task<UniFiClientResponse?> GetKnownClientAsync(string mac, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching known client {Mac} from site {Site}", mac, _site);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.GetAsync(BuildApiPath($"stat/user/{mac.ToLowerInvariant()}"), cancellationToken),
+            cancellationToken);
+
+        return response?.Meta.Rc == "ok" && response.Data.Count > 0 ? response.Data[0] : null;
+    }
+
+    /// <summary>
+    /// PUT rest/user/{id} - write a client's settings. Only the fields set on
+    /// <paramref name="update"/> are sent; the Console keeps the stored value of the rest. Use
+    /// <see cref="UniFiClientUpdate.FromRecord"/> to send the full form as UniFi Network does.
+    /// </summary>
+    /// <param name="userId">The client record id (<c>_id</c>), not the MAC.</param>
+    /// <param name="update">The fields to write. The Console enforces no length limit on <c>name</c> (65,536 characters stored).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    [VendorSpecific("UniFi", "rest/user PUT")]
+    public async Task<UniFiClientResponse?> UpdateClientAsync(
+        string userId,
+        UniFiClientUpdate update,
+        CancellationToken cancellationToken = default)
+    {
+        var json = update.ToRequestJson();
+        _logger.LogDebug("Updating client record {UserId}: {Body}", userId, json);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.PutAsync(
+                BuildApiPath($"rest/user/{userId}"),
+                new StringContent(json, Encoding.UTF8, "application/json"),
+                cancellationToken),
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: "The UniFi account lacks permission to change client settings. In UniFi Network, " +
+                "give this account Network: Full (Site Admin in older versions), then try again.");
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Updated client record {UserId}", userId);
+            if (response.Data.Count > 0) return response.Data[0];
+
+            // A write that changes nothing answers ok with no data; the record is read back instead.
+            var current = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+                () => _httpClient!.GetAsync(BuildApiPath($"rest/user/{userId}"), cancellationToken),
+                cancellationToken);
+            return current?.Meta.Rc == "ok" && current.Data.Count > 0 ? current.Data[0] : null;
+        }
+
+        _logger.LogWarning("Failed to update client record {UserId}", userId);
+        return null;
+    }
+
+    /// <summary>
+    /// Sets a client's alias, sending only <c>name</c>. An empty name clears the alias and UniFi
+    /// Network shows the hostname again.
+    /// </summary>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    public async Task<UniFiClientResponse?> SetClientNameAsync(string mac, string name, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot rename client {Mac}: no client record", mac);
+            return null;
+        }
+        return await UpdateClientAsync(record.Id, new UniFiClientUpdate { Name = name }, cancellationToken);
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/wifiman/{clientIp}/ - Get WiFiman realtime client data.
     /// Returns signal, noise, channel, band, link rates, experience, and nearest neighbors.
     /// </summary>
