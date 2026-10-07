@@ -20,6 +20,10 @@
                 </svg>
             </button>
         </div>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <span class="form-error inline-edit-error">@_error</span>
+        }
     </div>
 }
 else
@@ -34,11 +38,11 @@ else
                 </svg>
             </button>
         </SiteAdminOnly>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <span class="form-error inline-edit-error">@_error</span>
+        }
     </span>
-}
-@if (!string.IsNullOrEmpty(_error))
-{
-    <p class="alert alert-danger">@_error</p>
 }
 
 @code {
