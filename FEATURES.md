@@ -20,7 +20,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 ## Dashboard
 
 - **Edit Layout** - move, show or hide, resize (full or half width), and stack cards
-- **Quick Stats** - Total Devices, Security Score, Adaptive SQM, Security Findings, Threat Events, Wi-Fi Health
+- **Quick Stats** - Total Devices, Security Score, Adaptive SQM Status, Security Findings, Threat Events (24h), Wi-Fi Health
 - **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place
 - **Security Posture**, **Adaptive SQM**, **Threat Trends**, and **Recent Security Findings** cards
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
@@ -45,7 +45,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Onboard a site through an [On-Site Agent](#on-site-agent) for the full feature set, including behind CGNAT
 - Per site: rename, disable or enable, remove, and assign users and roles
 - Per site: reach the UniFi Console, devices, modems, and ONTs through the agent tunnel
-- Per site: client speed test target override
+- Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
 - Agent management - status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
@@ -93,7 +93,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
-- Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days (InfluxDB)
+- Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
 - **Bandwidth Hogs** - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
   - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway)
@@ -154,7 +154,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### Cable Modem Stats
 
 - **Cable Modem Signal History** - downstream power and SNR, upstream power, FEC errors per channel
-- **Channel Spectrum** - downstream and upstream channels by frequency, colored by SNR
+- **Channel Spectrum** - downstream and upstream channels by frequency, colored by SNR (downstream) and power (upstream)
 - Modem details (DOCSIS state, locked channels, firmware, uptime, last reinit) and event log
 
 ### ONT Stats
@@ -198,7 +198,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 - **Run a Probe** - ping, traceroute, or forward and reverse DNS lookup
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
-  - ICMP, TCP, or UDP; choose the gateway's WAN interface
+  - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)
 - **Gateway Diagnostics** - **Run Diagnostics** parses the kernel log into categories (Gateway SSH)
@@ -209,8 +209,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Detects your own device, or pick any client from the client selector
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
-- VPN clients (Tailscale, Teleport, site-to-site) get a simplified view
-- Jump to the client on the Live View, Speed Map, and Signal Map
+- VPN clients (Tailscale, Teleport, UniFi remote-user VPN) get a simplified view
+- Jump to the client on the Live View; its own Speed Map and Signal Map are built in
 - Rename a client and set or clear its **Fixed IP** in place
 - MLO links, AP Lock, channel, and width
 - **Roam** - **Change Band** or **Change AP** to move a client during a walk test ([AP Telemetry](#ap-telemetry))
@@ -231,6 +231,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Performance Suggestions**
   - Hardware acceleration, jumbo frames, and flow control settings
   - Known firmware issues on your gateway's version, such as an SQM performance regression
+  - Upgrades UniFi leaves to you, such as a newer CyberSecure (Suricata) IDS/IPS engine (shown on the Dashboard)
   - Smart Queues not shaping a WAN
 - **Cellular Data Savings** - streaming, cloud sync, and game downloads not rate-limited on a cellular WAN
 
@@ -251,10 +252,10 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Upgrade a whole site in waves, timed to the quietest window in your own traffic history
 - One canary per model first; the rest wait for its health to match pre-upgrade
 - Leaf devices first, gateway last; access points that hear each other never upgrade together
-- Release channel per console, device type, or model: **Official**, **Release Candidate**, **Early Access**
+- Release channel per console, device type, or model: **Official (GA)**, **Release Candidate**, **Early Access**
 - Exclude devices, models, or device types
 - Update the UniFi Network application and UniFi OS as part of the rollout
-- Covers UniFi cellular modems; never downgrades unless you deploy an older build by URL
+- Covers UniFi cellular modems; downgrades only when you pick an older build or roll back, and never for UniFi OS or UniFi Network
 - Console backup before the rollout; turns off UniFi auto-update schedules that would collide
 - **Start now**, **Schedule once**, or **Autopilot** on every new firmware, with a heads-up
 - Pace (Conservative, Balanced, Fast), approval at every wave, minimum release age
@@ -291,7 +292,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Metrics** - airtime, interference, and TX retry charts per AP and band
 - **RF Environment** - neighboring networks, channel density heatmap, cleanest channels, DFS status
-  - **Scan Now** spectrum scan; per-AP neighbor scans every 30 seconds ([AP Telemetry](#ap-telemetry))
+  - **Run quick scan** spectrum scan from Channels; per-AP neighbor scans every 30 seconds ([AP Telemetry](#ap-telemetry))
 - **Environment** - performance by time of day and weekly interference heatmap
 
 ### Channels (Channel Recommendation)
@@ -334,7 +335,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 - Deploys a small in-memory agent to each AP; redeploys after reboots and firmware updates
 - Per-AP deploy, update, repair, remove, exclude, and capability report
-- Client signal and rates twice a second, following clients through roams
+- Client Performance shows signal and rates twice a second (once a second from WiFiman), following clients through roams
 - Per-client LAN throughput, retries, TCP stalls, and airtime
 - Roam records with timing; BSS-transition steering for the **Roam** button
 - Requests are HMAC-signed and replay-protected; the agent listens on the management network only
@@ -346,7 +347,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 ## Security Audit
 
-- Score out of 100 from Firewall Rules, VLAN Security, Port Security, and DNS Security checks
+- Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, and UPnP Security checks, plus a hardening bonus
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
@@ -356,7 +357,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
-- **UPnP and Port Forwards** - UPnP enabled, privileged ports exposed, static forwards
+- **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
@@ -392,7 +393,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 Requires Gateway SSH and UniFi Smart Queues.
 
 - Adjusts SQM rates from scheduled speed tests and backs off on latency
-- Download and upload shaping, configured per WAN; works on GRE and cellular WAN interfaces
+- Download and upload shaping, configured separately for a primary and a secondary WAN; works on GRE and cellular WAN interfaces
 - Connection profiles: DOCSIS, Starlink, GPON, XGS-PON, DSL, Fixed Wireless, Fixed LTE/5G
 - **Congestion Schedule** - default or learned profile, range, severity, upload strength
 - **Congestion Profile Learning** - learns your line's weekly congestion pattern over 7 days
@@ -408,7 +409,7 @@ Requires Gateway SSH.
 
 - Send chosen traffic out a chosen WAN while the rest stays on the primary
 - **Traffic Rules** by source CIDR, destination CIDR, source MAC, protocol, and ports
-- Target one WAN, or round-robin across WANs by ratio; VLAN-tagged and GRE WANs
+- Each rule sends a **Ratio** of matching connections to its **Target WAN**; VLAN-tagged and GRE WANs
 - Rule ordering, enable and disable, hot-reload config deploy
 - Health-check failover with backoff; restores rules after reprovisioning
 - **Daemon Status** and **WAN Interfaces** views
@@ -424,7 +425,7 @@ Requires Gateway SSH.
 
 ## Client WAN Test
 
-- Browser WAN speed test from any device against your own external OpenSpeedTest server (HTTPS)
+- Browser WAN speed test from any device against your own external OpenSpeedTest server (HTTPS strongly recommended)
 - Shareable URL; results identified by device, with a path trace through the WAN hop
 - History by device and server
 - Deploy command for the external server in Settings
@@ -436,7 +437,7 @@ Requires Gateway SSH.
 - Path analysis - every hop, link speeds (LAG-aware), bottleneck, Wi-Fi signal, efficiency, inter-VLAN routing
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
-- Parallel streams and duration per device type
+- Parallel streams per device type; one test duration
 
 ## Client Speed Test
 
@@ -516,7 +517,7 @@ Requires Gateway SSH.
   - Deutsche Telekom - Glasfaser-Modem 2
   - Zyxel - PMG3000-D20B
   - Realtek RTL960x sticks - ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
-  - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK, Nokia G-010S-P
+  - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
   - Any GPON or XGS-PON ONT SFP module with DDM
   - Any other SFP module with DDM
   - Any device through the Network Optimizer Custom JSON contract
@@ -556,12 +557,12 @@ Requires Gateway SSH.
 ## Installation and Platforms
 
 - Docker on Linux, Synology, QNAP, and Unraid
-- Proxmox VE LXC one-liner, with optional HTTPS
-- Windows MSI with optional speed test server and Traefik HTTPS
-- macOS native and Linux native (including ARM64 and Raspberry Pi 5 on Proxmox)
+- Proxmox VE LXC one-liner, with optional HTTPS and an optional VLAN tag
+- Windows MSI with optional speed test server and Traefik HTTPS; setup asks for server IP, hostname, and reverse proxy hostname
+- macOS native and Linux native (including ARM64); Proxmox LXC on ARM Proxmox ports
 - IPv4 and IPv6 dual-stack; SQLite safe on NFS, SMB, and FUSE storage
 - Home Assistant add-ons
-- HTTPS through [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) (Traefik and Let's Encrypt)
+- HTTPS through [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) (Traefik and Let's Encrypt), including the On-Site Agent tunnel route (`add-agent-tunnel.sh`)
 - External WAN speed test server for a VPS
 - Installable as an app (PWA) on iPhone, iPad, and Android, with pull-to-refresh and a Back button
 - Guided tours of what's new in each release
