@@ -141,6 +141,8 @@ Network Optimizer answers those questions. It connects to your UniFi controller,
 
 ## Main Features
 
+These are the highlights. For the complete list, organized the way the app is navigated, see [Everything It Can Do](FEATURES.md).
+
 ### Wi-Fi Optimizer & Signal Map
 
 Site health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. The Channel Recommendation engine models pairwise AP interference using signal propagation, live RF scan data, and triangulated neighbor networks, then factors in historical channel stress (utilization, interference, TX retries) to find the lowest-interference channel assignment across your entire network. It respects mesh uplink constraints, DFS preferences, and regulatory channel availability, and validates every recommended move against improvement thresholds so it won’t suggest changes that aren’t worth the disruption. Apply Recommended Channels then writes the plan to UniFi Network for you: access points that hear each other move at different times, so a client always has a neighbor to roam to, and the run finishes on the server even if you leave the page.
