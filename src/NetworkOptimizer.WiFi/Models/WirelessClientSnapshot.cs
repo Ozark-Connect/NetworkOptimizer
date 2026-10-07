@@ -14,6 +14,9 @@ public class WirelessClientSnapshot
     /// <summary>Client IP address</summary>
     public string? Ip { get; set; }
 
+    /// <summary>The client's reserved address (UniFi Network's Fixed IP), or null when it has none.</summary>
+    public string? FixedIp { get; set; }
+
     /// <summary>Connected AP MAC address</summary>
     public string ApMac { get; set; } = string.Empty;
 

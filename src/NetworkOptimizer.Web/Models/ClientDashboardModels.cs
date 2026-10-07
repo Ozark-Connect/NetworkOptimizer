@@ -89,6 +89,10 @@ public class ClientIdentity
     public string? Name { get; set; }
     public string? Hostname { get; set; }
     public string? Ip { get; set; }
+
+    /// <summary>The client's reserved address (UniFi Network's Fixed IP), or null when it has none.</summary>
+    public string? FixedIp { get; set; }
+
     public bool IsWired { get; set; }
 
     // Wi-Fi signal
