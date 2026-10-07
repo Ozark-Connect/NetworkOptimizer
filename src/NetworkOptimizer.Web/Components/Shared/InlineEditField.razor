@@ -31,7 +31,7 @@ else
     <span class="inline-name-cell @Class">
         @ChildContent
         <SiteAdminOnly>
-            <button type="button" class="inline-name-edit-btn" data-tooltip="@Tooltip" aria-label="@Tooltip"
+            <button type="button" class="inline-name-edit-btn" data-tooltip="@Tooltip" aria-label="@Tooltip" data-tour="@TourId"
                     @onclick="StartAsync" @onclick:stopPropagation disabled="@_busy">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                     <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -64,6 +64,9 @@ else
 
     /// <summary>A short note shown beside the value after a save, such as when the change applies.</summary>
     [Parameter] public string? Notice { get; set; }
+
+    /// <summary>Guided tour anchor on the pencil, which only a Site Admin sees; null for none.</summary>
+    [Parameter] public string? TourId { get; set; }
 
     /// <summary>The field's placeholder.</summary>
     [Parameter] public string? Placeholder { get; set; }

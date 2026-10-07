@@ -218,14 +218,14 @@
                     }
                     else
                     {
-                        <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell"
+                        <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell" TourId="client-rename"
                                           OnRenamed="OnClientRenamed">
                             <h2 class="identity-name">@_client.DisplayName</h2>
                         </ClientNameEditor>
                         <div class="identity-meta">
                             <span>@_client.Mac</span>
                             <span class="meta-sep">·</span>
-                            <ClientFixedIpEditor @key="_client.Mac" Mac="@_client.Mac" CurrentIp="@_client.Ip"
+                            <ClientFixedIpEditor @key="_client.Mac" Mac="@_client.Mac" CurrentIp="@_client.Ip" TourId="client-fixed-ip"
                                                  OnChanged="@(ip => _client.FixedIp = ip)">
                                 <span data-tooltip="@ClientFixedIpEditor.PendingTooltip(_client.Ip, _client.FixedIp)">@_client.Ip</span>
                             </ClientFixedIpEditor>
